@@ -22,15 +22,13 @@
  *                      `--resume` tops up an existing directory.
  *   --mode live        On the Repl only, never in CI: the live check. The real
  *                      AI vendors, reuse off, recordings discarded,
- *                      under a per-invocation cap (default $5, never more
- *                      without --allowance-raised-by-david <YYYY-MM-DD>).
+ *                      under a per-invocation --allowance (default $5).
  *                      Green only when every operation shows a usable current
  *                      answer.
  *   --mode capture     On the Repl only, never in CI: the real-render UAT
  *                      captures (#631 increment 8, plan D7). The fixture
  *                      variant, the real AI clients under the recorder, reuse
- *                      off, a required --allowance (never above $3 without
- *                      --allowance-raised-by-david <YYYY-MM-DD>), and the
+ *                      off, a required --allowance, and the
  *                      capture journeys for the one UAT doc --doc names
  *                      (`src/testing/acceptance/captureJourneys.ts`, its
  *                      CAPTURE_DOCS) instead of the baseline: full-size images, `manifest.jsonl` and
@@ -98,8 +96,8 @@ type Control = (typeof CONTROLS)[number];
 const mode = arg("mode") as RunMode | undefined;
 if (!mode || !MODES.includes(mode)) {
   console.error(`usage: acceptance-run.ts --mode ${MODES.join("|")} [--variant fresh|fixture|both] [--control ${CONTROLS.join("|")}] [--report-dir <dir>]
-       record: --allowance <usd> --out <dir> [--resume];  live: [--allowance <usd>] [--allowance-raised-by-david <date>];  serve: [--port <n>] [--origin http://localhost:<port>]
-       capture: --doc <UAT doc stem> --allowance <usd> --out <empty dir> [--allowance-raised-by-david <date>]`);
+       record: --allowance <usd> --out <dir> [--resume];  live: [--allowance <usd>];  serve: [--port <n>] [--origin http://localhost:<port>]
+       capture: --doc <UAT doc stem> --allowance <usd> --out <empty dir>`);
   process.exit(2);
 }
 const control = arg("control") as Control | undefined;
@@ -155,14 +153,10 @@ if (mode === "record") {
 }
 if (mode === "live") {
   allowance ||= "5";
-  const raisedBy = arg("allowance-raised-by-david");
   if (!(Number(allowance) > 0)) refusals.push("--allowance must be a positive dollar amount");
-  else if (Number(allowance) > 5 && !/^\d{4}-\d{2}-\d{2}$/.test(raisedBy ?? "")) {
-    refusals.push("the live check's cap is $5 per run (David, 2026-10-14); a higher --allowance needs --allowance-raised-by-david <YYYY-MM-DD>");
-  }
 }
 if (mode === "capture") {
-  refusals.push(...captureRefusals({ env: process.env, allowance: arg("allowance"), raisedBy: arg("allowance-raised-by-david"), out: arg("out") && out, doc: arg("doc"), variant: variantArg, control }));
+  refusals.push(...captureRefusals({ env: process.env, allowance: arg("allowance"),out: arg("out") && out, doc: arg("doc"), variant: variantArg, control }));
 }
 const dbRefusal = await testDatabaseRefusal(process.env);
 if (dbRefusal) refusals.push(dbRefusal);

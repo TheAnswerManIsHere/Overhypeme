@@ -519,22 +519,19 @@ describe("a negative control's verdict", () => {
   });
 });
 
-describe("the live check's cap", () => {
-  it("refuses more than $5 without the date David raised it", () => {
-    const r = spawnSync(process.execPath, ["--import", "tsx/esm", "scripts/acceptance-run.ts", "--mode", "live", "--allowance", "6"], {
-      cwd: API_ROOT,
-      env: { PATH: process.env.PATH, HOME: process.env.HOME, DATABASE_URL: process.env.DATABASE_URL, FAL_AI_API_KEY: "x", OPENAI_API_KEY: "x" },
-      encoding: "utf8",
-    });
-    assert.equal(r.status, 2);
-    assert.match(r.stderr, /cap is \$5 per run/);
-    const raised = spawnSync(process.execPath, ["--import", "tsx/esm", "scripts/acceptance-run.ts", "--mode", "live", "--allowance", "6", "--allowance-raised-by-david", "2026-10-14"], {
-      cwd: API_ROOT,
-      env: { PATH: process.env.PATH, HOME: process.env.HOME, DATABASE_URL: process.env.DATABASE_URL, CI: "true" },
-      encoding: "utf8",
-    });
-    assert.doesNotMatch(raised.stderr, /cap is \$5 per run/);
-    assert.match(raised.stderr, /never runs in CI/);
+describe("the live check's allowance", () => {
+  it("bounds the run by --allowance alone: any positive amount, no date from David (2026-11-17)", () => {
+    const run = (allowance: string) =>
+      spawnSync(process.execPath, ["--import", "tsx/esm", "scripts/acceptance-run.ts", "--mode", "live", "--allowance", allowance], {
+        cwd: API_ROOT,
+        env: { PATH: process.env.PATH, HOME: process.env.HOME, DATABASE_URL: process.env.DATABASE_URL, CI: "true" },
+        encoding: "utf8",
+      });
+    const above = run("6");
+    assert.equal(above.status, 2);
+    assert.match(above.stderr, /never runs in CI/);
+    assert.doesNotMatch(above.stderr, /cap is|raised-by-david/);
+    assert.match(run("-1").stderr, /--allowance must be a positive dollar amount/);
   });
 });
 
