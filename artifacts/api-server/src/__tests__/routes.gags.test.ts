@@ -43,6 +43,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { visualPromptStrategyOverrideSchema } from "@workspace/api-zod";
 import { withCast } from "./helpers/gagCast.js";
+import { __setDraftCastExtractorForTest } from "../lib/gags/castPreparation.js";
+import { castSourceKey } from "@workspace/api-zod";
 
 const RUN = randomUUID().slice(0, 8);
 const START = new Date();
@@ -627,5 +629,53 @@ describe("gag routes: a save carries the cast read from its own scene (plan PLAN
     const refused = await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: otherCast });
     assert.equal(refused.status, 409);
     assert.equal(refused.body.code, "CONTENT_CHANGED");
+  });
+});
+
+describe("gag routes: reading a draft's cast stores nothing (plan PLAN_GAG_DIRECT_RENDER.md, F)", () => {
+  it("returns the cast, its marker and any unbound speaker, passing the fact's labels, and writes no gag", async () => {
+    const { factId, gagId } = await liveFact();
+    const seen: unknown[] = [];
+    const restore = __setDraftCastExtractorForTest(async (input) => {
+      seen.push(input);
+      return {
+        cast: [{ label: "mom", description: "the woman in the passenger seat" }],
+        unboundSpeakers: ["nurse"],
+        extraction: { promptVersion: "v2", extractedAt: "2026-11-17T00:00:00.000Z", sourceKey: castSourceKey(input.scene, input.bubbles) },
+      };
+    });
+    try {
+      const before = await gagRow(gagId);
+      const bubbles = [{ type: "speech" as const, entity: "mom", text: "Slow!" }, { type: "speech" as const, entity: "nurse", text: "Hi" }];
+      const res = await request(app).post(url(factId, "/cast")).send({ scene: "{NAME} drives; mom grips the dash.", bubbles });
+      assert.equal(res.status, 200, JSON.stringify(res.body));
+      assert.deepEqual(res.body.cast, [{ label: "mom", description: "the woman in the passenger seat" }]);
+      assert.deepEqual(res.body.unboundSpeakers, ["nurse"]);
+      assert.equal(res.body.castExtraction.sourceKey, castSourceKey("{NAME} drives; mom grips the dash.", bubbles));
+      assert.equal((seen[0] as { scene: string }).scene, "{NAME} drives; mom grips the dash.");
+      assert.ok(Array.isArray((seen[0] as { factCharacterLabels: unknown }).factCharacterLabels));
+      assert.deepEqual(await gagRow(gagId), before, "nothing stored");
+    } finally {
+      restore();
+    }
+  });
+
+  it("answers a failed reading as a failure, never an empty cast", async () => {
+    const { factId } = await liveFact();
+    const restore = __setDraftCastExtractorForTest(async () => { throw new Error("model down"); });
+    try {
+      const res = await request(app).post(url(factId, "/cast")).send({ scene: "{NAME} drives.", bubbles: [] });
+      assert.equal(res.status, 502);
+      assert.equal(res.body.code, "CAST_FAILED");
+      assert.equal(res.body.cast, undefined);
+    } finally {
+      restore();
+    }
+  });
+
+  it("refuses an empty scene and an unknown fact", async () => {
+    assert.equal((await request(app).post(url(999999999, "/cast")).send({ scene: "x", bubbles: [] })).status, 404);
+    const { factId } = await liveFact();
+    assert.equal((await request(app).post(url(factId, "/cast")).send({ scene: "", bubbles: [] })).status, 400);
   });
 });

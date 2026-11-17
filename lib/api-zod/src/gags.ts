@@ -6,7 +6,16 @@
  * every slot follows the same rules.
  */
 import { z } from "zod";
-import type { VisualPromptStrategyOverride } from "./visualStrategyOverride";
+import {
+  BUBBLE_ENTITY_MAX_CHARS,
+  BUBBLE_TEXT_MAX_CHARS,
+  BUBBLE_TYPE_VALUES,
+  MAX_BUBBLES,
+  SCENE_RAW_MAX_CHARS,
+  type GagCastEntry,
+  type GagCastExtraction,
+  type VisualPromptStrategyOverride,
+} from "./visualStrategyOverride";
 import type { RenderScenarioCard, RenderScenarioKey } from "./renderScenarios";
 
 /**
@@ -75,6 +84,29 @@ export type GagCreateBody = z.infer<typeof gagCreateBodySchema>;
 
 export const gagSaveBodySchema = z.object({ content: z.unknown(), ...reviewScope }).strict();
 export type GagSaveBody = z.infer<typeof gagSaveBodySchema>;
+
+/**
+ * Read who is in a draft's scene (plan PLAN_GAG_DIRECT_RENDER.md, F): the
+ * scene and bubbles as the editor holds them, tokenized, before anything is
+ * stored. The answer is the cast the save then carries.
+ */
+export const gagCastBodySchema = z.object({
+  scene: z.string().min(1).max(SCENE_RAW_MAX_CHARS),
+  bubbles: z.array(z.object({
+    type: z.enum(BUBBLE_TYPE_VALUES).optional(),
+    entity: z.string().max(BUBBLE_ENTITY_MAX_CHARS),
+    text: z.string().max(BUBBLE_TEXT_MAX_CHARS),
+  })).max(MAX_BUBBLES).default([]),
+}).strict();
+export type GagCastBody = z.infer<typeof gagCastBodySchema>;
+
+/** The cast read from a draft, and the speakers its scene does not show. */
+export interface GagCastView {
+  cast: GagCastEntry[];
+  castExtraction: GagCastExtraction;
+  /** Bubble speakers the scene does not show: the draft cannot be saved until each is re-picked or the scene names them. */
+  unboundSpeakers: string[];
+}
 
 export const gagScopeBodySchema = z.object(reviewScope).strict();
 export type GagScopeBody = z.infer<typeof gagScopeBodySchema>;
