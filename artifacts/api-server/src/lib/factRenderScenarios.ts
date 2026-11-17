@@ -130,8 +130,22 @@ export function renderAffectingEnrichment(e: FactEnrichment): Record<string, unk
     // Added only when non-empty, so a fact with no characters hashes exactly as
     // before the field existed (its renders don't flip stale for nothing).
     ...((e.characters ?? []).length > 0 ? { characters: e.characters } : {}),
-    visualPromptStrategyOverride: e.visualPromptStrategyOverride ?? null,
+    visualPromptStrategyOverride: withoutDerivedCast(e.visualPromptStrategyOverride ?? null),
   };
+}
+
+/**
+ * A gag's cast (PLAN_GAG_DIRECT_RENDER.md, C) is read from its scene and
+ * bubbles, which the hash already covers, and no render prompt reads it
+ * before the switch: the planned path never does. Leaving it out keeps the
+ * cast fill from marking every gag's test renders out of date. Increment 3,
+ * when renders compile directly and read the cast, puts it in with the
+ * generation-version bump that makes every render out of date anyway.
+ */
+function withoutDerivedCast(ov: FactEnrichment["visualPromptStrategyOverride"] | null): unknown {
+  if (!ov) return null;
+  const { cast: _cast, castExtraction: _marker, ...rest } = ov as Record<string, unknown>;
+  return rest;
 }
 
 /** Deterministic JSON: object keys sorted recursively so key order can't churn the hash. */

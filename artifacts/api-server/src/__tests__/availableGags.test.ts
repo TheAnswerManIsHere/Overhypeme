@@ -23,9 +23,10 @@ import { EMPTY_VISUAL_STRATEGY_OVERRIDE, buildPlaceholderFactEnrichment, type Vi
 
 import { availableGags, GagNotAvailableError, resolveOfferedGag } from "../lib/gags/resolver.js";
 import { applyReviewGagOps, removeGag, saveGagContent } from "../lib/gags/gagStore.js";
+import { withCast } from "./helpers/gagCast.js";
 
 const RUN = randomUUID().slice(0, 8);
-const scene = (text: string): VisualPromptStrategyOverride => ({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: text });
+const scene = (text: string): VisualPromptStrategyOverride => withCast({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: text });
 
 let adminId = "";
 const factIds: number[] = [];

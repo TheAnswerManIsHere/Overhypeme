@@ -42,10 +42,11 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { visualPromptStrategyOverrideSchema } from "@workspace/api-zod";
+import { withCast } from "./helpers/gagCast.js";
 
 const RUN = randomUUID().slice(0, 8);
 const START = new Date();
-const scene = (text: string): VisualPromptStrategyOverride => ({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: text });
+const scene = (text: string): VisualPromptStrategyOverride => withCast({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: text });
 const A = scene("{NAME} lifts the moon (approved).");
 const LISTS = ["requiredVisualDetails", "forbiddenVisualDetails", "roleBindings", "bubbles", "compositionGuidance", "styleAgnosticPromptAdditions", "negativePromptAdditions"] as const;
 
@@ -571,3 +572,60 @@ describe("gag routes: only admins", () => {
   });
 });
 
+
+describe("gag routes: a save carries the cast read from its own scene (plan PLAN_GAG_DIRECT_RENDER.md, C and F)", () => {
+  const bare = (text: string, bubbles: VisualPromptStrategyOverride["bubbles"] = []): VisualPromptStrategyOverride =>
+    ({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: text, bubbles });
+
+  it("refuses a save with no cast, and stores nothing", async () => {
+    const { factId, gagId } = await liveFact();
+    const res = await request(app).put(url(factId, `/${gagId}`)).send({ content: bare("{NAME} juggles planets.") });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, "CAST_MISSING");
+    assert.equal((await gagRow(gagId)).pendingContent, null);
+  });
+
+  it("refuses a cast read from a different scene", async () => {
+    const { factId, gagId } = await liveFact();
+    const stale = { ...withCast(bare("{NAME} juggles planets.")), coreSceneOverride: "{NAME} juggles moons." };
+    const res = await request(app).put(url(factId, `/${gagId}`)).send({ content: stale });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, "CAST_STALE");
+  });
+
+  it("refuses a bubble whose speaker the cast does not bind, naming the speaker", async () => {
+    const { factId, gagId } = await liveFact();
+    const content = withCast(bare("{NAME} juggles planets alone.", [{ type: "speech", entity: "mom", text: "Careful!" }]));
+    const unbound = { ...content, cast: [] };
+    const res = await request(app).put(url(factId, `/${gagId}`)).send({ content: unbound });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, "SPEAKER_NOT_IN_SCENE");
+    assert.deepEqual(res.body.details, { speakers: ["mom"] });
+  });
+
+  it("stores the cast with the change, an empty cast told apart from none", async () => {
+    const { factId, gagId } = await liveFact();
+    const withSpeaker = withCast(bare("{NAME} juggles planets; mom watches.", [{ type: "speech", entity: "mom", text: "Careful!" }]));
+    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: withSpeaker })).status, 200);
+    const stored = normaliseGagContent((await gagRow(gagId)).pendingContent)!;
+    assert.deepEqual(stored.cast, [{ label: "mom", description: "the mom in the scene" }]);
+    const empty = withCast(bare("{NAME} juggles planets alone."));
+    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: empty })).status, 200);
+    const storedEmpty = normaliseGagContent((await gagRow(gagId)).pendingContent)!;
+    assert.deepEqual(storedEmpty.cast, []);
+    assert.ok(storedEmpty.castExtraction, "an empty cast keeps its marker: extracted, nobody else there");
+  });
+
+  it("approves a render drawn before casts existed, and compares a cast-era render with its cast", async () => {
+    const { factId, gagId } = await liveFact();
+    const change = scene("{NAME} juggles planets (cast era).");
+    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: change })).status, 200);
+    const { cast: _c, castExtraction: _m, ...beforeCasts } = change;
+    const old = await render(factId, gagId, beforeCasts as VisualPromptStrategyOverride, { kind: "male" });
+    assert.equal((await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: old })).status, 200);
+    const otherCast = await render(factId, gagId, { ...change, cast: [{ label: "dog", description: "a dog" }] }, { kind: "female" });
+    const refused = await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: otherCast });
+    assert.equal(refused.status, 409);
+    assert.equal(refused.body.code, "CONTENT_CHANGED");
+  });
+});
