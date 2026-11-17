@@ -42,6 +42,7 @@ import {
 } from "@workspace/api-zod";
 import { validateVisualStrategyOverridePersistence } from "../imagePrompt/promptBudget";
 import { callUtilityLLM } from "../utilityLLM";
+import { rethrowIfOwnershipLost } from "../jobFence";
 import { isMaterialCulturalReference } from "../imagePrompt/generator";
 import { renderPersonalized, stripSubjectNameSemanticEntities } from "../renderCanonical";
 import { hasNoLikelySubjectReference, tokenizePlainTextToTemplate } from "../factTokenizer";
@@ -328,6 +329,7 @@ export async function convertStandInName(wire: CandidateConceptsWire, tokenize: 
         if (!problem) return out.template;
         logger.warn({ problem, text: textIn, attempt, of: CONVERSION_ATTEMPTS }, "[visualConcepts.generator] the stand-in name could not be converted");
       } catch (err) {
+        rethrowIfOwnershipLost(err); // Issue #1010
         logger.warn({ err, text: textIn, attempt, of: CONVERSION_ATTEMPTS }, "[visualConcepts.generator] the tokenizer failed on a gag line");
       }
     }

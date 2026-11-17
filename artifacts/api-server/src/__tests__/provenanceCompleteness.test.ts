@@ -14,7 +14,7 @@ import type { FactEnrichment } from "@workspace/api-zod";
 
 import { imageGenerationHandler } from "../lib/imagePromptJobs.js";
 import { resolveImageEngine } from "../lib/imageEngineRouting.js";
-import { fal } from "../lib/falClient.js";
+import { __setRenderFalForTest } from "../lib/renderFalTransport.js";
 import { vendorContext, __setReferenceFetchForTest } from "../lib/provenance/vendorContext.js";
 import { photoBackgrounds } from "./helpers/photoBackground.js";
 
@@ -34,7 +34,7 @@ const ENRICHMENT: FactEnrichment = {
   semanticEntities: [],
   characters: [],
 };
-// The worker's credential gate needs a value; fal.subscribe is replaced below, so it is never used.
+// The worker's credential gate needs a value; the render transport is replaced below, so it is never used.
 process.env["FAL_AI_API_KEY"] = process.env["FAL_AI_API_KEY"] ?? "test-fal-key";
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 
@@ -110,12 +110,18 @@ describe("an AI render's record holds its whole configuration", () => {
     }).returning({ id: imagePromptAttemptsTable.id });
 
     const png = await sharp({ create: { width: 32, height: 18, channels: 3, background: "#456" } }).png().toBuffer();
-    const original = fal.subscribe;
     let sent: Record<string, unknown> | null = null;
-    (fal as { subscribe: unknown }).subscribe = async (_endpoint: string, opts: { input: Record<string, unknown> }) => {
-      sent = opts.input;
-      return { requestId: "req-complete-1", data: { images: [{ url: `data:image/png;base64,${png.toString("base64")}` }], seed: 424242, has_nsfw_concepts: [false] } };
-    };
+    __setRenderFalForTest({
+      async submit(_endpoint, input) {
+        sent = input;
+        return "req-complete-1";
+      },
+      async status() { return "COMPLETED"; },
+      async result() {
+        return { images: [{ url: `data:image/png;base64,${png.toString("base64")}` }], seed: 424242, has_nsfw_concepts: [false] };
+      },
+      async history() { throw new Error("unused"); },
+    });
     // Set here, not only at load: the shard shares one process, and another
     // file's cleanup may have removed the key since this file loaded.
     const priorKey = process.env["FAL_AI_API_KEY"];
@@ -124,7 +130,7 @@ describe("an AI render's record holds its whole configuration", () => {
       const out = await imageGenerationHandler.run({ attemptId: attempt!.id }, {} as never);
       assert.equal(out.ok, true, JSON.stringify(out));
     } finally {
-      (fal as { subscribe: unknown }).subscribe = original;
+      __setRenderFalForTest(null);
       if (priorKey === undefined) delete process.env["FAL_AI_API_KEY"];
       else process.env["FAL_AI_API_KEY"] = priorKey;
     }

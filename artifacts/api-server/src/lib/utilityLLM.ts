@@ -17,6 +17,7 @@ import { getOpenAIClient } from "./aiClients";
 import { engineById } from "./engineInterpreter";
 import { chatModelTuningParams } from "./openaiChatParams";
 import { logger } from "./logger";
+import { assertJobOwnership, jobAbortSignal, JobOwnershipLostError } from "./jobFence";
 
 const FALLBACK_MODEL = "gpt-6-luna";
 const FALLBACK_TEMPERATURE = 0.7;
@@ -133,18 +134,33 @@ export async function callUtilityLLM(
   const settings = await resolveLLMSettings();
   const timeoutMs = req.timeoutMs ?? UTILITY_LLM_TIMEOUT_MS;
   const model = req.model ?? settings.model;
-  return openai.chat.completions.create(
-    {
-      model,
-      ...chatModelTuningParams({
+  // Every AI text call a job makes is paid, so ownership is checked here, at
+  // the one dispatch point, rather than once at each helper's entry (Issue
+  // #1010; plan PLAN_JOB_RESUME.md §A): a helper's corrective re-ask is checked
+  // too. The run's abort signal goes with the request, so a run that loses its
+  // claim (or hits its limit) mid-call abandons the request and the client's
+  // own retries of it. Outside a job both are no-ops.
+  await assertJobOwnership();
+  const signal = jobAbortSignal();
+  try {
+    return await openai.chat.completions.create(
+      {
         model,
-        maxTokens: req.maxTokens ?? settings.maxTokens,
-        temperature: req.temperature ?? settings.temperature,
-        reasoningEffort: req.reasoningEffort ?? settings.reasoningEffort,
-      }),
-      ...(req.responseFormat ? { response_format: req.responseFormat } : {}),
-      messages: req.messages,
-    },
-    { timeout: timeoutMs, ...(llmMaxRetriesInScope() === 0 ? { maxRetries: 0 } : {}) },
-  );
+        ...chatModelTuningParams({
+          model,
+          maxTokens: req.maxTokens ?? settings.maxTokens,
+          temperature: req.temperature ?? settings.temperature,
+          reasoningEffort: req.reasoningEffort ?? settings.reasoningEffort,
+        }),
+        ...(req.responseFormat ? { response_format: req.responseFormat } : {}),
+        messages: req.messages,
+      },
+      { timeout: timeoutMs, ...(llmMaxRetriesInScope() === 0 ? { maxRetries: 0 } : {}), ...(signal ? { signal } : {}) },
+    );
+  } catch (err) {
+    // The client reports an abort as its own error; surface the reason — the
+    // ownership refusal — so every helper's catch can let it pass untouched.
+    if (signal?.aborted && signal.reason instanceof JobOwnershipLostError) throw signal.reason;
+    throw err;
+  }
 }

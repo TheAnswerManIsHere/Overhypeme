@@ -1355,9 +1355,12 @@ export function runAsyncJobsWorker(): NodeJS.Timeout[] {
 /**
  * Start the renewal timer (`LEASE_RENEW_INTERVAL_MS`) and the reclaim timer
  * (`RECLAIM_INTERVAL_MS`), and run one reclaim now. Each has its own
- * re-entrancy guard and never throws out of its timer.
+ * re-entrancy guard and never throws out of its timer. `schedule` is a test
+ * seam (the plan's "a busy bulk lane does not delay renewal or reclaim").
  */
-function startLeaseTimers(): NodeJS.Timeout[] {
+export function startLeaseTimers(
+  schedule: (fn: () => void, intervalMs: number) => NodeJS.Timeout = realSchedule,
+): NodeJS.Timeout[] {
   let renewing = false;
   let reclaiming = false;
   const renew = async (): Promise<void> => {
@@ -1386,8 +1389,8 @@ function startLeaseTimers(): NodeJS.Timeout[] {
   };
   void reclaim();
   return [
-    realSchedule(() => void renew(), LEASE_RENEW_INTERVAL_MS),
-    realSchedule(() => void reclaim(), RECLAIM_INTERVAL_MS),
+    schedule(() => void renew(), LEASE_RENEW_INTERVAL_MS),
+    schedule(() => void reclaim(), RECLAIM_INTERVAL_MS),
   ];
 }
 

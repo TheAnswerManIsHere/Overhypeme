@@ -58,6 +58,10 @@ export const RENDER_SCENARIO_STATUS_VALUES = [
 ] as const;
 export type RenderScenarioStatus = (typeof RENDER_SCENARIO_STATUS_VALUES)[number];
 
+/** An in-flight render's progress (plan PLAN_JOB_RESUME.md §D). */
+export const RENDER_PROGRESS_VALUES = ["queued", "drawing", "resuming", "saving", "retrying"] as const;
+export type RenderProgress = (typeof RENDER_PROGRESS_VALUES)[number];
+
 /** Required-scenario states that block clean approval (a waiver must name them). */
 export const PROBLEMATIC_SCENARIO_STATUSES = [
   "missing",
@@ -157,6 +161,12 @@ export interface RenderScenarioCard {
   imageUrl: string | null;
   /** Present for failed/blocked tiles. */
   message: string | null;
+  /**
+   * Where an in-flight render really is (plan PLAN_JOB_RESUME.md §D): read from
+   * its job, its lease and the image service's own progress. Null when no job
+   * is in flight. Optional so older card constructors still type-check.
+   */
+  progress?: RenderProgress | null;
   /**
    * Set when the routed engine refused this render on content grounds and the
    * photoreal fallback drew the picture shown (plan PLAN_NB_FALLBACK.md); null

@@ -1,0 +1,29 @@
+-- Image request progress (plan docs/plans/PLAN_JOB_RESUME.md §C and §D, Issue
+-- #1000, increment 2, Issue #1015; approved by David 2026-11-17). Expand only,
+-- no backfill.
+--
+--   vendor_status      what we last learned about the vendor request this row
+--                      records: IN_QUEUE / IN_PROGRESS / COMPLETED (fal's own
+--                      queue words), FAILED (a known failure — never collected
+--                      again; a new attempt submits a new request), or LOST (the
+--                      receipt was lost and could not be matched unambiguously in
+--                      fal's history; the step was re-run, Q13: 1). Null: nothing
+--                      learned yet (every row before this release).
+--   vendor_status_at   when vendor_status was last written.
+--
+-- The image worker reads it to resume a render without paying again, and the
+-- moderator's tile reads it to say "Drawing…" only while fal reports the picture
+-- in progress.
+--
+-- Row-state matrix:
+--   rows before this release        null status: the resume logic treats a row
+--                                   with a vendor id and null status as "ask fal",
+--                                   and one with neither as a lost receipt.
+--   rows written by the previous release after this ran
+--                                   same as above.
+-- Previous release on this schema: it never reads or writes the new columns.
+--
+-- Rollback: revert the code and keep the columns (nullable, ignored by the old
+-- code). Idempotent: both statements are IF NOT EXISTS.
+ALTER TABLE "image_generation_requests" ADD COLUMN IF NOT EXISTS "vendor_status" varchar(16);
+ALTER TABLE "image_generation_requests" ADD COLUMN IF NOT EXISTS "vendor_status_at" timestamp with time zone;

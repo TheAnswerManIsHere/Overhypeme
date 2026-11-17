@@ -216,11 +216,30 @@ deliberately excludes them and points here instead.
   run's effect context is stopped for good and the job is retried.
   **Reclaim:** a leased row whose lease has lapsed goes back once its queue's
   `fastReclaim` is on, otherwise not before `RECOVER_STUCK_CUTOFF_MIN = 30`
-  minutes after its claim; every queue's switch is off until its resume is
-  built (increments 2 and 3). A row claimed by a release before leases (no
+  minutes after its claim. The switch is on, with `recoveryProtocol: 1`, for
+  the two render queues (`image_prompt_generation`, `image_generation`;
+  increment 2, Issue #1015), and off for every other queue until its resume is
+  built (increment 3). A row claimed by a release before leases (no
   token) keeps the old 30-minute rule on `updated_at`. A reclaimed row of a
   queue that declares a `recoveryProtocol` becomes `recovering`, claimable only
-  by a worker declaring at least that protocol; none declares one yet.
+  by a worker declaring at least that protocol.
+  **Every AI text call checks ownership at the one dispatch point**
+  (`callUtilityLLM`, Issue #1010) and carries the run's abort signal; a
+  helper that absorbs its own failures lets the refusal through
+  (`rethrowIfOwnershipLost`).
+- **A render resumes without paying twice (plan §C, `renderRequestRecovery.ts`).**
+  The image job submits with one POST (`renderFalTransport.ts`, never the
+  SDK's retrying submit) and stores fal's request id on its
+  `image_generation_requests` row at once; it then polls, writing fal's
+  status to `vendor_status` (migration 0149). A resumed run reads the
+  attempt's latest request first: an id on record is collected (completed or
+  still drawing); a known failure is marked `FAILED` and never collected
+  again; a lost receipt is searched for in fal's request history once the row
+  is `LOST_RECEIPT_HORIZON_MS` old (the history shows a request only after it
+  finishes), collected only on an unambiguous match, else marked `LOST` and
+  drawn again (Q13: 1). The planner reuses a plan already saved for its
+  attempt (§F). The tile's words come from `renderProgress.ts`: the job's
+  state, its lease and `vendor_status` (§D).
 - Per-fact status mirrors on `facts` (`enrichmentStatus`,
   `visualConceptStatus`: `pending | ok | failed`).
 - **Enqueue is not completion** — never report a job "done" at enqueue time; poll
