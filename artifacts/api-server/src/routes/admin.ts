@@ -948,14 +948,15 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
   // ACTIVATE one: a false→true flip here would bypass the entire production gate
   // that approveForProduction/activateFact enforce (the approved-gag check,
   // the pending_reviews transition,
-  // production-approval recording, submitter notification). To bring a
-  // deactivated fact back, re-moderate it. So: reject any false→true request;
+  // production-approval recording, submitter notification). A deactivated fact
+  // has no way back yet: Reactivate arrives in Phase 3 of
+  // PLAN_FACT_LIFECYCLE_REBUILD.md. So: reject any false→true request;
   // asserting isActive=true on an already-active fact is a harmless no-op that we
   // simply drop.
   if (nonTextUpdates.isActive === true) {
     if (current!.isActive === false) {
       res.status(400).json({
-        error: "A fact can only be activated through moderation. Deactivated facts must be re-moderated to go live again.",
+        error: "A deactivated fact can't be reactivated from the admin yet.",
         code: "ACTIVATION_REQUIRES_MODERATION",
       });
       return;
