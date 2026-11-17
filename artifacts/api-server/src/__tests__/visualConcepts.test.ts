@@ -215,6 +215,15 @@ describe("the blind check's two requests (PLAN_FACT_LIFECYCLE_REBUILD.md 1A)", (
     const bare = { ...ENRICHMENT, culturalReferences: [], semanticEntities: [] } as FactEnrichment;
     assert.equal(noteWithMeanings("  Just the note. ", bare), "Just the note.");
   });
+
+  it("a fact with no note: today sends none, the reduced arm sends the meanings alone", () => {
+    const arms = armInputs("{NAME} bench-presses the Earth.", ENRICHMENT, "   ");
+    assert.equal(arms.today.humorNote, null);
+    assert.match(arms.reduced.humorNote!, /^What the references mean:\n- "Shark Week"/);
+    const bare = { ...ENRICHMENT, culturalReferences: [], semanticEntities: [] } as FactEnrichment;
+    assert.equal(armInputs("{NAME} lifts.", bare, "").reduced.humorNote, null);
+    assert.ok(!buildVisualConceptsUserMessage(arms.today).includes("APPROVED HUMOR NOTE"), "no empty note block");
+  });
 });
 
 describe("generateVisualConceptsWithModel", () => {

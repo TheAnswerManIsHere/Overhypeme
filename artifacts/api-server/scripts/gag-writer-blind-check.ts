@@ -69,8 +69,8 @@ interface ArmResult {
 interface FactPlan {
   factId: number;
   factText: string;
-  /** Where both arms' note came from: the approved humor note, or the gag writer's stored joke read when there is none. */
-  noteSource: "humor_note" | "joke_read";
+  /** Where both arms' note came from: the approved humor note, else the gag writer's stored joke read, else none. */
+  noteSource: "humor_note" | "joke_read" | "none";
   inputs: Record<Arm, GenerateVisualConceptsInput>;
 }
 
@@ -122,16 +122,16 @@ async function loadPlans(ids: number[]): Promise<{ plans: FactPlan[]; skipped: s
   for (const id of ids) {
     const row = rows.find((r) => r.id === id);
     if (!row) { skipped.push(`#${id}: no such fact`); continue; }
-    // Both arms get the same note, so a fact with no approved note is still a
-    // fair comparison when the gag writer's own stored reading stands in.
+    // Both arms start from the same note, so the comparison stays fair whether
+    // it is the approved note, the gag writer's own stored reading, or none.
     const approved = row.humorNote?.trim() ?? "";
     const blob = visualConceptCandidatesBlobSchema.safeParse(row.candidates);
     const read = blob.success ? blob.data.jokeRead?.trim() ?? "" : "";
     const note = approved || read;
-    if (!note) { skipped.push(`#${id}: no humor note and no stored joke read, so the reduced arm has nothing to carry the meanings`); continue; }
     const ev = validateEnrichment(row.enrichment);
     if (!ev.ok) { skipped.push(`#${id}: enrichment invalid (${ev.error}), so today's arm cannot be built`); continue; }
-    plans.push({ factId: id, factText: row.text, noteSource: approved ? "humor_note" : "joke_read", inputs: armInputs(row.text, ev.data, note) });
+    const noteSource = approved ? "humor_note" : read ? "joke_read" : "none";
+    plans.push({ factId: id, factText: row.text, noteSource, inputs: armInputs(row.text, ev.data, note) });
   }
   return { plans, skipped };
 }

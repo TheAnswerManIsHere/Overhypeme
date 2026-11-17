@@ -15,13 +15,17 @@ import { referenceMeaningLines, type GenerateVisualConceptsInput } from "./gener
 
 export type Arm = "today" | "reduced";
 
-/** The note the reduced arm is given: the approved note, then what the references mean. */
-export function noteWithMeanings(note: string, enrichment: FactEnrichment): string {
+/**
+ * The note the reduced arm is given: the note, then what the references mean.
+ * With no note it is the meanings alone, and with neither it is null.
+ */
+export function noteWithMeanings(note: string, enrichment: FactEnrichment): string | null {
   const meanings = referenceMeaningLines(enrichment);
-  const trimmed = note.trim();
-  return meanings.length ? `${trimmed}\n\nWhat the references mean:\n${meanings.join("\n")}` : trimmed;
+  const parts = [note.trim(), meanings.length ? `What the references mean:\n${meanings.join("\n")}` : ""].filter(Boolean);
+  return parts.length ? parts.join("\n\n") : null;
 }
 
+/** Both arms' inputs. An empty note means the fact has none: today's arm then sends no note. */
 export function armInputs(factText: string, enrichment: FactEnrichment, rawNote: string): Record<Arm, GenerateVisualConceptsInput> {
   const note = rawNote.trim();
   const base = {
@@ -32,7 +36,7 @@ export function armInputs(factText: string, enrichment: FactEnrichment, rawNote:
     draft: null,
   };
   return {
-    today: { ...base, humorNote: note, classification: "include" },
+    today: { ...base, humorNote: note || null, classification: "include" },
     reduced: { ...base, humorNote: noteWithMeanings(note, enrichment), classification: "omit" },
   };
 }
