@@ -52,7 +52,7 @@ export const SCENARIO_CONFIG_VERSION = "2";
 export const DEFAULT_REFERENCE_ASSET_VERSION: Record<string, string> = {
   male: "1",
   female: "1",
-  nonhuman_animal: "1",
+  nonhuman_animal: "2", // David's cat, 2026-11-17 (compiler review); was a stand-in cat
   nonhuman_object_vehicle: "1",
 };
 

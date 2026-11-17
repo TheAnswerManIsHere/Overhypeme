@@ -1,0 +1,104 @@
+{
+  "kind": "openai.chat",
+  "request": {
+    "max_completion_tokens": 8600,
+    "messages": [
+      {
+        "content": "You list the characters in a short exaggerated 'fact' about a person.\nThe fact's subject is the person it is about. In the text you receive the subject is called \"Alex\" (they/them). NEVER list the subject.\nList every OTHER person or animal the fact names or clearly refers to, who could be shown in a picture of the fact and could speak or think: relatives, pets, named people, roles (\"the referee\", \"a doctor\"), groups that act as one character (\"the crowd\").\nDo NOT list objects, places, abstractions, body parts, or things that merely exist in the scene. Do NOT invent characters the fact does not mention.\nFor each character return:\n- label: a short, neutral, lowercase label a moderator would pick from a dropdown — \"mom\", \"dog\", \"referee\", \"chuck norris\" — with NO name of the subject, NO possessive (write \"mom\", never \"Alex's mom\" or \"his mom\"), no article, and no curly braces.\n- kind: \"person\" or \"animal\".\n- ofSubject: true when the character is the subject's own relation or possession (\"his mom\" → mom, true; \"their dog\" → dog, true); false otherwise (\"the referee\" → false).\nAt most 10. Labels must be unique. Return an empty list when the subject is the only character.",
+        "role": "system"
+      },
+      {
+        "content": "Fact: Alex once counted to infinity. Twice. The second time They do it backwards to check their work.",
+        "role": "user"
+      }
+    ],
+    "model": "gpt-5.5",
+    "reasoning_effort": "high",
+    "response_format": {
+      "json_schema": {
+        "name": "fact_characters",
+        "schema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "additionalProperties": false,
+          "properties": {
+            "characters": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "person",
+                      "animal"
+                    ],
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "ofSubject": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "label",
+                  "kind",
+                  "ofSubject"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "characters"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      },
+      "type": "json_schema"
+    }
+  },
+  "fingerprint": "ffcca88b3897b581001c28bfd12714109d332def0eb7d11af7231d460796680b",
+  "recordedAt": "2026-11-17T01:12:43.598Z",
+  "clients": {
+    "@fal-ai/client": "1.9.5",
+    "openai": "6.33.0"
+  },
+  "target": "gpt-5.5",
+  "response": {
+    "id": "recorded-1",
+    "object": "chat.completion",
+    "created": 1794877962,
+    "model": "gpt-5.5-2026-04-23",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"characters\":[]}",
+          "refusal": null,
+          "annotations": []
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 379,
+      "completion_tokens": 51,
+      "total_tokens": 430,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 33,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      }
+    },
+    "service_tier": "default",
+    "system_fingerprint": null
+  }
+}

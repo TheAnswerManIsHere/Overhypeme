@@ -34,6 +34,7 @@ on:
       # (PR #941 set the gag writer to medium effort without this run, and
       # every later replay missed its recording).
       - artifacts/api-server/src/lib/engines/**
+      - artifacts/api-server/src/lib/imagePrompt/**
       - artifacts/api-server/src/lib/*Config.ts
       - artifacts/api-server/src/lib/codeOwnedPrompts.ts
       - artifacts/api-server/src/lib/openaiChatParams.ts

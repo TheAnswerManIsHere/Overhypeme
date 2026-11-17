@@ -427,10 +427,10 @@ export const SHAPES: Record<ShapeName, ShapeDef> = {
  * worker's frozen-versus-legacy precedence (imagePromptJobs.ts:464-466) holds.
  */
 /**
- * The subject names the product itself supplies: the review-render defaults (resolveRenderReviewInput.ts:74-84,
- * preview.ts:46) and the canonical fallback (renderCanonical.ts). Any other name was typed by someone — a
- * moderator's preview name (routes/reviews.ts previewName → resolveRenderReviewInput.ts:90-93), a workbench
- * name — and becomes the row's synthetic first name.
+ * The subject names the product itself supplies today: the review-render defaults (`defaultPreviewSubjectForGender`,
+ * preview.ts) and the canonical fallback (renderCanonical.ts). Any other name was typed by someone — a
+ * moderator's preview name, a workbench name — and becomes the row's synthetic first name. A name the product
+ * no longer supplies is treated like a typed one.
  */
 const PRESET_SUBJECT_NAMES: ReadonlySet<string> = new Set([
   defaultPreviewSubjectForGender("male").name,

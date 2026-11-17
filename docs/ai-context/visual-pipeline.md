@@ -519,7 +519,7 @@ for a better photo, never drawn as an invented person. The planner's brief
 and its output contract name the two photo modes only, and are engine-neutral:
 the engine is chosen after planning, by look. Moderation's required renders
 are David's photo (`i2i_male_default`) and his wife's (`i2i_female_default`,
-rendered as Susan Franklin, she/her); the animal (the cat) and object
+rendered as Raena Franklin, she/her); the animal (the cat) and object
 scenarios stay conditional. `generic_t2i` is retired: never offered, run or
 required, and a render it already made stays on the grid outside the tally.
 The comparison's round 1 draws photo panels only (12 panels, 72 cells). The
