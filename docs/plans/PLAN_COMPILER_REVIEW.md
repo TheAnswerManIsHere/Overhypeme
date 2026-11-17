@@ -137,9 +137,11 @@ No new store of wording, engines or gags is created.
 - **Cost, by the repository's reservation figures and with no shared preparation** (the worker plans per attempt, `imagePromptJobs.ts:147`): each picture reserves two planner calls ($0.768) plus its image ($0.12868 on GPT Image 2.6, about $0.32779 on Nano Banana 2.1). Two batches through the ordinary moderation render path: the four GPT pictures at about $3.59, then the four Nano Banana pictures at about $4.38, each inside the $5 per-run budget, about $7.97 in all, likely under $2. A failed picture gets at most one retry, priced before it runs. The vendor's bill and the week's total are read before each batch. GPT Image 2.6's reasoning figure is an allowance, not a vendor ceiling: Question 1.
 - **Phase 3 gets a targeted recheck**, not a second sample: one fact with two gags, one picture of each, priced the same way before it runs.
 
-### Phase 3 — The selected gag is the compiler's input (after #949's storage change)
+### Phase 3 — The selected gag is the compiler's input (after #949's storage change) — absorbed into #982
 
-**What it makes true:** the compiler, the preview, the moderation render and the comparison tool all receive one selected gag's complete render input — scene, bubbles, role bindings, required and forbidden details, composition guidance, subject realization, text-policy override — and never read "the fact's gag" for themselves. The attempt freezes it. Gag two can never inherit gag one's bubbles. The planner is passed the selected gag's scene and bubbles where it reads the fact's today, and nothing more. The concrete type follows #949's stored shape and is finalised when that lands; if #949's shape cannot express a gag's complete input, that returns to David as an amendment.
+**Amended 2026-11-17 (David, Q11: 1):** this phase is not built here. It moves, as an invariant and a test, into the plan of #982 (`docs/plans/PLAN_GAG_DIRECT_RENDER.md`, *Design A*, "One selected gag is the input"), which replaces the planner and rewrites the compiler's gag input. Reason: #949 already joins one selected gag into each render (`lib/gags/resolver.ts`, `gagRenderInput`, replacing the gag wholesale) and records it on the attempt, so a second gag cannot inherit the first's bubbles today; what was left of Phase 3 is the input path #982 rewrites, and building it here would type fields #982 folds into scene text (its Q1: 1) into a compiler it replaces. The invariant #982 carries: the direct compile is handed one selected gag's content explicitly, never "the fact's gag"; the attempt freezes that gag's id and content; two gags on one fact compile to prompts sharing no gag-owned text; worker, preview, moderation render and comparison receive the same selection, the comparison choosing a gag rather than always the primary. Phase 3's two-picture recheck becomes a case of #982's blind comparison. Until #982's switch, renders use today's path, which already draws one gag per picture. The "complete render input" list below is superseded: those fields are folded into the scene by #982.
+
+**What it made true, as approved (superseded by the amendment above):** the compiler, the preview, the moderation render and the comparison tool all receive one selected gag's complete render input — scene, bubbles, role bindings, required and forbidden details, composition guidance, subject realization, text-policy override — and never read "the fact's gag" for themselves. The attempt freezes it. Gag two can never inherit gag one's bubbles. The planner is passed the selected gag's scene and bubbles where it reads the fact's today, and nothing more. The concrete type follows #949's stored shape and is finalised when that lands; if #949's shape cannot express a gag's complete input, that returns to David as an amendment.
 
 ## Data Model and Migration Impact
 
@@ -165,9 +167,9 @@ All touched routes stay `requireAdmin`. Engine and look are validated server-sid
 - **Phase 1:** routing — every look class maps to its engine, an invalid look is refused, preview and worker agree for the same inputs; Nano Banana 2's baseline corpus still reproduces byte for byte; each new family's baseline compiles every corpus input within the prompt budget with all required sections present; a queued attempt keeps its engine, wording and look text across a routing change, a promotion and a look edit. Preview parity is shown by passing the same resolved inputs and the same planner result through both assembly paths; two independent planner calls may differ by sampling, and the test must not introduce reuse of a preview's plan as new behaviour.
 - **Transition:** the quiet-window procedure is exercised with a preparation job that creates a later attempt, a baseline-wording attempt and a job mid-execution; each completes under the old contract before replacement.
 - **Phase 2:** the inventory's search, re-run, shows no producer of a no-photo attempt; queue-time and worker refusals; the replaced admin render action produces a photo-backed attempt; the retired background generator's action, route and script start nothing; the wife's scenario renders with her name and pronouns; a stored recipe with retired pieces loads; legacy-fixture rows in the old mode still render their admin views.
-- **Phase 3:** two gags on one fact compile to prompts sharing no gag-owned text; planner, preview, moderation and comparison receive the same selection.
+- **Phase 3:** absorbed into #982 (amendment above); its test is carried by #982's plan.
 - **Recordings.** Each phase refreshes the recorded AI responses its request changes invalidate (the planner's and the downstream image calls', which are keyed on endpoint and full input) before its replay checks are claimed as passing; the affected calls are priced through the recording runner, unaffected recordings are reused, and the refresh is batched inside the per-run budget. Exact counts are settled at build time.
-- **Paid:** the recording refreshes; the UAT's eight pictures; Phase 3's two-picture recheck.
+- **Paid:** the recording refreshes; the UAT's eight pictures. (Phase 3's two-picture recheck moved to #982's comparison.)
 - **UAT (judgement only):** David's eight pictures after Phase 2.
 - Runners per `docs/tests/TESTING.md`.
 
@@ -176,7 +178,7 @@ All touched routes stay `requireAdmin`. Engine and look are validated server-sid
 1. Phase 1: routing by look with the frozen look; per-family baselines and shape in recipes; engine-neutral planner wording; defects; recordings.
 2. Phase 2: replace the two no-photo-only uses; retire the mode and the legacy generator across the inventory; scenario change; the cat photo in place; recordings.
 3. The UAT, in two batches; fixes if any.
-4. Phase 3: the selected gag as the compiler's input, after #949; the two-picture recheck.
+4. Phase 3: absorbed into #982 (amendment, David, Q11: 1).
 
 Phases 1 and 2 and the UAT do not depend on #949. Phase 2 starts as soon as Phase 1 merges.
 
@@ -199,5 +201,5 @@ Needed from David, not a question: one photo of the cat, before the UAT.
 - Phase 1: a no-look render is drawn by GPT Image 2.6 and a looked one by Nano Banana 2.1, visible on the attempt; preview equals what was sent.
 - Phase 2: no screen, route, script or planner brief offers or describes a picture without a photo; neither the name search nor the read of every image-submission caller finds a producer; old no-photo records and stored images open.
 - The UAT: David has judged the eight pictures and any failure has its fix.
-- Phase 3: a fact with two gags renders each with only its own content.
+- Phase 3: absorbed into #982 (David, Q11: 1, 2026-11-17); this plan is done when Phases 1 and 2 and the UAT are.
 - Every oracle must-not-change item has a passing automated check, and the intended behaviour can be exercised in the admin product.
