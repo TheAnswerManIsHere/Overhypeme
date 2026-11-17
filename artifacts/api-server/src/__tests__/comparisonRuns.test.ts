@@ -472,6 +472,58 @@ describe("a comparison run end to end, with fakes", () => {
       testEngineRow(fluxSource, fluxEdit, fluxFamily);
     }
   });
+
+  // A cell prepared for the retired render planner can no longer be drawn
+  // (PLAN_GAG_DIRECT_RENDER.md, D). It must end as a failed cell with its
+  // reservation released, never throw out of a job that runs once and leave
+  // the evaluation in flight (Codex, PR #1022 round 1).
+  it("fails a cell prepared for the retired planner, releases its reservation and finishes the run; an already-submitted one still polls", async () => {
+    const setId = await newSet("retired-planner");
+    await drain((await start(setId, "prepare")).body.run.id);
+    const render = await start(setId, "render");
+    const runId = render.body.run.id as number;
+    const payloads = await renderPayloads(runId);
+    assert.ok(payloads.length >= 3, "enough cells for the three shapes");
+    const cellRow = async (id: number) => (await db.select().from(comparisonCellsTable).where(eq(comparisonCellsTable.id, id)))[0]!;
+
+    // An explicitly planned cell.
+    await db.update(comparisonCellsTable).set({ renderPath: "planned" }).where(eq(comparisonCellsTable.id, payloads[0]!.cellId));
+    // A cell whose panel froze only a plan: give it a panel of its own shape
+    // by clearing the direct input on its panel.
+    const second = await cellRow(payloads[1]!.cellId);
+    const [panel] = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.id, second.panelId));
+    const args = panel!.compileArgs as Record<string, unknown>;
+    await db.update(comparisonPanelsTable).set({ compileArgs: { ...args, direct: undefined, planned: { plan: true } } as never }).where(eq(comparisonPanelsTable.id, second.panelId));
+    // An explicitly planned cell already submitted before the switch.
+    const thirdId = payloads.find((p) => p.cellId !== payloads[0]!.cellId && p.cellId !== payloads[1]!.cellId)!;
+    const third = await cellRow(thirdId.cellId);
+    if (third.panelId === second.panelId) {
+      await db.update(comparisonCellsTable).set({ falRequestId: "req-planned", promptText: "a prompt the planner wrote" }).where(eq(comparisonCellsTable.id, thirdId.cellId));
+    } else {
+      await db.update(comparisonCellsTable).set({ renderPath: "planned", falRequestId: "req-planned", promptText: "a prompt the planner wrote" }).where(eq(comparisonCellsTable.id, thirdId.cellId));
+    }
+
+    const before = submissions.length;
+    await renderCell(payloads[0]!);
+    await renderCell(payloads[1]!);
+    await renderCell(thirdId);
+
+    for (const p of [payloads[0]!, payloads[1]!]) {
+      const cell = await cellRow(p.cellId);
+      assert.equal(cell.state, "failed", `cell ${p.cellId} ends failed, not enqueued`);
+      assert.match(String(cell.error), /render planner, which has been removed/);
+      const [res] = await db.select().from(comparisonReservationsTable).where(eq(comparisonReservationsTable.id, p.reservationId));
+      assert.equal(res!.state, "released", "nothing was submitted, so nothing is held");
+    }
+    const submitted = await cellRow(thirdId.cellId);
+    assert.equal(submitted.state, "rendered", "a submitted cell polls its request; it is never compiled again");
+    assert.equal(submitted.promptText, "a prompt the planner wrote");
+    assert.equal(submissions.length, before, "no new submission for any of the three");
+
+    await drain(runId);
+    const [run] = await db.select().from(comparisonRunsTable).where(eq(comparisonRunsTable.id, runId));
+    assert.equal(run!.state, "done", "the run finishes once every cell is terminal");
+  });
 });
 
 // ─── The prompt tuner: comparing prompt wording on one engine (PLAN_PROMPT_TUNER.md, B) ───

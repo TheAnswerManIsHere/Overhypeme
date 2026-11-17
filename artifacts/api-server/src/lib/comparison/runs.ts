@@ -336,10 +336,16 @@ async function preparePanelInFlight(panel: ComparisonPanel, p: PreparePayload): 
       renderedSubject: resolved.renderedSubject,
     });
   } catch (err) {
-    if (!(err instanceof DirectGagInputError)) throw err;
-    await failPanel(panel.id, "skipped", `the gag cannot be drawn as it stands: ${err.message}`);
+    // Every compile refusal ends the panel here, with its reservation
+    // released: a preparation job runs once (maxAttempts 1), so a throw that
+    // escaped would leave the panel in flight and the evaluation unfinishable.
+    if (err instanceof DirectGagInputError) {
+      await failPanel(panel.id, "skipped", `the gag cannot be drawn as it stands: ${err.message}`);
+    } else {
+      await failPanel(panel.id, "failed", `the prompt could not be compiled: ${err instanceof Error ? err.message : String(err)}`);
+    }
     await release(p.reservationId);
-    return { ok: true, result: "skipped" };
+    return { ok: true, result: err instanceof DirectGagInputError ? "skipped" : "failed" };
   }
   await release(p.reservationId);
   // Recording the panel prepared and queueing its waiting cells is one
@@ -553,27 +559,37 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
     await release(p.reservationId);
     return { ok: true, result: "refused before dispatch" };
   }
-  const promptText = await cellPromptText(panel!, cell);
   const aspectRatio = (panel!.renderControls as { aspectRatio?: string } | null)?.aspectRatio;
-  let input: Record<string, unknown>;
-  let requestSettings;
-  try {
-    if (!promptText) throw new Error("the panel's compiled prompt has no text");
-    if (panel!.imageMode === "i2i" && !panel!.referenceImageUrl) throw new Error("the panel has no reference image");
-    // A set drawn at member size asks for a member's picture (David, 2026-11-11: accurate pricing).
-    const [set] = await db.select({ imageSize: comparisonSetsTable.imageSize }).from(comparisonSetsTable).where(eq(comparisonSetsTable.id, panel!.setId));
-    requestSettings = buildImageRequestSettings(engine!, set?.imageSize === "final" ? "final" : "comparison", aspectRatio);
-    input = buildEngineInput(engine!, imageEngineParams(requestSettings, {
-      generationMode: panel!.imageMode as GenerationMode,
-      promptText,
-      aspectRatio,
-      referenceImageUrl: panel!.referenceImageUrl,
-    }));
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    await failCell(cell.id, `not rendered: ${msg}`);
-    await release(p.reservationId);
-    return terminalFailure("comparison_request_invalid", msg);
+  let promptText = "";
+  let input: Record<string, unknown> = {};
+  let requestSettings: ReturnType<typeof buildImageRequestSettings> | undefined;
+  // A cell already submitted builds no request: it polls the one it made, so
+  // it is never compiled again and no refusal here can release a reservation
+  // a submission holds.
+  if (!cell.falRequestId) {
+    try {
+      // Inside the refusal handling: a cell that can no longer be drawn (one
+      // prepared for the retired render planner) fails here, its reservation
+      // released, rather than throwing out of a job that runs once and leaving
+      // the evaluation in flight.
+      promptText = (await cellPromptText(panel!, cell)) ?? "";
+      if (!promptText) throw new Error("the panel's compiled prompt has no text");
+      if (panel!.imageMode === "i2i" && !panel!.referenceImageUrl) throw new Error("the panel has no reference image");
+      // A set drawn at member size asks for a member's picture (David, 2026-11-11: accurate pricing).
+      const [set] = await db.select({ imageSize: comparisonSetsTable.imageSize }).from(comparisonSetsTable).where(eq(comparisonSetsTable.id, panel!.setId));
+      requestSettings = buildImageRequestSettings(engine!, set?.imageSize === "final" ? "final" : "comparison", aspectRatio);
+      input = buildEngineInput(engine!, imageEngineParams(requestSettings, {
+        generationMode: panel!.imageMode as GenerationMode,
+        promptText,
+        aspectRatio,
+        referenceImageUrl: panel!.referenceImageUrl,
+      }));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await failCell(cell.id, `not rendered: ${msg}`);
+      await release(p.reservationId);
+      return terminalFailure("comparison_request_invalid", msg);
+    }
   }
 
   // One submission. The request settings are the marker that one may have
