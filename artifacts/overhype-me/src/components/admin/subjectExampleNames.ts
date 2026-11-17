@@ -5,8 +5,9 @@
  * can never drift between them.
  */
 export const DEFAULT_SUBJECT_EXAMPLE_NAMES = [
-  "Alex Franklin",
   "David Franklin",
+  "Raena Franklin",
+  "Alex Franklin",
   "Sarah Franklin",
   "Jordan Franklin",
 ] as const;
