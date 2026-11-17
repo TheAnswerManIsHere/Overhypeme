@@ -379,7 +379,8 @@ export const TAXONOMY_HEALTH_SKIP_REASON_VALUES = [
 export type TaxonomyHealthSkipReason =
   (typeof TAXONOMY_HEALTH_SKIP_REASON_VALUES)[number];
 
-export type AsyncJobStatusValue = "pending" | "processing" | "done" | "failed";
+/** `recovering`: taken back from a stopped server, still in flight (Issue #1000). */
+export type AsyncJobStatusValue = "pending" | "recovering" | "processing" | "done" | "failed";
 
 export interface QueuedJobDescriptor {
   factId: number;

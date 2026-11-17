@@ -184,8 +184,8 @@ deliberately excludes them and points here instead.
   before the `pexels` lane was removed).
   Even so, do not read handler count as connection count in either
   direction: `maxConcurrency` bounds concurrent *handler promises*, not
-  checked-out clients. `asyncJobsTick` **commits and releases the claim
-  transaction before** `mapWithConcurrency` invokes any handler, and each
+  checked-out clients. `asyncJobsTick` **commits and releases each claim
+  transaction before** its slot invokes the handler, and each
   outcome opens only a short finalize transaction. **But occupancy is not
   confined to those two boundaries** — handlers do their own DB work while
   running (`factSendBackHandler` → `sendFactBackToReview` holds a transaction
@@ -199,28 +199,28 @@ deliberately excludes them and points here instead.
   (`ASYNC_JOBS_FAST_MAX_CONCURRENCY` etc.), so a raised lane still adds
   claim/finalize contention; the headroom cost of that has never been
   measured and this doc does not assert one.
-- **Stranded-row recovery is delayed by design (PR #283).** Claim commits
-  `processing` *before* the handler runs, so a crash — **or a rejection in the
-  finalize transaction after the handler returned** — leaves the row committed
-  as `processing`. `recoverStuckProcessing` requeues such rows to `pending`,
-  but **only** those whose `updatedAt` (stamped at claim) is older than
-  `RECOVER_STUCK_CUTOFF_MIN = 30` minutes, swept every `RECOVER_INTERVAL_MS`
-  (60s) by the **`bulk` runner only** (table-wide, so one owner is correct)
-  plus one sweep at boot. 30 minutes is a **floor, not a bound**: the age
-  comparison is strict, the sweep runs at most once a minute, and maintenance
-  happens only *after* the `bulk` lane's own tick finishes (overlapping timer
-  callbacks return early on the re-entrancy guard), so a long-running bulk
-  handler pushes recovery further out. That cost is deliberate: this
-  deployment is
-  `deploymentTarget = "autoscale"` with the worker started in **every**
-  instance, so too aggressive a cutoff reclaims a *different live instance's*
-  in-flight row and both runs execute — for `email`, a duplicate send to a
-  real person. The cutoff is load-bearing only because finalize matches on row
-  id with **no fencing token**; the real fix (lease tokens + fenced finalize)
-  is Phase 3a in
-  [`deferred-work.md`](../engineering/deferred-work.md#code-level-tech-debt).
-  The boot path passes the cutoff explicitly so it can never silently use a
-  shorter one.
+- **Leases, fenced effects and reclaim (Issue #1000, plan
+  `docs/plans/PLAN_JOB_RESUME.md`).** A claim stamps the row with its owner
+  (`claim_owner`, the heartbeat instance id), a `lease_token` and a
+  `lease_expires_at` 90 s out; the claiming process renews every lease it holds
+  every 20 s (`renewHeldLeases`), and `recoverStuckProcessing` runs every 30 s,
+  each on its own timer in `runAsyncJobsWorker`, never inside a lane tick. A
+  tick claims one row per free slot, so a claimed row never waits locally.
+  Every finish is one conditional write that requires the run's token, the row
+  still `processing` and an unexpired lease; a run that fails it writes nothing
+  and `onAbandon` does not fire. Handlers fence their own effects through
+  `jobFence.ts`: `fencedTransaction` (locks the job row and checks ownership
+  before the writes), `whileOwned` (holds that lock around a shared helper),
+  and `assertJobOwnership` before a paid call. Each queue registers an
+  `executionLimitMs` longer than its slowest healthy run; at the limit the
+  run's effect context is stopped for good and the job is retried.
+  **Reclaim:** a leased row whose lease has lapsed goes back once its queue's
+  `fastReclaim` is on, otherwise not before `RECOVER_STUCK_CUTOFF_MIN = 30`
+  minutes after its claim; every queue's switch is off until its resume is
+  built (increments 2 and 3). A row claimed by a release before leases (no
+  token) keeps the old 30-minute rule on `updated_at`. A reclaimed row of a
+  queue that declares a `recoveryProtocol` becomes `recovering`, claimable only
+  by a worker declaring at least that protocol; none declares one yet.
 - Per-fact status mirrors on `facts` (`enrichmentStatus`,
   `visualConceptStatus`: `pending | ok | failed`).
 - **Enqueue is not completion** — never report a job "done" at enqueue time; poll

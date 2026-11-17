@@ -52,6 +52,7 @@ import {
   type VisualPlan,
 } from "@workspace/api-zod";
 import { registerJobHandler, enqueueJob, terminalFailure, type JobHandler, type HandlerResult } from "./asyncJobs";
+import { assertJobOwnership, fencedTransaction, jobAbortSignal } from "./jobFence";
 import { generateImagePromptPlan, ImagePromptError } from "./imagePrompt/generator";
 import { finishAndStore, recordGenerationRequest, setVendorRequestId } from "./provenance/records";
 import { vendorContext } from "./provenance/vendorContext";
@@ -164,6 +165,9 @@ export const imagePromptGenerationHandler: JobHandler = {
 
     const input = await buildGenerationInput(attempt, enrichment, factText, renderedSubject);
 
+    // The planner call is paid: check this run still owns its job first, so a
+    // run that lost its claim never pays (plan PLAN_JOB_RESUME.md §A).
+    await assertJobOwnership();
     let output;
     try {
       output = await generateImagePromptPlan(input);
@@ -280,23 +284,27 @@ export async function persistImagePromptPlanAndEnqueueGeneration(args: {
   subjectFactCompatibility: unknown;
   archetypeStrategyVersion: string;
 }): Promise<void> {
-  await db
-    .update(imagePromptAttemptsTable)
-    .set({
-      visualPlan: args.visualPlan,
-      compiledPrompt: args.compiledPrompt as Record<string, unknown>,
-      subjectFactCompatibility: args.subjectFactCompatibility,
-      archetypeStrategyVersion: args.archetypeStrategyVersion,
-      error: null,
-      errorCode: null,
-      updatedAt: new Date(),
-    })
-    .where(eq(imagePromptAttemptsTable.id, args.attemptId));
+  // One fenced transaction (Issue #1000): the plan and its image job land
+  // together, and only while this run still owns its job.
+  await fencedTransaction(db, async (tx) => {
+    await tx
+      .update(imagePromptAttemptsTable)
+      .set({
+        visualPlan: args.visualPlan,
+        compiledPrompt: args.compiledPrompt as Record<string, unknown>,
+        subjectFactCompatibility: args.subjectFactCompatibility,
+        archetypeStrategyVersion: args.archetypeStrategyVersion,
+        error: null,
+        errorCode: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(imagePromptAttemptsTable.id, args.attemptId));
 
-  await enqueueJob({
-    queue: IMAGE_GENERATION_QUEUE,
-    payload: { attemptId: args.attemptId } satisfies ImagePromptJobPayload,
-    dedupeKey: `image_generation:attempt:${args.attemptId}`,
+    await enqueueJob({
+      queue: IMAGE_GENERATION_QUEUE,
+      payload: { attemptId: args.attemptId } satisfies ImagePromptJobPayload,
+      dedupeKey: `image_generation:attempt:${args.attemptId}`,
+    }, tx);
   });
 }
 
@@ -364,10 +372,10 @@ export const imageGenerationHandler: JobHandler = {
     } catch (err) {
       return retryRender(p.attemptId, err instanceof Error ? err.message : String(err));
     }
-    await db
+    await fencedTransaction(db, (tx) => tx
       .update(imagePromptAttemptsTable)
       .set({ requestSettings, updatedAt: new Date() })
-      .where(eq(imagePromptAttemptsTable.id, p.attemptId));
+      .where(eq(imagePromptAttemptsTable.id, p.attemptId)));
     const pipelineParams = imageEngineParams(requestSettings, {
       generationMode,
       promptText,
@@ -401,10 +409,15 @@ export const imageGenerationHandler: JobHandler = {
     });
 
     ensureFalConfigured();
+    // The picture is paid: check this run still owns its job immediately
+    // before submitting (plan PLAN_JOB_RESUME.md §A). The wait gives up when the
+    // run's effect context is stopped; a request fal already accepted is not
+    // undone by that, which is what increment 2's collect-on-resume is for.
+    await assertJobOwnership();
     let resultUrl: string;
     let vendorData: unknown;
     try {
-      const response = await fal.subscribe(engine.endpointId, { input: falInput, logs: false });
+      const response = await fal.subscribe(engine.endpointId, { input: falInput, logs: false, abortSignal: jobAbortSignal() });
       await setVendorRequestId(generationRequestId, (response as { requestId?: string }).requestId);
       const data = (response as { data?: unknown }).data ?? response;
       vendorData = data;
@@ -482,10 +495,10 @@ export const imageGenerationHandler: JobHandler = {
     }
 
     // Mark attempt complete.
-    await db
+    await fencedTransaction(db, (tx) => tx
       .update(imagePromptAttemptsTable)
       .set({ generatedImageObjectPath: storedPath, error: null, errorCode: null, updatedAt: new Date() })
-      .where(eq(imagePromptAttemptsTable.id, p.attemptId));
+      .where(eq(imagePromptAttemptsTable.id, p.attemptId)));
 
     // Mirror to facts.aiMemeImages + user_ai_images for read compatibility
     // with the legacy GET /memes/ai/:factId/image endpoint — UNLESS this is an
@@ -565,8 +578,10 @@ async function prepareAndSwitchFallback(
 export function registerImagePromptHandlers(): void {
   // `render` lane: single-item, moderator-watched renders (LLM planner + fal
   // image gen). Isolated so a "test render" never waits behind a bulk backfill.
-  registerJobHandler(IMAGE_PROMPT_QUEUE, imagePromptGenerationHandler, { lane: "render" });
-  registerJobHandler(IMAGE_GENERATION_QUEUE, imageGenerationHandler, { lane: "render" });
+  // Execution limit (Issue #1000): two planner calls, each up to 3 tries of 180 s (about 18 min), plus margin.
+  registerJobHandler(IMAGE_PROMPT_QUEUE, imagePromptGenerationHandler, { lane: "render" , executionLimitMs: 25 * 60_000 });
+  // Execution limit (Issue #1000): the image wait has no bound of its own; kept at the old 30-minute reclaim until increment 2 collects a submitted picture instead of paying again.
+  registerJobHandler(IMAGE_GENERATION_QUEUE, imageGenerationHandler, { lane: "render" , executionLimitMs: 30 * 60_000 });
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -662,10 +677,10 @@ async function resolveRenderedFactText(
 }
 
 async function markAttemptError(attemptId: number, error: string): Promise<void> {
-  await db
+  await fencedTransaction(db, (tx) => tx
     .update(imagePromptAttemptsTable)
     .set({ error, updatedAt: new Date() })
-    .where(eq(imagePromptAttemptsTable.id, attemptId));
+    .where(eq(imagePromptAttemptsTable.id, attemptId)));
 }
 
 /**
@@ -688,10 +703,10 @@ async function recordTerminalAttemptFailure(
   message: string,
 ): Promise<HandlerResult> {
   try {
-    await db
+    await fencedTransaction(db, (tx) => tx
       .update(imagePromptAttemptsTable)
       .set({ error: message, errorCode: code, updatedAt: new Date() })
-      .where(eq(imagePromptAttemptsTable.id, attemptId));
+      .where(eq(imagePromptAttemptsTable.id, attemptId)));
   } catch (persistErr) {
     const detail = persistErr instanceof Error ? persistErr.message : String(persistErr);
     logger.error(
@@ -764,7 +779,7 @@ export async function mirrorToLegacyStorage(attempt: ImagePromptAttempt, storedP
     // read the same aiMemeImages array and clobber each other on write (last
     // write drops the other image). `SELECT … FOR UPDATE` serializes the append
     // on the fact row so both paths survive.
-    await db.transaction(async (tx) => {
+    await fencedTransaction(db, async (tx) => {
       const [factRow] = await tx
         .select({ aiMemeImages: factsTable.aiMemeImages })
         .from(factsTable)
@@ -782,13 +797,13 @@ export async function mirrorToLegacyStorage(attempt: ImagePromptAttempt, storedP
         .where(eq(factsTable.id, attempt.factId));
     });
     if (attempt.userId) {
-      await db.insert(userAiImagesTable).values({
-        userId: attempt.userId,
+      await fencedTransaction(db, (tx) => tx.insert(userAiImagesTable).values({
+        userId: attempt.userId!,
         factId: attempt.factId,
         gender,
         storagePath: storedPath,
         imageType: "reference",
-      });
+      }));
     }
   } catch (err) {
     logger.warn({ err, attemptId: attempt.id }, "[imagePromptJobs] mirror-to-legacy-storage failed (non-fatal)");

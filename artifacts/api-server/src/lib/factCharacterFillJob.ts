@@ -40,6 +40,7 @@ import { materializeEnrichment, resolveFactEnrichmentLLMSettings } from "./factE
 import { extractFactCharacters, withExtractedCharacters } from "./factCharacters";
 import { renderCanonical } from "./renderCanonical";
 import { logger } from "./logger";
+import { assertJobOwnership, whileOwned } from "./jobFence";
 
 export const FACT_CHARACTER_FILL_QUEUE = "fact_character_fill";
 
@@ -169,6 +170,7 @@ export async function runFactCharacterFill(
   const classifiedText = fact.text;
   let characters: FactCharacter[];
   try {
+    await assertJobOwnership(); // paid AI call: only while this run owns its job (Issue #1000)
     characters = await deps.extract(renderCanonical(classifiedText));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -176,7 +178,7 @@ export async function runFactCharacterFill(
     return { ok: false, error: `character call failed: ${msg}` };
   }
 
-  return db.transaction(async (tx): Promise<HandlerResult> => {
+  return whileOwned(() => db.transaction(async (tx): Promise<HandlerResult> => {
     if (p.target === "fact") {
       const [lockedFact] = await tx
         .select({
@@ -234,7 +236,7 @@ export async function runFactCharacterFill(
       .set({ enrichment: d.columns.enrichment, enrichmentAiDerived: d.columns.enrichmentAiDerived })
       .where(eq(factEnrichmentVersionsTable.id, p.versionId));
     return { ok: true, result: { target: "candidate", versionId: p.versionId, characters: characters.length } };
-  });
+  }));
 }
 
 export const factCharacterFillHandler: JobHandler = {
@@ -242,5 +244,6 @@ export const factCharacterFillHandler: JobHandler = {
 };
 
 export function registerFactCharacterFillHandler(): void {
-  registerJobHandler(FACT_CHARACTER_FILL_QUEUE, factCharacterFillHandler);
+  // Execution limit (Issue #1000): one extraction call, up to 3 tries of 120 s (about 6 min), plus margin.
+  registerJobHandler(FACT_CHARACTER_FILL_QUEUE, factCharacterFillHandler, { executionLimitMs: 12 * 60_000 });
 }

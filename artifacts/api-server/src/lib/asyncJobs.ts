@@ -19,7 +19,6 @@
  * "fal_video" queue) - handlers may stash the third-party request id there.
  */
 
-import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { eq, and, or, lte, lt, asc, desc, sql, inArray, isNull, isNotNull } from "drizzle-orm";
 import { db as defaultDb } from "@workspace/db";
@@ -31,6 +30,7 @@ import {
 } from "@workspace/db/schema";
 import { getConfigInt } from "./adminConfig";
 import { logger } from "./logger";
+import { JobInvocation, ownedBy, runAsInvocation } from "./jobFence";
 import {
   WORKER_INSTANCE_ID,
   stampLaneScheduled,
@@ -261,6 +261,15 @@ async function deferWhileHandlerUnavailable(
 
 // ─── Leases and fenced effects (plan §A, §B) ─────────────────────────────────
 
+export {
+  JobInvocation,
+  JobOwnershipLostError,
+  assertJobOwnership,
+  currentJobInvocation,
+  fencedTransaction,
+  jobAbortSignal,
+} from "./jobFence";
+
 /** A claim's lease: renewed by a live holder well before it lapses. */
 export const LEASE_DURATION_MS = 90_000;
 /** How often a process renews every lease it holds (its own timer). */
@@ -269,118 +278,8 @@ export const LEASE_RENEW_INTERVAL_MS = 20_000;
 export const RECLAIM_INTERVAL_MS = 30_000;
 const LEASE_INTERVAL = sql.raw(`interval '${LEASE_DURATION_MS} milliseconds'`);
 
-/** Thrown when a run that no longer owns its job tries to make an effect. */
-export class JobOwnershipLostError extends Error {
-  constructor(readonly jobId: number, readonly reason: string) {
-    super(`job ${jobId} is no longer owned by this run (${reason}) — effect refused`);
-    this.name = "JobOwnershipLostError";
-  }
-}
-
-/**
- * One invocation of one claimed job: its lease token, and an effect context
- * that can be stopped permanently — by the execution limit, by a renewal that
- * finds the lease lost, or by the run's own end. Once stopped, every fenced
- * effect it attempts is refused at once, and its abort signal has fired so a
- * handler waiting locally can give up.
- */
-export class JobInvocation {
-  private readonly controller = new AbortController();
-  private stopReason: string | null = null;
-
-  constructor(readonly jobId: number, readonly queue: string, readonly leaseToken: string) {}
-
-  get stopped(): boolean {
-    return this.stopReason !== null;
-  }
-
-  get reason(): string | null {
-    return this.stopReason;
-  }
-
-  get signal(): AbortSignal {
-    return this.controller.signal;
-  }
-
-  /** Stop this invocation's effects for good. Idempotent; the first reason wins. */
-  stop(reason: string): void {
-    if (this.stopReason !== null) return;
-    this.stopReason = reason;
-    this.controller.abort(new JobOwnershipLostError(this.jobId, reason));
-  }
-}
-
 /** Invocations this process is running, by lease token (the renewal's work list). */
 const HELD = new Map<string, JobInvocation>();
-/** The invocation the current async context belongs to, if any. */
-const INVOCATION = new AsyncLocalStorage<JobInvocation>();
-
-/** The invocation of the job whose handler is running here, if any. */
-export function currentJobInvocation(): JobInvocation | undefined {
-  return INVOCATION.getStore();
-}
-
-/**
- * The running job's abort signal, for a handler's local waits (a vendor poll,
- * a fetch). Fires when the run's effect context is stopped. Undefined outside
- * a job.
- */
-export function jobAbortSignal(): AbortSignal | undefined {
-  return INVOCATION.getStore()?.signal;
-}
-
-type FencedTx = Parameters<Parameters<typeof defaultDb.transaction>[0]>[0];
-
-/**
- * Run `fn` in a transaction that first locks this job's row and checks it is
- * still owned by the running invocation (plan §A: token, `processing`, lease
- * unexpired). A reclaim cannot slip between that check and `fn`'s writes,
- * because it would need the lock. If the claim is gone — or the invocation was
- * stopped — nothing in `fn` runs and `JobOwnershipLostError` is thrown.
- *
- * Use it for every effect a second run of the same job would also make: a
- * domain write, a child-job enqueue (pass the `tx` to `enqueueJob`), an
- * abandonment write. Outside a job (a route, a script) it is a plain
- * transaction, so shared code can call it from both.
- */
-export async function fencedTransaction<T>(
-  dbInstance: Pick<typeof defaultDb, "transaction">,
-  fn: (tx: FencedTx) => Promise<T>,
-): Promise<T> {
-  const invocation = INVOCATION.getStore();
-  if (!invocation) return dbInstance.transaction(fn);
-  const refuse = (reason: string): never => {
-    invocation.stop(reason);
-    logger.warn(
-      { id: invocation.jobId, queue: invocation.queue, reason },
-      "[asyncJobs] effect refused — this run no longer owns its job",
-    );
-    throw new JobOwnershipLostError(invocation.jobId, reason);
-  };
-  if (invocation.stopped) refuse(invocation.reason!);
-  return dbInstance.transaction(async (tx) => {
-    const [owned] = await tx
-      .select({ id: asyncJobsTable.id })
-      .from(asyncJobsTable)
-      .where(ownedBy(invocation.jobId, invocation.leaseToken))
-      .for("update");
-    if (!owned) refuse("lease lost — the claim changed or expired");
-    // Re-checked after the lock wait: the execution limit may have fired meanwhile.
-    if (invocation.stopped) refuse(invocation.reason!);
-    return fn(tx);
-  });
-}
-
-/**
- * Check, now, that the running job is still owned — before a costly step such
- * as a paid vendor call (plan §A). Throws `JobOwnershipLostError` when it is
- * not. A no-op outside a job.
- */
-export async function assertJobOwnership(
-  dbInstance: Pick<typeof defaultDb, "transaction"> = defaultDb,
-): Promise<void> {
-  await fencedTransaction(dbInstance, async () => undefined);
-}
 
 // ─── Enqueue ────────────────────────────────────────────────────────────────
 
@@ -443,18 +342,28 @@ export async function enqueueJob(
 ): Promise<EnqueueJobResult> {
   const dbInstance = dbOverride ?? defaultDb;
   const dedupeKey = options.dedupeKey ?? null;
+  const insertOnce = (target: Pick<typeof defaultDb, "insert">) => target
+    .insert(asyncJobsTable)
+    .values({
+      queue: options.queue,
+      payload: options.payload as unknown as object,
+      dedupeKey,
+      maxAttempts: options.maxAttempts ?? USE_CONFIGURED_MAX_ATTEMPTS,
+      nextAttemptAt: options.nextAttemptAt ?? new Date(),
+      externalId: options.externalId ?? null,
+    })
+    .returning({ id: asyncJobsTable.id, status: asyncJobsTable.status });
+  // Inside a caller's transaction, the insert runs under a savepoint: a dedupe
+  // conflict then undoes only this insert, not the caller's whole transaction
+  // (a fenced write and its child enqueue share one, Issue #1000).
+  const inSavepoint = (): ReturnType<typeof insertOnce> => {
+    const tx = dbOverride as Partial<Pick<typeof defaultDb, "transaction">> | undefined;
+    return (tx && typeof tx.transaction === "function"
+      ? tx.transaction((sp) => insertOnce(sp))
+      : insertOnce(dbInstance)) as ReturnType<typeof insertOnce>;
+  };
   try {
-    const [row] = await dbInstance
-      .insert(asyncJobsTable)
-      .values({
-        queue: options.queue,
-        payload: options.payload as unknown as object,
-        dedupeKey,
-        maxAttempts: options.maxAttempts ?? USE_CONFIGURED_MAX_ATTEMPTS,
-        nextAttemptAt: options.nextAttemptAt ?? new Date(),
-        externalId: options.externalId ?? null,
-      })
-      .returning({ id: asyncJobsTable.id, status: asyncJobsTable.status });
+    const [row] = await inSavepoint();
     return {
       jobId: row!.id,
       queue: options.queue,
@@ -492,17 +401,7 @@ export async function enqueueJob(
       }
       // Rare race: the conflicting job went terminal between the failed insert
       // and this read. The dedupe index no longer covers it, so retry once.
-      const [retry] = await dbInstance
-        .insert(asyncJobsTable)
-        .values({
-          queue: options.queue,
-          payload: options.payload as unknown as object,
-          dedupeKey,
-          maxAttempts: options.maxAttempts ?? USE_CONFIGURED_MAX_ATTEMPTS,
-          nextAttemptAt: options.nextAttemptAt ?? new Date(),
-          externalId: options.externalId ?? null,
-        })
-        .returning({ id: asyncJobsTable.id, status: asyncJobsTable.status });
+      const [retry] = await inSavepoint();
       return {
         jobId: retry!.id,
         queue: options.queue,
@@ -558,20 +457,6 @@ function requeueStatus(row: Pick<AsyncJobRow, "recoveryProtocol">): AsyncJobStat
   return row.recoveryProtocol != null ? "recovering" : "pending";
 }
 
-/**
- * The ownership predicate every fenced write repeats (plan §A): this
- * invocation's token, the row still `processing`, and an unexpired lease, all
- * judged by the database's clock.
- */
-function ownedBy(jobId: number, leaseToken: string) {
-  return and(
-    eq(asyncJobsTable.id, jobId),
-    eq(asyncJobsTable.leaseToken, leaseToken),
-    eq(asyncJobsTable.status, "processing"),
-    sql`${asyncJobsTable.leaseExpiresAt} > now()`,
-  );
-}
-
 /** What a fenced finalize sets on the row beyond its outcome: the lease is over. */
 const LEASE_RELEASED = { leaseExpiresAt: null } as const;
 
@@ -581,7 +466,7 @@ const LEASE_RELEASED = { leaseExpiresAt: null } as const;
  * (a single tx/connection can't) and so one job's finalize never blocks or
  * rolls back another's.
  *
- * The run happens inside its invocation (`INVOCATION`), so every
+ * The run happens inside its invocation (`runAsInvocation`), so every
  * `fencedTransaction` the handler makes is checked against this claim. The
  * finalize is fenced the same way: a run that lost its lease, or was stopped
  * at its execution limit, writes nothing, and `onAbandon` fires only after a
@@ -606,7 +491,7 @@ async function processClaimedJob(
     // retryable failure with a synthetic error message. A refused fenced write
     // surfaces here as a throw too, and the fenced finalize below then writes
     // nothing, because the claim it would need is gone.
-    const run = INVOCATION.run(invocation, async (): Promise<HandlerResult> => {
+    const run = runAsInvocation(invocation, async (): Promise<HandlerResult> => {
       try {
         return await handler.run(row.payload, row);
       } catch (err) {

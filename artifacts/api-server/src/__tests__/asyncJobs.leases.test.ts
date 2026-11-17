@@ -28,6 +28,7 @@ import {
   RECOVER_STUCK_CUTOFF_MIN,
   type JobHandler,
 } from "../lib/asyncJobs.js";
+import { whileOwned } from "../lib/jobFence.js";
 
 const QUEUE_PREFIX = "test_job_leases_";
 const newQueue = (): string => `${QUEUE_PREFIX}${randomUUID().slice(0, 8)}`;
@@ -323,6 +324,49 @@ describe("async job leases", () => {
     await tick;
     assert.ok(refused);
     assert.equal(await sentinelWrites(sentinel), 0);
+  });
+
+  it("a fenced helper called inside a fenced transaction does not wait on its own lock", async () => {
+    const queue = newQueue();
+    const sentinel = await makeSentinel();
+    registerJobHandler(queue, {
+      async run() {
+        await fencedTransaction(db, async () => {
+          await bumpSentinel(sentinel); // nested: must not lock the job row again
+          await whileOwned(() => bumpSentinel(sentinel));
+        });
+        return { ok: true };
+      },
+    }, { executionLimitMs: 5_000 });
+    const { jobId } = await enqueueJob({ queue, payload: {} });
+    await asyncJobsTick(db, new Date(), { queues: [queue] });
+    assert.equal((await getJob(jobId)).status, "done", "finished, not stopped at its limit");
+    assert.equal(await sentinelWrites(sentinel), 2);
+  });
+
+  it("a child enqueue that meets an in-flight duplicate inside a fenced write keeps the rest of the write", async () => {
+    const queue = newQueue();
+    const childQueue = newQueue();
+    const sentinel = await makeSentinel();
+    const key = randomUUID();
+    const existing = await enqueueJob({ queue: childQueue, payload: {}, dedupeKey: key });
+    let attached: Awaited<ReturnType<typeof enqueueJob>> | undefined;
+    registerJobHandler(queue, {
+      async run() {
+        await fencedTransaction(db, async (tx) => {
+          await tx.update(asyncJobsTable)
+            .set({ result: { writes: 1 } })
+            .where(eq(asyncJobsTable.id, sentinel));
+          attached = await enqueueJob({ queue: childQueue, payload: {}, dedupeKey: key }, tx);
+        });
+        return { ok: true };
+      },
+    });
+    await enqueueJob({ queue, payload: {} });
+    await asyncJobsTick(db, new Date(), { queues: [queue] });
+    assert.equal(attached?.inserted, false, "attached to the in-flight child");
+    assert.equal(attached?.jobId, existing.jobId);
+    assert.equal(await sentinelWrites(sentinel), 1, "the write beside it committed");
   });
 
   describe("recovering rows", () => {

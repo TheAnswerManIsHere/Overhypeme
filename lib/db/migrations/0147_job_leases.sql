@@ -43,9 +43,12 @@ ALTER TABLE "async_jobs" ADD COLUMN IF NOT EXISTS "claim_recovery_protocol" inte
 ALTER TABLE "async_jobs" ADD COLUMN IF NOT EXISTS "recovery_protocol" integer;
 
 DROP INDEX IF EXISTS "async_jobs_dedupe_idx";
+-- The predicate is written in the form Postgres prints back (the baseline's
+-- form), so a dump-and-restore of this index reproduces it byte for byte; the
+-- production adoption proof compares that text (phase3.productionAdopt).
 CREATE UNIQUE INDEX IF NOT EXISTS "async_jobs_dedupe_idx"
   ON "async_jobs" USING btree ("queue", "dedupe_key")
-  WHERE "dedupe_key" IS NOT NULL AND "status" IN ('pending', 'processing', 'recovering');
+  WHERE ((dedupe_key IS NOT NULL) AND ((status)::text = ANY (ARRAY[('pending'::character varying)::text, ('processing'::character varying)::text, ('recovering'::character varying)::text])));
 
 CREATE INDEX IF NOT EXISTS "async_jobs_recovering_idx"
   ON "async_jobs" USING btree ("queue", "next_attempt_at")

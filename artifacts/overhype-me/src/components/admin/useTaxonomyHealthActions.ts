@@ -50,6 +50,11 @@ const POLL_INTERVAL_MS = 1000;
 // — at which point we surface a loud "something's wrong" message. 24h.
 const STALL_GIVE_UP_MS = 24 * 60 * 60 * 1000;
 
+/** A job still in flight: queued, being picked back up, or running (Issue #1000 adds `recovering`). */
+function isInFlightJobStatus(status: AsyncJobStatusValue | "still_running" | undefined): boolean {
+  return status === "pending" || status === "recovering" || status === "processing";
+}
+
 export type UiOpState =
   | "posting"
   | "queued"
@@ -126,7 +131,7 @@ export interface UseTaxonomyHealthActionsResult {
 function deriveState(op: OperationState | undefined): UiOpState {
   if (!op) return "unknown";
   if (op.posting) return "posting";
-  const running = op.jobs.filter((j) => j.status === "pending" || j.status === "processing").length;
+  const running = op.jobs.filter((j) => isInFlightJobStatus(j.status)).length;
   if (running > 0) return "processing";
   const still = op.jobs.filter((j) => j.status === "still_running").length;
   const failed =
@@ -156,6 +161,9 @@ function deriveFactState(
   if (job) {
     switch (job.status) {
       case "pending": return "queued";
+      // Taken back from a stopped server and waiting to be picked up again:
+      // queued, from the admin's point of view (Issue #1000).
+      case "recovering": return "queued";
       case "processing": return "processing";
       case "done": return job.skipped ? "skipped" : "done";
       case "failed": return "failed";
@@ -173,7 +181,7 @@ function deriveFactState(
 
 function countsOf(op: OperationState | undefined): OpCounts | null {
   if (!op) return null;
-  const running = op.jobs.filter((j) => j.status === "pending" || j.status === "processing").length;
+  const running = op.jobs.filter((j) => isInFlightJobStatus(j.status)).length;
   const stillRunning = op.jobs.filter((j) => j.status === "still_running").length;
   const done =
     op.jobs.filter((j) => j.status === "done" && !j.skipped).length +
@@ -230,7 +238,7 @@ export function useTaxonomyHealthActions(
   const hasInflight = useMemo(
     () =>
       Object.values(ops).some((op) =>
-        op.jobs.some((j) => j.status === "pending" || j.status === "processing"),
+        op.jobs.some((j) => isInFlightJobStatus(j.status)),
       ),
     [ops],
   );
@@ -243,7 +251,7 @@ export function useTaxonomyHealthActions(
         if (op.jobs.length === 0) continue;
         const inflight = op.jobs.some((j) => {
           const s = statusFor(j.jobId) ?? j.status;
-          return s === "pending" || s === "processing";
+          return isInFlightJobStatus(s);
         });
         if (!inflight && !finalizedRef.current.has(op.scope)) {
           finalizedRef.current.add(op.scope);
@@ -258,7 +266,7 @@ export function useTaxonomyHealthActions(
     const inflight: number[] = [];
     for (const op of Object.values(opsRef.current)) {
       for (const j of op.jobs) {
-        if (j.status === "pending" || j.status === "processing") inflight.push(j.jobId);
+        if (isInFlightJobStatus(j.status)) inflight.push(j.jobId);
       }
     }
     if (inflight.length === 0) return;
@@ -304,7 +312,7 @@ export function useTaxonomyHealthActions(
       if (Date.now() - lastProgressRef.current >= STALL_GIVE_UP_MS) {
         setOps((prev) =>
           mapJobs(prev, (j) =>
-            j.status === "pending" || j.status === "processing"
+            isInFlightJobStatus(j.status)
               ? { ...j, status: "still_running" }
               : j,
           ),

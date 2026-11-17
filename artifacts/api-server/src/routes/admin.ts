@@ -2748,7 +2748,7 @@ router.get("/admin/queue-health/jobs", requireAdmin, async (req: Request, res: R
 });
 
 router.get("/admin/email-queue", requireAdmin, async (req: Request, res: Response) => {
-  const VALID_STATUSES = ["pending", "processing", "done", "failed"] as const;
+  const VALID_STATUSES = ["pending", "recovering", "processing", "done", "failed"] as const;
   type JobStatus = typeof VALID_STATUSES[number];
 
   const page = Math.max(1, parseInt(String(req.query["page"] ?? "1"), 10));

@@ -66,6 +66,7 @@ import { gagRenderInput, loadGagRenderContext, loadGags, workingContent } from "
 import { assertCanRunGagRenders, GagError, type GagActor } from "./gags/gagStore";
 import { renderPersonalized } from "./renderCanonical";
 import { enqueueJob, registerJobHandler, type EnqueueJobResult, type HandlerResult, type JobHandler } from "./asyncJobs";
+import { fencedTransaction } from "./jobFence";
 import { logger } from "./logger";
 import { attemptImageEngineId, currentRenderRouting, type ImageEngineIds } from "./imageEngineRouting";
 import { switchedFallbackOf } from "./engineFallback";
@@ -215,7 +216,7 @@ async function insertFailedScenarioAttempt(args: EnqueueScenarioArgs, errorMessa
   const inputHash = computeScenarioInputHash(args.scenarioKey, args.stagingFactId, args.factText, args.enrichment, args.imageEngines);
   const renderControls = defaultScenarioRenderControls();
   const subject = defaultPreviewSubjectForReference(desc.referenceIdentityType);
-  const [attempt] = await db
+  const [attempt] = await fencedTransaction(db, (tx) => tx
     .insert(imagePromptAttemptsTable)
     .values({
       factId: args.stagingFactId,
@@ -248,7 +249,7 @@ async function insertFailedScenarioAttempt(args: EnqueueScenarioArgs, errorMessa
         : null,
       reviewRenderBatchId: args.batchId,
     })
-    .returning({ id: imagePromptAttemptsTable.id });
+    .returning({ id: imagePromptAttemptsTable.id }));
   return { scenarioKey: args.scenarioKey, attemptId: attempt!.id, renderJobId: null, failed: true, reason: errorMessage };
 }
 
@@ -419,7 +420,9 @@ export async function drawGagKinds(
   const enqueued: EnqueueScenarioResult[] = [];
   for (const kind of kinds) {
     const scenarioKey = SCENARIO_FOR_KIND[kind];
-    const result = await db.transaction(async (tx) => {
+    // Fenced when a job draws (Issue #1000): the check and the enqueue run only
+    // while the job still owns its claim. A route's call is a plain transaction.
+    const result = await fencedTransaction(db, async (tx) => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`gag-render:${gagId}:${kind}`}))`);
       if (opts.redraw !== true && await attemptForContent(gagId, scenarioKey, target.enrichment)) return null;
       return enqueueScenarioRender({
@@ -679,7 +682,8 @@ export const reviewRenderScenariosPrepareHandler: JobHandler = {
 };
 
 export function registerReviewRenderScenarioHandlers(): void {
-  registerJobHandler(REVIEW_RENDER_PREPARE_QUEUE, reviewRenderScenariosPrepareHandler);
+  // Execution limit (Issue #1000): database work and one cached reference upload.
+  registerJobHandler(REVIEW_RENDER_PREPARE_QUEUE, reviewRenderScenariosPrepareHandler, { executionLimitMs: 10 * 60_000 });
 }
 
 /**

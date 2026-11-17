@@ -1262,20 +1262,33 @@ only — all lanes share one database connection pool.
 
 ### Claim
 
-A worker taking a queued job so no other worker picks it up. An individual job
-carries **no lease**, so a job whose worker crashed still *reads* as claimed
-until the [recovery sweep](#recovery-sweep) reaches it — the queue table shows
-recorded state, not live state.
+A worker taking a queued job so no other worker picks it up. Every claim
+carries a **lease**: the claiming process, a token, and an expiry 90 seconds out
+that the process renews every 20 seconds while it runs the job. A job whose
+process stopped still *reads* as claimed until its lease lapses and the
+[recovery sweep](#recovery-sweep) reaches it. Every finish and every effect a
+second run would also make checks the token, so a run that has lost its claim
+writes nothing (Issue #1000).
+→ [architecture-map](./architecture-map.md#async-jobs-and-queues)
+
+### Recovering
+
+A job taken back from a process that stopped mid-run, for a queue whose handler
+knows how to resume one (it declares a recovery protocol). Only a worker
+declaring at least that protocol may claim it, and it stays recovering through
+retries until it finishes. Queue Health shows it as "Picking back up". No queue
+declares a protocol yet (Issue #1000, increment 1), so nothing is recovering.
 → [architecture-map](./architecture-map.md#async-jobs-and-queues)
 
 ### Recovery sweep
 
-The pass that puts a job whose process died mid-run back in the queue. Work is
-never silently lost, but recovery runs **on a deliberate delay** — a job must
-look stuck first — because a faster sweep would sometimes grab a job another
-instance is still legitimately working on and run it twice (for an email, that
-means a real person gets it twice). Not the same as the [entitlement
-sweep](#entitlement-sweep).
+The pass that puts a job whose process died mid-run back in the queue, every 30
+seconds on its own timer. It takes a job only once its [claim](#claim)'s lease
+has lapsed, so a job still being worked on is never taken from under itself.
+Per queue, a switch decides how soon after that: at once (fast reclaim), or not
+before 30 minutes after the claim. Every queue's switch is off until its resume
+is built (Issue #1000), so recovery still waits 30 minutes today. Not the same
+as the [entitlement sweep](#entitlement-sweep).
 → [architecture-map](./architecture-map.md#async-jobs-and-queues)
 
 ### Retry ceiling
