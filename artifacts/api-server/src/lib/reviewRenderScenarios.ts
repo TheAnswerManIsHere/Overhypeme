@@ -39,6 +39,7 @@ import {
   type RenderScenarioCard,
   type RenderScenarioKey,
   type RenderScenarioStatus,
+  type RenderProgress,
   type RenderReviewState,
   type SourceImageAnalysis,
   type SubjectRenderMode,
@@ -67,6 +68,7 @@ import { assertCanRunGagRenders, GagError, type GagActor } from "./gags/gagStore
 import { renderPersonalized } from "./renderCanonical";
 import { enqueueJob, registerJobHandler, type EnqueueJobResult, type HandlerResult, type JobHandler } from "./asyncJobs";
 import { fencedTransaction } from "./jobFence";
+import { renderProgressByAttempt } from "./renderProgress";
 import { logger } from "./logger";
 import { attemptImageEngineId, currentRenderRouting, type ImageEngineIds } from "./imageEngineRouting";
 import { switchedFallbackOf } from "./engineFallback";
@@ -507,9 +509,15 @@ export function fallbackLineFor(
   return { refusedEngineId: fallback.routedEngineId, drawnByEngineId: fallback.fallbackEngineId };
 }
 
-function cardFor(gagId: number, scenarioKey: RenderScenarioKey, attempt: ImagePromptAttempt | null): RenderScenarioCard {
+function cardFor(
+  gagId: number,
+  scenarioKey: RenderScenarioKey,
+  attempt: ImagePromptAttempt | null,
+  progress: RenderProgress | null = null,
+): RenderScenarioCard {
   const desc = RENDER_SCENARIO_DESCRIPTORS[scenarioKey];
-  const status: RenderScenarioStatus = attempt ? deriveScenarioStatus(attempt) : "missing";
+  const status: RenderScenarioStatus = attempt ? deriveScenarioStatus(attempt, progress) : "missing";
+  const inFlight = progress != null && !attempt?.generatedImageObjectPath;
   return {
     key: scenarioKey,
     label: desc.label,
@@ -517,6 +525,7 @@ function cardFor(gagId: number, scenarioKey: RenderScenarioKey, attempt: ImagePr
     referenceIdentityType: desc.referenceIdentityType,
     required: true,
     status,
+    progress: inFlight ? progress : null,
     // Matched by content: a later engine or recipe change does not unseat it.
     stale: false,
     latestAttemptId: attempt?.id ?? null,
@@ -540,10 +549,15 @@ function cardFor(gagId: number, scenarioKey: RenderScenarioKey, attempt: ImagePr
 export async function buildGagKindCards(gagId: number): Promise<PerKind<RenderScenarioCard | null>> {
   const loaded = await loadGagRenderTarget(gagId);
   if (!loaded.ok) return mapKinds(() => null);
-  const cards = await Promise.all(GAG_EXAMPLE_KINDS.map(async (kind) => {
+  const attempts = await Promise.all(GAG_EXAMPLE_KINDS.map(async (kind) => {
     const scenarioKey = SCENARIO_FOR_KIND[kind];
-    return [kind, cardFor(gagId, scenarioKey, await attemptForContent(gagId, scenarioKey, loaded.target.enrichment))] as const;
+    return [kind, scenarioKey, await attemptForContent(gagId, scenarioKey, loaded.target.enrichment)] as const;
   }));
+  const progress = await renderProgressByAttempt(
+    attempts.flatMap(([, , a]) => (a && !a.generatedImageObjectPath ? [a.id] : [])),
+  );
+  const cards = attempts.map(([kind, scenarioKey, attempt]) =>
+    [kind, cardFor(gagId, scenarioKey, attempt, attempt ? progress.get(attempt.id) ?? null : null)] as const);
   return Object.fromEntries(cards) as PerKind<RenderScenarioCard | null>;
 }
 
@@ -635,7 +649,7 @@ export async function getScenarioAttemptDiagnostics(
     referenceAssetVersion: attempt.reviewReferenceAssetVersion,
     actualImageEngineId: attemptImageEngineId(attempt),
     stale: currentHash ? isAttemptStale(attempt, currentHash, await currentFallbackRecipeFor(attempt)) : false,
-    status: deriveScenarioStatus(attempt),
+    status: deriveScenarioStatus(attempt, (await renderProgressByAttempt([attempt.id])).get(attempt.id) ?? null),
   };
 }
 

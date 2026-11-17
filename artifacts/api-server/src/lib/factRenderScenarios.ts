@@ -31,6 +31,7 @@ import {
   type RenderControls,
   type RenderScenarioKey,
   type RenderScenarioStatus,
+  type RenderProgress,
   type SubjectRenderMode,
   withoutCast,
 } from "@workspace/api-zod";
@@ -193,8 +194,15 @@ export function buildScenarioInputHash(inputs: ScenarioHashInputs): string {
 
 // ─── Status / stale derivation ───────────────────────────────────────────────
 
-/** Map an attempt row to the Step-2 scenario status (reuses the shared render-status mapping). */
-export function deriveScenarioStatus(attempt: ImagePromptAttempt): RenderScenarioStatus {
+/**
+ * Map an attempt row to the Step-2 scenario status (reuses the shared
+ * render-status mapping). With the render's progress (plan PLAN_JOB_RESUME.md
+ * §D, `renderProgress.ts`), a render that has a job in flight is in flight
+ * whatever its row says so far: an error written while the queue still retries
+ * is not a failure yet, and a saved plan is not a drawing.
+ */
+export function deriveScenarioStatus(attempt: ImagePromptAttempt, progress: RenderProgress | null = null): RenderScenarioStatus {
+  if (progress != null && !attempt.generatedImageObjectPath) return progress === "queued" ? "queued" : "rendering";
   const payload = buildRenderStatusPayload(attempt);
   switch (payload.status) {
     case "blocked": return "blocked";

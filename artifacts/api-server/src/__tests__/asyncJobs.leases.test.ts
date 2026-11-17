@@ -17,6 +17,8 @@ import { eq, inArray, like, sql } from "drizzle-orm";
 import {
   __resetHandlersForTest,
   asyncJobsTick,
+  createLaneRunner,
+  startLeaseTimers,
   assertJobOwnership,
   enqueueJob,
   fencedTransaction,
@@ -500,6 +502,41 @@ describe("async job leases", () => {
     assert.match(after.lastError ?? "", /execution limit/);
   });
 
+  it("a busy bulk lane does not delay renewal or reclaim: both run while its tick is still waiting on a handler (plan §A; Issue #1000 increment 2)", async () => {
+    const busyQueue = newQueue();
+    const otherQueue = newQueue();
+    const release = makeDeferred();
+    let started = false;
+    registerJobHandler(busyQueue, { async run() { started = true; await release.promise; return { ok: true }; } }, { lane: "bulk" });
+    registerJobHandler(otherQueue, { async run() { return { ok: true }; } }, { lane: "bulk", fastReclaim: true });
+    const busy = await enqueueJob({ queue: busyQueue, payload: {} });
+    const noTimer = () => ({}) as NodeJS.Timeout;
+    const lane = createLaneRunner(
+      { lane: "bulk", intervalMs: 1_000_000, maxConcurrency: 1, maintenance: false },
+      { schedule: noTimer, heartbeats: { scheduled: async () => {}, completed: async () => {} } },
+    );
+    const tickDone = lane.tick();
+    try {
+      await until(() => started, "the bulk lane's tick is busy in its handler");
+      // A row another process held and stopped renewing, and the busy row's own lease close to lapsing.
+      const [stale] = await db.insert(asyncJobsTable).values({
+        queue: otherQueue, payload: {}, status: "processing", claimOwner: "stopped-instance",
+        leaseToken: randomUUID(), leaseExpiresAt: sql`now() - interval '1 second'`, claimedAt: sql`now()`,
+      }).returning();
+      await db.execute(sql`UPDATE async_jobs SET lease_expires_at = now() + interval '5 seconds' WHERE id = ${busy.jobId}`);
+      const timers: Array<() => void> = [];
+      startLeaseTimers((fn) => { timers.push(fn); return noTimer(); });
+      for (const fire of timers) fire();
+      await until(async () => (await getJob(stale!.id)).status === "pending", "the stopped holder's row is reclaimed mid-tick");
+      await until(async () => (await getJob(busy.jobId)).leaseExpiresAt!.getTime() - Date.now() > 60_000, "the busy row's lease is renewed mid-tick");
+      assert.equal((await getJob(busy.jobId)).status, "processing", "the busy run still holds its job");
+    } finally {
+      release.resolve();
+      await tickDone;
+    }
+    await until(async () => (await getJob(busy.jobId)).status === "done", "the busy run finishes on its renewed lease");
+  });
+
   describe("recovering rows", () => {
     async function insertRecovering(queue: string, requires: number): Promise<number> {
       const [row] = await db.insert(asyncJobsTable).values({
@@ -550,6 +587,40 @@ describe("async job leases", () => {
       const after = await getJob(jobId);
       assert.equal(after.status, "recovering");
       assert.equal(after.recoveryProtocol, 3);
+    });
+
+    it("release pair 1 → 2: a row an earlier release claimed (no stamp) and a capable worker reclaims requires that worker's protocol, so the earlier release never claims it (PR #1017 round 2)", async () => {
+      const queue = newQueue();
+      let runs = 0;
+      const handler: JobHandler = { async run() { runs++; return { ok: true }; } };
+      registerJobHandler(queue, handler, { recoveryProtocol: 1, fastReclaim: true });
+      const { jobId } = await enqueueJob({ queue, payload: {} });
+      // Claimed by the earlier release: leased, but no claim stamp.
+      await db.update(asyncJobsTable).set({ status: "processing", leaseToken: randomUUID(), claimRecoveryProtocol: null })
+        .where(eq(asyncJobsTable.id, jobId));
+      await lapseLease(jobId);
+      await recoverStuckProcessing(db);
+      const after = await getJob(jobId);
+      assert.equal(after.status, "recovering");
+      assert.equal(after.recoveryProtocol, 1);
+
+      registerJobHandler(queue, handler); // the earlier release: declares nothing
+      await asyncJobsTick(db, new Date(), { queues: [queue] });
+      assert.equal(runs, 0, "the earlier release never claims it");
+      registerJobHandler(queue, handler, { recoveryProtocol: 1 });
+      await asyncJobsTick(db, new Date(), { queues: [queue] });
+      assert.equal(runs, 1, "a capable worker resumes it");
+    });
+
+    it("a reclaim never lowers a requirement a row already carries", async () => {
+      const queue = newQueue();
+      registerJobHandler(queue, { async run() { return { ok: true }; } }, { recoveryProtocol: 1, fastReclaim: true });
+      const { jobId } = await enqueueJob({ queue, payload: {} });
+      await db.update(asyncJobsTable).set({ status: "processing", leaseToken: randomUUID(), claimRecoveryProtocol: 2 })
+        .where(eq(asyncJobsTable.id, jobId));
+      await lapseLease(jobId);
+      await recoverStuckProcessing(db);
+      assert.equal((await getJob(jobId)).recoveryProtocol, 2);
     });
 
     it("dedupe: enqueueing a job whose key matches a recovering row is refused as a duplicate", async () => {

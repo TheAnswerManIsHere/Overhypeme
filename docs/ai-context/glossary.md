@@ -1305,8 +1305,11 @@ writes nothing (Issue #1000).
 A job taken back from a process that stopped mid-run, for a queue whose handler
 knows how to resume one (it declares a recovery protocol). Only a worker
 declaring at least that protocol may claim it, and it stays recovering through
-retries until it finishes. Queue Health shows it as "Picking back up". No queue
-declares a protocol yet (Issue #1000, increment 1), so nothing is recovering.
+retries until it finishes. Queue Health shows it as "Picking back up"; a
+render's tile does too, until a run after the reclaim fails and the job is
+waiting out its retry, which the tile shows as "Retrying shortly…". The two
+render queues declare one (Issue #1000, increment 2); the other queues declare
+none yet.
 → [architecture-map](./architecture-map.md#async-jobs-and-queues)
 
 ### Recovery sweep
@@ -1315,9 +1318,10 @@ The pass that puts a job whose process died mid-run back in the queue, every 30
 seconds on its own timer. It takes a job only once its [claim](#claim)'s lease
 has lapsed, so a job still being worked on is never taken from under itself.
 Per queue, a switch decides how soon after that: at once (fast reclaim), or not
-before 30 minutes after the claim. Every queue's switch is off until its resume
-is built (Issue #1000), so recovery still waits 30 minutes today. Not the same
-as the [entitlement sweep](#entitlement-sweep).
+before 30 minutes after the claim. The switch is on for the render queues
+(Issue #1000, increment 2), so a render the server dropped is picked back up in
+about two minutes; every other queue's switch stays off until its resume is
+built. Not the same as the [entitlement sweep](#entitlement-sweep).
 → [architecture-map](./architecture-map.md#async-jobs-and-queues)
 
 ### Retry ceiling

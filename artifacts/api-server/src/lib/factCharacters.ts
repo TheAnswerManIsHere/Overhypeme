@@ -27,6 +27,7 @@ import {
   type FactEnrichment,
 } from "@workspace/api-zod";
 import { callUtilityLLM } from "./utilityLLM";
+import { rethrowIfOwnershipLost } from "./jobFence";
 import { logger } from "./logger";
 import { CANONICAL_SUBJECT_NAMES, CANONICAL_SUBJECT_NAME_FORMS_LC, possessive } from "./renderCanonical";
 
@@ -169,6 +170,7 @@ export async function attachCharacters(
   try {
     return withExtractedCharacters(enrichment, await extract());
   } catch (err) {
+    rethrowIfOwnershipLost(err); // Issue #1010
     logger.warn({ err }, "[factCharacters] character call failed; keeping prior list or leaving it missing");
     return withPriorCharactersOrMissing(enrichment, prior);
   }

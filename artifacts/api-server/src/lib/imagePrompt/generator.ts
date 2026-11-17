@@ -29,6 +29,7 @@ import {
   type FactCharacter,
 } from "@workspace/api-zod";
 import { callUtilityLLM, UTILITY_LLM_TIMEOUT_MS } from "../utilityLLM";
+import { rethrowIfOwnershipLost } from "../jobFence";
 import {
   getImagePromptSystem,
   composeImagePromptSystemPrompt,
@@ -852,6 +853,7 @@ export async function generateImagePromptPlan(
     const output = await generateImagePromptPlanWithModel(input, makeOpenAIImagePromptCaller(settings));
     return { ...output, plannerProvenance: settings.plannerProvenance };
   } catch (err) {
+    rethrowIfOwnershipLost(err); // a refusal is not a provider failure (Issue #1010)
     if (err instanceof ImagePromptError) {
       err.plannerProvenance ??= settings.plannerProvenance;
       throw err;

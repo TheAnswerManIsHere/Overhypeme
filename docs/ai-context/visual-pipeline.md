@@ -549,6 +549,17 @@ stored picture clears both fields (plan PLAN_NB_FALLBACK.md). Both
 successful later attempt and surfaced together in the render-poll payload
 (`buildRenderStatusPayload`) so the UI never parses a "code: message" string.
 
+**A render the server stopped is resumed, never paid for twice (Issue #1000,
+increment 2; plan `docs/plans/PLAN_JOB_RESUME.md` §C, §D, §F).** The image
+request's receipt (fal's request id) is stored the moment fal accepts it, so a
+resumed render collects the picture fal is still drawing or has finished; a
+lost receipt is looked for in fal's request history once the picture could have
+finished, and the picture is drawn again (logged) only when no unambiguous
+match exists (David, Q13: 1). A resumed planner reuses a plan already saved for
+its attempt. The moderator's tile reads the render's real progress — Queued… /
+Drawing… / Picking back up… / Saving… / Retrying shortly… — and "Drawing…"
+means fal reports the picture in progress, not merely that a plan is saved.
+
 ## Every picture starts from a photo
 
 The compiler review, Phase 2 (David, 2026-11-14; [`decisions.md`](./decisions.md)):

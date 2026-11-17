@@ -659,8 +659,19 @@ function GagCard({
   );
 }
 
-/** A tile's state in words, when it has no image to show. */
-function statusWords(status: string, message: string | null): string {
+/**
+ * A tile's state in words, when it has no image to show. An in-flight render
+ * reads its progress (plan PLAN_JOB_RESUME.md §D): "Drawing…" only while the
+ * image service reports the picture in progress.
+ */
+function statusWords(status: string, message: string | null, progress?: string | null): string {
+  switch (progress) {
+    case "queued": return "Queued…";
+    case "drawing": return "Drawing…";
+    case "resuming": return "Picking back up…";
+    case "saving": return "Saving…";
+    case "retrying": return "Retrying shortly…";
+  }
   switch (status) {
     case "missing": return "Not drawn yet.";
     case "queued": return "Queued…";
@@ -705,7 +716,7 @@ function RenderTile({ kind, card, picked, canAct, readOnly, onApprove, onDraw }:
       ) : (
         <p className={`text-[11px] flex items-center gap-1 ${status === "failed" ? "text-destructive" : "text-muted-foreground"}`} data-testid="gag-render-status">
           {inFlight && <Loader2 className="w-3 h-3 animate-spin" />}
-          {statusWords(status, card?.message ?? null)}
+          {statusWords(status, card?.message ?? null, card?.progress ?? null)}
         </p>
       )}
       {approvable && (
