@@ -107,7 +107,7 @@ export const CARD_META: CardMeta[] = [
     filter: "stale_for_reprocess",
     tone: "amber",
     description:
-      "Enrichment is valid, but the fact was last processed under an older engine revision or older pipeline code versions (or has never been through the versioned refresh). Its enrichment is good — it just hasn't benefited from the latest thinking.",
+      "Enrichment is valid, but the fact was last processed under an older engine revision or older pipeline code versions (or has never been stamped with one). Its enrichment is good — it just hasn't benefited from the latest thinking.",
     whatToDo:
       "Nothing to do here for now: sending a live fact back through review was removed with refresh reviews. This flag and this page go with the taxonomy rework.",
     actions: [],
