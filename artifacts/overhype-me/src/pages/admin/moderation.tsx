@@ -6,7 +6,7 @@ import {
   CheckCircle, CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight,
   ExternalLink, ClipboardList, Loader2, AlertTriangle,
   MessageSquare, Trash2, User, Sparkles, RefreshCw, Rocket,
-  CheckCheck, SlidersHorizontal, Wand2, Search,
+  CheckCheck, SlidersHorizontal, Wand2, Search, Save,
 } from "lucide-react";
 import {
   type FactEnrichment,
@@ -26,7 +26,8 @@ import {
   stageToWizardStep,
   type WizardStep,
 } from "@/components/admin/moderationQueueState";
-import { EnrichmentEditor, EnrichmentSummary, isApprovable } from "@/components/admin/EnrichmentEditor";
+import { EnrichmentSummary, isApprovable } from "@/components/admin/EnrichmentEditor";
+import { CharactersEditor } from "@/components/admin/CharactersEditor";
 import { useFactEnrichmentEditing } from "@/components/admin/useFactEnrichmentEditing";
 import { RefreshReviewBadge } from "@/components/admin/RefreshReviewBadge";
 import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
@@ -931,25 +932,38 @@ function ReviewModal({
     <CollapsibleSection
       title="Advanced Options"
       icon={<SlidersHorizontal className="w-4 h-4 text-muted-foreground" />}
-      description="Enrichment, references, visual-strategy overrides, and prompt diagnostics."
+      description="The fact's characters and prompt diagnostics. The AI classification is edited on the Facts editor."
       storageKey={`overhype:moderation:advanced:${review.id}`}
     >
-      <EnrichmentEditor
-        value={enrichment}
-        status={enrichEditing.enrichmentStatus}
-        factText={review.submittedText}
-        onChange={(next) => enrichmentDraft.setValue(next)}
-        onSave={enrichmentDraft.hasUncommittedChanges ? () => void enrichmentDraft.save() : undefined}
-        // Deliberately NO onRerun at Step 2/3 (refresh AND first-time): the
-        // generic job guard skips review-backed facts outside prep, so the button
-        // could only strand the status on "classifying…". Re-classification lives
-        // on the Facts page (live facts) and Retry Prep (prep_failed); refresh
-        // cycles are re-classified by declining + re-sending.
-        busy={loading || jobs.loading || jobs.rerunBusy || enrichmentDraft.committing}
-        rerunBusy={jobs.rerunBusy}
-        hideHashtags
-        overrideContext={enrichEditing.overrideContext}
-      />
+      {/* The taxonomy editor is not on this screen (plan PLAN_GAG_DIRECT_RENDER.md,
+          F; David, Q2: 1): the classification is the AI's, kept for AI and code,
+          and edited on the Facts editor under "AI classification". The fact's
+          characters stay here: they name who the fact mentions, and a gag's
+          cast is labelled from them. Hashtags and the humor note are on the
+          steps above. */}
+      {enrichment && (
+        <div className="space-y-2" data-testid="moderation-characters">
+          <CharactersEditor
+            characters={enrichment.characters ?? []}
+            disabled={loading || enrichmentDraft.committing}
+            onChange={(next) => {
+              enrichmentDraft.setValue({ ...enrichment, characters: next });
+              enrichEditing.overrideContext?.onOverride("/characters", next);
+            }}
+          />
+          {enrichmentDraft.hasUncommittedChanges && (
+            <button
+              type="button"
+              onClick={() => void enrichmentDraft.save()}
+              disabled={loading || enrichmentDraft.committing}
+              data-testid="moderation-characters-save"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium border border-border rounded-sm hover:bg-muted text-foreground disabled:opacity-50"
+            >
+              <Save className="w-3.5 h-3.5" /> Save characters
+            </button>
+          )}
+        </div>
+      )}
       {jobs.error && (
         <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
           <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />

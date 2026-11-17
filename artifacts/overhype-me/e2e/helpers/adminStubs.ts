@@ -10,12 +10,17 @@
  * (`lib/gags/gagStore.ts`, `validateGagContent` ahead of the transaction), so
  * the refusal a test reads is the server's own.
  *
+ * Reading a draft's cast (POST /api/admin/facts/:id/gags/cast, plan
+ * PLAN_GAG_DIRECT_RENDER.md, F) IS stubbed: it is a model call, and every save
+ * takes it first. The stub answers the fact's `cast` (none by default), keyed to
+ * the scene and speakers it was sent, as the server would.
+ */ *
  * Shapes follow the server's serializers (`routes/admin.ts`,
  * `routes/reviews.ts`) and the page's own interfaces
  * (`pages/admin/facts.tsx`, `pages/admin/moderation.tsx`).
  */
 import type { Page, Route } from "@playwright/test";
-import type { FactEnrichment, FactGagsView, GagView, VisualPromptStrategyOverride } from "@workspace/api-zod";
+import { castSourceKey, type FactEnrichment, type FactGagsView, type GagCastEntry, type GagView, type VisualPromptStrategyOverride } from "@workspace/api-zod";
 import { factDetail } from "./apiStubs";
 
 const CREATED = "2026-10-01T12:00:00.000Z";
@@ -159,7 +164,7 @@ function json(route: Route, body: unknown, status = 200): Promise<void> {
  */
 export async function stubAdminFacts(
   page: Page,
-  facts: { row: AdminFactRow; enrichment: FactEnrichment | null; listed?: boolean; review?: FactGagsView["review"] }[],
+  facts: { row: AdminFactRow; enrichment: FactEnrichment | null; listed?: boolean; review?: FactGagsView["review"]; cast?: GagCastEntry[] }[],
 ): Promise<void> {
   const byId = new Map(facts.map((f) => [f.row.id, f]));
   const listed = facts.filter((f) => f.listed !== false).map((f) => f.row);
@@ -169,6 +174,18 @@ export async function stubAdminFacts(
       ? json(route, { facts: listed, total: listed.length, page: 1, limit: 25 })
       : route.continue(),
   );
+  await page.route(/\/api\/admin\/facts\/(\d+)\/gags\/cast$/, (route) => {
+    const id = Number(/\/api\/admin\/facts\/(\d+)\//.exec(route.request().url())![1]);
+    const body = route.request().postDataJSON() as { scene: string; bubbles: { entity: string; text: string }[] };
+    const cast = byId.get(id)?.cast ?? [];
+    const labels = new Set(cast.map((c) => c.label));
+    const unboundSpeakers = body.bubbles.map((b) => b.entity.trim()).filter((e) => e && e !== "subject" && !labels.has(e));
+    return json(route, {
+      cast,
+      castExtraction: { promptVersion: "e2e", extractedAt: CREATED, sourceKey: castSourceKey(body.scene, body.bubbles) },
+      unboundSpeakers,
+    });
+  });
   await page.route(/\/api\/admin\/facts\/(\d+)(\/[a-z-]+)?(\?.*)?$/, (route) => {
     if (route.request().method() !== "GET") return route.continue();
     const url = new URL(route.request().url());
@@ -205,7 +222,7 @@ export async function stubAdminFacts(
 /** A first-time submission waiting at moderation Step 2 (the Visual Concept step), with its staging fact. */
 export async function stubConceptReview(
   page: Page,
-  review: { id: number; submittedText: string; stagingFactId: number; enrichment: FactEnrichment },
+  review: { id: number; submittedText: string; stagingFactId: number; enrichment: FactEnrichment; cast?: GagCastEntry[] },
 ): Promise<void> {
   const stagingSlice = {
     id: review.stagingFactId,
@@ -255,5 +272,6 @@ export async function stubConceptReview(
     enrichment: review.enrichment,
     listed: false,
     review: { id: review.id, stage: "concept_review", refresh: false },
+    cast: review.cast,
   }]);
 }
