@@ -590,6 +590,9 @@ describe("PATCH /admin/facts/:id", () => {
       .send({ isActive: true });
     assert.equal(res.status, 400);
     assert.equal(res.body.code, "ACTIVATION_REQUIRES_MODERATION");
+    // Re-moderation was removed with resubmission (increment 1.2a): the refusal
+    // must not point an admin at it.
+    assert.doesNotMatch(res.body.error, /moderat/i);
 
     const [row] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, inactiveFact));
     assert.equal(row.isActive, false, "the fact must still be inactive — activation must not have been written");

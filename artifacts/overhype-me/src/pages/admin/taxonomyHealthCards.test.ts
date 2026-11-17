@@ -10,7 +10,7 @@ describe("Taxonomy Health cards", () => {
   it("never tell an admin to send a fact back to review", () => {
     for (const card of CARD_META) {
       const text = [card.description, card.whatToDo, ...card.actions.flatMap((a) => [a.label, a.help])].join(" ");
-      expect(text, card.key).not.toMatch(/send (it |those |them )?back|back to review|refresh cycle|promote the candidate/i);
+      expect(text, card.key).not.toMatch(/send (it |those |them )?back|back to review|refresh cycle|versioned refresh|promote the candidate/i);
     }
   });
 });
