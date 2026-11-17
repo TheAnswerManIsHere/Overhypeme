@@ -695,11 +695,18 @@ describe("candidate isolation across readers", () => {
     const fact = await seedActiveFact();
     const { reviewId } = await seedReadyRefreshCycle(fact);
 
+    // Hermetic: the route uploads the default reference image, so the upload is
+    // stubbed for the whole test. Without it the test reached fal whenever an
+    // earlier file in its shard (comparisonRuns.test.ts) had left the reference
+    // cache cold, and failed with fal's 401 (Issue #1000 increment 3).
+    __setReferenceFalUploadForTest(async () => "https://fal.test/ref.jpg");
     // POST /admin/reviews/:id/render — the ephemeral single render.
     const renderRes = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/render`)
       .set("authorization", `Bearer ${adminSid}`)
-      .send({});
+      .send({})
+      .catch((err: unknown) => { __setReferenceFalUploadForTest(null); throw err; });
+    if (renderRes.status !== 202) __setReferenceFalUploadForTest(null);
     assert.equal(renderRes.status, 202, JSON.stringify(renderRes.body));
     const [attempt] = await db.select().from(imagePromptAttemptsTable)
       .where(eq(imagePromptAttemptsTable.id, renderRes.body.attemptId));
@@ -712,7 +719,6 @@ describe("candidate isolation across readers", () => {
     // A gag's kind render (the Test Renders path).
     const [gag] = await loadGags(fact.id);
     assert.ok(gag, "the refresh cycle's fact has a gag");
-    __setReferenceFalUploadForTest(async () => "https://fal.test/ref.jpg");
     const run = await drawGagKinds(gag!.id, ["male"], { adminUserId: adminId, redraw: true })
       .finally(() => __setReferenceFalUploadForTest(null));
     assert.ok(!("error" in run), JSON.stringify(run));
