@@ -505,7 +505,10 @@ redrawn once on Nano Banana 2.1, photoreal, with the same photo and scene
 - **Both refuse: the render fails** with `vendor_content_refused`, naming both
   refusals. No third engine and no rewording (Q14). A fallback prompt that
   cannot be built fails with `fallback_compile_failed`, the refusal kept.
-- **Styled renders are unchanged**: Nano Banana first, retried as before.
+- **Styled renders have no fallback**: Nano Banana first. A content refusal
+  there ends the render at once with `vendor_content_refused` and the refusal
+  named, instead of retrying the same engine behind a "Drawing…" tile (David,
+  Q17 option 1, 2026-11-17).
 - **The picture names the engine that drew it**: its provenance record, its
   linked generation request, the visible engine stamp and the snapshot's prompt
   all name Nano Banana; the trace screen shows the refusal and the refused
@@ -532,7 +535,12 @@ underlying additive `HandlerResult` contract. Terminal codes:
 validation-exhaustion, `ImagePromptError.cause === "validation_exhausted"` —
 a genuine provider/timeout failure stays retryable), `compile_failed`,
 `moderator_core_scene_unresolved_token`, `required_budget_overflow`. The
-`image_generation` worker writes a retryable failure to the attempt only when
+`image_generation` worker ends a render at once when its stored input cannot be
+drawn, since every retry would fail the same way (`render_input_invalid`: no
+prompt text, a photo-based render with no reference photo, an engine that
+cannot draw the mode, or a request that cannot be built), and on a content
+refusal with no fallback left (`vendor_content_refused`) (David, Q17 option 1,
+2026-11-17). It writes a retryable failure to the attempt only when
 the queue gives up (its `onAbandon` hook), so a render reads "rendering" while
 it is still retrying and a picture that arrives on a retry is approvable; a
 stored picture clears both fields (plan PLAN_NB_FALLBACK.md). Both
