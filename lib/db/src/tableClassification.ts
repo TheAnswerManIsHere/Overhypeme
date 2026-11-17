@@ -114,6 +114,8 @@ export const TABLE_CLASSIFICATION: Readonly<Record<string, TableEntry>> = {
   password_reset_tokens: { class: "excluded", excluded: "sessions" },
   oauth_pending_states: { class: "excluded", excluded: "sessions" },
   async_jobs: { class: "excluded", excluded: "jobs" },
+  // The fold's reversal record (0146): names gags by this environment's ids.
+  fact_gag_fold_archive: { class: "excluded", excluded: "jobs" },
   // Scheduled destructive work (launch Phase 5, 0117): copied elsewhere, a
   // request would purge an account there.
   account_deletion_requests: { class: "excluded", excluded: "jobs" },
@@ -143,7 +145,6 @@ export const TABLE_CLASSIFICATION: Readonly<Record<string, TableEntry>> = {
   fact_enrichment_versions: { class: "product" },
   fact_gags: { class: "product" },
   fact_gag_examples: { class: "product" },
-  fact_gag_fold_archive: { class: "product" },
   fact_hashtags: { class: "product" },
   fact_text_edit_history: { class: "product" },
   facts: { class: "product" },
