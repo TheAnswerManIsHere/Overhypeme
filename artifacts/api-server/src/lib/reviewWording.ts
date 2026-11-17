@@ -26,7 +26,7 @@ import { eq, sql } from "drizzle-orm";
 import { db, factsTable, pendingReviewsTable } from "@workspace/db";
 import { canEditWording, canWithdraw, SUBMISSION_TEXT_MAX_CHARS, SUBMISSION_TEXT_MIN_CHARS, type ReviewWorkflowStage } from "@workspace/api-zod";
 import { normalizeFactTemplateForPendingReview } from "./normalizeFactTemplateForStorage";
-import { runDetector, storedDuplicateColumns, type DetectorResult } from "./duplicateVerdict";
+import { runDetector, storedDuplicateColumns, type DuplicateDetector } from "./duplicateVerdict";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -79,7 +79,7 @@ export async function editTriageWording(
   reviewId: number,
   rawText: string,
   adminId: string,
-  duplicate: (text: string) => Promise<DetectorResult>,
+  duplicate: DuplicateDetector,
 ): Promise<typeof pendingReviewsTable.$inferSelect> {
   const text = normaliseWording(rawText);
   // A cheap pre-check, so a locked review spends nothing on the duplicate match.
@@ -87,7 +87,7 @@ export async function editTriageWording(
   if (!current) throw new WordingError("REVIEW_NOT_FOUND", "Review not found.", 404);
   assertAtTriage(current);
   if (text === current.submittedText) return current;
-  const match = await runDetector((t) => duplicate(t), text, reviewId);
+  const match = await runDetector(duplicate, text, reviewId);
 
   return db.transaction(async (tx) => {
     const review = await lockReview(tx, reviewId);

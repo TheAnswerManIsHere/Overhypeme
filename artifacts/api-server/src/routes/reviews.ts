@@ -121,14 +121,11 @@ function requireAuth(req: Request, res: Response, next: () => void): void {
 
 // ─── Submit for Review ────────────────────────────────────────────────────────
 
-// matchingFactId / matchingSimilarity / isDuplicate are still accepted, so an
-// older open tab is not refused, and discarded: the duplicate verdict is the
-// server's own check of the saved wording (plan PLAN_DUPLICATE_VERDICT.md).
+// The duplicate verdict is the server's own check of the saved wording (plan
+// PLAN_DUPLICATE_VERDICT.md): match fields an older tab still sends are unknown
+// keys, which the schema strips rather than refuses.
 const SubmitReviewBody = z.object({
   text: z.string().min(SUBMISSION_TEXT_MIN_CHARS).max(SUBMISSION_TEXT_MAX_CHARS),
-  matchingFactId: z.number().int().optional(),
-  matchingSimilarity: z.number().int().min(0).max(100).optional(),
-  isDuplicate: z.boolean().optional(),
   hashtags: z.array(z.string()).max(10).optional(),
   reason: z.enum(["duplicate", "spam", "offensive"]).optional(),
 });
@@ -354,7 +351,7 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
   const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id));
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
 
-  const [submitter, matchingFact, stagingFact] = await Promise.all([
+  const [submitter, matchingFact, stagingFact, duplicate] = await Promise.all([
     review.submittedById
       ? db.select({ id: usersTable.id, email: usersTable.email, displayName: usersTable.displayName })
           .from(usersTable).where(and(eq(usersTable.id, review.submittedById), eq(usersTable.isActive, true))).limit(1)
@@ -382,6 +379,7 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
           .from(factsTable).where(eq(factsTable.id, review.stagingFactId)).limit(1)
           .then((r) => r[0] ?? null)
       : null,
+    duplicateView(review),
   ]);
 
   // Slice 2A: normalized candidate Visual concepts with a SERVER-computed
@@ -398,8 +396,6 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
         humorNoteApprovedAt: stagingFact.humorNoteApprovedAt,
       })
     : { status: null, candidates: [], current: false };
-
-  const duplicate = await duplicateView(review);
 
   res.json({
     ...review,
@@ -947,7 +943,7 @@ router.post("/admin/reviews/:id/wording", requireAdmin, async (req: Authenticate
   const body = WordingBody.safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: "The wording is required." }); return; }
   try {
-    const review = await editTriageWording(id, body.data.text, req.user.id, (text) => duplicateDetector(text, { excludeReviewId: id }));
+    const review = await editTriageWording(id, body.data.text, req.user.id, duplicateDetector);
     // The new wording's verdict, so the screen redraws its duplicate line.
     res.json({
       success: true,
@@ -971,10 +967,9 @@ router.post("/admin/reviews/:id/duplicate-check", requireAdmin, requireDuplicate
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
-  let current = review;
-  if (needsDuplicateCheck(review, await duplicateView(review))) {
-    current = (await checkReviewDuplicate(id, duplicateDetector)) ?? review;
-  }
+  const view = await duplicateView(review);
+  if (!needsDuplicateCheck(review, view)) { res.json({ submittedText: review.submittedText, duplicate: view }); return; }
+  const current = (await checkReviewDuplicate(id, duplicateDetector)) ?? review;
   res.json({ submittedText: current.submittedText, duplicate: await duplicateView(current) });
 });
 

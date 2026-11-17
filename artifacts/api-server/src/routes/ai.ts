@@ -17,7 +17,6 @@ import {
 import { renderCanonical } from "../lib/renderCanonical";
 import { duplicateMatchText } from "../lib/duplicateText";
 import type { DuplicateOutcome } from "../lib/duplicateVerdict";
-export type { DuplicateOutcome };
 import { logger } from "../lib/logger";
 import { requireRole } from "../middlewares/tierMiddleware";
 import {

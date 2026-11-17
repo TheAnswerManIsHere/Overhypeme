@@ -36,7 +36,7 @@ import { FinalHashtagsEditor } from "@/components/admin/FinalHashtagsEditor";
 import { VisualConceptCandidates } from "@/components/admin/VisualConceptCandidates";
 import { GagsPanel } from "@/components/admin/gags/GagsPanel";
 import { SubmissionWording, type WordingSaved } from "@/components/admin/SubmissionWording";
-import { DuplicateMatchPanel, DuplicateVerdictLine, NOT_CHECKED, useDuplicateCheck, verdictLabel, type DuplicateView } from "@/components/admin/DuplicateVerdict";
+import { DuplicateMatchPanel, DuplicateVerdictLine, NOT_CHECKED, duplicateMatchShown, useDuplicateCheck, verdictLabel, type DuplicateView } from "@/components/admin/DuplicateVerdict";
 import { useGagIdeaActions } from "@/components/admin/gags/useGagIdeaActions";
 import { DEFAULT_SUBJECT_EXAMPLE_NAMES } from "@/components/admin/subjectExampleNames";
 
@@ -50,12 +50,6 @@ interface Submitter {
   id: string;
   displayName: string | null;
   email: string | null;
-}
-
-interface MatchingFact {
-  id: number;
-  text: string;
-  score?: number;
 }
 
 /** Lifecycle of a prep step on the staging fact: null/"pending" = working. */
@@ -80,8 +74,6 @@ interface Review {
   submittedText: string;
   /** The wording as submitted, when a moderator edited it at triage. */
   submittedTextOriginal?: string | null;
-  matchingFactId: number | null;
-  matchingSimilarity: number;
   status: "pending" | "approved" | "rejected";
   workflowStage: ReviewWorkflowStage;
   stagingFactId: number | null;
@@ -91,7 +83,6 @@ interface Review {
   createdAt: string;
   reviewedAt: string | null;
   submitter: Submitter | null;
-  matchingFact: MatchingFact | null;
   /** The server's duplicate verdict for the saved wording (plan PLAN_DUPLICATE_VERDICT.md). */
   duplicate?: DuplicateView;
   approvedFactId: number | null;
@@ -430,8 +421,7 @@ function ReviewModal({
     onView: setDuplicate,
     onChecked: onActionDone,
   });
-  const duplicateCheckSeqRef = useRef(duplicateCheck.seq);
-  duplicateCheckSeqRef.current = duplicateCheck.seq;
+  const duplicateSeq = duplicateCheck.seq;   // stable
   const liveEnrichmentStatus: PrepStatus = detail?.stagingFact?.enrichmentStatus ?? review.stagingFact?.enrichmentStatus ?? null;
 
   // Production-review enrichment editing — the SHARED engine (same hook as the
@@ -518,14 +508,14 @@ function ReviewModal({
   }, [step]);
 
   const loadDetail = useCallback(async () => {
-    const seqAtStart = duplicateCheckSeqRef.current();
+    const seqAtStart = duplicateSeq();
     const r = await fetch(`/api/admin/reviews/${review.id}`, { credentials: "include" });
     if (!r.ok) return;
     const d = (await r.json()) as ReviewDetail;
     setDetail(d);
     // The detail's verdict, unless the wording moved on or a newer check or
     // save replaced the verdict while this request was in flight.
-    if (d.duplicate && duplicateCheckSeqRef.current() === seqAtStart) {
+    if (d.duplicate && duplicateSeq() === seqAtStart) {
       const fresh = d.duplicate;
       setWording((w) => (w.submittedText === d.submittedText ? { ...w, duplicate: fresh } : w));
     }
@@ -534,7 +524,7 @@ function ReviewModal({
     setReason((cur) => (cur === "" && d.reason ? (d.reason as RejectionReason) : cur));
     // Enrichment state is owned by the shared useFactEnrichmentEditing hook
     // (it fetches the staging fact itself once production_review is reached).
-  }, [review.id]);
+  }, [review.id, duplicateSeq]);
 
   useEffect(() => { void loadDetail(); }, [loadDetail]);
 
@@ -781,12 +771,7 @@ function ReviewModal({
   // resolves it. A refresh cycle's "reject" ("don't promote") is always
   // available since it never touches the live fact.
   const canRejectNow = stage === "triage_pending" || isRefreshCycle;
-  const matchPanel = isRefreshCycle ? null : <DuplicateMatchPanel view={wording.duplicate} showClosest={showClosest} />;
-  const matchVisible = matchPanel !== null && (
-    wording.duplicate.state === "duplicate"
-    || (wording.duplicate.state === "unavailable" && wording.duplicate.fact !== null)
-    || (wording.duplicate.state === "distinct" && wording.duplicate.fact !== null && showClosest)
-  );
+  const matchVisible = !isRefreshCycle && duplicateMatchShown(wording.duplicate, showClosest);
 
   // ── Sub-renders ────────────────────────────────────────────────────────────
 
@@ -826,7 +811,7 @@ function ReviewModal({
           onDirtyChange={setWordingDirty}
           onWithdrawn={() => { onActionDone(); onClose(); }}
         />
-        {matchVisible && matchPanel}
+        {matchVisible && <DuplicateMatchPanel view={wording.duplicate} showClosest={showClosest} />}
       </div>
     </>
   );

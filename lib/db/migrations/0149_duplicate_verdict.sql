@@ -23,6 +23,9 @@
 -- Previous release on this schema: it never reads the new columns, and it reads
 -- review_duplicate_threshold through a fallback of 80 when the row is absent.
 --
+-- The CHECK is written in Postgres's own deparsed form (as 0121 and 0129 do),
+-- so a dump and restore reads it back unchanged; a null passes a CHECK anyway.
+--
 -- Rollback: revert the code and keep the columns (nullable, ignored by the old
 -- code); the old seed reinserts the setting. Idempotent: every statement is
 -- IF [NOT] EXISTS or a guarded delete.
@@ -32,7 +35,7 @@ ALTER TABLE "pending_reviews" ADD COLUMN IF NOT EXISTS "duplicate_checked_at" ti
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'pending_reviews_duplicate_outcome_check') THEN
     ALTER TABLE "pending_reviews" ADD CONSTRAINT "pending_reviews_duplicate_outcome_check"
-      CHECK ("duplicate_outcome" IS NULL OR "duplicate_outcome" IN ('duplicate', 'distinct', 'unavailable'));
+      CHECK (("duplicate_outcome")::text = ANY (ARRAY[('duplicate'::character varying)::text, ('distinct'::character varying)::text, ('unavailable'::character varying)::text]));
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'pending_reviews_matching_review_id_fk') THEN
     ALTER TABLE "pending_reviews" ADD CONSTRAINT "pending_reviews_matching_review_id_fk"

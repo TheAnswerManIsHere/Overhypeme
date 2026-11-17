@@ -9,6 +9,7 @@
  * server's own check of the saved wording after submission.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { makeAbortController } from "@/lib/makeAbortController";
 
 export interface DuplicatePreview {
   outcome: "duplicate" | "distinct" | "unavailable";
@@ -34,10 +35,11 @@ export function useDuplicatePreview(input: string): {
 } {
   const [result, setResult] = useState<DuplicatePreview | null>(null);
   const [checking, setChecking] = useState(false);
-  const reqIdRef = useRef(0);
+  // Each new request aborts the one before it; a superseded answer is dropped.
+  const requests = useRef(makeAbortController()).current;
 
   const check = useCallback(async (text: string) => {
-    const reqId = ++reqIdRef.current;
+    const { signal, isLatest } = requests.next();
     setChecking(true);
     try {
       const r = await fetch("/api/ai/check-duplicate", {
@@ -45,30 +47,27 @@ export function useDuplicatePreview(input: string): {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({ text }),
+        signal,
       });
-      if (reqId !== reqIdRef.current) return;
-      if (r.ok) {
-        const data = (await r.json()) as Omit<DuplicatePreview, "forText">;
-        if (reqId === reqIdRef.current) setResult({ ...data, forText: text });
-      } else {
-        setResult(null);
-      }
+      if (!isLatest()) return;
+      const data = r.ok ? (await r.json()) as Omit<DuplicatePreview, "forText"> : null;
+      if (isLatest()) setResult(data ? { ...data, forText: text } : null);
     } catch {
-      if (reqId === reqIdRef.current) setResult(null);
+      if (isLatest()) setResult(null);
     } finally {
-      if (reqId === reqIdRef.current) setChecking(false);
+      if (isLatest()) setChecking(false);
     }
-  }, []);
+  }, [requests]);
 
   useEffect(() => {
-    reqIdRef.current++;            // any answer in flight is for older text
+    requests.next();               // abort any request for older text
     setChecking(false);
     if (input.length < DUPLICATE_PREVIEW_MIN_CHARS) { setResult(null); return; }
     const timer = setTimeout(() => { void check(input); }, DUPLICATE_PREVIEW_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [input, check]);
+  }, [input, check, requests]);
 
-  const clear = useCallback(() => { reqIdRef.current++; setResult(null); setChecking(false); }, []);
+  const clear = useCallback(() => { requests.next(); setResult(null); setChecking(false); }, [requests]);
   const shown = result && result.forText === input && result.outcome === "duplicate" ? result : null;
   return { checking, shown, clear };
 }

@@ -158,19 +158,20 @@ export function DuplicateVerdictLine({
   );
 }
 
+/** Whether the match panel shows anything: the one statement of that rule. */
+export function duplicateMatchShown(view: DuplicateView, showClosest: boolean): boolean {
+  if (view.state === "duplicate") return view.review !== null || view.fact !== null;
+  if (view.state === "unavailable") return view.fact !== null;   // Couldn't check: straight away
+  return view.state === "distinct" && view.fact !== null && showClosest;
+}
+
 /** The match panel beside the wording, or null when nothing is shown. */
 export function DuplicateMatchPanel({ view, showClosest }: { view: DuplicateView; showClosest: boolean }) {
+  if (!duplicateMatchShown(view, showClosest)) return null;
   if (view.state === "duplicate") {
     if (view.review) return <MatchCard title={`Matches pending review #${view.review.id}`} text={view.review.text} />;
-    if (view.fact) return <MatchCard title={`Matches fact #${view.fact.id}`} text={view.fact.text} href={`/facts/${view.fact.id}`} />;
-    return null;
+    return <MatchCard title={`Matches fact #${view.fact!.id}`} text={view.fact!.text} href={`/facts/${view.fact!.id}`} />;
   }
-  // Couldn't check: the closest fact straight away (the agreed fallback).
-  if (view.state === "unavailable" && view.fact) {
-    return <MatchCard title={`Closest fact #${view.fact.id}`} text={view.fact.text} href={`/facts/${view.fact.id}`} />;
-  }
-  if (view.state === "distinct" && view.fact && showClosest) {
-    return <MatchCard title={`Closest fact #${view.fact.id}`} text={view.fact.text} href={`/facts/${view.fact.id}`} />;
-  }
-  return null;
+  // Couldn't check (straight away) or Not a duplicate (on request): the closest fact.
+  return <MatchCard title={`Closest fact #${view.fact!.id}`} text={view.fact!.text} href={`/facts/${view.fact!.id}`} />;
 }
