@@ -1050,11 +1050,11 @@ function ReviewModal({
                 </p>
               )}
 
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground" data-testid="gags-step-hint">
                 Write, edit or use an idea for each gag: the plain-language description of how the joke works
-                visually. A fact can have up to three. Approving them spends nothing yet; it unlocks the test
-                renders in the next step. Each saved gag gets one male test render to judge it by; once it
-                works, render its female and pet versions and approve all three as its examples.
+                visually. A fact can have up to three. Each save draws one paid male test render of that gag,
+                shown in the next step, where you judge it; once it works, render its female and pet versions
+                and approve all three as its examples.
               </p>
 
               {/* The fact's gags (plan docs/plans/PLAN_THREE_GAGS.md): each one's

@@ -37,18 +37,18 @@ function gag(id: number, slot: number): GagView {
   };
 }
 
-async function stubReview(page: Page): Promise<{ approvals: () => unknown[] }> {
+async function stubReview(page: Page, stage: "concept_review" | "production_review" = "production_review"): Promise<{ approvals: () => unknown[] }> {
   const approvals: unknown[] = [];
   const row = {
     id: REVIEW_ID, submittedText: TEXT, matchingFactId: null, matchingSimilarity: 0, status: "pending",
-    workflowStage: "production_review", stagingFactId: FACT_ID,
+    workflowStage: stage, stagingFactId: FACT_ID,
     stagingFact: { id: FACT_ID, isActive: false, enrichmentStatus: "ok", visualConceptStatus: "ok" },
     reason: null, adminNote: null, createdAt: CREATED, reviewedAt: null, submitter: null, matchingFact: null,
     approvedFactId: null, hashtags: ["legend"], enrichment: null, enrichmentStatus: "ok", candidateVersionId: null,
     rendersRunning: false, renderReviewState: null,
   };
   const { visualPromptStrategyOverride: _gag, ...classification } = enrichmentWithConcept("{NAME} outlifts a forklift.");
-  const view: FactGagsView = { factId: FACT_ID, isActive: false, review: { id: REVIEW_ID, stage: "production_review", refresh: false }, frozenOutsideReview: false, gags: [gag(1, 1), gag(2, 2)], maxGags: 3 };
+  const view: FactGagsView = { factId: FACT_ID, isActive: false, review: { id: REVIEW_ID, stage, refresh: false }, frozenOutsideReview: false, gags: [gag(1, 1), gag(2, 2)], maxGags: 3 };
 
   await page.route(/\/api\/admin\/reviews(\?.*)?$/, (route: Route) =>
     route.fulfill({ json: { reviews: [row], total: 1, page: 1, limit: 20 } }));
@@ -112,5 +112,18 @@ test.describe("Admin · moderation · Test Renders per gag", () => {
     await page.getByTestId("approve-for-production").click();
     await expect.poll(() => server.approvals().length).toBe(1);
     expect((server.approvals()[0] as { hashtags: string[] }).hashtags).toContain("forklift");
+  });
+
+  // Saving a gag draws a paid male render (plan PLAN_GAG_EXAMPLES.md), so the
+  // Gags step must not tell the moderator its edits are free (build report, PR #972).
+  test("the Gags step says a save draws a paid male render, never that it spends nothing", async ({ page }) => {
+    await stubReview(page, "concept_review");
+    await page.goto("/admin/moderation");
+    await page.getByText(`"${TEXT}"`, { exact: true }).first().click();
+
+    const hint = page.getByTestId("gags-step-hint");
+    await expect(hint).toBeVisible();
+    await expect(hint).toContainText("Each save draws one paid male test render");
+    await expect(hint).not.toContainText("spends nothing");
   });
 });
