@@ -70,8 +70,8 @@ overridden.)
 
 Not every fact renders the same way. Depending on what image material is
 available for whoever the fact is personalized for, the pipeline asks the
-engine to preserve a real uploaded likeness, preserve a non-human subject
-from a [reference image](../ai-context/glossary.md#reference-image), or render from description alone with no reference
+engine to preserve a real uploaded likeness, preserve a pet (a picture's
+subject is a person or a pet, never a car or other object) from a [reference image](../ai-context/glossary.md#reference-image), or render from description alone with no reference
 at all. Which mode applies is inferred automatically from the available
 image material, with room for a human override when the automatic read is
 wrong.

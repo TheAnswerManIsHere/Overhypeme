@@ -16,7 +16,9 @@ import { FIXED_REQUIRED_RESERVE_BUDGET } from "@workspace/api-zod";
 type Case = { args: Parameters<typeof compileForSubjectRenderMode>[0]; prompt: string; engineNotes: string | null };
 // The corpus was captured with three modes; no-photo renders are retired
 // (compiler review, Phase 2), so its no-photo cases are kept as the record and
-// not compiled.
+// not compiled. Its pet-photo prompts carry the identity paragraph as it reads
+// since people and pets only (Issue #964): the one recorded change is that
+// paragraph's wording, "uploaded subject" → "uploaded pet".
 const captured = JSON.parse(readFileSync(fileURLToPath(new URL("./fixtures/compilerBaseline.json", import.meta.url)), "utf8")) as { cases: Case[] };
 const corpus = { cases: captured.cases.filter((c) => c.args.input.subjectRenderMode !== "t2i_fallback") };
 

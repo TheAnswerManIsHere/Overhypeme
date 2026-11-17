@@ -673,8 +673,9 @@ One render variant of a gag, drawn from a committed reference photo. Since
 2026-11-15 a moderation render is one of three, each a **subject kind**:
 `i2i_male_default` (male, David's photo), `i2i_female_default` (female, his
 wife's) and `i2i_nonhuman_animal` (pet), and the approved one of each is the
-gag's example for that kind. The no-photo `generic_t2i` and the object/vehicle
-scenarios are retired and stay readable as history. Each attempt is a durable
+gag's example for that kind. A subject is a person or a pet: the object/vehicle
+scenario and its stored renders were removed (migration 0144), and the no-photo
+`generic_t2i` is Issue #979's to remove. Each attempt is a durable
 `image_prompt_attempts` row.
 → [visual-pipeline](./visual-pipeline.md)
 

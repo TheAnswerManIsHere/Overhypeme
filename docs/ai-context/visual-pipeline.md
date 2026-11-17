@@ -139,8 +139,8 @@ beside the eval run rather than inside it (plan
   facts found by keyword among eligible ones (active, enrichment validates —
   `searchEligibleFacts`, the same predicate creation re-checks), the
   candidate engines (`EVALUATION_CANDIDATE_FAMILIES`: GPT Image 2.6, Nano
-  Banana 2.1, Muse) or one engine's wording versions, photo types (male, pet,
-  vehicle — `EVALUATION_PHOTO_TYPES`), looks, a description, then the image
+  Banana 2.1, Muse) or one engine's wording versions, photo types (male, pet —
+  `EVALUATION_PHOTO_TYPES`), looks, a description, then the image
   count, a typical cost beside the worst case (`estimateEvaluation`,
   read-only: scenes at the recorded planner token counts,
   `panelPreparationTypicalUsd`; pictures at the average fal billed per
@@ -222,7 +222,7 @@ beside the eval run rather than inside it (plan
   (`JUDGING_CATEGORIES` in `lib/api-zod/src/engineComparison.ts`, with David's
   words as help text): Visual quality, Gag fidelity and Realism always; Style
   interpretation on a styled panel; **Likeness** on any panel whose engines were
-  given a photo, person, pet or object (David, 2026-11-12). Each panel also
+  given a photo of a person or a pet (David, 2026-11-12). Each panel also
   gets one overall pick ("which would you send to a friend?",
   `comparison_picks.picked_cell_id`) and any picture can be marked **broken**
   (`broken_cell_ids`), replacing the face mark. The server refuses a partial
@@ -506,7 +506,9 @@ no part of the product draws a picture without a reference photo.
 still lists three values, because stored attempts carry all three:
 
 - `human_identity_i2i` — preserve a recognizable human face (reference image).
-- `nonhuman_subject_i2i` — preserve an uploaded non-human subject.
+- `nonhuman_subject_i2i` — preserve an uploaded pet. A subject is a person or a
+  pet: classification treats a photo whose only subject is a vehicle, object or
+  mascot as having no usable subject (`tier2Heuristics.ts`, analyzer v2).
 - `t2i_fallback` — **retired**: no reference. Refused when an attempt is
   queued (`NoPhotoRenderRefusedError`, `no_photo_render_retired`) and again in
   the worker; the compiler's dispatch throws on it. Old attempts keep the
@@ -622,8 +624,9 @@ classification joined with one gag's content (`gagRenderInput`,
   columns are unread recovery snapshots, dropped by a later migration.
 - **Renders belong to a gag, one per kind and content.** The three subject
   kinds are the scenarios `i2i_male_default`, `i2i_female_default` and
-  `i2i_nonhuman_animal` (`SCENARIO_FOR_KIND`); generic text-to-image and
-  object/vehicle are no longer drawn. `image_prompt_attempts.gag_id` names the
+  `i2i_nonhuman_animal` (`SCENARIO_FOR_KIND`); generic text-to-image is no
+  longer drawn, and the object/vehicle scenario is removed (a subject is a
+  person or a pet, migration 0144). `image_prompt_attempts.gag_id` names the
   gag each render drew, and a render is **reused** when its attempt's
   `fact_enrichment_snapshot` matches the gag's current render input in what
   shapes the picture: the gag's content and the classification fields the
@@ -894,7 +897,7 @@ A named exception to the guideline that AI call settings default to code ([decis
 Design* A and D; migration 0134.) Every piece of wording the compiler owns that
 is **the same for every fact** is a named template in
 `artifacts/api-server/src/lib/imagePrompt/recipe.ts`: the section labels, the
-identity paragraphs (person photo, pet or object photo, no photo, and the
+identity paragraphs (person photo, pet photo, no photo, and the
 gender clause), the binding sentences, the do-nots and failure-mode lines, the
 composition and caption-space sentences, the photoreal style line, the text and
 violence policy lines, the balloon wording, and an **engine notes** piece,
