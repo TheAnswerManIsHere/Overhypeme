@@ -15,7 +15,7 @@ near-empty placeholder is rejected by the health check.
 | ------------------------- | ----------------------------- | ------------------------------------------------- |
 | `male`                    | `male.jpg`                    | ✅ Provided (upright-normalized male portrait).    |
 | `female`                  | `female.jpg`                  | ✅ Provided (upright-normalized female portrait).  |
-| `nonhuman_animal`         | `nonhuman-animal.jpg`         | ✅ Provided (upright-normalized cat).              |
+| `nonhuman_animal`         | `nonhuman-animal.jpg`         | ✅ Provided (David's cat; metadata stripped, v2). |
 | `nonhuman_object_vehicle` | `nonhuman-object-vehicle.jpg` | ✅ Provided (upright-normalized car).             |
 
 All provided assets are EXIF-orientation-normalized to upright (pixels baked, tag
