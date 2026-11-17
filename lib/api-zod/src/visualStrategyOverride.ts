@@ -153,6 +153,30 @@ export function castSourceKey(
   return `v1:${source.length}:${h.toString(16).padStart(8, "0")}`;
 }
 
+/** Whether a version's cast was read from its scene and speakers as they stand now. */
+export function castIsCurrent(c: Pick<VisualPromptStrategyOverride, "cast" | "castExtraction" | "coreSceneOverride" | "bubbles">): boolean {
+  return Boolean(c.cast && c.castExtraction && c.castExtraction.sourceKey === castSourceKey(c.coreSceneOverride, c.bubbles));
+}
+
+/**
+ * The active bubble speakers a cast does not hold, in bubble order. A cast
+ * entry binds a speaker under the speaker's exact string (cast extraction
+ * snaps labels to it), so the match is exact after trimming.
+ */
+export function unboundSpeakers(
+  bubbles: readonly Pick<VisualStrategyBubble, "entity" | "text">[] | null | undefined,
+  cast: readonly { label: string }[] | null | undefined,
+): string[] {
+  const labels = new Set((cast ?? []).map((e) => e.label.trim()));
+  return activeBubbleSpeakers(bubbles).filter((s) => !labels.has(s));
+}
+
+/** Content without its derived cast and marker. */
+export function withoutCast<T extends object>(c: T): Omit<T, "cast" | "castExtraction"> {
+  const { cast: _cast, castExtraction: _marker, ...rest } = c as T & { cast?: unknown; castExtraction?: unknown };
+  return rest;
+}
+
 const subjectRealizationOverrideSchema = z.object({
   mode: z.enum(SUBJECT_REALIZATION_MODE_VALUES),
   description: z.string(),

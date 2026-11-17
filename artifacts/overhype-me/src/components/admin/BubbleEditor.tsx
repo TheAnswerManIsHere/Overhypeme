@@ -19,6 +19,7 @@ import { AlertTriangle, Plus, Trash2, MessageCircle } from "lucide-react";
 import {
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
   canonicalizeNameToken,
+  unboundSpeakers,
   BUBBLE_TEXT_MAX_CHARS,
   BUBBLE_TEXT_SOFT_WARN,
   MAX_BUBBLES,
@@ -115,12 +116,12 @@ export function BubbleEditor({
       .filter(Boolean),
   );
   const warnings: string[] = [];
-  const castLabels = new Set((cast?.entries ?? []).map((c) => c.label.trim().toLowerCase()));
+  const unbound = new Set(cast?.read ? unboundSpeakers(bubbles, cast.entries) : []);
   for (const [i, b] of bubbles.entries()) {
     const entity = b.entity.trim().toLowerCase();
     if (cast) {
       // On a gag card the scene decides who can speak: a speaker it does not show stops the save.
-      if (cast.read && entity && entity !== "subject" && !castLabels.has(entity)) {
+      if (unbound.has(b.entity.trim())) {
         warnings.push(`Bubble ${i + 1}: the scene does not show "${b.entity.trim()}". Pick another speaker, or say in the scene that they are there; the gag will not save until you do.`);
       }
       continue;

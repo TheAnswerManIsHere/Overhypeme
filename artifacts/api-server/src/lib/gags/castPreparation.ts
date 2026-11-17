@@ -7,7 +7,7 @@
  * nothing. The save then carries the cast and the server checks it was read
  * from that content (`assertGagCast`).
  */
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db, factsTable } from "@workspace/db";
 import type { FactEnrichment, GagCastBody, GagCastView } from "@workspace/api-zod";
 import { extractCast, type CastExtractionInput, type CastExtractionResult } from "./castExtraction";
@@ -29,9 +29,11 @@ export class CastPreparationError extends Error {
 
 /** The fact's character labels: naming hints for extraction, never characters to add. */
 export async function factCharacterLabels(factId: number): Promise<string[] | null> {
-  const [fact] = await db.select({ enrichment: factsTable.enrichment }).from(factsTable).where(eq(factsTable.id, factId)).limit(1);
+  // Only the characters, not the whole enrichment blob.
+  const [fact] = await db.select({ characters: sql<FactEnrichment["characters"] | null>`${factsTable.enrichment} -> 'characters'` })
+    .from(factsTable).where(eq(factsTable.id, factId)).limit(1);
   if (!fact) return null;
-  return ((fact.enrichment as FactEnrichment | null)?.characters ?? []).map((c) => c.label).filter((l) => l.trim());
+  return (fact.characters ?? []).map((c) => c.label).filter((l) => l.trim());
 }
 
 export async function prepareDraftCast(factId: number, body: GagCastBody): Promise<GagCastView> {

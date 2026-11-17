@@ -46,20 +46,17 @@ import { shortSpeakerRole } from "../imagePrompt/compilers/nanoBanana2";
 
 /** Bumped whenever the prompt or the normalization below changes. v2: the stand-in name is removed from descriptions. */
 export const CAST_EXTRACTION_PROMPT_VERSION = "v2";
-export { MAX_CAST };
 /** The stand-in name the scene is read with: never a real member's name. */
 const STAND_IN = "Alex";
 /** The stand-in as a whole word, possessive included ("Alex", "Alex's", "Alex’s"). */
 const STAND_IN_WORD = new RegExp(`\\b${STAND_IN}(['’]s)?\\b`, "gi");
 
-export type CastEntry = GagCastEntry;
-export type CastExtraction = GagCastExtraction;
 
 export interface CastExtractionResult {
-  cast: CastEntry[];
+  cast: GagCastEntry[];
   /** Bubble speakers (not the subject) the scene does not show; the gag cannot be drawn as it stands. */
   unboundSpeakers: string[];
-  extraction: CastExtraction;
+  extraction: GagCastExtraction;
 }
 
 export class CastExtractionError extends Error {
@@ -113,10 +110,10 @@ export function buildCastUserMessage(input: CastExtractionInput): string {
  * shortens descriptions to the binding's length and clips to the maximum.
  * Never invents an entry.
  */
-export function normalizeCast(raw: unknown, speakers: readonly string[]): CastEntry[] {
+export function normalizeCast(raw: unknown, speakers: readonly string[]): GagCastEntry[] {
   const list = Array.isArray((raw as { cast?: unknown })?.cast) ? (raw as { cast: unknown[] }).cast : [];
   const speakerByKey = new Map(speakers.map((s) => [s.trim().toLowerCase(), s.trim()]));
-  const out: CastEntry[] = [];
+  const out: GagCastEntry[] = [];
   const seen = new Set<string>();
   for (const item of list) {
     if (!item || typeof item !== "object") continue;

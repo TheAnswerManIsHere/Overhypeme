@@ -303,17 +303,21 @@ function useCastReading(
 ): CastReading {
   const [reading, setReading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // The scene the draft's cast was read from, when it is the scene as it stands.
-  const readFrom = useRef<string | null>(castIsCurrent(draft) ? draft.coreSceneOverride ?? "" : null);
+  // The scene the cast was last read (or tried) for. A failed reading records
+  // its scene too, so further bubble edits do not retry it: Try again does.
+  const readFrom = useRef<string | null>(null);
+  const current = castIsCurrent(draft);
+  const scene = draft.coreSceneOverride ?? "";
   useEffect(() => {
-    if (castIsCurrent(draft)) readFrom.current = draft.coreSceneOverride ?? "";
-  }, [draft]);
+    if (current) readFrom.current = scene;
+  }, [current, scene]);
   const inFlight = useRef(false);
 
   const read = useCallback((content: VisualPromptStrategyOverride) => {
     const scene = content.coreSceneOverride ?? "";
     if (!scene.trim() || factId <= 0 || inFlight.current) return;
     inFlight.current = true;
+    readFrom.current = scene;
     setReading(true);
     setError(null);
     void (async () => {

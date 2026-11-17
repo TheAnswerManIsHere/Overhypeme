@@ -40,9 +40,6 @@ export type FoldOutcome =
   | { kind: "converted"; content: VisualPromptStrategyOverride; moved: string[] }
   | { kind: "listed"; reasons: string[] };
 
-/** Whether a version still holds anything in the eleven fields (or the intent and notes that went with them). */
-export const hasExtraFields = hasExtraArtDirection;
-
 const clean = (s: string) => s.replace(/\s+/g, " ").trim();
 /** One sentence: trimmed, ending in a full stop unless it already ends a sentence. */
 const sentence = (s: string) => {
@@ -59,7 +56,7 @@ const nonEmpty = (xs: readonly string[]) => xs.map(clean).filter(Boolean);
 
 /** Fold one version. Pure: the caller stores the result and the original. */
 export function foldGagContent(content: VisualPromptStrategyOverride): FoldOutcome {
-  if (!hasExtraFields(content)) return { kind: "nothing" };
+  if (!hasExtraArtDirection(content)) return { kind: "nothing" };
 
   const reasons: string[] = [];
   const v = content.violencePolicyOverride;

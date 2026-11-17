@@ -24,11 +24,12 @@
  * gagStore uses) and gives up, to be retried, when its content changed while
  * the cast was being read, so a moderator's save is never overwritten.
  */
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { desc, eq, isNull } from "drizzle-orm";
 import { db, factGagsTable, factsTable, factGagFoldArchiveTable } from "@workspace/db";
 import { asyncJobsTable } from "@workspace/db/schema";
 import {
-  castSourceKey,
+  castIsCurrent,
+  withoutCast,
   type GagCastState,
   type GagFoldReport,
   type GagFoldStartResponse,
@@ -40,17 +41,16 @@ import {
 import { enqueueJob, registerJobHandler, type HandlerResult, type JobHandler } from "../asyncJobs";
 import { stableStringify } from "../factRenderScenarios";
 import { normaliseGagContent } from "./resolver";
-import { foldGagContent, hasExtraFields } from "./fold";
+import { foldGagContent } from "./fold";
 import { extractCast, type CastExtractionInput, type CastExtractionResult } from "./castExtraction";
 import { factCharacterLabels } from "./castPreparation";
 import { logger } from "../logger";
 
 export const GAG_FOLD_QUEUE = "gag_fold";
 
-export type GagStage = GagFoldStage;
 export type GagFoldPayload = {
   gagId: number;
-  stage: GagStage;
+  stage: GagFoldStage;
 };
 
 export interface GagFoldDeps {
@@ -60,27 +60,25 @@ const realDeps: GagFoldDeps = { extract: extractCast };
 
 export const foldDedupeKey = (p: GagFoldPayload) => `gag_fold:${p.gagId}:${p.stage}`;
 
-/** Whether a version's cast was read from its scene and speakers as they are now. */
-export function castIsCurrent(c: VisualPromptStrategyOverride): boolean {
-  return Boolean(c.cast && c.castExtraction && c.castExtraction.sourceKey === castSourceKey(c.coreSceneOverride, c.bubbles));
-}
 
 // ─── The report (and dry run) ───────────────────────────────────────────────
-
-export type FoldState = GagFoldState;
-export type CastState = GagCastState;
-export type FoldVersionReport = GagFoldVersionReport;
 
 interface VersionRow {
   gagId: number;
   factId: number;
   slot: number;
-  stage: GagStage;
+  stage: GagFoldStage;
   raw: unknown;
 }
 
 async function renderableVersions(): Promise<VersionRow[]> {
-  const gags = await db.select().from(factGagsTable).where(isNull(factGagsTable.removedAt));
+  const gags = await db.select({
+    id: factGagsTable.id,
+    factId: factGagsTable.factId,
+    slot: factGagsTable.slot,
+    approvedContent: factGagsTable.approvedContent,
+    pendingContent: factGagsTable.pendingContent,
+  }).from(factGagsTable).where(isNull(factGagsTable.removedAt));
   const out: VersionRow[] = [];
   for (const g of gags) {
     if (g.approvedContent != null) out.push({ gagId: g.id, factId: g.factId, slot: g.slot, stage: "approved", raw: g.approvedContent });
@@ -91,12 +89,13 @@ async function renderableVersions(): Promise<VersionRow[]> {
 
 /** The latest gag_fold job per version, by its dedupe key. */
 async function latestJobs(): Promise<Map<string, { status: string; error: string | null; result: unknown }>> {
-  const rows = await db.select({
+  // One row per version: its latest job (DISTINCT ON keeps the first per key in id-descending order).
+  const rows = await db.selectDistinctOn([asyncJobsTable.dedupeKey], {
     dedupeKey: asyncJobsTable.dedupeKey,
     status: asyncJobsTable.status,
     lastError: asyncJobsTable.lastError,
     result: asyncJobsTable.result,
-  }).from(asyncJobsTable).where(eq(asyncJobsTable.queue, GAG_FOLD_QUEUE)).orderBy(desc(asyncJobsTable.id));
+  }).from(asyncJobsTable).where(eq(asyncJobsTable.queue, GAG_FOLD_QUEUE)).orderBy(asyncJobsTable.dedupeKey, desc(asyncJobsTable.id));
   const out = new Map<string, { status: string; error: string | null; result: unknown }>();
   for (const r of rows) if (r.dedupeKey && !out.has(r.dedupeKey)) out.set(r.dedupeKey, { status: r.status, error: r.lastError, result: r.result });
   return out;
@@ -127,17 +126,17 @@ export async function gagFoldReport(): Promise<GagFoldReport> {
     const jobView = job ? { status: job.status, error: job.error } : null;
     if (!content) {
       // Stored content the schema refuses: only a moderator can repair it.
-      const item: FoldVersionReport = { ...pick(v), fold: "listed", cast: "missing", reasons: ["the stored content does not validate"], job: jobView };
+      const item: GagFoldVersionReport = { ...pick(v), fold: "listed", cast: "missing", reasons: ["the stored content does not validate"], job: jobView };
       report.fold.listed++; report.cast.missing++;
       report.forModerator.push(item); report.castMissing.push(item);
       continue;
     }
     const outcome = foldGagContent(content);
-    const fold: FoldState = outcome.kind === "nothing"
+    const fold: GagFoldState = outcome.kind === "nothing"
       ? (archived.has(`${v.gagId}:${v.stage}`) ? "already_converted" : "nothing")
       : outcome.kind === "converted" ? "would_convert" : "listed";
     const unbound = unboundFromJob(job?.result);
-    const cast: CastState = castIsCurrent(content)
+    const cast: GagCastState = castIsCurrent(content)
       ? "extracted"
       : job?.status === "failed" || unbound.length ? "failed"
       : content.castExtraction ? "stale" : "missing";
@@ -185,7 +184,8 @@ export async function startGagFold(): Promise<GagFoldStartResponse> {
 
 // ─── One version ────────────────────────────────────────────────────────────
 
-const column = (stage: GagStage) => (stage === "approved" ? factGagsTable.approvedContent : factGagsTable.pendingContent);
+/** The column a stage's content lives in. */
+const contentKey = (stage: GagFoldStage): "approvedContent" | "pendingContent" => (stage === "approved" ? "approvedContent" : "pendingContent");
 const skipped = (reason: string): HandlerResult => ({ ok: true, result: { skipped: true, reason } });
 
 export async function runGagFold(payload: unknown, deps: GagFoldDeps = realDeps): Promise<HandlerResult> {
@@ -195,7 +195,8 @@ export async function runGagFold(payload: unknown, deps: GagFoldDeps = realDeps)
   }
   const [gag] = await db.select().from(factGagsTable).where(eq(factGagsTable.id, p.gagId)).limit(1);
   if (!gag || gag.removedAt) return skipped("gag_removed");
-  const raw = p.stage === "approved" ? gag.approvedContent : gag.pendingContent;
+  const key = contentKey(p.stage);
+  const raw = gag[key];
   const content = normaliseGagContent(raw);
   if (!content) return skipped(raw == null ? "no_version" : "content_invalid");
 
@@ -219,23 +220,21 @@ export async function runGagFold(payload: unknown, deps: GagFoldDeps = realDeps)
   // A speaker the scene does not show stays unbound: the fold still lands, the
   // cast does not, and the version is in the cast list for a moderator.
   const withCast: VisualPromptStrategyOverride = cast.unboundSpeakers.length
-    ? withoutCastFields(target)
+    ? withoutCast(target)
     : { ...target, cast: cast.cast, castExtraction: cast.extraction };
 
   return db.transaction(async (tx): Promise<HandlerResult> => {
     await tx.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, gag.factId)).for("update").limit(1);
     const [locked] = await tx.select().from(factGagsTable).where(eq(factGagsTable.id, p.gagId)).for("update").limit(1);
     if (!locked || locked.removedAt) return skipped("gag_removed");
-    const now = p.stage === "approved" ? locked.approvedContent : locked.pendingContent;
+    const now = locked[key];
     if (stableStringify(now) !== stableStringify(raw)) {
       return { ok: false, error: "deferred: the version changed while its cast was read" };
     }
     if (stableStringify(withCast) === stableStringify(raw)) {
       return { ok: true, result: { fold: "nothing", cast: "unbound", unboundSpeakers: cast.unboundSpeakers } };
     }
-    await tx.update(factGagsTable)
-      .set(p.stage === "approved" ? { approvedContent: withCast, updatedAt: new Date() } : { pendingContent: withCast, updatedAt: new Date() })
-      .where(and(eq(factGagsTable.id, p.gagId), sql`${column(p.stage)} IS NOT NULL`));
+    await tx.update(factGagsTable).set({ [key]: withCast, updatedAt: new Date() }).where(eq(factGagsTable.id, p.gagId));
     if (outcome.kind === "converted") {
       await tx.insert(factGagFoldArchiveTable).values({
         gagId: p.gagId,
@@ -258,11 +257,6 @@ export async function runGagFold(payload: unknown, deps: GagFoldDeps = realDeps)
   });
 }
 
-function withoutCastFields(c: VisualPromptStrategyOverride): VisualPromptStrategyOverride {
-  const { cast: _c, castExtraction: _m, ...rest } = c;
-  return rest;
-}
-
 // ─── Reversal ───────────────────────────────────────────────────────────────
 
 /**
@@ -277,11 +271,10 @@ export async function revertGagFold(archiveId: number): Promise<"reverted" | "ch
     if (a.revertedAt) return "already_reverted";
     await tx.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, a.factId)).for("update").limit(1);
     const [g] = await tx.select().from(factGagsTable).where(eq(factGagsTable.id, a.gagId)).for("update").limit(1);
-    const now = g ? (a.stage === "approved" ? g.approvedContent : g.pendingContent) : null;
+    const k = contentKey(a.stage);
+    const now = g ? g[k] : null;
     if (!g || stableStringify(now) !== stableStringify(a.foldedContent)) return "changed_since";
-    await tx.update(factGagsTable)
-      .set(a.stage === "approved" ? { approvedContent: a.originalContent, updatedAt: new Date() } : { pendingContent: a.originalContent, updatedAt: new Date() })
-      .where(eq(factGagsTable.id, a.gagId));
+    await tx.update(factGagsTable).set({ [k]: a.originalContent, updatedAt: new Date() }).where(eq(factGagsTable.id, a.gagId));
     await tx.update(factGagFoldArchiveTable).set({ revertedAt: new Date() }).where(eq(factGagFoldArchiveTable.id, archiveId));
     return "reverted";
   });
@@ -292,5 +285,3 @@ export const gagFoldHandler: JobHandler = { run: (payload: unknown) => runGagFol
 export function registerGagFoldHandler(): void {
   registerJobHandler(GAG_FOLD_QUEUE, gagFoldHandler);
 }
-
-export { hasExtraFields };

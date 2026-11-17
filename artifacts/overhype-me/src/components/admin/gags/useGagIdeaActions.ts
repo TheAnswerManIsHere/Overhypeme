@@ -9,22 +9,16 @@
 import { useCallback, useMemo, useState } from "react";
 import { EMPTY_VISUAL_STRATEGY_OVERRIDE, withCandidateConceptDraft, type FactGagsView, type VisualPromptStrategyOverride } from "@workspace/api-zod";
 import type { ConceptAction } from "../VisualConceptCandidates";
-import { gagApi, readCast, unboundBubbles, unboundMessage, type GagResult } from "./gagApi";
+import { ensureCast, gagApi, type GagResult } from "./gagApi";
 
 /**
  * A used idea goes through the same preparation as an edited gag (plan
- * PLAN_GAG_DIRECT_RENDER.md, C: "A used gag idea goes through the same
- * preparation, so the locked gag-writer prompt is unchanged"): its cast is
- * read from its scene before the save, and a speaker the scene does not show
- * stops it.
+ * PLAN_GAG_DIRECT_RENDER.md, C): its cast is read from its scene before the
+ * save, and a speaker the scene does not show stops it.
  */
 async function withCastRead(factId: number, content: VisualPromptStrategyOverride, save: (c: VisualPromptStrategyOverride) => Promise<GagResult>): Promise<GagResult> {
-  const r = await readCast(factId, content.coreSceneOverride ?? "", content.bubbles);
-  if (!r.ok) return { ok: false, error: `Reading who is in the idea's scene failed: ${r.error}` };
-  const prepared = { ...content, cast: r.view.cast, castExtraction: r.view.castExtraction };
-  const unbound = unboundBubbles(prepared);
-  if (unbound.length) return { ok: false, error: `This idea cannot be used as it stands. ${unboundMessage(unbound)}` };
-  return save(prepared);
+  const r = await ensureCast(factId, content);
+  return r.ok ? save(r.content) : { ok: false, error: `This idea cannot be used as it stands. ${r.error}` };
 }
 
 export function useGagIdeaActions(args: {

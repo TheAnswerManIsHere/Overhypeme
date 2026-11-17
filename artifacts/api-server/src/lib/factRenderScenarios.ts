@@ -31,6 +31,7 @@ import {
   type RenderScenarioKey,
   type RenderScenarioStatus,
   type SubjectRenderMode,
+  withoutCast,
 } from "@workspace/api-zod";
 import { buildRenderStatusPayload } from "./imagePromptAttempts";
 import type { ImagePromptAttempt } from "@workspace/db/schema";
@@ -143,9 +144,7 @@ export function renderAffectingEnrichment(e: FactEnrichment): Record<string, unk
  * generation-version bump that makes every render out of date anyway.
  */
 function withoutDerivedCast(ov: FactEnrichment["visualPromptStrategyOverride"] | null): unknown {
-  if (!ov) return null;
-  const { cast: _cast, castExtraction: _marker, ...rest } = ov as Record<string, unknown>;
-  return rest;
+  return ov ? withoutCast(ov) : null;
 }
 
 /** Deterministic JSON: object keys sorted recursively so key order can't churn the hash. */

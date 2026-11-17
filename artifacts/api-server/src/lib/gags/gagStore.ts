@@ -36,8 +36,9 @@ import {
   kindForScenario,
   missingKinds,
   overrideValuesEqual,
-  activeBubbleSpeakers,
-  castSourceKey,
+  castIsCurrent,
+  unboundSpeakers,
+  withoutCast,
   type GagExampleKind,
   visualPromptStrategyOverrideSchema,
   type VisualPromptStrategyOverride,
@@ -112,11 +113,6 @@ export function gagContentEqual(a: unknown, b: unknown, opts: { castFromRenderBe
   return overrideValuesEqual(pa.data, pb.data);
 }
 
-/** Content without its derived cast and marker. */
-export function withoutCast<T extends VisualPromptStrategyOverride>(c: T): Omit<T, "cast" | "castExtraction"> {
-  const { cast: _cast, castExtraction: _marker, ...rest } = c;
-  return rest;
-}
 
 /**
  * The cast a save carries (PLAN_GAG_DIRECT_RENDER.md, C and F): read by cast
@@ -129,7 +125,7 @@ export function assertGagCast(content: VisualPromptStrategyOverride): void {
   if (!content.castExtraction || !content.cast) {
     throw new GagError("CAST_MISSING", "Read who is in the scene before saving: the gag has no cast.", 400);
   }
-  if (content.castExtraction.sourceKey !== castSourceKey(content.coreSceneOverride, content.bubbles)) {
+  if (!castIsCurrent(content)) {
     throw new GagError("CAST_STALE", "The scene or a bubble's speaker changed after its cast was read. Read the scene again before saving.", 400);
   }
   const seen = new Set<string>();
@@ -140,8 +136,7 @@ export function assertGagCast(content: VisualPromptStrategyOverride): void {
     }
     seen.add(key);
   }
-  const labels = new Set(content.cast.map((c) => c.label.trim()));
-  const missing = activeBubbleSpeakers(content.bubbles).filter((s) => !labels.has(s));
+  const missing = unboundSpeakers(content.bubbles, content.cast);
   if (missing.length) {
     throw new GagError(
       "SPEAKER_NOT_IN_SCENE",
