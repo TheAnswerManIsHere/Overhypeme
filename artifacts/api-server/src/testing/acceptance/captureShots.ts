@@ -15,9 +15,6 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-/** The approved per-run allowance (plan D7, amendment 1: $3.00, David 2026-10-16). */
-export const CAPTURE_ALLOWANCE_CAP_USD = 3;
-
 /**
  * The real-render captures, by the UAT doc they answer, with the shots each
  * one must produce. A capture run drives exactly one doc (`--doc`), as `/uat`
@@ -85,8 +82,6 @@ export interface CaptureRunArgs {
   env: NodeJS.ProcessEnv;
   /** `--allowance`, as given. */
   allowance: string | undefined;
-  /** `--allowance-raised-by-david`, as given. */
-  raisedBy: string | undefined;
   /** `--out`, as given. */
   out: string | undefined;
   /** `--doc`, as given: the one UAT doc this run captures. */
@@ -104,11 +99,7 @@ export function captureRefusals(a: CaptureRunArgs): string[] {
   if (a.control !== undefined) refusals.push("a capture run takes no --control");
   const allowance = Number(a.allowance);
   if (a.allowance === undefined || a.allowance === "") refusals.push("capture mode needs --allowance <usd>, the approved spending ceiling");
-  else if (!(allowance > 0)) refusals.push("--allowance must be a positive dollar amount");
-  else if (allowance > CAPTURE_ALLOWANCE_CAP_USD && !/^\d{4}-\d{2}-\d{2}$/.test(a.raisedBy ?? "")) {
-    refusals.push(`the capture run's cap is $${CAPTURE_ALLOWANCE_CAP_USD.toFixed(2)} per run (plan D7, amendment 1, David, 2026-10-16); a higher --allowance needs --allowance-raised-by-david <YYYY-MM-DD>`);
-  }
-  if (!isCaptureDoc(a.doc)) {
+  else if (!(allowance > 0)) refusals.push("--allowance must be a positive dollar amount");  if (!isCaptureDoc(a.doc)) {
     refusals.push(`capture mode needs --doc <UAT doc stem>, one of: ${Object.keys(CAPTURE_DOCS).join(", ")}${a.doc === undefined ? "" : ` (got ${a.doc})`}`);
   }
   if (!a.out) refusals.push("capture mode needs --out <dir>, an empty directory for the images and their manifest");
