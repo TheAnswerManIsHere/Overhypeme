@@ -494,7 +494,7 @@ describe("a negative control's verdict", () => {
 
   it("render-failure accepts only what stopping at journey 3 explains", () => {
     const stopped = [
-      "operation image-prompts (journey 3): 2 usable of 2 attributed call(s), 3 needed",
+      "operation image-renders (journey 3): 1 usable of 1 attributed call(s), 2 needed",
       "operation photo-upload (journey 7): 0 usable of 0 attributed call(s), 1 needed",
       "journey 3 not-run: the render-failure control stops the run here",
       "journey 7 not-run: not reached",

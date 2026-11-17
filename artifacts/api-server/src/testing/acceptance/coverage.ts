@@ -140,7 +140,8 @@ export function operations(photoSha256: string): Operation[] {
       min: 1,
       required: always,
     },
-    { key: "image-prompts", journey: "3", description: "the image-prompt generator (the gag's male, female and pet renders)", kind: "openai.chat", target: /./, matches: (r) => systemText(r).includes("render-time image-prompt generator"), usable: parsesAsObject, min: 3, required: always },
+    // No image-prompt generator: a render compiles its gag directly, with no
+    // model call (PLAN_GAG_DIRECT_RENDER.md, D), so the renders below follow the cast read.
     {
       key: "image-renders",
       journey: "3",
