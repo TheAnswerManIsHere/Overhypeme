@@ -122,8 +122,7 @@ Two distinct pages, not one:
 
 - **`/admin/config`** — the generic `admin_config` key/value editor,
   grouped into cards: Budget (per-tier AI spend), Limits (image/meme/
-  gallery caps), Email (sender, retry, retention), Moderation
-  (duplicate-detection threshold), plus a generic
+  gallery caps), Email (sender, retry, retention), plus a generic
   catch-all. It shows no AI setting: engines, models, parameters and system
   prompts live in code, and the read-only `/admin/ai` page shows them (David,
   2026-11-14, per [decisions.md, 2026-11-14](./decisions.md#2026-11-14--the-stored-ai-settings-and-the-engines-table-are-deleted-a-read-only-page-shows-the-values); the Engines page and the nested AI-settings

@@ -11,13 +11,13 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, Loader2, Lock } from "lucide-react";
 import { SUBMISSION_TEXT_MAX_CHARS } from "@workspace/api-zod";
+import type { DuplicateView } from "./DuplicateVerdict";
 
 export interface WordingSaved {
   submittedText: string;
   submittedTextOriginal: string | null;
-  matchingFactId: number | null;
-  matchingSimilarity: number;
-  matchingFact: { id: number; text: string } | null;
+  /** The new wording's duplicate verdict, replaced with the wording. */
+  duplicate: DuplicateView;
 }
 
 interface Props {

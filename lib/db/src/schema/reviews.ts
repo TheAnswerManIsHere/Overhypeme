@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, varchar, integer, bigint, jsonb, pgEnum, index } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, varchar, integer, bigint, jsonb, pgEnum, index, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { usersTable } from "./auth";
 import { factsTable } from "./facts";
 
@@ -27,6 +27,16 @@ export const pendingReviewsTable = pgTable("pending_reviews", {
   submitterDeletedAt: timestamp("submitter_deleted_at", { withTimezone: true }),
   matchingFactId: integer("matching_fact_id").references(() => factsTable.id, { onDelete: "set null" }),
   matchingSimilarity: integer("matching_similarity").notNull().default(0),
+  /**
+   * The server's duplicate check of the CURRENT wording (0149): "duplicate" |
+   * "distinct" | "unavailable"; null = not checked. Written only by
+   * lib/duplicateVerdict.ts, and only while the wording it checked is still the
+   * wording. Never inferred from matchingSimilarity.
+   */
+  duplicateOutcome: varchar("duplicate_outcome", { length: 16 }).$type<"duplicate" | "distinct" | "unavailable">(),
+  /** The other pending review an exact match found (null when the match is a fact). */
+  matchingReviewId: integer("matching_review_id").references((): AnyPgColumn => pendingReviewsTable.id, { onDelete: "set null" }),
+  duplicateCheckedAt: timestamp("duplicate_checked_at", { withTimezone: true }),
   hashtags: jsonb("hashtags").$type<string[]>().default([]),
   /** Visual-taxonomy enrichment blob (FactEnrichment from @workspace/api-zod). Null until the async enrichment job writes it. */
   enrichment: jsonb("enrichment"),

@@ -292,6 +292,11 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     wordingEditedAt: "drop",
     withdrawnAt: "drop",
     withdrawnBy: "map-user",
+    // 0149: the duplicate verdict; the committed fixture predates it, so every
+    // loaded review reads "not checked yet".
+    duplicateOutcome: "drop",
+    matchingReviewId: "drop",
+    duplicateCheckedAt: "drop",
     createdAt: "keep",
     reviewedAt: "keep",
   }),

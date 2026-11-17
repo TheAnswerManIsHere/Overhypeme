@@ -103,3 +103,34 @@ export async function variantRetirementLosses(c: pg.ClientBase): Promise<Retirem
   for (const [table, set] of gone) if (set.size > 0) out.set(table, set.size);
   return out;
 }
+
+/**
+ * Settings retired by a migration, by admin_config key: each such row is deleted
+ * on upgrade, so the rehearsal expects it gone rather than kept. Declared by
+ * name; every other setting stays protected.
+ *   - review_duplicate_threshold: 0149 (plan docs/plans/PLAN_DUPLICATE_VERDICT.md),
+ *     the duplicate verdict replaced the similarity cut-off.
+ */
+export const RETIRED_ADMIN_CONFIG_KEYS: readonly string[] = ["review_duplicate_threshold"];
+
+/** The admin_config rows the retired-settings deletions will remove, counted before they run. */
+export async function retiredSettingLosses(c: pg.ClientBase): Promise<RetirementLosses> {
+  const { rows } = await c.query<{ n: string }>(
+    `SELECT count(*)::text AS n FROM admin_config WHERE key = ANY($1::text[])`,
+    [RETIRED_ADMIN_CONFIG_KEYS],
+  );
+  const n = Number(rows[0]?.n ?? 0);
+  return n > 0 ? new Map([["admin_config", n]]) : new Map();
+}
+
+/** Whether an adminValues key ("admin_config/<key>/<column>") belongs to a retired setting. */
+export function isRetiredSettingValue(valueKey: string): boolean {
+  return RETIRED_ADMIN_CONFIG_KEYS.some((k) => valueKey.startsWith(`admin_config/${k}/`));
+}
+
+/** Merge per-table loss maps by summing. */
+export function mergeLosses(...maps: RetirementLosses[]): RetirementLosses {
+  const out: RetirementLosses = new Map();
+  for (const m of maps) for (const [t, n] of m) out.set(t, (out.get(t) ?? 0) + n);
+  return out;
+}

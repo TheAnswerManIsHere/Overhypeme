@@ -617,9 +617,25 @@ export type CheckDuplicateBody = {
   text: string;
 };
 
+/**
+ * The verdict. "unavailable" means the check could not run (search or AI failure, or a malformed AI answer); it is never reported as "distinct".
+ */
+export type CheckDuplicate200Outcome =
+  (typeof CheckDuplicate200Outcome)[keyof typeof CheckDuplicate200Outcome];
+
+export const CheckDuplicate200Outcome = {
+  duplicate: "duplicate",
+  distinct: "distinct",
+  unavailable: "unavailable",
+} as const;
+
 export type CheckDuplicate200 = {
+  /** The verdict. "unavailable" means the check could not run (search or AI failure, or a malformed AI answer); it is never reported as "distinct". */
+  outcome: CheckDuplicate200Outcome;
+  /** outcome == "duplicate"; kept for older clients. */
   isDuplicate: boolean;
   /**
+   * Cosine similarity of the matched (or nearest) fact, as a percentage. A detail, not a likelihood; no screen shows it.
    * @minimum 0
    * @maximum 100
    */
@@ -628,6 +644,13 @@ export type CheckDuplicate200 = {
   matchingFactId?: number | null;
   /** @nullable */
   matchingFactText?: string | null;
+  /** @nullable */
+  matchingCanonicalText?: string | null;
+  /**
+   * The other pending review an exact match found.
+   * @nullable
+   */
+  matchingReviewId?: number | null;
 };
 
 export type GetAdminFlaggedComments200CommentsItem = {

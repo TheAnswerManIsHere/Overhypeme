@@ -700,14 +700,30 @@ export const checkDuplicateResponseConfidenceMin = 0;
 export const checkDuplicateResponseConfidenceMax = 100;
 
 export const CheckDuplicateResponse = zod.object({
-  isDuplicate: zod.boolean(),
+  outcome: zod
+    .enum(["duplicate", "distinct", "unavailable"])
+    .describe(
+      'The verdict. "unavailable" means the check could not run (search or AI failure, or a malformed AI answer); it is never reported as "distinct".',
+    ),
+  isDuplicate: zod
+    .boolean()
+    .describe('outcome == "duplicate"; kept for older clients.'),
   confidence: zod
     .number()
     .int()
     .min(checkDuplicateResponseConfidenceMin)
-    .max(checkDuplicateResponseConfidenceMax),
+    .max(checkDuplicateResponseConfidenceMax)
+    .describe(
+      "Cosine similarity of the matched (or nearest) fact, as a percentage. A detail, not a likelihood; no screen shows it.",
+    ),
   matchingFactId: zod.number().int().nullish(),
   matchingFactText: zod.string().nullish(),
+  matchingCanonicalText: zod.string().nullish(),
+  matchingReviewId: zod
+    .number()
+    .int()
+    .nullish()
+    .describe("The other pending review an exact match found."),
 });
 
 /**

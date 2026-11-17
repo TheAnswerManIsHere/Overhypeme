@@ -121,8 +121,8 @@ only ever flagged by an admin action.
 `facts.ts:3` but never called anywhere** — comments get zero AI
 pre-screening in practice; every flag/approve/reject is a human admin
 action. `checkDuplicateInternal`, imported alongside it, is similarly
-unused within `facts.ts` (its real caller is the unrelated
-`/ai/check-duplicate` fact-submission route).
+unused within `facts.ts` (its real callers are the `/ai/check-duplicate`
+submit-page preview and the review duplicate verdict in `routes/reviews.ts`).
 
 ## Hearts — one shared mechanism for memes and comments
 

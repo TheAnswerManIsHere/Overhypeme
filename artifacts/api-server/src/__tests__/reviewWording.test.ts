@@ -22,7 +22,7 @@ import { db, factsTable, usersTable } from "@workspace/db";
 import { activityFeedTable, asyncJobsTable, pendingReviewsTable } from "@workspace/db/schema";
 import { UNRESOLVED_SUBMISSION_STAGE_VALUES } from "@workspace/api-zod";
 
-import reviewsRouter, { __setWordingDuplicateForTest } from "../routes/reviews.js";
+import reviewsRouter from "../routes/reviews.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import { resubmitInactiveFactForModeration, ResubmitForModerationError } from "../lib/resubmitForModeration.js";
 import { findPendingReviewWithText } from "../routes/ai.js";
@@ -33,7 +33,13 @@ let adminId = "";
 let submitterId = "";
 let app: ReturnType<typeof buildTestApp>;
 const reviewIds: number[] = [];
-let duplicateCalls = 0;
+/**
+ * One stub for the whole file, keyed by review: the describes run
+ * concurrently, so a test never swaps the shared stub; it counts calls for its
+ * own review, or holds its own review's check.
+ */
+const callsFor = new Map<number, number>();
+const holdFor = new Map<number, Promise<void>>();
 
 async function triageReview(text = `{NAME} submitted wording ${RUN} ${randomUUID().slice(0, 6)}.`): Promise<number> {
   const [row] = await db.insert(pendingReviewsTable).values({
@@ -54,11 +60,16 @@ before(async () => {
     { id: submitterId, email: `${submitterId}@test.local`, isAdmin: false, membershipTier: "registered" },
   ]);
   app = buildTestApp({ kind: "authenticated", userId: adminId }, reviewsRouter);
-  __setWordingDuplicateForTest(async () => { duplicateCalls++; return { matchingFactId: null, matchingSimilarity: 42 }; });
+  // The app's own detector: the runner shares one process between test files.
+  app.locals["duplicateDetector"] = async (_text: string, opts: { excludeReviewId?: number }) => {
+    const id = opts.excludeReviewId ?? -1;
+    callsFor.set(id, (callsFor.get(id) ?? 0) + 1);
+    await holdFor.get(id);
+    return { outcome: "distinct" as const, confidence: 42 };
+  };
 });
 
 after(async () => {
-  __setWordingDuplicateForTest(null);
   const reviews = reviewIds.length ? await db.select({ stagingFactId: pendingReviewsTable.stagingFactId }).from(pendingReviewsTable).where(inArray(pendingReviewsTable.id, reviewIds)) : [];
   const factIds = reviews.map((r) => r.stagingFactId).filter((x): x is number => x != null);
   if (reviewIds.length) await db.delete(pendingReviewsTable).where(inArray(pendingReviewsTable.id, reviewIds));
@@ -74,10 +85,9 @@ after(async () => {
 describe("the wording at triage", () => {
   it("an admin edit changes the wording, recomputes the duplicate match and records the wording as submitted", async () => {
     const id = await triageReview("{NAME} can count to infinity twice, the first time slowly.");
-    const before = duplicateCalls;
     const res = await request(app).post(url(id, "wording")).send({ text: "{NAME} counted to infinity. Twice." });
     assert.equal(res.status, 200, JSON.stringify(res.body));
-    assert.equal(duplicateCalls, before + 1, "the duplicate match is recomputed for the new wording");
+    assert.equal(callsFor.get(id), 1, "the duplicate match is recomputed for the new wording, excluding this review");
     const row = await reviewRow(id);
     assert.equal(row.submittedText, "{NAME} counted to infinity. Twice.");
     assert.equal(row.submittedTextOriginal, "{NAME} can count to infinity twice, the first time slowly.");
@@ -114,11 +124,8 @@ describe("the duplicate check for an edited wording", () => {
 
   it("the route passes the edited review to the duplicate check", async () => {
     const id = await triageReview();
-    let seen: number | null = null;
-    __setWordingDuplicateForTest(async (_text, reviewId) => { seen = reviewId; return { matchingFactId: null, matchingSimilarity: 0 }; });
     await request(app).post(url(id, "wording")).send({ text: `{NAME} a different wording ${RUN}.` });
-    __setWordingDuplicateForTest(async () => { duplicateCalls++; return { matchingFactId: null, matchingSimilarity: 42 }; });
-    assert.equal(seen, id);
+    assert.equal(callsFor.get(id), 1, "the check excludes the edited review");
   });
 });
 
@@ -144,7 +151,7 @@ describe("the wording locks on acceptance", () => {
     const original = (await reviewRow(lateEdit)).submittedText;
     let release!: () => void;
     const held = new Promise<void>((r) => { release = r; });
-    __setWordingDuplicateForTest(async () => { await held; return { matchingFactId: null, matchingSimilarity: 0 }; });
+    holdFor.set(lateEdit, held);
     const editing = request(app).post(url(lateEdit, "wording")).send({ text: "{NAME} a racing edit that comes too late." }).then((r) => r);
     await new Promise((r) => setTimeout(r, 50));
     assert.equal((await accept(lateEdit)).status, 200);
@@ -158,7 +165,6 @@ describe("the wording locks on acceptance", () => {
     assert.equal(row.submittedText, original);
 
     // The other order: the edit completes first, and acceptance locks the edited wording.
-    __setWordingDuplicateForTest(async () => ({ matchingFactId: null, matchingSimilarity: 0 }));
     const earlyEdit = await triageReview();
     assert.equal((await request(app).post(url(earlyEdit, "wording")).send({ text: `{NAME} an edit that lands first ${RUN}.` })).status, 200);
     assert.equal((await accept(earlyEdit)).status, 200);

@@ -36,6 +36,7 @@ import { FinalHashtagsEditor } from "@/components/admin/FinalHashtagsEditor";
 import { VisualConceptCandidates } from "@/components/admin/VisualConceptCandidates";
 import { GagsPanel } from "@/components/admin/gags/GagsPanel";
 import { SubmissionWording, type WordingSaved } from "@/components/admin/SubmissionWording";
+import { DuplicateMatchPanel, DuplicateVerdictLine, NOT_CHECKED, duplicateMatchShown, useDuplicateCheck, verdictLabel, type DuplicateView } from "@/components/admin/DuplicateVerdict";
 import { useGagIdeaActions } from "@/components/admin/gags/useGagIdeaActions";
 import { DEFAULT_SUBJECT_EXAMPLE_NAMES } from "@/components/admin/subjectExampleNames";
 
@@ -49,12 +50,6 @@ interface Submitter {
   id: string;
   displayName: string | null;
   email: string | null;
-}
-
-interface MatchingFact {
-  id: number;
-  text: string;
-  score?: number;
 }
 
 /** Lifecycle of a prep step on the staging fact: null/"pending" = working. */
@@ -79,8 +74,6 @@ interface Review {
   submittedText: string;
   /** The wording as submitted, when a moderator edited it at triage. */
   submittedTextOriginal?: string | null;
-  matchingFactId: number | null;
-  matchingSimilarity: number;
   status: "pending" | "approved" | "rejected";
   workflowStage: ReviewWorkflowStage;
   stagingFactId: number | null;
@@ -90,7 +83,8 @@ interface Review {
   createdAt: string;
   reviewedAt: string | null;
   submitter: Submitter | null;
-  matchingFact: MatchingFact | null;
+  /** The server's duplicate verdict for the saved wording (plan PLAN_DUPLICATE_VERDICT.md). */
+  duplicate?: DuplicateView;
   approvedFactId: number | null;
   hashtags: string[] | null;
   enrichment: FactEnrichment | null;
@@ -373,28 +367,24 @@ function ReviewModal({
   onClose,
   onActionDone,
   onRendersEnqueued,
-  duplicateThreshold,
 }: {
   review: Review;
   onClose: () => void;
   onActionDone: () => void;
   /** Refresh the list after a test render is (re-)run so its row pill lights up. */
   onRendersEnqueued: () => void;
-  duplicateThreshold: number;
 }) {
   const [detail, setDetail] = useState<ReviewDetail | null>(null);
   const [stage, setStage] = useState<ReviewWorkflowStage>(review.workflowStage);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [showDuplicate, setShowDuplicate] = useState(false);
-  // The submission's wording and its duplicate match, which a triage edit
-  // changes in place (plan PLAN_THREE_GAGS.md, increment 3).
+  const [showClosest, setShowClosest] = useState(false);
+  // The submission's wording and its duplicate verdict, which a triage edit
+  // replaces together (plans PLAN_THREE_GAGS.md increment 3, PLAN_DUPLICATE_VERDICT.md).
   const [wording, setWording] = useState<WordingSaved>({
     submittedText: review.submittedText,
     submittedTextOriginal: review.submittedTextOriginal ?? null,
-    matchingFactId: review.matchingFactId,
-    matchingSimilarity: review.matchingSimilarity,
-    matchingFact: review.matchingFact,
+    duplicate: review.duplicate ?? NOT_CHECKED,
   });
   const [wordingDirty, setWordingDirty] = useState(false);
 
@@ -415,6 +405,23 @@ function ReviewModal({
   // the live fact untouched — never a rejection of the fact itself, since it
   // already cleared triage. Set at review creation — never flips mid-mount.
   const isRefreshCycle = (detail?.candidateVersionId ?? review.candidateVersionId) != null;
+
+  // The duplicate verdict belongs to the saved wording: the on-open check
+  // (David, Q1) applies only while that wording stands, and a wording save
+  // supersedes any check in flight.
+  const setDuplicate = useCallback((duplicate: DuplicateView) => {
+    setWording((w) => ({ ...w, duplicate }));
+    setShowClosest(false);
+  }, []);
+  const duplicateCheck = useDuplicateCheck({
+    reviewId: review.id,
+    submittedText: wording.submittedText,
+    view: wording.duplicate,
+    canCheck: stage === "triage_pending" && !isRefreshCycle,
+    onView: setDuplicate,
+    onChecked: onActionDone,
+  });
+  const duplicateSeq = duplicateCheck.seq;   // stable
   const liveEnrichmentStatus: PrepStatus = detail?.stagingFact?.enrichmentStatus ?? review.stagingFact?.enrichmentStatus ?? null;
 
   // Production-review enrichment editing — the SHARED engine (same hook as the
@@ -501,16 +508,23 @@ function ReviewModal({
   }, [step]);
 
   const loadDetail = useCallback(async () => {
+    const seqAtStart = duplicateSeq();
     const r = await fetch(`/api/admin/reviews/${review.id}`, { credentials: "include" });
     if (!r.ok) return;
     const d = (await r.json()) as ReviewDetail;
     setDetail(d);
+    // The detail's verdict, unless the wording moved on or a newer check or
+    // save replaced the verdict while this request was in flight.
+    if (d.duplicate && duplicateSeq() === seqAtStart) {
+      const fresh = d.duplicate;
+      setWording((w) => (w.submittedText === d.submittedText ? { ...w, duplicate: fresh } : w));
+    }
     setStage(d.workflowStage);
     setNote((cur) => (cur === "" && d.adminNote ? d.adminNote : cur));
     setReason((cur) => (cur === "" && d.reason ? (d.reason as RejectionReason) : cur));
     // Enrichment state is owned by the shared useFactEnrichmentEditing hook
     // (it fetches the staging fact itself once production_review is reached).
-  }, [review.id]);
+  }, [review.id, duplicateSeq]);
 
   useEffect(() => { void loadDetail(); }, [loadDetail]);
 
@@ -757,7 +771,7 @@ function ReviewModal({
   // resolves it. A refresh cycle's "reject" ("don't promote") is always
   // available since it never touches the live fact.
   const canRejectNow = stage === "triage_pending" || isRefreshCycle;
-  const matchVisible = wording.matchingSimilarity >= duplicateThreshold || showDuplicate;
+  const matchVisible = !isRefreshCycle && duplicateMatchShown(wording.duplicate, showClosest);
 
   // ── Sub-renders ────────────────────────────────────────────────────────────
 
@@ -771,14 +785,17 @@ function ReviewModal({
           </strong>
         </span>
         {!isRefreshCycle && review.submitter?.email && <span>Email: <strong className="text-foreground">{review.submitter.email}</strong></span>}
-        <span className="flex items-center gap-2">
-          Duplicate Likelihood: <strong className="text-foreground">{wording.matchingSimilarity}%</strong>
-          {wording.matchingSimilarity > 0 && wording.matchingSimilarity < duplicateThreshold && !showDuplicate && (
-            <button onClick={() => setShowDuplicate(true)} className="text-xs text-primary underline hover:opacity-80 font-normal">
-              Show potential duplicate
-            </button>
-          )}
-        </span>
+        {!isRefreshCycle && (
+          <DuplicateVerdictLine
+            view={wording.duplicate}
+            checking={duplicateCheck.checking}
+            failed={duplicateCheck.failed}
+            canCheck={stage === "triage_pending"}
+            onRetry={() => void duplicateCheck.check()}
+            showClosest={showClosest}
+            onShowClosest={() => setShowClosest(true)}
+          />
+        )}
         <span>Date: <strong className="text-foreground">{new Date(review.createdAt).toLocaleDateString()}</strong></span>
       </div>
 
@@ -790,30 +807,11 @@ function ReviewModal({
           originalText={wording.submittedTextOriginal}
           editable={canEditWording(stage, review.status, review.stagingFactId != null, isRefreshCycle)}
           withdrawable={canWithdraw(stage, review.status, isRefreshCycle)}
-          onSaved={(saved) => { setWording(saved); onActionDone(); }}
+          onSaved={(saved) => { duplicateCheck.supersede(); setWording(saved); setShowClosest(false); onActionDone(); }}
           onDirtyChange={setWordingDirty}
           onWithdrawn={() => { onActionDone(); onClose(); }}
         />
-        {matchVisible && (
-          <div className="bg-background border-2 border-primary/40 rounded-sm p-4">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-xs font-bold text-primary uppercase tracking-wide">Flagged Duplicate</p>
-              {wording.matchingFact && (
-                <a href={`/facts/${wording.matchingFact.id}`} target="_blank" rel="noreferrer"
-                  className="text-xs text-primary hover:underline flex items-center gap-1">
-                  View <ExternalLink className="w-3 h-3" />
-                </a>
-              )}
-            </div>
-            {wording.matchingFact ? (
-              <p className="text-base italic text-foreground leading-relaxed">"{wording.matchingFact.text}"</p>
-            ) : wording.matchingFactId != null ? (
-              <p className="text-muted-foreground text-sm italic">Original fact no longer available</p>
-            ) : (
-              <p className="text-muted-foreground text-sm italic">Duplicate found in pending submissions — no approved original yet</p>
-            )}
-          </div>
-        )}
+        {matchVisible && <DuplicateMatchPanel view={wording.duplicate} showClosest={showClosest} />}
       </div>
     </>
   );
@@ -1386,21 +1384,6 @@ function FactReviewsPanel() {
   const [search, setSearch] = useState("");
   const [selectedReview, setSelectedReview] = useState<Review | null>(null);
   const [actionMsg, setActionMsg] = useState("");
-  const [duplicateThreshold, setDuplicateThreshold] = useState(80);
-
-  useEffect(() => {
-    fetch("/api/admin/config", { credentials: "include" })
-      .then((r) => r.ok ? r.json() as Promise<{ key: string; value: string }[]> : Promise.reject())
-      .then((rows) => {
-        const row = rows.find((r) => r.key === "review_duplicate_threshold");
-        if (row) {
-          const n = parseInt(row.value, 10);
-          if (isFinite(n)) setDuplicateThreshold(n);
-        }
-      })
-      .catch(() => {});
-  }, []);
-
   const { data, loading, error, load } = useReviews(statusFilter, page, search);
 
   useEffect(() => {
@@ -1550,6 +1533,11 @@ function FactReviewsPanel() {
                     <StageBadge stage={r.workflowStage} />
                     {r.candidateVersionId != null && <RefreshReviewBadge />}
                     <ReasonBadge reason={r.reason} />
+                    {r.duplicate?.state === "duplicate" && (
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold text-primary" data-testid="queue-duplicate-label" title={verdictLabel(r.duplicate)}>
+                        Possible duplicate
+                      </span>
+                    )}
                     {r.status === "pending" && (
                       <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${qsTone}`} data-testid="queue-state-label">
                         {qs.spinner && <Loader2 className="w-3 h-3 animate-spin" />}
@@ -1558,13 +1546,14 @@ function FactReviewsPanel() {
                     )}
                     <span className="text-xs text-muted-foreground">
                       Review #{r.id} ·{" "}
-                      {r.matchingSimilarity >= duplicateThreshold ? `${r.matchingSimilarity}% match · ` : ""}
                       by {r.candidateVersionId != null ? "admin refresh" : (r.submitter?.displayName ?? r.submitter?.email ?? "unknown")} · {new Date(r.createdAt).toLocaleDateString()}
                     </span>
                   </div>
                   <p className="text-sm text-foreground italic line-clamp-2">"{r.submittedText}"</p>
-                  {r.matchingFact && r.matchingSimilarity >= duplicateThreshold && (
-                    <p className="text-xs text-muted-foreground mt-1 truncate">vs. "{r.matchingFact.text}"</p>
+                  {r.duplicate?.state === "duplicate" && (r.duplicate.fact ?? r.duplicate.review) && (
+                    <p className="text-xs text-muted-foreground mt-1 truncate" data-testid="queue-duplicate-match">
+                      vs. "{(r.duplicate.fact ?? r.duplicate.review)!.text}"
+                    </p>
                   )}
                   {/* Per-row live prep status (rule 8: per-item, in place). */}
                   {r.stagingFact && (r.workflowStage === "prep_pending" || r.workflowStage === "prep_failed" || r.workflowStage === "concept_review" || r.workflowStage === "production_review") && (
@@ -1620,7 +1609,6 @@ function FactReviewsPanel() {
           onClose={() => setSelectedReview(null)}
           onActionDone={reloadList}
           onRendersEnqueued={() => void load()}
-          duplicateThreshold={duplicateThreshold}
         />
       )}
     </div>
