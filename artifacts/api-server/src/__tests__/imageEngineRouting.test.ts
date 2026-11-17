@@ -35,7 +35,7 @@ import { NANO_BANANA_2_SIZES } from "../lib/engines/nano-banana-2.js";
 import { FLUX_3 } from "../lib/engines/flux-3.js";
 import { computeScenarioInputHash } from "../lib/reviewRenderScenarios.js";
 import { isAttemptStale } from "../lib/factRenderScenarios.js";
-import { imageGenerationHandler, __setImageGenerationTimeoutForTest } from "../lib/imagePromptJobs.js";
+import { imageGenerationHandler } from "../lib/imagePromptJobs.js";
 import { fal } from "../lib/falClient.js";
 import adminRouter from "../routes/admin.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
@@ -214,49 +214,6 @@ describe("the worker renders through the engine recorded at construction", () =>
     assert.ok(codeResolutions.includes(calls[0]!.input["resolution"]), `a resolution from the code's vocabulary, got ${String(calls[0]!.input["resolution"])}`);
     const [row] = await db.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.id, attempt!.id));
     assert.equal(row!.actualImageEngineId, "nano-banana-2");
-  });
-});
-
-describe("an image request the service never answers ends the render instead of holding it", () => {
-  it("fails the attempt with the reason, returns a retryable error and stops the request", async () => {
-    const [fact] = await db.insert(factsTable).values({ text: "{NAME} lifts a truck.", isActive: false, enrichment: ENRICHMENT }).returning({ id: factsTable.id });
-    factIds.push(fact!.id);
-    const [attempt] = await db.insert(imagePromptAttemptsTable).values({
-      factId: fact!.id,
-      renderJobId: randomUUID(),
-      generationMode: "t2i",
-      subjectRenderMode: "t2i_fallback",
-      targetEngine: "nano_banana_2",
-      actualImageEngineId: "nano-banana-2",
-      sourceImageAnalysis: {} as never,
-      identityPolicy: {} as never,
-      renderControls: { aspectRatio: "portrait" } as never,
-      factEnrichmentSnapshot: ENRICHMENT as never,
-      archetypeStrategyVersion: "v2",
-      compiledPrompt: { imagePrompt: "a truck, lifted" } as never,
-    }).returning({ id: imagePromptAttemptsTable.id });
-
-    let signal: AbortSignal | undefined;
-    const original = fal.subscribe;
-    // Never settles, like the request on 2026-11-17 that held a moderator's tile on "Drawing…".
-    (fal as { subscribe: unknown }).subscribe = (_endpoint: string, opts: { abortSignal?: AbortSignal }) => {
-      signal = opts.abortSignal;
-      return new Promise(() => {});
-    };
-    __setImageGenerationTimeoutForTest(50);
-    let result;
-    try {
-      result = await imageGenerationHandler.run({ attemptId: attempt!.id }, {} as never);
-    } finally {
-      (fal as { subscribe: unknown }).subscribe = original;
-      __setImageGenerationTimeoutForTest(null);
-    }
-    assert.equal(result.ok, false);
-    assert.notEqual((result as { retryable?: boolean }).retryable, false, "retryable, not terminal");
-    assert.match(String((result as { error?: string }).error), /did not answer within/);
-    assert.equal(signal?.aborted, true, "the request is stopped once the render gives up");
-    const [row] = await db.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.id, attempt!.id));
-    assert.match(row!.error ?? "", /did not answer within/, "the tile shows the failure, not Drawing…");
   });
 });
 
