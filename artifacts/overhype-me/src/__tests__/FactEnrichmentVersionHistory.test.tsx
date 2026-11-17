@@ -9,13 +9,7 @@ import {
 
 const INFO: EnrichmentVersionInfo = {
   current: { hasEnrichment: true, enrichmentStatus: "ok", hasOverrides: true },
-  inFlight: { candidateVersionId: 12, reviewId: 34 },
   versions: [
-    {
-      id: 12, versionNo: 3, status: "candidate", source: "refresh_candidate", sourceReviewId: 34,
-      note: null, createdByDisplayName: "Jane Admin", createdByEmail: "jane@example.com", createdAt: "2026-07-03T01:00:00Z",
-      promotedAt: null, supersededAt: null, rejectedAt: null, enrichmentReady: false,
-    },
     {
       id: 11, versionNo: 2, status: "promoted", source: "refresh_candidate", sourceReviewId: 30,
       // No display name on file — falls back to email, never the raw user id.
@@ -27,11 +21,6 @@ const INFO: EnrichmentVersionInfo = {
       note: null, createdByDisplayName: null, createdByEmail: null, createdAt: "2026-07-02T01:59:00Z",
       promotedAt: null, supersededAt: "2026-07-02T02:00:00Z", rejectedAt: null, enrichmentReady: true,
     },
-    {
-      id: 9, versionNo: 0, status: "rejected", source: "refresh_candidate", sourceReviewId: 28,
-      note: null, createdByDisplayName: "Jane Admin", createdByEmail: "jane@example.com", createdAt: "2026-07-01T01:00:00Z",
-      promotedAt: null, supersededAt: null, rejectedAt: "2026-07-01T02:00:00Z", enrichmentReady: true,
-    },
   ],
 };
 
@@ -40,20 +29,15 @@ function open() {
 }
 
 describe("FactEnrichmentVersionHistory", () => {
-  it("renders human labels for current / candidate / promoted / superseded / rejected", () => {
+  it("renders human labels for current / promoted / superseded", () => {
     render(<FactEnrichmentVersionHistory info={INFO} />);
     open();
     expect(screen.getByTestId("version-current").textContent).toContain("Current active");
     expect(screen.getByTestId("version-current").textContent).toContain("manually overridden");
-    expect(screen.getByTestId("version-row-candidate").textContent).toMatch(/In review — refresh from .*classifying/);
     expect(screen.getByTestId("version-row-promoted").textContent).toMatch(/Promoted refresh from/);
     expect(screen.getByTestId("version-row-superseded").textContent).toMatch(/Previous active \(archived/);
-    expect(screen.getByTestId("version-row-rejected").textContent).toMatch(/Rejected refresh from/);
-    // A candidate row links to the moderation queue by review number.
-    expect(screen.getByText("Review #34").getAttribute("href")).toBe("/admin/moderation");
     // Actor attribution is always human-readable: display name, or email as a
     // fallback — never a raw user id, and never omitted when one is known.
-    expect(screen.getByTestId("version-row-candidate").textContent).toContain("by Jane Admin");
     expect(screen.getByTestId("version-row-promoted").textContent).toContain("by admin@example.com");
     // No display name or email on file (e.g. a deleted user) — no actor shown at all.
     expect(screen.getByTestId("version-row-superseded").textContent).not.toMatch(/by /);
@@ -62,10 +46,10 @@ describe("FactEnrichmentVersionHistory", () => {
   it("shows the no-history empty state", () => {
     render(
       <FactEnrichmentVersionHistory
-        info={{ current: { hasEnrichment: true, enrichmentStatus: "ok", hasOverrides: false }, inFlight: null, versions: [] }}
+        info={{ current: { hasEnrichment: true, enrichmentStatus: "ok", hasOverrides: false }, versions: [] }}
       />,
     );
     open();
-    expect(screen.getByText(/never been sent back to review/i)).toBeTruthy();
+    expect(screen.getByText(/No earlier classifications/i)).toBeTruthy();
   });
 });

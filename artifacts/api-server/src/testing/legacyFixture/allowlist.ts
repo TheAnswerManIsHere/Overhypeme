@@ -285,7 +285,6 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     productionRejectedById: "map-user",
     productionRejectionNote: "prose",
     visualRenderApprovalWaiver: "shape:visualRenderApprovalWaiver",
-    candidateVersionId: "ref:fact_enrichment_versions",
     // 0141: triage wording edits and withdrawals; the committed fixture predates them.
     submittedTextOriginal: "drop",
     wordingEditedBy: "map-user",
@@ -397,9 +396,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     approvedBy: "map-user",
     approvedAt: "keep",
     pendingContent: "shape:visualStrategyOverride",
-    pendingReviewId: "ref:pending_reviews",
     pendingExampleAttemptId: "ref:image_prompt_attempts",
-    pendingRemove: "keep",
     pendingBy: "map-user",
     pendingAt: "keep",
     removedAt: "keep",

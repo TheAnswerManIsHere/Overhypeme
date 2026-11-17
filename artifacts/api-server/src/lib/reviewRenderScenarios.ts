@@ -341,9 +341,8 @@ export interface GagRenderTarget {
 }
 
 /**
- * Load what a gag's renders are drawn from. The classification is the open
- * refresh candidate's while one is under review, else the fact's own; the
- * gag's content is its working content (the pending change if there is one,
+ * Load what a gag's renders are drawn from. The classification is the fact's
+ * own; the gag's content is its working content (the pending change if there is one,
  * else the approved version). Grid, staleness and enqueue all read this, so
  * they cannot drift from the render.
  */
@@ -388,17 +387,11 @@ async function loadReviewRow(reviewId: number) {
       id: pendingReviewsTable.id,
       workflowStage: pendingReviewsTable.workflowStage,
       stagingFactId: pendingReviewsTable.stagingFactId,
-      candidateVersionId: pendingReviewsTable.candidateVersionId,
     })
     .from(pendingReviewsTable)
     .where(eq(pendingReviewsTable.id, reviewId))
     .limit(1);
   return review ?? null;
-}
-
-/** The gags that will still be on the fact once this review is promoted: all but its own pending removals. */
-export function survivingGags(gags: FactGag[], reviewId: number): FactGag[] {
-  return gags.filter((g) => !(g.pendingRemove && g.pendingReviewId === reviewId));
 }
 
 // ─── Drawing a gag's kinds ───────────────────────────────────────────────────
@@ -482,7 +475,7 @@ export async function ensureReviewIterationRenders(
     logger.info({ reviewId, stage: review.workflowStage }, "[moderation] iteration renders skipped (not production_review)");
     return { scheduled: 0 };
   }
-  const gags = survivingGags(await loadGags(review.stagingFactId), reviewId).filter((g) => g.pendingContent != null);
+  const gags = (await loadGags(review.stagingFactId)).filter((g) => g.pendingContent != null);
   const imageEngines = await currentRenderRouting();
   for (const gag of gags) await scheduleIterationRender(gag.id, opts.adminUserId ?? "system", imageEngines);
   return { scheduled: gags.length };
@@ -599,8 +592,7 @@ export async function reviewRenderStates(reviewIds: number[]): Promise<Map<numbe
         AND a.review_render_scenario_key IN (${sql.join(GAG_EXAMPLE_KINDS.map((k) => sql`${SCENARIO_FOR_KIND[k]}`), sql`, `)})
         AND (a.gag_id IS NULL OR EXISTS (
           SELECT 1 FROM fact_gags g
-          WHERE g.id = a.gag_id AND g.removed_at IS NULL
-            AND NOT (g.pending_remove AND g.pending_review_id = a.review_id)))
+          WHERE g.id = a.gag_id AND g.removed_at IS NULL))
       ORDER BY a.review_id, a.gag_id, a.review_render_scenario_key, a.created_at DESC
     ) latest
     GROUP BY latest.review_id
@@ -670,7 +662,7 @@ export const reviewRenderScenariosPrepareHandler: JobHandler = {
       const adminUserId = typeof p.adminUserId === "string" && p.adminUserId ? p.adminUserId : "system";
       // The save that queued this job was allowed from its scope (a review, or
       // the Facts editor). The job runs seconds or minutes later: if that scope
-      // has ended since (a withdrawn or closed review, a refresh opened on a
+      // has ended since (a withdrawn or closed review, a review opened on a
       // live fact), the render is no longer the moderator's ask and is skipped
       // (Codex, PR #972 round 1).
       if (typeof p.factId === "number") {

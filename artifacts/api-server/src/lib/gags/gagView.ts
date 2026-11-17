@@ -7,16 +7,14 @@
  * kind and its render of the current content per kind. Read-only; every
  * write is in gagStore.ts.
  */
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import {
   db,
   factsTable,
-  factEnrichmentVersionsTable,
   imagePromptAttemptsTable,
   type FactGag,
 } from "@workspace/db";
 import { GAG_EXAMPLE_KINDS, MAX_GAGS_PER_FACT, mapKinds, type FactGagsView, type GagExample, type GagView, type PerKind } from "@workspace/api-zod";
-import { findInFlightRefreshCandidate } from "../refreshCandidate";
 import { buildGagKindCards, gagRenderImageUrl } from "../reviewRenderScenarios";
 import { loadGags, normaliseGagContent, openReviewForFact } from "./resolver";
 import { examplesFor, isGrandfathered, loadExamples, type GagExamples } from "./examples";
@@ -43,13 +41,6 @@ export async function buildFactGagsView(factId: number): Promise<FactGagsView | 
   if (!fact) return null;
   const gags = await loadGags(factId);
   const review = await openReviewForFact(factId);
-  const refresh = await findInFlightRefreshCandidate(factId);
-  const [lastPromotion] = await db
-    .select({ at: factEnrichmentVersionsTable.promotedAt })
-    .from(factEnrichmentVersionsTable)
-    .where(and(eq(factEnrichmentVersionsTable.factId, factId), eq(factEnrichmentVersionsTable.status, "promoted")))
-    .orderBy(desc(factEnrichmentVersionsTable.promotedAt))
-    .limit(1);
 
   const byGag = await loadExamples(gags.map((g) => g.id));
   const exampleIds: number[] = [];
@@ -67,12 +58,11 @@ export async function buildFactGagsView(factId: number): Promise<FactGagsView | 
 
   // Each gag's render tiles are independent reads: the view is polled while
   // renders draw, so they run together.
-  const views: GagView[] = await Promise.all(gags.map((g) => viewOf(g, fact.isActive, defaultId, examplesFor(byGag, g.id), ex, lastPromotion?.at ?? null)));
+  const views: GagView[] = await Promise.all(gags.map((g) => viewOf(g, fact.isActive, defaultId, examplesFor(byGag, g.id), ex)));
   return {
     factId,
     isActive: fact.isActive,
-    review: review ? { id: review.id, stage: review.workflowStage, refresh: review.candidateVersionId != null } : null,
-    frozenOutsideReview: refresh != null,
+    review: review ? { id: review.id, stage: review.workflowStage } : null,
     gags: views,
     maxGags: MAX_GAGS_PER_FACT,
   };
@@ -88,7 +78,6 @@ async function viewOf(
   defaultId: number | null,
   set: GagExamples,
   ex: Map<number, GagExample>,
-  lastPromotionAt: Date | null,
 ): Promise<GagView> {
   const approved = g.approvedContent != null;
   const state = !approved ? "new" : g.pendingContent != null ? "approved_with_change" : "approved";
@@ -103,10 +92,7 @@ async function viewOf(
     grandfathered: approved && isGrandfathered(g),
     approvedAt: g.approvedAt?.toISOString() ?? null,
     pendingContent: normaliseGagContent(g.pendingContent),
-    pendingReviewId: g.pendingReviewId ?? null,
     pendingExamples: perKind(set.pending, ex),
-    pendingRemove: g.pendingRemove,
-    refreshedSinceApproval: approved && lastPromotionAt != null && (g.approvedAt == null || g.approvedAt < lastPromotionAt),
     renders: await buildGagKindCards(g.id),
   };
 }

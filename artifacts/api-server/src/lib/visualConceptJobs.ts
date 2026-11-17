@@ -6,10 +6,8 @@
  * Registered on the shared async-jobs worker.
  *
  * REVIEW-AWARE: the job resolves `{text, enrichment}` through
- * `resolveReviewCycleEnrichment` — a first-time cycle reads the staging fact's own
- * `facts.enrichment`; a refresh cycle (candidateVersionId set) reads the candidate
- * version's enrichment. So concepts always reflect what the moderator is reviewing,
- * never a stale (active) enrichment during a refresh.
+ * `resolveReviewCycleEnrichment`, which reads the staging fact's own
+ * `facts.enrichment`, so concepts reflect what the moderator is reviewing.
  *
  * Lifecycle of `facts.visual_concept_status`:
  *   "pending"  — set by the enqueuer; the job is queued or retrying ("working").
@@ -82,7 +80,6 @@ export interface FactVisualConceptsJobPayload {
    * job queued before owners existed has none and is its review's.
    */
   owner?: string | null;
-  candidateVersionId?: number | null;
   /** Regenerate: the moderator's unsaved draft, offered as distinct-alt context. */
   moderatorDraftScene?: string | null;
   /** Regenerate: the bubbles of that draft. */
@@ -104,7 +101,6 @@ export function visualConceptsDedupeKey(reviewId: number): string {
 export async function enqueueVisualConceptsForReview(args: {
   reviewId: number;
   factId: number;
-  candidateVersionId?: number | null;
   moderatorDraftScene?: string | null;
   moderatorDraftBubbles?: Array<Pick<VisualStrategyBubble, "type" | "entity" | "text">> | null;
 }): Promise<EnqueueJobResult> {
@@ -117,7 +113,6 @@ export async function enqueueVisualConceptsForReview(args: {
       reviewId: args.reviewId,
       factId: args.factId,
       owner: reviewConceptOwner(args.reviewId),
-      candidateVersionId: args.candidateVersionId ?? null,
       moderatorDraftScene: args.moderatorDraftScene ?? null,
       moderatorDraftBubbles: args.moderatorDraftBubbles ?? null,
     },
@@ -163,8 +158,7 @@ export async function enqueueLiveVisualConcepts(factId: number): Promise<Enqueue
         eq(factsTable.id, factId),
         eq(factsTable.isActive, true),
         // Only a live draft's "working" blocks another: a review's leftover
-        // (its refresh declined while its ideas were queued) has no job that
-        // will ever end it, and no review is open to own it.
+        // has no job that will ever end it, and no review is open to own it.
         sql`(${factsTable.visualConceptStatus} IS DISTINCT FROM 'pending' OR ${factsTable.visualConceptOwner} IS NULL OR ${factsTable.visualConceptOwner} NOT LIKE 'live:%')`,
         sql`NOT EXISTS (SELECT 1 FROM ${pendingReviewsTable} WHERE ${pendingReviewsTable.stagingFactId} = ${factsTable.id} AND ${pendingReviewsTable.status} = 'pending')`,
       ))
@@ -172,7 +166,7 @@ export async function enqueueLiveVisualConcepts(factId: number): Promise<Enqueue
     if (!claimed) return null;
     return enqueueJob({
       queue: FACT_VISUAL_CONCEPTS_QUEUE,
-      payload: { reviewId: null, factId, owner, candidateVersionId: null, moderatorDraftScene: null, moderatorDraftBubbles: null },
+      payload: { reviewId: null, factId, owner, moderatorDraftScene: null, moderatorDraftBubbles: null },
       dedupeKey: liveConceptsDedupeKey(owner),
     }, tx);
   });
@@ -201,7 +195,6 @@ export interface ResolvedConceptCycle {
   /** Null for a live draft. */
   stage: ReviewWorkflowStage | null;
   stagingFactId: number;
-  candidateVersionId: number | null;
   factText: string;
   enrichment: FactEnrichment;
   source: VisualConceptSource;
@@ -213,8 +206,7 @@ type ConceptCycleResult =
 
 /**
  * Load the review + resolve the cycle's `{text, enrichment}` the way the render
- * path does — first-time cycle → staging fact enrichment; refresh cycle →
- * candidate-version enrichment. Pure read; no LLM.
+ * path does (the staging fact's enrichment). Pure read; no LLM.
  */
 export async function resolveVisualConceptCycle(reviewId: number): Promise<ConceptCycleResult> {
   const [review] = await db
@@ -222,7 +214,6 @@ export async function resolveVisualConceptCycle(reviewId: number): Promise<Conce
       id: pendingReviewsTable.id,
       workflowStage: pendingReviewsTable.workflowStage,
       stagingFactId: pendingReviewsTable.stagingFactId,
-      candidateVersionId: pendingReviewsTable.candidateVersionId,
     })
     .from(pendingReviewsTable)
     .where(eq(pendingReviewsTable.id, reviewId))
@@ -240,10 +231,9 @@ export async function resolveVisualConceptCycle(reviewId: number): Promise<Conce
       reviewId,
       stage,
       stagingFactId: review.stagingFactId,
-      candidateVersionId: review.candidateVersionId,
       factText: cycle.text,
       enrichment: ev.data,
-      source: cycle.source,
+      source: "staging_fact",
     },
   };
 }
@@ -265,21 +255,19 @@ export async function resolveLiveConceptCycle(factId: number): Promise<ConceptCy
   if (!ev.ok) return { ok: false, reason: `enrichment_invalid: ${ev.error}` };
   return {
     ok: true,
-    cycle: { reviewId: null, stage: null, stagingFactId: factId, candidateVersionId: null, factText: fact.text, enrichment: ev.data, source: "live_fact" },
+    cycle: { reviewId: null, stage: null, stagingFactId: factId, factText: fact.text, enrichment: ev.data, source: "live_fact" },
   };
 }
 
 /**
  * Every gag the fact already has, as the gag writer is shown it (plan
  * PLAN_THREE_GAGS.md, increment 2): slot order, each gag's working version
- * (its pending change, else its approved version), a gag marked for removal
- * left out. The request and its input hash use one call's result, so they
+ * (its pending change, else its approved version). The request and its input hash use one call's result, so they
  * describe the same frozen list.
  */
 export async function contextGagsFor(factId: number): Promise<ContextGag[]> {
   const out: ContextGag[] = [];
   for (const g of await loadGags(factId)) {
-    if (g.pendingRemove) continue;
     const content = normaliseGagContent(g.pendingContent ?? g.approvedContent);
     const scene = content?.coreSceneOverride?.trim() ?? "";
     if (!scene) continue;
@@ -296,7 +284,6 @@ export async function computeCurrentInputHash(cycle: ResolvedConceptCycle, gags?
   const systemPromptHash = hashText(await getVisualConceptsSystem());
   return buildVisualConceptInputHash({
     reviewId: cycle.reviewId,
-    candidateVersionId: cycle.candidateVersionId,
     source: cycle.source,
     factText: cycle.factText,
     enrichment: cycle.enrichment,
@@ -397,7 +384,6 @@ export async function runVisualConceptsJob(
     generatedAt: new Date().toISOString(),
     provenance: result.provenance,
     reviewId: cycle.reviewId,
-    candidateVersionId: cycle.candidateVersionId,
     source: cycle.source,
     inputHash,
     jokeRead: result.jokeRead,
@@ -456,7 +442,7 @@ export function registerVisualConceptJobHandlers(): void {
 /**
  * Build the `visualConcepts` block the review-detail endpoint returns. The
  * server computes whether the stored candidates are CURRENT for the review by
- * comparing the stored reviewId / candidateVersionId / inputHash to the review's
+ * comparing the stored reviewId / inputHash to the review's
  * live state — the FE never recomputes hashes.
  */
 /** The fact columns a `visualConcepts` block is built from. */
@@ -523,10 +509,9 @@ async function assembleConceptsResponse(
   };
 }
 
-export async function buildVisualConceptsResponse(review: ConceptsRow & { id: number; candidateVersionId: number | null }): Promise<VisualConceptsResponse> {
+export async function buildVisualConceptsResponse(review: ConceptsRow & { id: number }): Promise<VisualConceptsResponse> {
   return assembleConceptsResponse(review, async (blob) => {
     if (blob.reviewId !== review.id) return "review_mismatch";
-    if (blob.candidateVersionId !== review.candidateVersionId) return "candidate_version_mismatch";
     const resolved = await resolveVisualConceptCycle(review.id);
     if (!resolved.ok || blob.inputHash !== (await computeCurrentInputHash(resolved.cycle))) return "input_hash_mismatch";
     return undefined;

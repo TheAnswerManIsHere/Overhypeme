@@ -17,7 +17,6 @@ import {
   db,
   factGagsTable,
   factsTable,
-  factEnrichmentVersionsTable,
   pendingReviewsTable,
   type FactGag,
 } from "@workspace/db";
@@ -126,8 +125,7 @@ export interface AvailableGag {
  * The gags a caller without moderator rights may be offered, default first:
  * the approved versions of a LIVE fact's non-removed gags, in slot order. A
  * pending change is never offered; the approved version keeps being served
- * while one waits. Empty for an inactive fact. A refresh's picks and removals
- * change it only at promotion.
+ * while one waits. Empty for an inactive fact.
  *
  * Phase 7's contract (plan PLAN_THREE_GAGS.md, decisions 13 and 15): its
  * picker lists exactly these, offers a choice wherever there is more than
@@ -229,12 +227,10 @@ export interface GagRenderContext {
   factId: number;
   /** The fact's template text (locked). */
   factText: string;
-  /** The classification renders are drawn against: a refresh candidate's while one is under review, else the fact's. */
+  /** The fact's stored classification. */
   classification: unknown;
   /** The open review the fact is in, if any; renders made now are recorded against it. */
   reviewId: number | null;
-  /** The open review is a refresh of a live fact. */
-  refresh: boolean;
   /** The open review's stage, or null with no review. */
   stage: string | null;
   isActive: boolean;
@@ -247,7 +243,6 @@ export async function openReviewForFact(factId: number, executor: Executor = db)
       id: pendingReviewsTable.id,
       workflowStage: pendingReviewsTable.workflowStage,
       status: pendingReviewsTable.status,
-      candidateVersionId: pendingReviewsTable.candidateVersionId,
     })
     .from(pendingReviewsTable)
     .where(and(eq(pendingReviewsTable.stagingFactId, factId), eq(pendingReviewsTable.status, "pending")))
@@ -264,21 +259,11 @@ export async function loadGagRenderContext(factId: number, executor: Executor = 
     .limit(1);
   if (!fact) return null;
   const review = await openReviewForFact(factId, executor);
-  let classification: unknown = fact.enrichment;
-  if (review?.candidateVersionId != null) {
-    const [cand] = await executor
-      .select({ enrichment: factEnrichmentVersionsTable.enrichment })
-      .from(factEnrichmentVersionsTable)
-      .where(eq(factEnrichmentVersionsTable.id, review.candidateVersionId))
-      .limit(1);
-    classification = cand?.enrichment ?? null;
-  }
   return {
     factId,
     factText: fact.text,
-    classification,
+    classification: fact.enrichment,
     reviewId: review?.id ?? null,
-    refresh: review?.candidateVersionId != null,
     stage: review?.workflowStage ?? null,
     isActive: fact.isActive,
   };

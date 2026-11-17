@@ -1058,6 +1058,13 @@
       "when": 1788300000000,
       "tag": "0150_generation_request_vendor_status",
       "breakpoints": true
+    },
+    {
+      "idx": 151,
+      "version": "7",
+      "when": 1788400000000,
+      "tag": "0151_retire_refresh_reviews",
+      "breakpoints": true
     }
   ]
 }

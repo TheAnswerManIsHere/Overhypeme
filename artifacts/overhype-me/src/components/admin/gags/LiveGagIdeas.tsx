@@ -82,7 +82,7 @@ export function LiveGagIdeas({
   }, [live, pending, load]);
   // Keyed on the gags' content, not the view object: the panel hands over a
   // new view on every poll while a render draws.
-  const gagsKey = gagsView ? JSON.stringify(gagsView.gags.map((g) => [g.id, g.approvedContent, g.pendingContent, g.pendingRemove])) : "";
+  const gagsKey = gagsView ? JSON.stringify(gagsView.gags.map((g) => [g.id, g.approvedContent, g.pendingContent])) : "";
   const seenGags = useRef(gagsKey);
   useEffect(() => {
     if (seenGags.current === gagsKey) return;

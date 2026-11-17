@@ -35,8 +35,6 @@ const SKIP_REASON_MESSAGE: Record<TaxonomyHealthSkipReason, string> = {
   not_applicable: "Not applicable to this fact.",
   already_current: "Already current.",
   missing_required_data: "Missing required data.",
-  already_in_review: "Refresh already in review.",
-  not_active: "Only active facts can be sent back.",
 };
 
 // Near-real-time: re-poll every ~1s so each row + the summary update within a
@@ -88,12 +86,6 @@ export interface OperationState {
   posting: boolean;
   startedAt: number;
   finishedAt?: number;
-  /** Bulk send-back only: corpus-wide counts from the action response. */
-  totalStale?: number;
-  eligibleRemaining?: number;
-  batchLimit?: number;
-  /** Bulk send-back `all_stale` only: facts currently circuit-broken by repeated failures. */
-  repeatedFailureCount?: number;
 }
 
 export interface OpCounts {
@@ -382,10 +374,6 @@ export function useTaxonomyHealthActions(
             posting: false,
             startedAt: prev[scope]?.startedAt ?? startedAt,
             finishedAt: jobs.length === 0 ? Date.now() : undefined,
-            totalStale: data.totalStale,
-            eligibleRemaining: data.eligibleRemaining,
-            batchLimit: data.batchLimit,
-            repeatedFailureCount: data.repeatedFailureCount,
           },
         }));
         // Inline-only (no queued jobs) is terminal right away — refresh now.

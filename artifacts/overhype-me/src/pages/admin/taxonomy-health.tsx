@@ -4,7 +4,7 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import {
   Loader2, AlertTriangle, Activity, RefreshCw, ExternalLink, Wrench, Search, ListChecks,
-  CheckCircle2, XCircle, Clock, Info, X, Rocket, Send,
+  CheckCircle2, XCircle, Clock, Info, X, Rocket,
 } from "lucide-react";
 import {
   currentTaxonomyVersions,
@@ -39,10 +39,6 @@ interface HealthRow {
   taxonomyConfidence: number | null;
   health: FactTaxonomyHealth;
   updatedAt: string | null;
-  /** True when a refresh candidate is already in flight — pre-disables send-back. */
-  refreshInReview: boolean;
-  /** True when this fact's last 3 send-back attempts all failed — excluded from "Send next 50 stale" until manually retried. */
-  repeatedFailure: boolean;
 }
 
 interface ListResponse {
@@ -65,7 +61,6 @@ const TONE_CLASS: Record<CardTone, string> = {
 const ACTION_LABEL: Record<TaxonomyHealthAction, string> = {
   re_enrich: "Re-enrich",
   repair_projections: "Repair projections",
-  send_back_to_review: "Send back to review",
   fill_characters: "Fill character list",
 };
 
@@ -162,8 +157,6 @@ function ActionIndicator({ state, outcome }: { state: UiOpState; outcome: Action
       const reason = outcome?.status === "skipped" ? outcome.reason : undefined;
       const label =
         reason === "admin_edited" ? "Skipped — admin-edited"
-        : reason === "already_in_review" ? "Skipped — already in review"
-        : reason === "not_active" ? "Skipped — not active"
         : reason === "not_applicable" ? "Skipped — not applicable"
         : "Skipped";
       return (
@@ -187,40 +180,6 @@ function ActionIndicator({ state, outcome }: { state: UiOpState; outcome: Action
   }
 }
 
-/**
- * The stale-for-reprocess row action: a "Send back to review" button routed
- * through the same async action hook as bulk send-back (rule 8: one status
- * model for single-click AND bulk). The transient posting/queued/working/
- * skipped/failed state renders via the generic `ActionIndicator` elsewhere in
- * this row; this component only owns the persistent "already in review" pill
- * vs. the button to fire a fresh send-back.
- */
-function RowSendBack({
-  row,
-  busy,
-  onSend,
-}: {
-  row: HealthRow;
-  busy: boolean;
-  onSend: () => void;
-}) {
-  if (row.refreshInReview) {
-    return (
-      <span
-        className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400"
-        data-testid="send-back-in-review"
-      >
-        <Clock className="w-3 h-3" /> Refresh in review
-      </span>
-    );
-  }
-  return (
-    <Button variant="secondary" size="sm" disabled={busy} onClick={onSend} data-testid="send-back-to-review">
-      <Send className="w-3 h-3 mr-1" /> Send back to review
-    </Button>
-  );
-}
-
 export default function TaxonomyHealth() {
   const [summary, setSummary] = useState<TaxonomyHealthSummaryResponse | null>(null);
   const [rows, setRows] = useState<HealthRow[]>([]);
@@ -230,9 +189,6 @@ export default function TaxonomyHealth() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [markModalOpen, setMarkModalOpen] = useState(false);
-  // Row checkboxes for the "Send selected" bulk send-back action — only
-  // meaningful on the Stale-for-reprocess card.
-  const [selectedForSendBack, setSelectedForSendBack] = useState<Set<number>>(new Set());
 
   const loadSummary = useCallback(async () => {
     try {
@@ -352,49 +308,6 @@ export default function TaxonomyHealth() {
     [actions],
   );
 
-  const BULK_SEND_BACK_URL = "/api/admin/taxonomy-health/actions/bulk-send-back";
-
-  // Single-row send-back for a stale-for-reprocess row — routed through the
-  // SAME async action hook as bulk (rule 8: one status model). The row's
-  // transient state renders via the shared `ActionIndicator`.
-  const runRowSendBack = useCallback(
-    (factId: number) => {
-      void actions.submit(`row:${factId}`, "send_back_to_review", BULK_SEND_BACK_URL, {
-        scope: "selected",
-        factIds: [factId],
-      });
-    },
-    [actions],
-  );
-
-  const toggleSelectedForSendBack = useCallback((factId: number) => {
-    setSelectedForSendBack((prev) => {
-      const next = new Set(prev);
-      if (next.has(factId)) next.delete(factId);
-      else next.add(factId);
-      return next;
-    });
-  }, []);
-
-  // Corpus-wide bulk send-back — server picks up to the batch cap of eligible
-  // stale facts. Copy is deliberately "up to N eligible": the frontend cannot
-  // know the exact eligible count before POST (that's computed server-side).
-  const runSendBackAllStale = useCallback(() => {
-    const msg =
-      "Queue up to 50 eligible stale facts for refresh? Facts already in review are left out of this batch. Every refresh still needs Visual Concept + Test Render approval before it goes live.";
-    if (!window.confirm(msg)) return;
-    void actions.submit("bulk", "send_back_to_review", BULK_SEND_BACK_URL, { scope: "all_stale" });
-  }, [actions]);
-
-  // A separate scope from "bulk" so firing this doesn't clobber tracking of a
-  // concurrently-running "Send next 50 stale" operation.
-  const runSendBackSelected = useCallback(() => {
-    const ids = Array.from(selectedForSendBack);
-    if (ids.length === 0) return;
-    void actions.submit("bulk-selected", "send_back_to_review", BULK_SEND_BACK_URL, { scope: "selected", factIds: ids });
-    setSelectedForSendBack(new Set());
-  }, [actions, selectedForSendBack]);
-
   // Live "X of N done" tally + per-state breakdown, recomputed on every poll.
   const banner = useMemo(() => {
     const op = actions.lastOp;
@@ -403,21 +316,7 @@ export default function TaxonomyHealth() {
     if (!c) return null;
     const label = ACTION_LABEL[op.action];
     if (op.posting) return { text: `${label}: sending…`, done: false };
-    // Bulk send-back's corpus-wide eligible-remaining count is meaningful even
-    // when this request queued nothing (e.g. every stale fact already in
-    // review) — surface it either way rather than a bare "no matching facts".
-    const eligibleTrailer =
-      op.action === "send_back_to_review" && op.eligibleRemaining != null
-        ? ` — ${op.eligibleRemaining} eligible stale fact${op.eligibleRemaining === 1 ? "" : "s"} remain in the corpus.`
-        : "";
-    // A nonzero repeatedFailureCount means the migration is NOT complete even
-    // once queued/failed/eligibleRemaining all read clean — surface it in the
-    // same place, not only discoverable by scrolling row-by-row.
-    const repeatedFailureTrailer =
-      op.action === "send_back_to_review" && !!op.repeatedFailureCount
-        ? ` ${op.repeatedFailureCount} fact${op.repeatedFailureCount === 1 ? "" : "s"} excluded after repeated failures — investigate before considering the migration complete.`
-        : "";
-    if (c.requested === 0) return { text: `${label}: no matching facts.${eligibleTrailer}${repeatedFailureTrailer}`, done: true };
+    if (c.requested === 0) return { text: `${label}: no matching facts.`, done: true };
     const segs: string[] = [];
     if (c.running > 0) segs.push(`${c.running} in progress`);
     if (c.failed > 0) segs.push(`${c.failed} failed`);
@@ -425,7 +324,7 @@ export default function TaxonomyHealth() {
     if (c.stillRunning > 0) segs.push(`${c.stillRunning} still running`);
     const detail = segs.length > 0 ? ` · ${segs.join(" · ")}` : "";
     const allDone = c.running === 0 && c.stillRunning === 0;
-    return { text: `${label}: ${c.done} of ${c.requested} done${detail}${eligibleTrailer}${repeatedFailureTrailer}`, done: allDone };
+    return { text: `${label}: ${c.done} of ${c.requested} done${detail}`, done: allDone };
   }, [actions]);
 
   const isBulkMode = filter !== "any";
@@ -521,30 +420,6 @@ export default function TaxonomyHealth() {
               {a.label}
             </Button>
           ))}
-          {filter === "stale_for_reprocess" && (
-            <>
-              <Button
-                variant="primary"
-                size="sm"
-                disabled={actions.busy("bulk")}
-                onClick={runSendBackAllStale}
-                data-testid="send-back-all-stale"
-              >
-                {actions.busy("bulk") ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Send className="w-3 h-3 mr-1" />}
-                Send next 50 stale
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={actions.busy("bulk-selected") || selectedForSendBack.size === 0}
-                onClick={runSendBackSelected}
-                data-testid="send-back-selected"
-              >
-                {actions.busy("bulk-selected") ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Send className="w-3 h-3 mr-1" />}
-                Send selected ({selectedForSendBack.size})
-              </Button>
-            </>
-          )}
         </div>
 
         {/* Last-action banner — live total progress */}
@@ -654,10 +529,9 @@ export default function TaxonomyHealth() {
                           </Button>
                         )}
                         {(row.health.statuses.includes("missing_enrichment") || row.health.reviewFlags.staleEnrichmentVersion || row.health.reviewFlags.invalidEnrichment) &&
-                          // Refresh-first: a stale-for-reprocess row offers ONLY
-                          // "Send back to review". A direct Re-enrich writes
-                          // facts.* without stamping a signature, so it wouldn't
-                          // clear the stale-for-reprocess flag anyway.
+                          // A direct Re-enrich writes facts.* without stamping a
+                          // signature, so it would not clear the
+                          // stale-for-reprocess flag: not offered for that row.
                           !row.health.reviewFlags.staleForReprocess && (
                           <Button
                             variant="secondary"
@@ -667,31 +541,6 @@ export default function TaxonomyHealth() {
                           >
                             <RefreshCw className="w-3 h-3 mr-1" /> Re-enrich
                           </Button>
-                        )}
-                        {row.health.reviewFlags.staleForReprocess && !row.refreshInReview && (
-                          <input
-                            type="checkbox"
-                            checked={selectedForSendBack.has(row.factId)}
-                            onChange={() => toggleSelectedForSendBack(row.factId)}
-                            aria-label={`Select fact ${row.factId} for bulk send-back`}
-                            data-testid="send-back-select"
-                          />
-                        )}
-                        {row.health.reviewFlags.staleForReprocess && (
-                          <RowSendBack
-                            row={row}
-                            busy={rowBusy}
-                            onSend={() => runRowSendBack(row.factId)}
-                          />
-                        )}
-                        {row.repeatedFailure && (
-                          <span
-                            className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400"
-                            title="Last 3 send-back attempts all failed — excluded from &quot;Send next 50 stale&quot; until manually retried here."
-                            data-testid="send-back-repeated-failure"
-                          >
-                            <AlertTriangle className="w-3 h-3" /> 3 failed attempts
-                          </span>
                         )}
                         <ActionIndicator state={state} outcome={outcome} />
                       </div>

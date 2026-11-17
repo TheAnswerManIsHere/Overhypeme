@@ -9,9 +9,9 @@
  * system unchanged.
  */
 
-import { and, eq, desc, inArray, isNull } from "drizzle-orm";
+import { and, eq, desc, inArray } from "drizzle-orm";
 import { db } from "@workspace/db";
-import { pendingReviewsTable, factsTable, factEnrichmentVersionsTable } from "@workspace/db/schema";
+import { pendingReviewsTable, factsTable } from "@workspace/db/schema";
 import {
   UNRESOLVED_SUBMISSION_STAGE_VALUES,
   validateEnrichment,
@@ -51,8 +51,7 @@ type DbLike = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
  * stages (the cost gate), exactly as manual submit already defers them.
  *
  * `submittedById` is nullable: system imports via the API-key bulk endpoint have
- * no user (the same nullable-submitter shape refresh reviews already use — no
- * user to notify, no activity-feed entry). Must run inside the caller's `tx` when
+ * no user (no user to notify, no activity-feed entry). Must run inside the caller's `tx` when
  * the caller needs the insert atomic with a cap check / advisory lock.
  */
 export async function createTriageReview(
@@ -121,25 +120,19 @@ export async function ensureStagingFact(
  * The current UNRESOLVED review cycle linked to a staging fact, or null when
  * every linked review is resolved (or none exists).
  *
- * A fact accumulates MULTIPLE review rows under the stale-fact refresh feature
- * (each send-back creates a new cycle while the original approved review
- * persists), and the prep guards below must never key off a RESOLVED row: a
- * fact whose refresh was approved/rejected — or a plain first-time fact whose
- * original review sits at production_approved — is simply a live fact again,
- * not "a staging fact whose review left prep". Newest-by-created_at keeps the
- * lookup deterministic. `candidateVersionId` is returned because a REFRESH
- * cycle (non-null) is owned exclusively by the version-targeted job
- * (runEnrichmentForCandidateVersion); the generic fact job must skip it.
+ * The prep guards below must never key off a RESOLVED row: a fact whose
+ * review sits at production_approved is simply a live fact, not "a staging
+ * fact whose review left prep". Newest-by-created_at keeps the lookup
+ * deterministic.
  */
 export async function findUnresolvedReviewForStagingFact(
   factId: number,
   tx: DbLike = db,
-): Promise<{ id: number; workflowStage: ReviewWorkflowStage; candidateVersionId: number | null } | null> {
+): Promise<{ id: number; workflowStage: ReviewWorkflowStage } | null> {
   const [row] = await tx
     .select({
       id: pendingReviewsTable.id,
       workflowStage: pendingReviewsTable.workflowStage,
-      candidateVersionId: pendingReviewsTable.candidateVersionId,
     })
     .from(pendingReviewsTable)
     .where(and(
@@ -149,19 +142,17 @@ export async function findUnresolvedReviewForStagingFact(
     .orderBy(desc(pendingReviewsTable.createdAt))
     .limit(1);
   return row
-    ? { id: row.id, workflowStage: row.workflowStage as ReviewWorkflowStage, candidateVersionId: row.candidateVersionId }
+    ? { id: row.id, workflowStage: row.workflowStage as ReviewWorkflowStage }
     : null;
 }
 
 /**
  * Resolve the render input + text a moderation-side visual surface should use
  * for a review cycle. The single source of truth so every review render,
- * preview and gate reads the SAME input — otherwise one surface could preview
- * the active fact while another previews the candidate.
+ * preview and gate reads the SAME input.
  *
- * - The classification: a refresh cycle's (`candidateVersionId != null`)
- *   candidate version's enrichment, else the staging fact's own
- *   `facts.enrichment`. Since migration 0139 neither holds a gag.
+ * - The classification: the staging fact's own `facts.enrichment`. Since
+ *   migration 0139 it holds no gag.
  * - The gag: the fact's primary working gag (lowest slot, its pending change
  *   if there is one, else its approved version; lib/gags/resolver.ts), joined
  *   in as `visualPromptStrategyOverride`. For a one-gag fact this is exactly
@@ -173,7 +164,7 @@ export async function findUnresolvedReviewForStagingFact(
  * Null when the review has no staging fact / the fact is missing.
  */
 export async function resolveReviewCycleEnrichment(
-  review: { stagingFactId: number | null; candidateVersionId: number | null },
+  review: { stagingFactId: number | null },
   tx: DbLike = db,
 ): Promise<{
   factId: number;
@@ -181,7 +172,6 @@ export async function resolveReviewCycleEnrichment(
   rawEnrichment: unknown;
   classification: unknown;
   gagId: number | null;
-  source: "candidate_version" | "staging_fact";
 } | null> {
   if (review.stagingFactId == null) return null;
   const [fact] = await tx
@@ -190,31 +180,18 @@ export async function resolveReviewCycleEnrichment(
     .where(eq(factsTable.id, review.stagingFactId))
     .limit(1);
   if (!fact) return null;
-  let classification: unknown = fact.enrichment;
-  let source: "candidate_version" | "staging_fact" = "staging_fact";
-  if (review.candidateVersionId != null) {
-    const [version] = await tx
-      .select({ enrichment: factEnrichmentVersionsTable.enrichment })
-      .from(factEnrichmentVersionsTable)
-      .where(eq(factEnrichmentVersionsTable.id, review.candidateVersionId))
-      .limit(1);
-    if (version) {
-      classification = version.enrichment;
-      source = "candidate_version";
-    }
-  }
+  const classification: unknown = fact.enrichment;
   const primary = await primaryWorkingGag(review.stagingFactId, tx);
   const rawEnrichment = primary && classification && typeof classification === "object"
     ? gagRenderInput(classification as FactEnrichment, primary.content)
     : classification;
-  return { factId: review.stagingFactId, text: fact.text, rawEnrichment, classification, gagId: primary?.gag.id ?? null, source };
+  return { factId: review.stagingFactId, text: fact.text, rawEnrichment, classification, gagId: primary?.gag.id ?? null };
 }
 
 /**
  * Resolve the SAVED Visual Concept (core scene) for a review cycle, gating the
- * Step-2 "approve the visual gag" transition. Built on resolveReviewCycleEnrichment
- * so refresh cycles read the candidate version's enrichment and first-time cycles
- * read the staging fact's — the single source of truth every gag-gate check uses.
+ * Step-2 "approve the visual gag" transition. Built on resolveReviewCycleEnrichment,
+ * the single source of truth every gag-gate check uses.
  *
  * The concept the moderator is approving is the *persisted* enrichment, NOT the
  * AI candidate cards or an unsaved browser draft (the server can't see those).
@@ -222,11 +199,11 @@ export async function resolveReviewCycleEnrichment(
  * precise 4xx. Shared by the endpoint and its tests.
  */
 export type SavedCoreSceneResult =
-  | { ok: true; coreScene: string; enrichment: FactEnrichment; source: "candidate_version" | "staging_fact" }
+  | { ok: true; coreScene: string; enrichment: FactEnrichment }
   | { ok: false; status: number; code: string; error: string };
 
 export async function resolveSavedCoreSceneForReview(
-  review: { stagingFactId: number | null; candidateVersionId: number | null },
+  review: { stagingFactId: number | null },
   tx: DbLike = db,
 ): Promise<SavedCoreSceneResult> {
   const cycle = await resolveReviewCycleEnrichment(review, tx);
@@ -246,7 +223,7 @@ export async function resolveSavedCoreSceneForReview(
   if (!coreScene) {
     return { ok: false, status: 409, code: "CONCEPT_MISSING", error: "Save a non-empty Visual Concept (core scene) before approving the visual gag." };
   }
-  return { ok: true, coreScene, enrichment, source: cycle.source };
+  return { ok: true, coreScene, enrichment };
 }
 
 /**
@@ -256,16 +233,10 @@ export async function resolveSavedCoreSceneForReview(
  * and skip everything else:
  *
  *  - `live_fact` — no unresolved review cycle and the fact is active: a normal
- *    admin re-enrich. Resolved historical reviews (an approved first-time cycle,
- *    a promoted/rejected refresh) must NOT block this.
- *  - `first_time_staging` — an unresolved FIRST-TIME cycle
- *    (`candidateVersionId == null`) still in `prep_pending`.
+ *    admin re-enrich. Resolved historical reviews must NOT block this.
+ *  - `first_time_staging` — an unresolved cycle still in `prep_pending`.
  *
  * Skips:
- *  - `refresh_candidate_in_review` — an unresolved refresh cycle owns this fact:
- *    the candidate job (runEnrichmentForCandidateVersion) classifies into the
- *    VERSION row; a stale generic job running here would overwrite live facts.*
- *    mid-review and could advance the cycle with an unfilled candidate.
  *  - `staging_prep_left` — a first-time cycle that moved past prep (rejected, or
  *    already at production_review): the original cost guard, unchanged.
  *  - `inactive_staging` — no unresolved cycle and the fact is inactive: an
@@ -273,7 +244,7 @@ export async function resolveSavedCoreSceneForReview(
  */
 export type GenericFactEnrichmentDecision =
   | { action: "run"; mode: "live_fact" | "first_time_staging" }
-  | { action: "skip"; reason: "refresh_candidate_in_review" | "staging_prep_left" | "inactive_staging" | "fact_missing" };
+  | { action: "skip"; reason: "staging_prep_left" | "inactive_staging" | "fact_missing" };
 
 export async function resolveGenericFactEnrichmentDecision(
   factId: number,
@@ -287,7 +258,6 @@ export async function resolveGenericFactEnrichmentDecision(
   if (!fact) return { action: "skip", reason: "fact_missing" };
   const unresolved = await findUnresolvedReviewForStagingFact(factId, tx);
   if (unresolved) {
-    if (unresolved.candidateVersionId != null) return { action: "skip", reason: "refresh_candidate_in_review" };
     return unresolved.workflowStage === "prep_pending"
       ? { action: "run", mode: "first_time_staging" }
       : { action: "skip", reason: "staging_prep_left" };
@@ -298,10 +268,8 @@ export async function resolveGenericFactEnrichmentDecision(
 /**
  * Advance a review off the terminal outcome of its staging fact's GENERIC
  * enrichment job. Success → concept_review (Step 2: Visual Concept gate);
- * terminal abandon → prep_failed. Acts ONLY on an unresolved FIRST-TIME cycle
- * (`candidateVersionId == null`) still in `prep_pending` — refresh cycles are
- * advanced exclusively by runEnrichmentForCandidateVersion, which targets its
- * exact version/review pair; a generic outcome must never move one.
+ * terminal abandon → prep_failed. Acts ONLY on an unresolved cycle still in
+ * `prep_pending`.
  *
  * On success we enqueue the Visual-Idea candidates (fact_visual_concepts) but
  * NOT the render batch: renders are Step 3 and only fire once the moderator
@@ -315,10 +283,10 @@ export async function advanceReviewForStagingFactEnrichment(args: {
 }): Promise<void> {
   const review = await findUnresolvedReviewForStagingFact(args.factId);
   if (!review) return; // live-fact enrichment — nothing to advance
-  if (review.candidateVersionId != null || review.workflowStage !== "prep_pending") {
+  if (review.workflowStage !== "prep_pending") {
     logger.info(
-      { factId: args.factId, reviewId: review.id, stage: review.workflowStage, refreshCycle: review.candidateVersionId != null, outcome: args.outcome },
-      "[moderation] stale staging enrichment outcome ignored (not an in-prep first-time cycle)",
+      { factId: args.factId, reviewId: review.id, stage: review.workflowStage, outcome: args.outcome },
+      "[moderation] stale staging enrichment outcome ignored (not an in-prep cycle)",
     );
     return;
   }
@@ -333,7 +301,6 @@ export async function advanceReviewForStagingFactEnrichment(args: {
       eq(pendingReviewsTable.id, review.id),
       eq(pendingReviewsTable.status, "pending"),
       eq(pendingReviewsTable.workflowStage, "prep_pending"),
-      isNull(pendingReviewsTable.candidateVersionId),
     ))
     .returning({ id: pendingReviewsTable.id });
   if (advanced.length === 0) {
@@ -362,7 +329,7 @@ export async function advanceReviewForStagingFactEnrichment(args: {
       await claimConceptsForReview(db, args.factId, review.id, { markPending: true });
       await enqueueJob({
         queue: FACT_VISUAL_CONCEPTS_QUEUE,
-        payload: { reviewId: review.id, factId: args.factId, owner: reviewConceptOwner(review.id), candidateVersionId: null, moderatorDraftScene: null },
+        payload: { reviewId: review.id, factId: args.factId, owner: reviewConceptOwner(review.id), moderatorDraftScene: null },
         dedupeKey: `fact_visual_concepts:review:${review.id}`,
       });
     } catch (err) {

@@ -43,17 +43,14 @@ function gag(over: Partial<GagView> & Pick<GagView, "id" | "slot">): GagView {
     grandfathered: false,
     approvedAt: "2026-11-01T00:00:00.000Z",
     pendingContent: null,
-    pendingReviewId: null,
     pendingExamples: NONE,
-    pendingRemove: false,
-    refreshedSinceApproval: false,
     renders: NONE,
     ...over,
   };
 }
 
 function view(gags: GagView[], over: Partial<FactGagsView> = {}): FactGagsView {
-  return { factId: 5, isActive: true, review: null, frozenOutsideReview: false, gags, maxGags: 3, ...over };
+  return { factId: 5, isActive: true, review: null, gags, maxGags: 3, ...over };
 }
 
 type Call = { url: string; method: string; body: unknown };
@@ -263,17 +260,6 @@ describe("GagsPanel", () => {
     expect(screen.queryByTestId("gag-add")).toBeNull();
   });
 
-  it("is read-only outside the review while a refresh is open, and says why", async () => {
-    stubFetch(view([gag({ id: 1, slot: 1, isDefault: true })], { frozenOutsideReview: true }));
-    render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
-    expect(await screen.findByTestId("gags-frozen-note")).toBeTruthy();
-    expect(screen.queryByTestId("gag-save")).toBeNull();
-    expect(screen.queryByTestId("gag-remove")).toBeNull();
-    expect(screen.queryByTestId("gag-render-rest")).toBeNull();
-    expect(screen.queryByTestId("gag-redraw-render")).toBeNull();
-    expect(screen.queryByTestId("gag-add")).toBeNull();
-  });
-
   it("reports unsaved gag work by gag, so an approval can wait for it and name it (Codex, PR #956 round 2)", async () => {
     stubFetch(view([gag({ id: 1, slot: 1, isDefault: true }), gag({ id: 2, slot: 2 })]));
     const onUnsaved = vi.fn();
@@ -348,19 +334,6 @@ describe("GagsPanel", () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
       expect(gets).toHaveBeenCalledTimes(1);
     });
-  });
-
-  it("offers Keep this gag on a gag the refresh marked for removal, and sends only that", async () => {
-    const marked = gag({ id: 1, slot: 1, pendingRemove: true, pendingReviewId: 77 });
-    const calls = stubFetch(view([marked, gag({ id: 2, slot: 2 })], { review: { id: 77, stage: "concept_review", refresh: true }, frozenOutsideReview: true }),
-      { after: view([gag({ id: 1, slot: 1 }), gag({ id: 2, slot: 2 })], { review: { id: 77, stage: "concept_review", refresh: true }, frozenOutsideReview: true }) });
-    render(<GagsPanel factId={5} reviewId={77} rendersEnabled subjectNames={[]} />);
-    const cards = await screen.findAllByTestId("gag-card");
-    expect(within(cards[0]!).queryByTestId("gag-remove")).toBeNull();
-    fireEvent.click(within(cards[0]!).getByTestId("gag-keep"));
-    await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url === "/api/admin/facts/5/gags/1/keep")).toBe(true));
-    expect(calls.find((c) => c.url.endsWith("/keep"))!.body).toEqual({ reviewId: 77 });
-    await waitFor(() => expect(screen.queryByTestId("gag-keep")).toBeNull());
   });
 
   describe("unsaved gag edits are kept in the browser (build report, PR #956)", () => {

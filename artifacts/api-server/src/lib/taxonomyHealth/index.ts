@@ -311,9 +311,9 @@ export function evaluateFactTaxonomyHealth(
   // Reached ONLY for facts with VALID enrichment (missing/invalid returned
   // early above) — the deliberate product scope: this card is "old-but-good
   // facts that should go back through the pipeline", not broken facts (which
-  // have their own error cards). Refresh-first: the recommended action is
-  // `send_back_to_review`, never a direct re-enrich (which wouldn't stamp the
-  // signature). `severity: "info"` keeps it out of the overall-status rollup —
+  // have their own error cards). It has no action since refresh reviews were
+  // removed (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1H); the flag itself leaves
+  // with the processing signature in that plan's Phase 2. `severity: "info"` keeps it out of the overall-status rollup —
   // a fact whose only issue is this stays overall "healthy"; the dedicated
   // card/filter is the surface. Skipped entirely when no `currentSignature` is
   // supplied.
@@ -329,11 +329,11 @@ export function evaluateFactTaxonomyHealth(
         severity: "info",
         message:
           staleness.reason === "engine_revision"
-            ? "This fact was processed under an older engine revision — send it back through the refresh pipeline to bring it up to date."
+            ? "This fact was processed under an older engine revision."
             : staleness.reason === "code_version"
-              ? "This fact was processed under older taxonomy/classification/image-prompt/visual-strategy code versions — send it back through the refresh pipeline."
-              : "This fact has never been processed through the versioned refresh pipeline — send it back to refresh its enrichment.",
-        recommendedAction: "send_back_to_review",
+              ? "This fact was processed under older taxonomy/classification/image-prompt/visual-strategy code versions."
+              : "This fact was never stamped with a processing signature.",
+        recommendedAction: "none",
       });
     }
   }

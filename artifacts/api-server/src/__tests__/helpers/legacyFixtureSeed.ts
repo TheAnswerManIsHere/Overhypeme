@@ -132,7 +132,8 @@ const [hashtag] = await db.insert(t.hashtagsTable).values({ name: "zqxprivatetag
 const [keptTag] = await db.insert(t.hashtagsTable).values({ name: "infinity", factCount: 1 }).returning({ id: t.hashtagsTable.id });
 await db.insert(t.factHashtagsTable).values([{ factId: pendingFact!.id, hashtagId: hashtag!.id }, { factId: activeFact!.id, hashtagId: keptTag!.id }]);
 
-// Reviews: an older approved review whose wording differs from today's live text; a refresh of the live fact; a pending submission.
+// Reviews: an older approved review whose wording differs from today's live text; a review of the live fact
+// (a refresh, before 0151 retired them; kept as the case of a review of its own live fact); a pending submission.
 const [approved] = await db.insert(t.pendingReviewsTable).values({
   submittedText: S.oldApprovedText, submittedById: userId, status: "approved", workflowStage: "production_approved",
   approvedFactId: activeFact!.id, reviewedById: adminId, adminNote: S.adminNote, createdAt: at,
@@ -152,34 +153,34 @@ const [submission] = await db.insert(t.pendingReviewsTable).values({
   stagingFactId: pendingFact!.id, hashtags: ["zqxprivatetag"], createdAt: at,
 }).returning({ id: t.pendingReviewsTable.id });
 
-const [version] = await db.insert(t.factEnrichmentVersionsTable).values({
-  factId: activeFact!.id, versionNo: 1, status: "candidate", enrichment, enrichmentAiDerived: placeholderEnrichment,
+// A version kept as classification history (promoted); 0151 deletes candidate and rejected ones.
+await db.insert(t.factEnrichmentVersionsTable).values({
+  factId: activeFact!.id, versionNo: 1, status: "promoted", enrichment, enrichmentAiDerived: placeholderEnrichment,
   enrichmentOverrides: overrides, factTextHash: hashFactText(KEPT_FACT_TEXT), source: "refresh_candidate",
-  sourceReviewId: refresh!.id, note: S.versionNote, createdBy: adminId,
-}).returning({ id: t.factEnrichmentVersionsTable.id });
-await db.update(t.pendingReviewsTable).set({ candidateVersionId: version!.id }).where(sql`id = ${refresh!.id}`);
+  sourceReviewId: refresh!.id, note: S.versionNote, createdBy: adminId, promotedAt: at,
+});
 
 await db.insert(t.enrichmentOverrideHistoryTable).values({
   factId: activeFact!.id, path: "/adminReviewNotes", action: "set", oldValue: S.historyOld, newValue: S.historyNew,
   reason: S.overrideReason, performedBy: adminId,
 });
 
-// Concept blobs: the pending submission's (stale on purpose), and the refresh's (made current below).
-const blob = (reviewId: number, candidateVersionId: number | null, source: "staging_fact" | "candidate_version") => ({
+// Concept blobs: the pending submission's (stale on purpose), and the live fact's review's (made current below).
+const blob = (reviewId: number) => ({
   candidates: [{
     title: S.conceptTitle, whyItWorks: S.conceptTitle, sceneDescription: S.conceptScene, tokenValid: true,
     bubbles: [{ type: "speech", entity: "subject", text: S.bubbleText, tokenValid: true }],
   }],
   generatedAt: "2026-01-01T00:00:00Z",
   provenance: { engineId: "openai-general", model: null, reasoningEffort: null, timeoutMs: 1000, promptVersion: 1 },
-  reviewId, candidateVersionId, source, inputHash: "zqx-stale-input-hash",
+  reviewId, source: "staging_fact", inputHash: "zqx-stale-input-hash",
 });
-await db.update(t.factsTable).set({ visualConceptCandidates: blob(submission!.id, null, "staging_fact"), visualConceptStatus: "ok" }).where(sql`id = ${pendingFact!.id}`);
-await db.update(t.factsTable).set({ visualConceptCandidates: blob(refresh!.id, version!.id, "candidate_version"), visualConceptStatus: "ok" }).where(sql`id = ${activeFact!.id}`);
+await db.update(t.factsTable).set({ visualConceptCandidates: blob(submission!.id), visualConceptStatus: "ok" }).where(sql`id = ${pendingFact!.id}`);
+await db.update(t.factsTable).set({ visualConceptCandidates: blob(refresh!.id), visualConceptStatus: "ok" }).where(sql`id = ${activeFact!.id}`);
 const cycle = await resolveVisualConceptCycle(refresh!.id);
 if (cycle.ok) {
   const current = await computeCurrentInputHash(cycle.cycle);
-  await db.update(t.factsTable).set({ visualConceptCandidates: { ...blob(refresh!.id, version!.id, "candidate_version"), inputHash: current } }).where(sql`id = ${activeFact!.id}`);
+  await db.update(t.factsTable).set({ visualConceptCandidates: { ...blob(refresh!.id), inputHash: current } }).where(sql`id = ${activeFact!.id}`);
 }
 
 // Render attempts: a user generation on the newer pipeline (three references to one object), and two review renders — one current, one stale.
@@ -297,7 +298,7 @@ await db.insert(t.userGenerationCostsTable).values({ userId, jobType: "ai_image"
 console.log(JSON.stringify({
   ok: true, userId, adminId, otherId,
   activeFactId: activeFact!.id, pendingFactId: pendingFact!.id, duplicateFactId: duplicateFact!.id, duplicateReviewId: duplicateReview!.id,
-  approvedReviewId: approved!.id, refreshReviewId: refresh!.id, submissionReviewId: submission!.id, versionId: version!.id,
+  approvedReviewId: approved!.id, refreshReviewId: refresh!.id, submissionReviewId: submission!.id,
   userAttemptId: userAttempt!.id, currentRenderId: currentRender!.id, staleRenderId: staleRender!.id,
   legacyBackground, newerPath, uploadPath, profilePath, matchedPath,
   renderContextOk: loaded.ok, conceptCycleOk: cycle.ok,

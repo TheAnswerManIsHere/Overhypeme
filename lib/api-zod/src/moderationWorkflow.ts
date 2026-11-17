@@ -22,14 +22,11 @@
  *         ▼
  *   production_approved
  *
- * A first-time submission can only be rejected during triage (Step 1) — once
- * it clears triage, there is no reject path: a failed prep, a Visual Concept
- * that isn't working, or a render that isn't ready all just leave the
- * candidate parked (pending / prep_failed) until an admin resolves the
- * underlying issue. The one exception is a REFRESH cycle (re-enrichment of an
- * already-live fact): its "reject" means "don't promote this refresh," never
- * touches the live fact, and is allowed at any stage since a refresh always
- * starts past triage (see `canReject` below).
+ * A submission can only be rejected during triage (Step 1) — once it clears
+ * triage, there is no reject path: a failed prep, a Visual Concept that isn't
+ * working, or a render that isn't ready all just leave the candidate parked
+ * (pending / prep_failed) until an admin resolves the underlying issue, or
+ * withdraws it (see `canReject` below).
  *
  * Step 2 = Visual Concept gate (a saved concept + generated Visual Ideas gate the
  * gag approval; Visual Ideas are a blocking prep artifact, not best-effort).
@@ -123,27 +120,12 @@ export function canProductionApprove(stage: ReviewWorkflowStage, status: string)
 }
 
 /**
- * A refresh-cycle candidate's enrichment/Visual-Concept is editable in BOTH
- * Step 2 (concept_review) and Step 3 (production_review) — the moderator tunes
- * the concept in Step 2 and the render inputs in Step 3. Promotion, by contrast,
- * stays Step-3-only (canProductionApprove). Stage-only (mirrors the pre-existing
- * production_review-only check it replaces).
+ * Reject a submission. Only during triage (Step 1) — once triage passes, a
+ * stuck candidate (failed prep, a Visual Concept or render that isn't
+ * working) stays pending until an admin resolves or withdraws it.
  */
-export function canEditRefreshCandidate(stage: ReviewWorkflowStage): boolean {
-  return stage === "concept_review" || stage === "production_review";
-}
-
-/**
- * Reject a candidate. A first-time submission may only be rejected during
- * triage (Step 1) — once triage passes, a stuck candidate (failed prep, a
- * Visual Concept or render that isn't working) stays pending until an admin
- * resolves it; it is never rejected again. A refresh cycle is the one
- * exception: rejecting it means "don't promote this refresh" (the live fact
- * is left untouched), which is safe at any stage since a refresh always
- * starts past triage.
- */
-export function canReject(stage: ReviewWorkflowStage, status: string, isRefreshCycle: boolean): boolean {
-  return status === "pending" && (isRefreshCycle || stage === "triage_pending");
+export function canReject(stage: ReviewWorkflowStage, status: string): boolean {
+  return status === "pending" && stage === "triage_pending";
 }
 
 /**
@@ -158,20 +140,19 @@ export const SUBMISSION_TEXT_MAX_CHARS = 2000;
  * (plan PLAN_THREE_GAGS.md, increment 3; David, 2026-11-14, Q6). Acceptance
  * creates the staging fact, and from then on the wording is locked.
  */
-export function canEditWording(stage: ReviewWorkflowStage, status: string, hasStagingFact: boolean, isRefreshCycle: boolean): boolean {
-  return status === "pending" && stage === "triage_pending" && !hasStagingFact && !isRefreshCycle;
+export function canEditWording(stage: ReviewWorkflowStage, status: string, hasStagingFact: boolean): boolean {
+  return status === "pending" && stage === "triage_pending" && !hasStagingFact;
 }
 
 /** The stages from acceptance up to production approval, where Withdraw applies. */
 export const WITHDRAWABLE_STAGES: readonly ReviewWorkflowStage[] = ["prep_pending", "prep_failed", "concept_review", "production_review"];
 
 /**
- * Withdraw: wording needs replacing — the one way a first-time submission ends
- * after triage (plan PLAN_THREE_GAGS.md, increment 3). A refresh is declined
- * instead, since the live fact keeps its wording.
+ * Withdraw: wording needs replacing — the one way a submission ends after
+ * triage (plan PLAN_THREE_GAGS.md, increment 3).
  */
-export function canWithdraw(stage: ReviewWorkflowStage, status: string, isRefreshCycle: boolean): boolean {
-  return status === "pending" && !isRefreshCycle && WITHDRAWABLE_STAGES.includes(stage);
+export function canWithdraw(stage: ReviewWorkflowStage, status: string): boolean {
+  return status === "pending" && WITHDRAWABLE_STAGES.includes(stage);
 }
 
 /**

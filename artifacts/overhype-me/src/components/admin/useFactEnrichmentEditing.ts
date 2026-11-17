@@ -108,17 +108,10 @@ interface ResolvedResponse {
 }
 
 /**
- * What this editor edits:
- *  - `fact` — the live fact's enrichment layers (Facts page; first-time
- *    moderation staging, where the staging fact IS the record under review);
- *  - `reviewCandidate` — a REFRESH cycle's candidate version row, via the
- *    review-scoped candidate endpoints. The live fact is frozen while the
- *    cycle is open; edits land on the candidate that approval promotes.
- *    `factId` is still carried (= review.stagingFactId) for identity/keying.
+ * What this editor edits: a fact's enrichment layers (Facts page; moderation
+ * staging, where the staging fact IS the record under review).
  */
-export type EnrichmentEditTarget =
-  | { kind: "fact"; factId: number }
-  | { kind: "reviewCandidate"; reviewId: number; factId: number };
+export type EnrichmentEditTarget = { kind: "fact"; factId: number };
 
 export interface UseFactEnrichmentEditingOptions {
   target: EnrichmentEditTarget;
@@ -148,21 +141,14 @@ export interface UseFactEnrichmentEditingResult {
    *  editor then renders in plain mode with no decoration. */
   overrideContext: EnrichmentOverrideContext | undefined;
   jobs: ReturnType<typeof useEnrichmentJobs>;
-  /** Re-run classification behind the shared "overrides are preserved" confirm.
-   *  No-op when `supportsRerun` is false (candidate mode). */
+  /** Re-run classification behind the shared "overrides are preserved" confirm. */
   rerunWithConfirm: () => Promise<void>;
-  /** False in candidate mode — surfaces must not render a re-run action then
-   *  (a candidate is re-classified by rejecting + re-sending, never in place). */
-  supportsRerun: boolean;
   /** The server's message from the most recent failed override write (parsed
-   *  from `{error, code}` when present) — e.g. a stale tab hitting
-   *  CANDIDATE_NOT_PENDING after the refresh resolved. Null after a success. */
+   *  from `{error, code}` when present). Null after a success. */
   overrideError: string | null;
   /** Await every in-flight per-field override write (PUT/DELETE) and report
-   *  whether all succeeded. Terminal actions (promote / reject) call this first:
-   *  a field blurred by the same click starts an un-awaited write, and if the
-   *  action marks the candidate non-pending before it lands, the write is
-   *  rejected (CANDIDATE_NOT_PENDING) and the human edit is silently dropped.
+   *  whether all succeeded. Terminal actions (approve / reject) call this first:
+   *  a field blurred by the same click starts an un-awaited write.
    *  Resolves true immediately when nothing is in flight. */
   flushOverrides: () => Promise<boolean>;
   reloadResolved: () => Promise<void>;
@@ -199,41 +185,24 @@ export function useFactEnrichmentEditing({
   // Primitive identity so an inline target object never re-keys the hook.
   const targetKind = target.kind;
   const factId = target.factId;
-  const reviewId = target.kind === "reviewCandidate" ? target.reviewId : null;
 
   // Stale-response guard for tokenizeAndSaveVisualOverride: captured at call
   // time and re-checked after the async batch route round trip, so a response
-  // that lands after the admin has navigated to a different fact/candidate
-  // can never write into the now-active target's draft.
-  const targetKeyRef = useRef(`${targetKind}:${factId}:${reviewId ?? ""}`);
-  targetKeyRef.current = `${targetKind}:${factId}:${reviewId ?? ""}`;
+  // that lands after the admin has navigated to a different fact can never
+  // write into the now-active target's draft.
+  const targetKeyRef = useRef(`${targetKind}:${factId}`);
+  targetKeyRef.current = `${targetKind}:${factId}`;
 
-  // ONE place derives every endpoint + the draft namespace, so fact mode and
-  // candidate mode can never partially mix. Candidate mode reads/writes the
-  // review-scoped candidate endpoints exclusively — never /api/admin/facts/:id.
+  // ONE place derives every endpoint + the draft namespace.
   const endpoints = useMemo(
-    () =>
-      targetKind === "reviewCandidate"
-        ? {
-            storageKey: `candidate-enrichment-draft::${reviewId}`,
-            fetchRecord: `/api/admin/reviews/${reviewId}/candidate-enrichment-resolved`,
-            fetchResolved: `/api/admin/reviews/${reviewId}/candidate-enrichment-resolved`,
-            // A refresh candidate has no whole-blob save: its one untracked
-            // field (suggestedHashtags) is pinned, and the candidate PATCH that
-            // saved a gag is retired (410).
-            patch: null,
-            overrides: `/api/admin/reviews/${reviewId}/candidate-overrides`,
-            supportsRerun: false,
-          }
-        : {
-            storageKey: `fact-enrichment-draft::${factId}`,
-            fetchRecord: `/api/admin/facts/${factId}`,
-            fetchResolved: `/api/admin/facts/${factId}/enrichment-resolved`,
-            patch: `/api/admin/facts/${factId}/enrichment`,
-            overrides: `/api/admin/facts/${factId}/enrichment-overrides`,
-            supportsRerun: true,
-          },
-    [targetKind, factId, reviewId],
+    () => ({
+      storageKey: `fact-enrichment-draft::${factId}`,
+      fetchRecord: `/api/admin/facts/${factId}`,
+      fetchResolved: `/api/admin/facts/${factId}/enrichment-resolved`,
+      patch: `/api/admin/facts/${factId}/enrichment`,
+      overrides: `/api/admin/facts/${factId}/enrichment-overrides`,
+    }),
+    [factId],
   );
 
   const onSavedRef = useRef(onSaved);
@@ -253,8 +222,7 @@ export function useFactEnrichmentEditing({
     // Sentinel key while disabled: binds the draft to nothing, so a disabled
     // mount can never read/write a real record's localStorage draft or report
     // stale dirty state. Enabling (or switching targets) re-keys → clean
-    // reload. Candidate drafts get their own namespace so they can never
-    // collide with a prior fact-mode draft for the same staging fact.
+    // reload.
     storageKey: enabled ? endpoints.storageKey : "fact-enrichment-draft::disabled",
     emptyValue: null,
     debounceMs: 1500,
@@ -262,15 +230,7 @@ export function useFactEnrichmentEditing({
       if (!enabledRef.current) return null;
       const r = await fetch(endpoints.fetchRecord, { credentials: "include" });
       if (!r.ok) return null;
-      const body = (await r.json()) as Record<string, unknown>;
-      // Candidate mode serves the resolved shape — adapt it to the record slice.
-      if (targetKind === "reviewCandidate") {
-        return {
-          enrichment: (body["effective"] ?? null) as FactEnrichment | null,
-          enrichmentStatus: (body["enrichmentStatus"] ?? null) as string | null,
-        } satisfies FactServerRecord;
-      }
-      return body as FactServerRecord;
+      return (await r.json()) as FactServerRecord;
     },
     selectValue: (rec) => rec.enrichment ?? null,
     reconcileRestoredDraft: (serverValue, restoredDraft) =>
@@ -281,7 +241,6 @@ export function useFactEnrichmentEditing({
     },
     commit: async (toSave): Promise<void | FactEnrichment> => {
       if (!toSave) throw new Error("Nothing to save.");
-      if (endpoints.patch == null) return serverEnrichmentRef.current ?? toSave;
       // Anti-smuggle overlay: untracked fields this surface may not edit are
       // pinned to the latest server value, so a stale draft can't change them.
       const payload = { ...toSave } as FactEnrichment;
@@ -400,9 +359,7 @@ export function useFactEnrichmentEditing({
         try {
           const r = await run();
           if (!r.ok) {
-            // Surface the server's message when it sent one — candidate-mode
-            // failures (CANDIDATE_NOT_READY, REVIEW_NOT_EDITABLE,
-            // CANDIDATE_NOT_PENDING after a stale tab) are meaningful, not noise.
+            // Surface the server's message when it sent one.
             let msg = `Save failed (${r.status}).`;
             try {
               const b = (await r.json()) as { error?: string; code?: string };
@@ -477,13 +434,10 @@ export function useFactEnrichmentEditing({
       : undefined;
 
   // ── Re-run classification (polling never clobbers dirty/in-flight work) ─────
-  // Candidate mode pins the jobs hook OFF (status null): its sync path reads
-  // GET /api/admin/facts/:id and would inject the LIVE fact's enrichment into
-  // the candidate draft. Candidates are never re-classified in place.
   const jobs = useEnrichmentJobs({
     resource: "facts",
     id: factId,
-    status: enabled && targetKind === "fact" ? enrichmentStatus : null,
+    status: enabled ? enrichmentStatus : null,
     isDirty: () => draft.hasUncommittedChanges || Object.keys(pendingRef.current).length > 0,
     // A background re-run rewrites the enrichment server-side; fold it into BOTH
     // value and baseline, then refresh the resolved map so "AI changed — review"
@@ -498,7 +452,6 @@ export function useFactEnrichmentEditing({
   });
 
   const rerunWithConfirm = useCallback(async () => {
-    if (!endpoints.supportsRerun) return; // candidate mode: reject + re-send instead
     if (
       draft.value &&
       !window.confirm(
@@ -508,7 +461,7 @@ export function useFactEnrichmentEditing({
       return;
     }
     await jobs.onRerun();
-  }, [draft.value, jobs, endpoints.supportsRerun]);
+  }, [draft.value, jobs]);
 
   return {
     enrichment: enabled ? draft.value : null,
@@ -517,7 +470,6 @@ export function useFactEnrichmentEditing({
     overrideContext,
     jobs,
     rerunWithConfirm,
-    supportsRerun: endpoints.supportsRerun,
     overrideError,
     flushOverrides,
     reloadResolved: fetchResolved,

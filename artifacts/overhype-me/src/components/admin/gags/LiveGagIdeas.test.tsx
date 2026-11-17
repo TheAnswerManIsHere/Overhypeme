@@ -18,11 +18,11 @@ const NONE = { male: null, female: null, pet: null };
 const GAG: GagView = {
   id: 1, slot: 1, state: "approved", availableToUsers: true, isDefault: true,
   approvedContent: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "{NAME} lifts the moon." },
-  approvedExamples: NONE, grandfathered: true, approvedAt: null, pendingContent: null, pendingReviewId: null,
-  pendingExamples: NONE, pendingRemove: false, refreshedSinceApproval: false,
+  approvedExamples: NONE, grandfathered: true, approvedAt: null, pendingContent: null,
+  pendingExamples: NONE,
   renders: NONE,
 };
-const VIEW: FactGagsView = { factId: 5, isActive: true, review: null, frozenOutsideReview: false, gags: [GAG], maxGags: 3 };
+const VIEW: FactGagsView = { factId: 5, isActive: true, review: null, gags: [GAG], maxGags: 3 };
 
 const ready: VisualConceptsResponse = {
   status: "ok",
@@ -59,7 +59,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 describe("LiveGagIdeas", () => {
   it("is not shown while a review is open, or for a fact that is not live", () => {
     stubFetch([{ status: null, current: false, candidates: [], humorNote: null }]);
-    const { container, rerender } = render(<LiveGagIdeas factId={5} gagsView={{ ...VIEW, review: { id: 9, stage: "concept_review", refresh: true } }} onApplied={() => {}} unsavedGagEdits={false} />);
+    const { container, rerender } = render(<LiveGagIdeas factId={5} gagsView={{ ...VIEW, review: { id: 9, stage: "concept_review" } }} onApplied={() => {}} unsavedGagEdits={false} />);
     expect(container.innerHTML).toBe("");
     rerender(<LiveGagIdeas factId={5} gagsView={{ ...VIEW, isActive: false }} onApplied={() => {}} unsavedGagEdits={false} />);
     expect(container.innerHTML).toBe("");
