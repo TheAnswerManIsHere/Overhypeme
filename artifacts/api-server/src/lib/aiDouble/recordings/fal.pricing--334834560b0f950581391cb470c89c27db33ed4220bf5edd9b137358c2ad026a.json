@@ -1,0 +1,25 @@
+{
+  "kind": "fal.pricing",
+  "request": {
+    "endpoint": "meta/muse-image/edit"
+  },
+  "fingerprint": "334834560b0f950581391cb470c89c27db33ed4220bf5edd9b137358c2ad026a",
+  "recordedAt": "2026-11-17T06:48:00.324Z",
+  "clients": {
+    "@fal-ai/client": "1.9.5",
+    "openai": "6.33.0"
+  },
+  "target": "meta/muse-image/edit",
+  "response": {
+    "prices": [
+      {
+        "endpoint_id": "meta/muse-image/edit",
+        "unit_price": 0.01,
+        "unit": "images",
+        "currency": "USD"
+      }
+    ],
+    "next_cursor": null,
+    "has_more": false
+  }
+}

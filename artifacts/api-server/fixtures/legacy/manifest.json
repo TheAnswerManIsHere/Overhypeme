@@ -24,7 +24,7 @@
     "fact_enrichment_versions": 54,
     "enrichment_override_history": 206,
     "fact_text_edit_history": 0,
-    "image_prompt_attempts": 104,
+    "image_prompt_attempts": 102,
     "memes": 64,
     "upload_image_metadata": 45,
     "user_ai_images": 111,
@@ -7299,21 +7299,6 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-bg-v2/34710/275-0445.png",
-      "kind": "ai-bg-v2",
-      "ext": "png",
-      "acl": null,
-      "roles": [
-        {
-          "role": "attempt-output",
-          "table": "image_prompt_attempts",
-          "row": "275"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
       "path": "/objects/ai-bg-v2/34324/278-0446.png",
       "kind": "ai-bg-v2",
       "ext": "png",
@@ -7593,21 +7578,6 @@
           "role": "attempt-output",
           "table": "image_prompt_attempts",
           "row": "300"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-bg-v2/67/301-0465.png",
-      "kind": "ai-bg-v2",
-      "ext": "png",
-      "acl": null,
-      "roles": [
-        {
-          "role": "attempt-output",
-          "table": "image_prompt_attempts",
-          "row": "301"
         }
       ],
       "width": 64,
@@ -10026,7 +9996,6 @@
       "272": "stale",
       "273": "stale",
       "274": "stale",
-      "275": "stale",
       "278": "stale",
       "279": "stale",
       "280": "stale",
@@ -10046,7 +10015,6 @@
       "298": "current",
       "299": "current",
       "300": "current",
-      "301": "current",
       "302": "current",
       "303": "current",
       "304": "current",
@@ -10373,9 +10341,9 @@
   },
   "predicateCounts": {
     "renderAttempts": {
-      "stale": 65,
+      "stale": 64,
       "no-context": 21,
-      "current": 11
+      "current": 10
     },
     "candidateTextHash": {
       "current": 53,
@@ -10388,7 +10356,7 @@
     }
   },
   "checks": {
-    "rendered:attempt": 220,
+    "rendered:attempt": 218,
     "rendered:meme": 66,
     "hashtags:rebuilt": 45,
     "ref:tier_feature_permissions.feature_key": 42,
@@ -10470,7 +10438,7 @@
     "fact_enrichment_versions.ndjson": "1d6b259281109160632fa7fc1df51027c5b0034357687b9a44ce173416e27bb0",
     "enrichment_override_history.ndjson": "f352cef14d74908c56329fc009c1355ea85641b20897d3842ad043c059db8d79",
     "fact_text_edit_history.ndjson": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "image_prompt_attempts.ndjson": "3049917c8b23e7baaa76df9606179c7675885274e88898526fce2d094fcbd6d4",
+    "image_prompt_attempts.ndjson": "32143aa5bd71cf98c13cacb6afc16ee6aa90ac05d495c4ccb6b301051c1ebac4",
     "memes.ndjson": "8e63f3ac18ce7d97b18478e5cc22b2d02c54571dea1fd38decc468135dfbab7e",
     "upload_image_metadata.ndjson": "04d30941e6919d506f5b9c996523fbdd975e13f8b97a5d6bf6b41a80ab522406",
     "user_ai_images.ndjson": "a6a6acf3475687e4830d03954a14605e647c3f8df707a71c88128e843bf113f1",

@@ -331,7 +331,7 @@ describe("nanoBanana2 — preamble + identity guards", () => {
       prompt: LLM_NONHUMAN_PROMPT,
     }));
     assert.match(out.imagePrompt.toLowerCase(), /image-to-image edit using the reference image/);
-    assert.equal(countOccurrences(out.imagePrompt, "do not replace the subject with a human"), 1, out.imagePrompt);
+    assert.equal(countOccurrences(out.imagePrompt, "do not replace the pet with a human"), 1, out.imagePrompt);
   });
 
   it("refuses a no-photo render: every picture starts from a photo", () => {
@@ -346,7 +346,7 @@ describe("nanoBanana2 — preamble + identity guards", () => {
       subjectRenderMode: "nonhuman_subject_i2i",
       prompt: LLM_NONHUMAN_PROMPT,
     }));
-    assert.equal(countOccurrences(out.imagePrompt, "do not replace the subject with a human"), 1, out.imagePrompt);
+    assert.equal(countOccurrences(out.imagePrompt, "do not replace the pet with a human"), 1, out.imagePrompt);
   });
 });
 
@@ -1566,7 +1566,7 @@ describe("nanoBanana2 — CORE SCENE leads + mode-aware identity", () => {
       subjectRenderMode: "nonhuman_subject_i2i", prompt: "An orange cat does a pushup.",
     }));
     assert.match(out.imagePrompt, /IDENTITY & REFERENCE:/);
-    assert.match(out.imagePrompt.toLowerCase(), /do not replace the subject with a human/);
+    assert.match(out.imagePrompt.toLowerCase(), /do not replace the pet with a human/);
     const idAt = out.imagePrompt.indexOf("IDENTITY & REFERENCE:");
     assert.ok(idAt > 0 && idAt < out.imagePrompt.indexOf("STRICT CONSTRAINTS:"));
   });

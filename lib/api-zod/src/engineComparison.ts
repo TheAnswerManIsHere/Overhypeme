@@ -230,7 +230,6 @@ export const EVALUATION_CANDIDATE_FAMILIES = ["gpt-image-2-6", "nano-banana-2-1"
 export const EVALUATION_PHOTO_TYPES = [
   { scenarioKey: "i2i_male_default", label: "Male" },
   { scenarioKey: "i2i_nonhuman_animal", label: "Pet" },
-  { scenarioKey: "i2i_nonhuman_object_vehicle", label: "Vehicle" },
 ] as const satisfies ReadonlyArray<{ scenarioKey: RenderScenarioKey; label: string }>;
 const PHOTO_TYPE_KEYS = EVALUATION_PHOTO_TYPES.map((t) => t.scenarioKey) as [RenderScenarioKey, ...RenderScenarioKey[]];
 

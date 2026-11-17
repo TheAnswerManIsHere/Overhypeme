@@ -101,7 +101,7 @@ describe("prompt recipe versions", () => {
 
 describe("promotion", () => {
   it("makes a version live for its family only, needs a second confirmation for a policy change, and promoting null restores the baseline", async () => {
-    const v = await save({ "identity.object": "Keep the pet in the photo recognisable." }, "pet wording");
+    const v = await save({ "identity.pet": "Keep the pet in the photo recognisable." }, "pet wording");
     const ok = await promote({ versionId: v.body.version.id });
     assert.equal(ok.status, 200, JSON.stringify(ok.body));
     assert.equal((await liveRecipeVersionIds([FAMILY, OTHER])).get(FAMILY), v.body.version.id);
@@ -117,7 +117,7 @@ describe("promotion", () => {
     const confirmed = await promote({ versionId: policy.body.version.id, confirmPolicy: true });
     assert.equal(confirmed.status, 200);
 
-    const foreign = await save({ "identity.object": "Other family." }, "x", OTHER);
+    const foreign = await save({ "identity.pet": "Other family." }, "x", OTHER);
     assert.equal((await promote({ versionId: foreign.body.version.id })).status, 409, "a version of another family is refused");
 
     const restore = await promote({ versionId: null, confirmPolicy: true });

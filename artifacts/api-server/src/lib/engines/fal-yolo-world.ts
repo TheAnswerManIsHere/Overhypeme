@@ -7,7 +7,10 @@ import type { EngineDefinition } from "./types";
  * of class names (open-vocab text queries; the model is COCO-trained but
  * accepts arbitrary nouns) and returns detections with class label, score,
  * and bounding box. The Phase 2 source-image analyzer maps detections →
- * `SourceSubjectKind` (human_face / animal_subject / vehicle_subject / ...).
+ * `SourceSubjectKind` (human_face / animal_subject / ...). Vehicles, toys and
+ * statues stay in the class list so the detector names them rather than
+ * forcing them into a person or animal class; Tier-2 then rejects them as
+ * subjects (people and pets only).
  *
  * Schema notes (verify against fal's live docs at integration time):
  *   - input: { image_url: string, classes?: string, ... }

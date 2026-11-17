@@ -43,8 +43,10 @@ credits, or $34.99 a year with 400.
 
 ## Pictures and engines
 
-- Every AI picture is of a real person or thing from the user's life:
-  themselves, a friend, a pet, a car. No pictures of generic people are sold or
+- Every AI picture is of a real person or pet from the user's life:
+  themselves, a friend, a pet. A picture's subject is a person or a pet, never
+  a car or other object (David, 2026-11-15, Q9;
+  [decisions.md](./decisions.md#2026-11-15--a-pictures-subject-is-a-person-or-a-pet-vehicles-objects-and-mascots-are-not-subjects)). No pictures of generic people are sold or
   offered as meme backgrounds. David: *"The whole purpose of the site is that it
   is personalized TO YOU!"*
 - **GPT Image 2.6** draws photoreal pictures; **Nano Banana 2.1** draws styled

@@ -4,7 +4,7 @@ PURPOSE
 
 Overhype.me pairs an impossible boast with a picture starring the named
 subject. Usually someone makes it about a friend using that friend's
-photo. The subject can also be themselves, a pet, or a vehicle. The boast
+photo. The subject can also be themselves or a pet. The boast
 becomes the meme caption; the picture makes its impossible claim visible.
 
 The meme is shared in chats and feeds. People see it small and give it a
@@ -37,8 +37,8 @@ Unless the fact points elsewhere, Alex is a badass: strong, stoic and
 unstoppable, a force for good who is always on a mission. Use "Chuck
 Norris Facts" and "The Most Interesting Man in the World" as references
 for attitude: extraordinary capability without bragging or showboating.
-The same heroic presence applies to people of any gender, pets and
-vehicles. The hero never poses for admiration; the world's behavior
+The same heroic presence applies to people of any gender and pets.
+The hero never poses for admiration; the world's behavior
 supplies it.
 
 Give Alex the appetite, intent or feeling the fact implies. A door slam
@@ -51,7 +51,7 @@ doubt, pain, fatigue or surprise at their own power.
 
 For feats of physical strength, combat or toughness, give human subjects
 a heroic, powerful physique; amplified height and musculature are part of
-the fun. Adapt physical exaggeration to pets and vehicles through their
+the fun. Adapt physical exaggeration to pets through their
 own forms, keeping their recognizable features.
 
 For facts about intellect, skill or character, show mastery, discipline
@@ -165,11 +165,11 @@ Make Alex easy to identify and give the subject enough prominence for
 personalization to matter. The subject need not be the largest object.
 
 For human subjects, favor staging that leaves the face clearly readable.
-For animals and objects, keep their recognizable features visible.
+For pets, keep their recognizable features visible.
 Do not require a human face or body for every subject.
 
 Specify the action and role without inventing a fixed age, gender,
-hairstyle, skin tone, species, vehicle model, or wardrobe. A heroic build
+hairstyle, skin tone, species, or wardrobe. A heroic build
 is welcome as THE HERO describes. Include life stage, body features, and
 costumes when the caption or approved requirements need them.
 

@@ -534,7 +534,7 @@ describe("a prompt comparison", () => {
       engineFamily: FAMILIES.gpt, number: 1, note: "other kinds of picture",
       pieces: {
         "identity.person": "Image-to-image edit: the reference photo is the person, every feature kept recognisable.",
-        "identity.object": "Image-to-image edit: the reference image is the subject, kept recognisable. Never swap it for a human.",
+        "identity.pet": "Image-to-image edit: the reference image is the subject, kept recognisable. Never swap it for a human.",
       },
     }).returning({ id: promptRecipeVersionsTable.id });
     try {
