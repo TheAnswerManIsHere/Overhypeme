@@ -31,7 +31,7 @@ function basePlan(overrides: Partial<{
   archetype: PlanExpectations["archetype"];
   subtype: string;
   nonhumanApplicable: boolean;
-  nonhumanSubjectKind: "animal_subject" | "object_subject" | "vehicle_subject" | "mascot_or_character_subject" | "not_applicable";
+  nonhumanSubjectKind: "animal_subject" | "not_applicable";
   preserveTraits: string[];
   anthropomorphicTreatment: "none" | "subtle_pose" | "costume_and_pose" | "full_cartoonish_anthropomorphism";
   doNotTransformIntoHuman: boolean;
@@ -629,7 +629,7 @@ describe("validateImagePromptPlan", () => {
     if (!result.ok) assert.match(result.error, /secondaryCharacters/);
   });
 
-  it("is on generation version v9", () => {
-    assert.equal(IMAGE_PROMPT_GENERATION_VERSION, "v9");
+  it("is on generation version v10", () => {
+    assert.equal(IMAGE_PROMPT_GENERATION_VERSION, "v10");
   });
 });

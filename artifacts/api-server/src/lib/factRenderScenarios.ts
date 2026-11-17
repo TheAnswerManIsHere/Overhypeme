@@ -8,7 +8,6 @@
  *   - version constants stamped into the input hash + waiver
  *   - the canonical scenario input-hash builder (drives idempotency + staleness)
  *   - status / stale / tally derivation from `image_prompt_attempts` rows
- *   - the conservative non-human applicability check
  *   - required-scenario approval-problem computation
  *
  * Named entity-agnostically (`fact*`, not `review*`) so PR 3 (Edit Fact) can
@@ -29,7 +28,6 @@ import {
   type FactEnrichment,
   type GenerationMode,
   type IdentityPolicy,
-  type NonHumanApplicability,
   type RenderControls,
   type RenderScenarioKey,
   type RenderScenarioStatus,
@@ -42,8 +40,9 @@ import type { ImagePromptAttempt } from "@workspace/db/schema";
 
 /** Bump when the *set/shape* of default scenarios or hash inputs changes.
  *  v2: dropped overhypeFit / adultSuitability from the render-input hash (they
- *  are quality/gating signals that never reach the compiled prompt). */
-export const SCENARIO_CONFIG_VERSION = "2";
+ *  are quality/gating signals that never reach the compiled prompt).
+ *  v3: the object/vehicle scenario is gone (people and pets only, 2026-11-15). */
+export const SCENARIO_CONFIG_VERSION = "3";
 /**
  * Version of the default reference assets, per identity type. Bump the relevant
  * entry when an asset is swapped so prior i2i attempts using it go stale.
@@ -54,7 +53,6 @@ export const DEFAULT_REFERENCE_ASSET_VERSION: Record<string, string> = {
   male: "1",
   female: "1",
   nonhuman_animal: "2", // David's cat, 2026-11-17 (compiler review); was a stand-in cat
-  nonhuman_object_vehicle: "1",
 };
 
 // ─── Engine provenance ───────────────────────────────────────────────────────
@@ -214,81 +212,6 @@ export function isAttemptStale(
   const fallback = switchedFallbackOf(attempt);
   if (!fallback || currentFallbackRecipeVersionId === undefined) return false;
   return fallback.fallbackRecipeVersionId !== currentFallbackRecipeVersionId;
-}
-
-// ─── Non-human applicability (conservative) ──────────────────────────────────
-
-const ANIMAL_HINT_RE =
-  /\b(cat|kitten|dog|puppy|shark|lion|tiger|bear|horse|cow|pig|goat|sheep|wolf|fox|fish|bird|eagle|hawk|owl|snake|frog|rabbit|bunny|mouse|rat|elephant|giraffe|monkey|ape|gorilla|dolphin|whale|octopus|crab|lobster|dinosaur|dragon|animal|creature|beast)\b/i;
-
-/**
- * Decide whether the conditional non-human i2i scenario should auto-run.
- *
- * CONSERVATIVE BY DESIGN. `autoRun` flips true ONLY on a high-confidence signal
- * that the *personalized subject itself* is non-human — never because a
- * non-human entity merely appears in the scene, is the antagonist/target, or is
- * named in a cultural reference (the common false positives). Overhype facts are
- * almost always about a human protagonist, and there is no dedicated
- * subject-identity classifier yet — so in PR 1 `autoRun` stays false and the
- * scenario is run by explicit moderator force. The returned `subtype`/reason are
- * still surfaced in the UI so the moderator can see the suggestion + force the
- * right reference. A future PR can add a real subject-identity signal and flip
- * `autoRun` on without changing any callers.
- */
-export function resolveNonHumanScenarioApplicability(
-  enrichment: FactEnrichment,
-  factText: string,
-): NonHumanApplicability {
-  const evidence: string[] = [];
-  const negativeEvidence: string[] = [];
-
-  // Subtype HINT (used only when the moderator forces the scenario): is the
-  // most prominent non-human referent an animal or an object/vehicle? We never
-  // treat this hint as proof the subject is non-human.
-  const materialEntities = enrichment.semanticEntities.filter((e) => e.materiallyAffectsVisualPrompt);
-  const hasObjectEntity = materialEntities.some(
-    (e) => e.entityKind === "physical_object" || e.entityKind === "celestial_body",
-  );
-  const textSuggestsAnimal = ANIMAL_HINT_RE.test(factText);
-  const entitySuggestsAnimal = materialEntities.some((e) => ANIMAL_HINT_RE.test(e.normalizedText));
-
-  let subtype: NonHumanApplicability["subtype"] = "none";
-  if (textSuggestsAnimal || entitySuggestsAnimal) {
-    subtype = "animal";
-    evidence.push("Fact text or a material entity names an animal/creature.");
-  } else if (hasObjectEntity) {
-    subtype = "object_vehicle";
-    evidence.push("A material semantic entity is a physical object / celestial body.");
-  } else {
-    subtype = "object_vehicle"; // default reference if forced with no signal
-  }
-
-  // Hard negatives: these are why we do NOT auto-run.
-  negativeEvidence.push(
-    "No dedicated subject-identity classifier exists yet; a non-human entity in the scene does not imply a non-human personalized subject.",
-  );
-  negativeEvidence.push(
-    `Fact archetype "${enrichment.primaryArchetype}" describes what the protagonist does — not that the protagonist is non-human.`,
-  );
-
-  return {
-    autoRun: false, // PR 1: manual-force only (see doc comment).
-    confidence: "low",
-    subtype,
-    reason:
-      "Non-human render is manual-only in PR 1: Overhype protagonists are human by default and there is no subject-identity classifier yet. Force it with the checkbox to preview a non-human subject.",
-    evidence,
-    negativeEvidence,
-  };
-}
-
-/**
- * Which single non-human scenario the grid should surface (the UI exposes one
- * "non-human" control). Maps the applicability subtype to its scenario key;
- * defaults to the object/vehicle reference when there's no signal.
- */
-export function nonHumanScenarioKeyForApplicability(app: NonHumanApplicability): RenderScenarioKey {
-  return app.subtype === "animal" ? "i2i_nonhuman_animal" : "i2i_nonhuman_object_vehicle";
 }
 
 export { RENDER_SCENARIO_DESCRIPTORS };

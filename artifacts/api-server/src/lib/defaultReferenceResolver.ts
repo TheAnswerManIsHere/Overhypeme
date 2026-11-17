@@ -68,13 +68,6 @@ const REFERENCE_ASSETS: Record<ReferenceIdentityType, Omit<ReferenceAssetMeta, "
     license: "Provided; see render-references/README.md.",
     source: "src/assets/render-references/nonhuman-animal.jpg",
   },
-  nonhuman_object_vehicle: {
-    identityType: "nonhuman_object_vehicle",
-    filePath: path.join(REFERENCES_DIR, "nonhuman-object-vehicle.jpg"),
-    contentType: "image/jpeg",
-    license: "Provided; see render-references/README.md.",
-    source: "src/assets/render-references/nonhuman-object-vehicle.jpg",
-  },
 };
 
 export function referenceAssetMeta(identityType: ReferenceIdentityType): ReferenceAssetMeta {

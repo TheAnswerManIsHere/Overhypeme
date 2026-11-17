@@ -20,7 +20,7 @@ const API_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "capture-test-"));
 const KEYS = { FAL_AI_API_KEY: "x", OPENAI_API_KEY: "x" };
 const base = (over: Partial<Parameters<typeof captureRefusals>[0]> = {}) =>
-  captureRefusals({ env: KEYS, allowance: "2", raisedBy: undefined, out: path.join(tmp(), "new"), doc: "PR229_BUBBLE_CONTROLS_UAT", variant: "fixture", control: undefined, ...over });
+  captureRefusals({ env: KEYS, allowance: "2", out: path.join(tmp(), "new"), doc: "PR229_BUBBLE_CONTROLS_UAT", variant: "fixture", control: undefined, ...over });
 
 describe("the capture manifest", () => {
   it("has exactly the browser capture kit's keys, in its order", () => {
@@ -47,17 +47,15 @@ describe("the capture manifest", () => {
 });
 
 describe("the capture run's refusals", () => {
-  it("accepts a run inside the cap with keys and an empty or absent --out", () => {
+  it("accepts a run with keys, an allowance and an empty or absent --out", () => {
     assert.deepEqual(base(), []);
     assert.deepEqual(base({ out: tmp() }), []);
   });
 
-  it("refuses without an allowance, and above $3 without the date David raised it", () => {
+  it("refuses without a positive allowance, and needs no date from David above any amount (2026-11-17)", () => {
     assert.match(base({ allowance: undefined }).join("\n"), /needs --allowance/);
     assert.match(base({ allowance: "0" }).join("\n"), /positive/);
-    assert.match(base({ allowance: "3.01" }).join("\n"), /cap is \$3\.00 per run/);
-    assert.deepEqual(base({ allowance: "4", raisedBy: "2026-10-16" }), []);
-    assert.match(base({ allowance: "4", raisedBy: "soon" }).join("\n"), /cap is \$3\.00/);
+    assert.deepEqual(base({ allowance: "4" }), []);
   });
 
   it("refuses CI, missing keys, a non-empty --out, no --out, another variant and a control", () => {
@@ -86,7 +84,7 @@ describe("the capture run's refusals", () => {
     });
     assert.equal(r.status, 2);
     assert.match(r.stderr, /never runs in CI/);
-    assert.match(r.stderr, /cap is \$3\.00 per run/);
+    assert.doesNotMatch(r.stderr, /cap is|raised-by-david/);
     assert.match(r.stderr, /needs --doc/);
   });
 });

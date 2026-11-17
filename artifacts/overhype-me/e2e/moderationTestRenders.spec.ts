@@ -22,7 +22,7 @@ const CREATED = "2026-11-15T12:00:00.000Z";
 
 const tile = (key: RenderScenarioCard["key"], attemptId: number): RenderScenarioCard => ({
   key, label: key, purpose: "", referenceIdentityType: null, required: true, status: "done", stale: false,
-  latestAttemptId: attemptId, imageUrl: null, message: null, applicability: null,
+  latestAttemptId: attemptId, imageUrl: null, message: null,
 });
 const example = (attemptId: number) => ({ attemptId, imageUrl: null });
 

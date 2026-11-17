@@ -61,7 +61,7 @@ However, concise supporting text, numbers, symbols, equations, UI fragments, lab
 
 The admin review process should expose cultural-reference metadata and a fully rendered text prompt preview so admins can confirm the system understood the reference.`,
 
-  nonhumanSubjectIdentityPolicy: `Non-human image-to-image subject identity: Use the reference image as the visual identity source for the uploaded subject. The uploaded subject visually represents the named subject in the fact. Preserve the reference subject's recognizable visual identity, including species or object type, color, markings, shape, distinctive features, proportions, and overall appearance.
+  nonhumanSubjectIdentityPolicy: `Non-human image-to-image subject identity: Use the reference image as the visual identity source for the uploaded subject, a pet. The uploaded subject visually represents the named subject in the fact. Preserve the reference subject's recognizable visual identity, including species, color, markings, shape, distinctive features, proportions, and overall appearance.
 
 Do not replace the uploaded subject with a human. Do not invent a human face unless the user explicitly chooses an anthropomorphic humanization mode, which is out of scope for this phase.
 
@@ -72,7 +72,7 @@ If the fact requires human-like action, allow tasteful anthropomorphic staging, 
   anthropomorphicTreatmentPolicy: `Allow anthropomorphic staging only as needed to make the fact visually coherent. Preserve the uploaded subject's recognizable identity. Do not transform the subject into a human.
 
 Treatment levels (escalate only as the fact requires):
-- none: animal/object behaves naturally.
+- none: the animal behaves naturally.
 - subtle_pose: pose or framing implies role (e.g. cat sitting upright at a desk).
 - costume_and_pose: add costume + role pose (e.g. dog wearing a tiny suit in a boardroom).
 - full_cartoonish_anthropomorphism: cartoon-style humanoid (only when the chosen visual style explicitly supports it).

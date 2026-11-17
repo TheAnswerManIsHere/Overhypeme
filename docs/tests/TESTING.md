@@ -639,8 +639,8 @@ library is upgraded. Same-run reuse is off, so no recording stands in for a
 current answer, and the report must show a usable current answer for every
 expected operation. (It also read one Pexels-only legacy meme over the
 fixture until Pexels went in launch Phase 4, removal 6.)
-Its cap is $5 per invocation (David, 2026-10-14), separate from the recording
-ceiling; more needs `--allowance-raised-by-david <YYYY-MM-DD>`. Like every paid AI run, it proceeds within the fleet's monthly paid-run budget without asking and asks only past it (`uat-doc-format.md`, *Lanes*; `decisions.md`, 2026-11-17).
+Its `--allowance` defaults to $5 per invocation, separate from the recording
+ceiling, and any positive amount may be given. Like every paid AI run, it proceeds within the fleet's monthly paid-run budget without asking and asks only past it (`uat-doc-format.md`, *Lanes*; `decisions.md`, 2026-11-17).
 
 ```sh
 cd artifacts/api-server && DATABASE_URL=<heliumdb_test> \

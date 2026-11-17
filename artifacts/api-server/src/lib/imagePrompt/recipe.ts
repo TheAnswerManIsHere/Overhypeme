@@ -92,9 +92,9 @@ export const RECIPE_PIECES = [
     text: "Image-to-image edit using the reference image as the person's identity source. Preserve the reference person's recognizable identity and likeness — facial features and distinctive characteristics. Allow apparent age, body proportions, hair, clothing, and life stage to transform when the scene requires it, while keeping the same recognizable person.",
   },
   {
-    key: "identity.object", label: "Identity: a pet's or object's photo", group: "identity",
-    when: "On every picture made from a photo of a pet or an object.", slots: [],
-    text: "Image-to-image edit using the reference image as the visual identity source for the uploaded subject. The uploaded subject visually represents the named subject in the fact. Preserve the uploaded subject's recognizable visual identity. Do not replace the subject with a human.",
+    key: "identity.pet", label: "Identity: a pet's photo", group: "identity",
+    when: "On every picture made from a photo of a pet.", slots: [],
+    text: "Image-to-image edit using the reference image as the visual identity source for the uploaded pet. The uploaded pet visually represents the named subject in the fact. Preserve the pet's recognizable visual identity. Do not replace the pet with a human.",
   },
 
   // ── Subject binding ─────────────────────────────────────────────────────────
@@ -313,7 +313,7 @@ const FAMILY_BASELINES: Readonly<Record<string, Partial<RecipePieces>>> = {
   "gpt-image-2-6": {
     "shape.join": "\n\n",
     "identity.person": "Edit image 1. The person in image 1 is the subject of this picture. Keep their identity and likeness exactly: face, facial features, skin tone, hairstyle and distinctive characteristics, so they are unmistakably the same person. Their apparent age, body proportions, clothing, pose and life stage change only where the scene requires it.",
-    "identity.object": "Edit image 1. The subject in image 1, a pet or an object, is the named subject of the fact. Keep its recognizable identity exactly: markings, colours, shape and distinctive features. Do not replace the subject with a human.",
+    "identity.pet": "Edit image 1. The pet in image 1 is the named subject of the fact. Keep its recognizable identity exactly: markings, colours, shape and distinctive features. Do not replace the pet with a human.",
     "composition.framing": "{framing}.",
     "style.photoreal": "A photorealistic image, like a real photograph: true-to-life materials and textures, natural detail and believable lighting.",
     "text.literal": "Render this in-scene text exactly as quoted, clearly and legibly, each item exactly once: {items}.",
@@ -322,7 +322,7 @@ const FAMILY_BASELINES: Readonly<Record<string, Partial<RecipePieces>>> = {
     "shape.section": "{body}",
     "shape.join": "\n\n",
     "identity.person": "Create this image using the provided photo as the reference for the person in it. Ensure that their face, facial features, skin tone and distinctive characteristics remain completely unchanged, so they are unmistakably the same person; their apparent age, body proportions, hair, clothing and life stage change only where the scene requires it.",
-    "identity.object": "Create this image using the provided photo as the reference for its subject, a pet or an object that is the named subject of the fact. Ensure that its markings, colours, shape and distinctive features remain completely unchanged, and keep it the animal or object it is.",
+    "identity.pet": "Create this image using the provided photo as the reference for its subject, a pet that is the named subject of the fact. Ensure that its markings, colours, shape and distinctive features remain completely unchanged, and keep it the animal it is.",
     "composition.framing": "{framing}.",
     "style.photoreal": "A photorealistic photograph with true-to-life materials and textures, natural light and realistic optical detail.",
     "constraints.agePerson": "{subject} appears exactly once in the frame, only as the {noun}: the {noun} and {subject} are the same person.",

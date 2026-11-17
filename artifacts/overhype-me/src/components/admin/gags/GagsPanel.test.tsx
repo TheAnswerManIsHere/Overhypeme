@@ -26,7 +26,7 @@ const ex = (attemptId: number): GagExample => ({ attemptId, imageUrl: `/api/admi
 function card(key: RenderScenarioCard["key"], over: Partial<RenderScenarioCard> = {}): RenderScenarioCard {
   return {
     key, label: key, purpose: "", referenceIdentityType: null, required: true,
-    status: "done", stale: false, latestAttemptId: 901, imageUrl: "/api/admin/gags/2/renders/j/image", message: null, applicability: null,
+    status: "done", stale: false, latestAttemptId: 901, imageUrl: "/api/admin/gags/2/renders/j/image", message: null,
     ...over,
   };
 }

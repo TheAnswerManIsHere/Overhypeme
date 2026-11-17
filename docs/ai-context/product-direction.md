@@ -48,7 +48,8 @@ by every modality) — see *Launch-critical vs deferrable work* below.
   of the image pipeline. **PuLID is removed everywhere**: *"We're going to be
   using a much stronger model."*
 - **The product is made about a friend and sent to them**; every AI picture is
-  of a real person or thing from the user's life, never a generic person.
+  of a real person or pet from the user's life, never a generic person
+  ([a subject is a person or a pet](./decisions.md#2026-11-15--a-pictures-subject-is-a-person-or-a-pet-vehicles-objects-and-mascots-are-not-subjects)).
   Free: text facts personalised to anyone, your own photo behind a fact, and
   one AI picture per verified account. AI pictures cost credits; membership
   adds credits and carries the perks. Templates, stock photos and user-facing

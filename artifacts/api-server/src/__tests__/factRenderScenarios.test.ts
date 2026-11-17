@@ -1,6 +1,6 @@
 /**
  * Unit tests for the entity-agnostic render-scenario policy (factRenderScenarios.ts):
- * input-hash stability/sensitivity, conservative non-human applicability,
+ * input-hash stability/sensitivity, 
  * required-scenario problem computation, status derivation, engine provenance.
  * Pure — no DB, no network.
  */
@@ -14,8 +14,6 @@ import {
   deriveScenarioStatus,
   generationModeForSubjectRenderMode,
   isAttemptStale,
-  nonHumanScenarioKeyForApplicability,
-  resolveNonHumanScenarioApplicability,
   type ScenarioHashInputs,
 } from "../lib/factRenderScenarios.js";
 
@@ -193,27 +191,6 @@ describe("isAttemptStale", () => {
   it("stale when the stored hash differs from the current hash", () => {
     assert.equal(isAttemptStale({ reviewRenderInputHash: "old" } as never, "new"), true);
     assert.equal(isAttemptStale({ reviewRenderInputHash: "same" } as never, "same"), false);
-  });
-});
-
-describe("resolveNonHumanScenarioApplicability", () => {
-  it("does NOT auto-run (PR1 conservative: manual-force only)", () => {
-    const app = resolveNonHumanScenarioApplicability(ENRICHMENT, "{NAME} bench-presses the Earth.");
-    assert.equal(app.autoRun, false);
-    assert.ok(app.negativeEvidence.length > 0);
-  });
-
-  it('"fought a shark" does NOT auto-run just because an animal is present', () => {
-    const app = resolveNonHumanScenarioApplicability(ENRICHMENT, "{NAME} fought a shark and won.");
-    assert.equal(app.autoRun, false);
-    // subtype hint may lean animal, but that never implies a non-human subject.
-    assert.equal(app.subtype, "animal");
-  });
-
-  it("maps subtype to the correct scenario key", () => {
-    assert.equal(nonHumanScenarioKeyForApplicability({ subtype: "animal" } as never), "i2i_nonhuman_animal");
-    assert.equal(nonHumanScenarioKeyForApplicability({ subtype: "object_vehicle" } as never), "i2i_nonhuman_object_vehicle");
-    assert.equal(nonHumanScenarioKeyForApplicability({ subtype: "none" } as never), "i2i_nonhuman_object_vehicle");
   });
 });
 

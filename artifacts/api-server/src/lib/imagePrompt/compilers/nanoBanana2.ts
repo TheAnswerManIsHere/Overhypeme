@@ -102,7 +102,7 @@ function renderIdentityTokens(text: string, subject?: CompileArgs["renderedSubje
   return renderPersonalized(text, subject.name, subject.pronouns);
 }
 
-// The identity preambles are recipe pieces (`identity.person`, `identity.object`;
+// The identity preambles are recipe pieces (`identity.person`, `identity.pet`;
 // `../recipe.ts`).
 
 // The compiler-owned RENDER STYLE default when no visual style is selected
@@ -1270,7 +1270,7 @@ type LabelKey = "coreScene" | "identityReference" | "subjectBinding" | "subjectR
 interface ModeContext {
   /** Operational mode/identity clause. Emitted right AFTER CORE SCENE — the
    *  Visual Concept leads; identity/reference follows it prominently. */
-  preamble: "identity.person" | "identity.object";
+  preamble: "identity.person" | "identity.pet";
   withReferenceUrl: boolean;
 }
 
@@ -1734,7 +1734,7 @@ export function compileDirect(args: DirectCompileArgs): CompiledImagePrompt {
   const activeBubbles = args.gag.bubbles.filter((b) => b.entity.trim() && b.text.trim());
   const warnings: PromptWarning[] = moderatorSceneWarnings(coreScene, activeBubbles.length > 0);
 
-  const identity = [fillPiece(r, mode === "human_identity_i2i" ? "identity.person" : "identity.object"), mode === "nonhuman_subject_i2i" ? DIRECT_PET_INSTRUCTION : ""]
+  const identity = [fillPiece(r, mode === "human_identity_i2i" ? "identity.person" : "identity.pet"), mode === "nonhuman_subject_i2i" ? DIRECT_PET_INSTRUCTION : ""]
     .filter(Boolean).join(" ");
 
   // Speaker bindings come from the gag's own cast: the cast is the effective
@@ -1817,7 +1817,7 @@ export function compileNanoBanana2NonhumanI2I(args: CompileArgs): CompiledImageP
   // human." guard, so no extra clause is needed — and adding a paraphrase would
   // duplicate the instruction.
   return compile(args, {
-    preamble: "identity.object",
+    preamble: "identity.pet",
     withReferenceUrl: true,
   });
 }

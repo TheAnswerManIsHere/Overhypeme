@@ -61,7 +61,7 @@ Two subject render modes with two different identity rules:
 
 A. human_identity_i2i — Use the reference image as the person's identity source. Preserve the reference person's recognizable identity and likeness (facial features and distinctive characteristics), NOT their exact current-age appearance. Allow apparent age, body proportions, hair, clothing, and life stage to transform when the fact requires it — keeping the SAME recognizable person. When the fact implies a different life stage (born/baby → infant; "as a kid" → child; "in his 90s" → elderly), the reference person IS that transformed person: de-age or age the same individual. NEVER split them into two — never keep an adult version alongside a separate baby/child, and never add a second, generic baby/child/elder. Body/physique/outfit/posture/aura may be exaggerated unless preservePhysique is true.
 
-B. nonhuman_subject_i2i — Use the reference image as the visual identity source for the uploaded subject (cat, dog, car, object, mascot). The uploaded subject visually represents the named subject in the fact. Preserve recognizable visual identity (species or object type, color, markings, shape, distinctive features). DO NOT replace the subject with a human. Allow tasteful anthropomorphic staging when the fact requires human-like action; pick anthropomorphicTreatment per the global rule (default subtle_pose or costume_and_pose; full_cartoonish_anthropomorphism only when style supports it).
+B. nonhuman_subject_i2i — Use the reference image as the visual identity source for the uploaded subject, a pet (cat, dog). The uploaded subject visually represents the named subject in the fact. Preserve recognizable visual identity (species, color, markings, shape, distinctive features). DO NOT replace the subject with a human. Allow tasteful anthropomorphic staging when the fact requires human-like action; pick anthropomorphicTreatment per the global rule (default subtle_pose or costume_and_pose; full_cartoonish_anthropomorphism only when style supports it).
 
 
 The engine prompt is assembled deterministically from a labeled visual contract, and the VISUAL CONCEPT (CORE SCENE) LEADS it:
@@ -91,7 +91,7 @@ Hard rules:
 9. nonhumanSubjectTreatment.applicable MUST be true for nonhuman_subject_i2i (with a concrete subjectKind, at least one preserveTrait, doNotTransformIntoHuman=true) and false for human_identity_i2i (with subjectKind="not_applicable", empty preserveTraits, anthropomorphicTreatment="none").
 10. subjectTreatment.fallbackSubjectGender MUST be "not_applicable".
 11. subjectFactCompatibility: rate strong / workable / risky / poor based on whether the uploaded subject CAN sell this specific fact, with a reason. recommendedFallback is advisory only; "none" is valid for every rating, including poor. This field never blocks rendering.
-12. Apply ageAndLifeStagePolicy: when the fact implies a specific age, life stage, era, or role, set subjectTreatment.ageLifeStageTransform.applies=true with a concrete targetState, and transform the subject's presentation accordingly — the reference person IS the transformed subject (one entity), never an adult plus a separate baby/child/elder. For animals: kitten / puppy / older-animal versions when life-stage applies. For objects/vehicles: toy / vintage / weathered / showroom-new versions instead of human age.
+12. Apply ageAndLifeStagePolicy: when the fact implies a specific age, life stage, era, or role, set subjectTreatment.ageLifeStageTransform.applies=true with a concrete targetState, and transform the subject's presentation accordingly — the reference person IS the transformed subject (one entity), never an adult plus a separate baby/child/elder. For animals: kitten / puppy / older-animal versions when life-stage applies.
 13. Honor culturalReferences from the enrichment blob — they inform what the scene LOOKS LIKE (Shark Week → sharks watching David on TV; Victoria's Secret → boutique imagery without real brand marks).
 14. Do NOT render the full fact text or meme caption inside the image. Concise supporting text (digits, symbols, equations, UI fragments, keypad digits, scoreboards, short labels, signs) is allowed when it directly supports the joke AND allowSupportingText is true.
 15. The visualPlan must be engine-neutral. The selected visual STYLE (anime, oil painting, etc.) is OWNED BY THE COMPILER and emitted as its own RENDER STYLE section — do NOT weave a rendering medium or artistic-style claim into any field (coreScene/subjectDetails/environment/lightingAndStyle/compiledPrompt). Describe physical light, mood, and palette; leave the medium to the compiler.
@@ -107,16 +107,16 @@ Return ONLY the JSON object. Do not include any explanation outside it.`;
 
 export const FACT_SOURCE_CLASSIFIER_SYSTEM_DEFAULT = `You are the Overhype.me source-image classifier.
 
-Classify the main visual subject of the uploaded image for meme protagonist routing. DO NOT generate an image prompt. DO NOT judge whether the meme is funny. ONLY identify whether the uploaded image contains a usable human face, a person without a usable face, an animal subject, a vehicle subject, an object subject, a mascot/character subject, multiple subjects, no clear subject, or ambiguous content. Return structured JSON only.
+Classify the main visual subject of the uploaded image for meme protagonist routing. DO NOT generate an image prompt. DO NOT judge whether the meme is funny. ONLY identify whether the uploaded image contains a usable human face, a person without a usable face, an animal subject (a pet), multiple subjects, no clear subject, or ambiguous content. A subject is a person or an animal: a vehicle, an object, a toy, a statue or a mascot costume is never the subject, so a photo whose only subject is one of those has no clear subject. Return structured JSON only.
 
 For each input image (provided as an image content block), determine:
-- subjectKind: one of human_face, human_subject_no_usable_face, animal_subject, object_subject, vehicle_subject, mascot_or_character_subject, multiple_subjects, scene_no_clear_subject, ambiguous, detection_failed.
+- subjectKind: one of human_face, human_subject_no_usable_face, animal_subject, multiple_subjects, scene_no_clear_subject, ambiguous, detection_failed.
 - confidence: high / medium / low.
 - hasUsableHumanFace: true ONLY when a clear, forward-facing, non-occluded human face is visible.
-- hasUsableSubject: true when ANY recognizable single dominant subject is present (human face, animal, object, vehicle, mascot).
+- hasUsableSubject: true when a recognizable single dominant person or animal is present.
 - subjectCount: how many comparably-prominent subjects you see.
 - subjectDescription: one short sentence describing the dominant subject (color, type, distinctive features).
-- suggestedRenderMode: human_identity_i2i when subjectKind=human_face and hasUsableHumanFace=true; nonhuman_subject_i2i for animal/object/vehicle/mascot subjects with hasUsableSubject=true; t2i_fallback otherwise.
+- suggestedRenderMode: human_identity_i2i when subjectKind=human_face and hasUsableHumanFace=true; nonhuman_subject_i2i for an animal subject with hasUsableSubject=true; t2i_fallback otherwise.
 - warnings: array of short strings describing concerns (multiple subjects, no clear subject, person without usable face, low confidence, etc.). Empty array if none.
 
 Return ONLY the JSON object. Do not include any explanation outside it.`;

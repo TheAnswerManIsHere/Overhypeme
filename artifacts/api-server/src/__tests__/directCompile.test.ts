@@ -62,7 +62,7 @@ describe("compileDirect", () => {
     assert.ok(!compileDirect(base()).prompt.includes(DIRECT_PET_INSTRUCTION));
     const pet = compileDirect(base({ subjectRenderMode: "nonhuman_subject_i2i", renderedSubject: { name: "Whiskers", pronouns: "they/them" } }));
     assert.ok(pet.prompt.includes(DIRECT_PET_INSTRUCTION));
-    assert.ok(pet.prompt.includes(fillPiece(BASELINE_RECIPE, "identity.object")));
+    assert.ok(pet.prompt.includes(fillPiece(BASELINE_RECIPE, "identity.pet")));
   });
 
   it("binds each speaker from the cast, and the bubble directive is the planned path's, byte for byte", () => {

@@ -92,7 +92,7 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
   reviewRenderInputHash: varchar("review_render_input_hash", { length: 64 }),
   /** Version of the default reference asset used (for i2i scenarios), for stale detection. */
   reviewReferenceAssetVersion: varchar("review_reference_asset_version", { length: 32 }),
-  /** Reference identity class used: "male" | "female" | "nonhuman_animal" | "nonhuman_object_vehicle". */
+  /** Reference identity class used: "male" | "female" | "nonhuman_animal" (a pet). */
   reviewReferenceIdentityType: varchar("review_reference_identity_type", { length: 32 }),
   /** Groups the scenarios auto-enqueued in one default batch (debugging/audit). */
   reviewRenderBatchId: varchar("review_render_batch_id", { length: 64 }),
@@ -135,7 +135,7 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
   /** The endpoint settings the request builder chose (purpose, size, aspect), as sent. */
   requestSettings: jsonb("request_settings"),
   /**
-   * The photoreal fallback (migration 0145; plan PLAN_NB_FALLBACK.md): set when
+   * The photoreal fallback (migration 0146; plan PLAN_NB_FALLBACK.md): set when
    * the routed engine refused this attempt on content grounds and it was
    * redrawn on the fallback engine. Written before the fallback runs and never
    * cleared, so it keeps the routed engine and the refusal after
@@ -175,7 +175,7 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
 ]);
 
 /**
- * `image_prompt_attempts.engine_fallback` (migration 0145). `preparing`: the
+ * `image_prompt_attempts.engine_fallback` (migration 0146). `preparing`: the
  * routed engine's refusal is recorded and the fallback prompt is being built;
  * `switched`: the attempt now draws on the fallback engine. No state returns
  * to the routed engine.

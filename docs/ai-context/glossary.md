@@ -661,9 +661,9 @@ byte-identical wording.
 
 ### Render mode
 
-What the engine is asked to preserve: a real uploaded likeness, a non-human
-subject from a reference image, or nothing at all (render from description
-alone). Inferred automatically from available image material, with a human
+What the engine is asked to preserve: a real uploaded likeness, a pet from a
+reference image ([a subject is a person or a pet](./decisions.md#2026-11-15--a-pictures-subject-is-a-person-or-a-pet-vehicles-objects-and-mascots-are-not-subjects)), or nothing at all
+(render from description alone). Inferred automatically from available image material, with a human
 override when the automatic read is wrong.
 → [visual-pipeline](./visual-pipeline.md)
 
@@ -673,8 +673,10 @@ One render variant of a gag, drawn from a committed reference photo. Since
 2026-11-15 a moderation render is one of three, each a **subject kind**:
 `i2i_male_default` (male, David's photo), `i2i_female_default` (female, his
 wife's) and `i2i_nonhuman_animal` (pet), and the approved one of each is the
-gag's example for that kind. The no-photo `generic_t2i` and the object/vehicle
-scenarios are retired and stay readable as history. Each attempt is a durable
+gag's example for that kind. A subject is a person or a pet ([the
+rule](./decisions.md#2026-11-15--a-pictures-subject-is-a-person-or-a-pet-vehicles-objects-and-mascots-are-not-subjects)): the object/vehicle scenario and its stored renders were removed
+(migration 0145), and the no-photo
+`generic_t2i` is Issue #979's to remove. Each attempt is a durable
 `image_prompt_attempts` row.
 → [visual-pipeline](./visual-pipeline.md)
 
@@ -720,8 +722,8 @@ change a render already in flight.
 ### Reference image
 
 Image material the engine is asked to preserve something from — a real
-uploaded likeness, or a non-human subject. Which one applies (or neither) is
-what [render mode](#render-mode) decides.
+uploaded likeness, or a pet ([a subject is a person or a pet](./decisions.md#2026-11-15--a-pictures-subject-is-a-person-or-a-pet-vehicles-objects-and-mascots-are-not-subjects)). Which
+one applies (or neither) is what [render mode](#render-mode) decides.
 → [visual-pipeline](./visual-pipeline.md)
 
 ### Readable-text policy
