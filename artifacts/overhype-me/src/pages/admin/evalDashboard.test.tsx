@@ -67,6 +67,9 @@ beforeEach(() => {
         { id: 503, slot: 3, isDefault: false, approvedContent: null, pendingContent: null },
       ] });
     }
+    if (url.endsWith("/facts/12/gags")) {
+      return respond({ gags: [{ id: 601, slot: 1, isDefault: true, approvedContent: { coreSceneOverride: "{NAME} outruns a photon.", bubbles: [] }, pendingContent: null }] });
+    }
     if (url.endsWith("/look-styles")) return respond([{ id: "anime", label: "Anime" }]);
     if (url.endsWith("/prompt-recipes")) return respond({ families: [] });
     return respond({}, 404);
@@ -143,6 +146,25 @@ describe("the Eval page", () => {
     expect((await screen.findByTestId("wizard-count")).textContent).toMatch(/2 gags × 1 engine × 2 ways \(planner, direct\) × 1 photo type × 1 look/);
     const est = posts.find((p) => p.url.endsWith("/estimate"))!;
     expect(est.body).toEqual({ kind: "path", factIds: [11], engineFamilies: ["gpt-image-2-6"], scenarioKeys: ["i2i_male_default"], lookStyleIds: ["none"], gagIds: [501, 502] });
+  });
+
+  it("keeps every fact's default gag when several facts' gags arrive together, and a fact the admin changed keeps that choice", async () => {
+    window.history.replaceState(null, "", "/admin/eval?tab=paths");
+    render(<EvalDashboard />);
+    fireEvent.change(screen.getByTestId("wizard-fact-search"), { target: { value: "{NAME}" } });
+    fireEvent.click(await screen.findByTestId("wizard-fact-11"));
+    fireEvent.click(screen.getByTestId("wizard-fact-12"));
+    next();
+    fireEvent.click(screen.getByTestId("wizard-engine-gpt-image-2-6"));
+    await waitFor(() => {
+      expect((screen.getByTestId("wizard-gag-501") as HTMLInputElement).checked).toBe(true);
+      expect((screen.getByTestId("wizard-gag-601") as HTMLInputElement).checked).toBe(true);
+    });
+    expect((screen.getByTestId("wizard-next") as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByTestId("wizard-gag-601")); // a deliberate untick stays unticked
+    expect((screen.getByTestId("wizard-gag-601") as HTMLInputElement).checked).toBe(false);
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    expect((screen.getByTestId("wizard-gag-601") as HTMLInputElement).checked).toBe(false);
   });
 
   it("warns above fifty images", async () => {

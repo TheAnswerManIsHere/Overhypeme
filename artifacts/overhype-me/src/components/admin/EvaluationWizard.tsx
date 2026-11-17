@@ -7,7 +7,7 @@
  * engine. Nothing is saved until Generate Images; the request carries a token
  * generated for this wizard so a repeated press returns the same evaluation.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { AlertTriangle, Check, ChevronLeft, ChevronRight, Loader2, Search, Sparkles, X } from "lucide-react";
 import {
   EVALUATION_CANDIDATE_FAMILIES,
@@ -373,10 +373,8 @@ interface GagChoiceRow { id: number; slot: number; scene: string; bubbles: numbe
  * of each chosen fact, its default ticked, so one fact's two gags can each be
  * drawn. A gag is drawn from its approved version, else its saved change.
  */
-function GagPicker({ facts, chosen, onChange }: { facts: FactHit[]; chosen: Record<number, number[]>; onChange: (next: Record<number, number[]>) => void }) {
+function GagPicker({ facts, chosen, onChange }: { facts: FactHit[]; chosen: Record<number, number[]>; onChange: Dispatch<SetStateAction<Record<number, number[]>>> }) {
   const [byFact, setByFact] = useState<Record<number, GagChoiceRow[] | "error">>({});
-  const chosenRef = useRef(chosen);
-  chosenRef.current = chosen;
   useEffect(() => {
     let cancelled = false;
     for (const f of facts) {
@@ -390,17 +388,22 @@ function GagPicker({ facts, chosen, onChange }: { facts: FactHit[]; chosen: Reco
           .map(({ g, content }) => ({ id: g.id, slot: g.slot, scene: content!.coreSceneOverride!.trim(), bubbles: content!.bubbles.length, isDefault: g.isDefault }))
           .sort((a, b) => a.slot - b.slot);
         setByFact((m) => ({ ...m, [f.id]: rows }));
-        if (!chosenRef.current[f.id] && rows.length) {
+        if (rows.length) {
           const first = rows.find((r) => r.isDefault) ?? rows[0]!;
-          onChange({ ...chosenRef.current, [f.id]: [first.id] });
+          // Merged into the latest selection, never a snapshot: several facts'
+          // gags can arrive before the next render. A fact that already has an
+          // entry (a choice, a deliberate untick included) keeps it.
+          onChange((current) => (current[f.id] ? current : { ...current, [f.id]: [first.id] }));
         }
       }).catch(() => { if (!cancelled) setByFact((m) => ({ ...m, [f.id]: "error" })); });
     }
     return () => { cancelled = true; };
   }, [facts, byFact, onChange]);
   const toggleGag = (factId: number, gagId: number) => {
-    const current = chosen[factId] ?? [];
-    onChange({ ...chosen, [factId]: current.includes(gagId) ? current.filter((id) => id !== gagId) : [...current, gagId] });
+    onChange((latest) => {
+      const current = latest[factId] ?? [];
+      return { ...latest, [factId]: current.includes(gagId) ? current.filter((id) => id !== gagId) : [...current, gagId] };
+    });
   };
   return (
     <fieldset className="space-y-2" data-testid="wizard-gags">

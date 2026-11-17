@@ -258,6 +258,33 @@ function JudgedTable({ label, rows, wording, onPromote }: { label: string; rows:
 /** What each path of a planned-versus-direct comparison is called once revealed. */
 const PATH_LABEL: Record<string, string> = { planned: "Planned (today: planner + compiler)", direct: "Direct (from the gag alone)" };
 
+/** One engine's direct Gag fidelity more than half a point below its planned one, within one case. */
+export interface FidelityDrop { caseKey: string; mode: string; engineId: string; family: string; recipeLabel: string; planned: number; direct: number }
+
+/**
+ * The plan's attention flag (PLAN_GAG_DIRECT_RENDER.md, A): within each case
+ * and each engine and wording, a direct Gag fidelity average more than half a
+ * point below the planned one. Strictly more than 0.5; a pair with either
+ * side unscored is not compared. It points, and accepts or rejects nothing.
+ */
+export function fidelityDrops(byCase: Record<string, Record<string, JudgedRow[]>>): FidelityDrop[] {
+  const out: FidelityDrop[] = [];
+  for (const [caseKey, modes] of Object.entries(byCase)) {
+    for (const [mode, rows] of Object.entries(modes)) {
+      const planned = rows.filter((r) => r.renderPath === "planned");
+      for (const p of planned) {
+        const d = rows.find((r) => r.renderPath === "direct" && r.engineId === p.engineId && (r.recipeVersionId ?? 0) === (p.recipeVersionId ?? 0));
+        const pm = p.categories.gagFidelity?.mean;
+        const dm = d?.categories.gagFidelity?.mean;
+        if (d && pm != null && dm != null && pm - dm > 0.5 + 1e-9) {
+          out.push({ caseKey, mode, engineId: p.engineId, family: p.family, recipeLabel: p.recipeLabel ?? "Baseline", planned: pm, direct: dm });
+        }
+      }
+    }
+  }
+  return out;
+}
+
 /** "<factId>|<scenarioKey>|<gagId>" as a heading. */
 function caseLabel(key: string): string {
   const [factId, scenarioKey, gagId] = key.split("|");
@@ -274,6 +301,7 @@ function JudgedResultsView({ data }: { data: JudgedResults }) {
   };
   const looks = Object.keys(data.byLook ?? {}).sort();
   const cases = Object.keys(data.byCase ?? {}).sort();
+  const drops = data.kind === "path" ? fidelityDrops(data.byCase ?? {}) : [];
   return (
     <div className="space-y-4">
       <p className="text-sm text-foreground" data-testid="results-summary">
@@ -300,6 +328,16 @@ function JudgedResultsView({ data }: { data: JudgedResults }) {
             <div className="space-y-2" data-testid="results-by-case">
               <h3 className="text-xs font-bold uppercase tracking-wide text-muted-foreground">By case: each fact, photo type and gag</h3>
               <p className="text-[11px] text-muted-foreground">Judge each case on its own: a pooled average can hide one case the direct path draws worse.</p>
+              <div className="rounded-sm border border-amber-500/60 bg-amber-500/10 p-2 text-xs text-foreground space-y-0.5" data-testid="results-fidelity-drops">
+                <p className="font-bold flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5 text-amber-600" /> For your attention: Gag fidelity more than half a point lower on the direct path</p>
+                {drops.length === 0
+                  ? <p data-testid="results-fidelity-drops-none">No case and engine shows a drop of more than half a point. This is a pointer, not a verdict: judge each case from the pictures.</p>
+                  : drops.map((d) => (
+                    <p key={`${d.caseKey}|${d.mode}|${d.engineId}|${d.recipeLabel}`} data-testid="results-fidelity-drop">
+                      {caseLabel(d.caseKey)} · <span className="font-mono">{d.family}</span>{d.recipeLabel !== "Baseline" ? ` (${d.recipeLabel})` : ""}: planned {d.planned.toFixed(2)}, direct {d.direct.toFixed(2)}
+                    </p>
+                  ))}
+              </div>
               {cases.map((c) => ["t2i", "i2i"].filter((m) => data.byCase![c]![m]).map((mode) => (
                 <JudgedTable key={`${c}-${mode}`} label={caseLabel(c)} rows={data.byCase![c]![mode]!} wording={false} />
               )))}
