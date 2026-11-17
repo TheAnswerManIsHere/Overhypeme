@@ -228,11 +228,15 @@ function newDelivery(message?: OutgoingEmail): EmailDelivery {
  * The email queue's Retry, as a row update (`routes/admin.ts`): the sending
  * record goes back to unsent under a fresh nonce, keeping its frozen message,
  * and is marked as a person's choice to send, so the handler sends it even
- * when it would otherwise hold it back (Q14: 2).
+ * when it would otherwise hold it back (Q14: 2). The row goes back
+ * `recovering`, requiring email's protocol, in the same update: a person
+ * approved one more send by this release, never a send by an earlier release
+ * that keeps no record and would leave the approval standing (PR #1026 round 1).
  */
 export function emailRetryReset() {
   return {
-    recoveryProtocol: null,
+    status: "recovering" as const,
+    recoveryProtocol: EMAIL_RECOVERY_PROTOCOL,
     payload: sql`jsonb_set(
       ${asyncJobsTable.payload},
       '{delivery}',

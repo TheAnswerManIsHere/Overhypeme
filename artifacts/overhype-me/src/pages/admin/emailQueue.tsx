@@ -115,7 +115,13 @@ class ModalErrorBoundary extends Component<ModalErrorBoundaryProps, ErrorBoundar
   }
 }
 
-type OutboxStatus = "pending" | "sending" | "delivered" | "abandoned";
+// The server's job vocabulary (async_jobs; migration 0063 retired the outbox's
+// own "sending" / "delivered" / "abandoned"). Issue #1000 increment 3: a
+// held-back email is `failed`, and its Retry must be reachable from here.
+type OutboxStatus = "pending" | "recovering" | "processing" | "done" | "failed";
+
+/** A row whose life is over until a person acts: no next attempt to show. */
+const isFinished = (status: string): boolean => status === "done" || status === "failed";
 
 interface EmailQueueRow {
   id: number;
@@ -154,20 +160,22 @@ const EmailQueueTable = ResponsiveTable<EmailQueueRow>;
 const STATUS_OPTIONS: { value: "" | OutboxStatus; label: string }[] = [
   { value: "", label: "All" },
   { value: "pending", label: "Pending" },
-  { value: "sending", label: "Sending" },
-  { value: "delivered", label: "Delivered" },
-  { value: "abandoned", label: "Abandoned" },
+  { value: "recovering", label: "Picking back up" },
+  { value: "processing", label: "Sending" },
+  { value: "done", label: "Delivered" },
+  { value: "failed", label: "Abandoned" },
 ];
 
 function statusBadgeClass(status: string): string {
   switch (status) {
     case "pending":
+    case "recovering":
       return "bg-blue-500/15 text-blue-500 dark:text-blue-400 border-blue-500/30";
-    case "sending":
+    case "processing":
       return "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30";
-    case "delivered":
+    case "done":
       return "bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/30";
-    case "abandoned":
+    case "failed":
       return "bg-red-500/15 text-red-500 border-red-500/30";
     default:
       return "bg-muted text-muted-foreground border-border";
@@ -290,7 +298,7 @@ function EmailDetailModal({ row, onClose, onRetry, retrying, retryError }: Email
             )}
             <DetailRow label="Created" value={formatFull(row.createdAt)} />
             <DetailRow label="Updated" value={formatFull(row.updatedAt)} />
-            {row.status !== "delivered" && row.status !== "abandoned" && (
+            {!isFinished(row.status) && (
               <DetailRow label="Next Attempt" value={formatFull(row.nextAttemptAt)} />
             )}
           </div>
@@ -370,7 +378,7 @@ function EmailDetailModal({ row, onClose, onRetry, retrying, retryError }: Email
           </div>
         </div>
 
-        {row.status === "abandoned" && (
+        {row.status === "failed" && (
           <div className="px-5 py-3 border-t border-border shrink-0 flex items-center gap-3">
             <Button
               variant="outline"
@@ -404,7 +412,7 @@ export default function AdminEmailQueue() {
   const [statusFilter, setStatusFilter] = useState<"" | OutboxStatus>("");
   const [retrying, setRetrying] = useState<Set<number>>(new Set());
   const [retryErrors, setRetryErrors] = useState<Record<number, string>>({});
-  const [clearing, setClearing] = useState<"delivered" | "abandoned" | "pending" | null>(null);
+  const [clearing, setClearing] = useState<"done" | "failed" | "pending" | null>(null);
   const [clearError, setClearError] = useState<string | null>(null);
   const [loadKey, setLoadKey] = useState(0);
   const [selectedRow, setSelectedRow] = useState<EmailQueueRow | null>(null);
@@ -492,8 +500,8 @@ export default function AdminEmailQueue() {
     }
   }
 
-  async function handleClear(status: "delivered" | "abandoned" | "pending") {
-    const label = status === "delivered" ? "delivered" : status === "abandoned" ? "abandoned" : "pending";
+  async function handleClear(status: "done" | "failed" | "pending") {
+    const label = status === "done" ? "delivered" : status === "failed" ? "abandoned" : "pending";
     const confirmed = window.confirm(
       `Delete all ${label} emails from the queue? This cannot be undone.`
     );
@@ -572,11 +580,11 @@ export default function AdminEmailQueue() {
             variant="outline"
             size="sm"
             className="h-8 px-3 text-xs gap-1 text-green-600 dark:text-green-400 border-green-500/40 hover:bg-green-500/10"
-            onClick={() => void handleClear("delivered")}
+            onClick={() => void handleClear("done")}
             disabled={clearing !== null || loading}
             title="Delete all delivered emails"
           >
-            {clearing === "delivered" ? (
+            {clearing === "done" ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
             ) : (
               <Trash2 className="w-3.5 h-3.5" />
@@ -587,11 +595,11 @@ export default function AdminEmailQueue() {
             variant="outline"
             size="sm"
             className="h-8 px-3 text-xs gap-1 text-red-600 dark:text-red-400 border-red-500/40 hover:bg-red-500/10"
-            onClick={() => void handleClear("abandoned")}
+            onClick={() => void handleClear("failed")}
             disabled={clearing !== null || loading}
             title="Delete all abandoned emails"
           >
-            {clearing === "abandoned" ? (
+            {clearing === "failed" ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
             ) : (
               <Trash2 className="w-3.5 h-3.5" />
@@ -657,7 +665,7 @@ export default function AdminEmailQueue() {
             </div>
           )}
           mobileFooter={(row) =>
-            row.status === "abandoned" ? (
+            row.status === "failed" ? (
               <div onClick={(e) => e.stopPropagation()} className="flex flex-col gap-1">
                 <Button
                   variant="outline"
@@ -750,11 +758,11 @@ export default function AdminEmailQueue() {
               header: "Next Attempt",
               className: "whitespace-nowrap text-xs text-muted-foreground",
               cell: (row) =>
-                row.status === "delivered" || row.status === "abandoned"
+                isFinished(row.status)
                   ? "—"
                   : formatRelative(row.nextAttemptAt),
               mobileValue: (row) =>
-                row.status === "delivered" || row.status === "abandoned"
+                isFinished(row.status)
                   ? null
                   : formatRelative(row.nextAttemptAt),
             },

@@ -87,7 +87,12 @@ async function enqueueEmail(to = "resume@example.test"): Promise<number> {
 /** A row an earlier release enqueued: no sending record. */
 async function insertLegacyEmail(extra: Partial<typeof asyncJobsTable.$inferInsert> = {}): Promise<number> {
   const [row] = await db.insert(asyncJobsTable).values({
-    queue, payload: { to: "legacy@example.test", subject: "legacy", text: "body", html: null, kind: null }, ...extra,
+    queue, payload: { to: "legacy@example.test", subject: "legacy", text: "body", html: null, kind: null },
+    // Due by the JavaScript clock the tick compares against: the column's
+    // database default can land a hair after the tick's own `new Date()`
+    // (PR #1026 round 1, CI), and the row would not be due yet.
+    nextAttemptAt: new Date(Date.now() - 1000),
+    ...extra,
   }).returning();
   return row!.id;
 }
@@ -349,12 +354,18 @@ describe("email is never sent twice (plan §E)", () => {
     }
 
     const reset = await getJob(id);
-    assert.equal(reset.status, "pending");
-    assert.equal(reset.recoveryProtocol, null);
+    assert.equal(reset.status, "recovering", "only a worker that sends under the key may take the retry");
+    assert.equal(reset.recoveryProtocol, EMAIL_RECOVERY_PROTOCOL);
     const record = (reset.payload as EmailJobPayload).delivery;
     assert.equal(record?.state, "unsent");
     assert.equal(record?.resendApproved, true, "the person's retry is recorded as their choice to send");
 
+    let earlierReleaseRuns = 0;
+    useEmailHandler({ async run() { earlierReleaseRuns++; return { ok: true }; } }, false); // declares nothing
+    await tick();
+    assert.equal(earlierReleaseRuns, 0, "an earlier release never takes a person's retry");
+
+    useEmailHandler();
     await tick();
     assert.equal(sent.length, 1);
     assert.equal(sent[0]!.key, emailIdempotencyKey(id, record!.nonce));

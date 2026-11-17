@@ -126,7 +126,9 @@ export async function gagFoldReport(): Promise<GagFoldReport> {
     const content = normaliseGagContent(v.raw);
     const key = foldDedupeKey(v);
     const job = jobs.get(key) ?? null;
-    if (job?.status === "pending") report.jobs.queued++;
+    // A job taken back after a server stop waits as `recovering` (Issue #1000):
+    // still queued work, so the panel keeps polling until it finishes.
+    if (job?.status === "pending" || job?.status === "recovering") report.jobs.queued++;
     if (job?.status === "processing") report.jobs.running++;
     const jobView = job ? { status: job.status, error: job.error } : null;
     if (!content) {

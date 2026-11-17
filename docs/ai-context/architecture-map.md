@@ -236,8 +236,10 @@ deliberately excludes them and points here instead.
   but last claimed by a worker that keeps no record, such as an earlier release.
   The handler sees which by the recovery protocol the previous claim declared
   (`previousClaimRecoveryProtocol`). The email queue's Retry
-  (`emailRetryReset`) resets the record and marks it `resendApproved`, so a
-  person can send a held-back email.
+  (`emailRetryReset`) resets the record, marks it `resendApproved` and puts
+  the row back `recovering`, so a person can send a held-back email and only a
+  worker that sends under the key takes it. The email queue page reads the
+  job vocabulary (`pending`, `recovering`, `processing`, `done`, `failed`).
   **Completion checkpoints (plan §F).** Enrichment's write, its review's move to
   `concept_review` and the Visual-Idea job commit in one fenced transaction. A
   stop therefore never strands a review with no job, as it could before.
