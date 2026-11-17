@@ -14,7 +14,7 @@
  * PLAN_GAG_DIRECT_RENDER.md, F) IS stubbed: it is a model call, and every save
  * takes it first. The stub answers the fact's `cast` (none by default), keyed to
  * the scene and speakers it was sent, as the server would.
- */ *
+ *
  * Shapes follow the server's serializers (`routes/admin.ts`,
  * `routes/reviews.ts`) and the page's own interfaces
  * (`pages/admin/facts.tsx`, `pages/admin/moderation.tsx`).
