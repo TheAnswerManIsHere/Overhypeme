@@ -12,7 +12,7 @@ import { randomUUID } from "node:crypto";
 import { db, factsTable, factGagsTable, factGagFoldArchiveTable, usersTable } from "@workspace/db";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import { asyncJobsTable } from "@workspace/db/schema";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import {
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
   buildPlaceholderFactEnrichment,
@@ -277,6 +277,18 @@ describe("the fold job", () => {
     const second = await startGagFold();
     assert.ok(second.deduped >= 1, "a queued version is not queued twice");
     assert.ok(first.requested >= 1);
+  });
+
+  it("counts a job taken back after a server stop (recovering) as queued, so the panel keeps polling (Issue #1000, PR #1026 round 1)", async () => {
+    const { gagId } = await fact(base("{NAME} juggles.", { styleAgnosticPromptAdditions: ["three flaming torches"] }));
+    await startGagFold();
+    const key = `gag_fold:${gagId}:approved`;
+    const queuedBefore = (await gagFoldReport()).jobs.queued;
+    await db.update(asyncJobsTable).set({ status: "recovering", recoveryProtocol: 1 })
+      .where(and(eq(asyncJobsTable.queue, GAG_FOLD_QUEUE), eq(asyncJobsTable.dedupeKey, key)));
+    const report = await gagFoldReport();
+    assert.ok(queuedBefore >= 1);
+    assert.equal(report.jobs.queued, queuedBefore, "the recovering job still counts as queued");
   });
 });
 

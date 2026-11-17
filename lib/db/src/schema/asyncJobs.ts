@@ -38,8 +38,9 @@ export const asyncJobsTable = pgTable(
     // Recovery protocol the claiming handler declared for its queue (null: none).
     claimRecoveryProtocol: integer("claim_recovery_protocol"),
     // Non-null only once the row has been taken back from a stopped holder of a
-    // recovery-declaring queue: the minimum protocol a claimer must declare.
-    // Sticky until the job finishes.
+    // recovery-declaring queue, or its handler sent a retry into recovery (an
+    // email that may have reached Resend): the minimum protocol a claimer must
+    // declare. Sticky until the job finishes.
     recoveryProtocol: integer("recovery_protocol"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -62,9 +63,11 @@ export type InsertAsyncJobRow = typeof asyncJobsTable.$inferInsert;
 /**
  * Status lifecycle:
  *   pending    → ready to be claimed by the next worker tick (nextAttemptAt due)
- *   recovering → taken back from a stopped holder; claimable only by a handler
- *                declaring at least `recovery_protocol` for its queue. Stays
- *                recovering through retry, deferral and reclaim until it finishes.
+ *   recovering → taken back from a stopped holder (or retried after a step only
+ *                a recovering worker may repeat, e.g. an email that may have
+ *                reached Resend); claimable only by a handler declaring at least
+ *                `recovery_protocol` for its queue. Stays recovering through
+ *                retry, deferral and reclaim until it finishes.
  *   processing → held by a worker under a lease (reclaimed once the lease lapses)
  *   done       → handler returned ok (terminal; eligible for retention purge)
  *   failed     → handler exhausted maxAttempts retries (terminal)

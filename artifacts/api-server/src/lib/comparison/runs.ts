@@ -48,7 +48,7 @@ import {
   type RenderScenarioKey,
   type FactEnrichment,
 } from "@workspace/api-zod";
-import { enqueueJob, registerJobHandler, terminalFailure, type HandlerResult } from "../asyncJobs";
+import { RESUMES_FROM_CHECKPOINTS, enqueueJob, registerJobHandler, terminalFailure, type HandlerResult } from "../asyncJobs";
 import { assertJobOwnership, fencedTransaction } from "../jobFence";
 import { defaultScenarioRenderControls, syntheticAnalysisForReference } from "../reviewRenderScenarios";
 import { ReferenceAssetUnavailableError, resolveDefaultReferenceUrl } from "../defaultReferenceResolver";
@@ -699,7 +699,7 @@ export function registerComparisonHandlers(): void {
   // The bulk lane, not render: a cell waits on fal for its whole generation,
   // and a comparison run must never hold up moderation and member renders.
   // Execution limit (Issue #1000): two 180 s planner calls and one 30 s cast call with no retries (6.5 min), plus margin.
-  registerJobHandler(COMPARISON_PREPARE_QUEUE, { run: (payload) => preparePanel(payload as PreparePayload) }, { lane: "bulk", executionLimitMs: 15 * 60_000 });
+  registerJobHandler(COMPARISON_PREPARE_QUEUE, { run: (payload) => preparePanel(payload as PreparePayload) }, { lane: "bulk", executionLimitMs: 15 * 60_000, ...RESUMES_FROM_CHECKPOINTS });
   // Execution limit (Issue #1000): its 10-minute polling allowance, status-call backoff and storing (about 21 min), plus margin.
-  registerJobHandler(COMPARISON_RENDER_QUEUE, { run: (payload) => renderCell(payload as RenderPayload) }, { lane: "bulk", executionLimitMs: 30 * 60_000 });
+  registerJobHandler(COMPARISON_RENDER_QUEUE, { run: (payload) => renderCell(payload as RenderPayload) }, { lane: "bulk", executionLimitMs: 30 * 60_000, ...RESUMES_FROM_CHECKPOINTS });
 }

@@ -67,7 +67,7 @@ import { defaultPreviewSubjectForReference, resolveRenderReviewInput } from "./i
 import { gagRenderInput, loadGagRenderContext, loadGags, workingContent } from "./gags/resolver";
 import { assertCanRunGagRenders, GagError, type GagActor } from "./gags/gagStore";
 import { renderPersonalized } from "./renderCanonical";
-import { enqueueJob, registerJobHandler, type EnqueueJobResult, type HandlerResult, type JobHandler } from "./asyncJobs";
+import { RESUMES_FROM_CHECKPOINTS, enqueueJob, registerJobHandler, type EnqueueJobResult, type HandlerResult, type JobHandler } from "./asyncJobs";
 import { fencedTransaction } from "./jobFence";
 import { renderProgressByAttempt } from "./renderProgress";
 import { logger } from "./logger";
@@ -701,7 +701,7 @@ export const reviewRenderScenariosPrepareHandler: JobHandler = {
 
 export function registerReviewRenderScenarioHandlers(): void {
   // Execution limit (Issue #1000): database work and one cached reference upload.
-  registerJobHandler(REVIEW_RENDER_PREPARE_QUEUE, reviewRenderScenariosPrepareHandler, { executionLimitMs: 10 * 60_000 });
+  registerJobHandler(REVIEW_RENDER_PREPARE_QUEUE, reviewRenderScenariosPrepareHandler, { executionLimitMs: 10 * 60_000, ...RESUMES_FROM_CHECKPOINTS });
 }
 
 /**

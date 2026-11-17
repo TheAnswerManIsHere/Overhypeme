@@ -13,7 +13,7 @@
 import { eq } from "drizzle-orm";
 import { db, factsTable } from "@workspace/db";
 import { validateEnrichment, type EnrichmentOverrides, type FactEnrichment } from "@workspace/api-zod";
-import { registerJobHandler, type JobHandler, type HandlerResult } from "./asyncJobs";
+import { RESUMES_FROM_CHECKPOINTS, registerJobHandler, type JobHandler, type HandlerResult } from "./asyncJobs";
 import { enrichFact, EnrichmentError, materializeEnrichment } from "./factEnrichment";
 import { isEnrichmentAdminEdited } from "./taxonomyHealth";
 import { renderCanonical } from "./renderCanonical";
@@ -136,5 +136,5 @@ export async function writeBulkReenrichKeepingCharacterCorrection(factId: number
 
 export function registerFactEnrichmentBackfillHandler(): void {
   // Execution limit (Issue #1000): two classifier calls, each up to 3 tries of 120 s (about 12 min), plus margin.
-  registerJobHandler(FACT_ENRICHMENT_BACKFILL_QUEUE, factEnrichmentBackfillHandler, { executionLimitMs: 20 * 60_000 });
+  registerJobHandler(FACT_ENRICHMENT_BACKFILL_QUEUE, factEnrichmentBackfillHandler, { executionLimitMs: 20 * 60_000, ...RESUMES_FROM_CHECKPOINTS });
 }

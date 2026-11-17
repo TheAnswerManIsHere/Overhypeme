@@ -148,8 +148,8 @@ function VersionList({ title, empty, help, rows, testId }: { title: string; empt
                 <Link href={`/admin/facts?focus=${r.factId}`} className="text-primary hover:underline">
                   Fact #{r.factId} · gag {r.slot} · {r.stage === "approved" ? "approved version" : "pending change"}
                 </Link>
-                {r.job && (r.job.status === "pending" || r.job.status === "processing") && (
-                  <span className="ml-2 text-muted-foreground">({r.job.status === "pending" ? "queued" : "running"})</span>
+                {r.job && (r.job.status === "pending" || r.job.status === "recovering" || r.job.status === "processing") && (
+                  <span className="ml-2 text-muted-foreground">({r.job.status === "processing" ? "running" : "queued"})</span>
                 )}
                 <ul className="list-disc ml-4 text-muted-foreground">
                   {r.reasons.map((why) => <li key={why}>{why}</li>)}

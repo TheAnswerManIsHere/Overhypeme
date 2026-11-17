@@ -42,7 +42,7 @@ import {
   type GagFoldVersionReport,
   type VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
-import { enqueueJob, registerJobHandler, type HandlerResult, type JobHandler } from "../asyncJobs";
+import { RESUMES_FROM_CHECKPOINTS, enqueueJob, registerJobHandler, type HandlerResult, type JobHandler } from "../asyncJobs";
 import { stableStringify } from "../factRenderScenarios";
 import { normaliseGagContent } from "./resolver";
 import { foldGagContent } from "./fold";
@@ -126,7 +126,9 @@ export async function gagFoldReport(): Promise<GagFoldReport> {
     const content = normaliseGagContent(v.raw);
     const key = foldDedupeKey(v);
     const job = jobs.get(key) ?? null;
-    if (job?.status === "pending") report.jobs.queued++;
+    // A job taken back after a server stop waits as `recovering` (Issue #1000):
+    // still queued work, so the panel keeps polling until it finishes.
+    if (job?.status === "pending" || job?.status === "recovering") report.jobs.queued++;
     if (job?.status === "processing") report.jobs.running++;
     const jobView = job ? { status: job.status, error: job.error } : null;
     if (!content) {
@@ -292,5 +294,5 @@ export const gagFoldHandler: JobHandler = { run: (payload: unknown) => runGagFol
 
 export function registerGagFoldHandler(): void {
   // Execution limit (Issue #1000): one cast call, up to 3 tries of 30 s (about 1.5 min), then database work, plus margin.
-  registerJobHandler(GAG_FOLD_QUEUE, gagFoldHandler, { executionLimitMs: 10 * 60_000 });
+  registerJobHandler(GAG_FOLD_QUEUE, gagFoldHandler, { executionLimitMs: 10 * 60_000, ...RESUMES_FROM_CHECKPOINTS });
 }

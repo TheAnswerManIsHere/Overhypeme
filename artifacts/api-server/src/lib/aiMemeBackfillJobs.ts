@@ -11,7 +11,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { factsTable, type AsyncJobRow } from "@workspace/db/schema";
-import { registerJobHandler, type JobHandler, type HandlerResult } from "./asyncJobs";
+import { RESUMES_FROM_CHECKPOINTS, registerJobHandler, type JobHandler, type HandlerResult } from "./asyncJobs";
 import { logger } from "./logger";
 import { fencedTransaction } from "./jobFence";
 
@@ -60,5 +60,5 @@ export const factAiMemeBackfillJobHandler: JobHandler = {
 
 export function registerFactAiMemeBackfillHandler(): void {
   // Execution limit (Issue #1000): database only (retired queue).
-  registerJobHandler(FACT_AI_MEME_BACKFILL_QUEUE, factAiMemeBackfillJobHandler, { lane: "ai_meme_backfill", executionLimitMs: 5 * 60_000 });
+  registerJobHandler(FACT_AI_MEME_BACKFILL_QUEUE, factAiMemeBackfillJobHandler, { lane: "ai_meme_backfill", executionLimitMs: 5 * 60_000, ...RESUMES_FROM_CHECKPOINTS });
 }
