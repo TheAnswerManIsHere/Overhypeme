@@ -446,7 +446,7 @@ future job handler that skips mid-run.
 **all** matching rows into JS memory (the established pattern here — the
 evaluator/picker architecture can't push its logic into SQL), then passes that
 **entire** id list into a follow-up `inArray(...)` guard query (e.g. "which of
-these are already in-flight / have an active variant") **before** applying the
+these are already in-flight") **before** applying the
 action's own batch cap. **Dangerous:** the guard query's size is bounded only
 by how much of the corpus currently matches — which can be the *whole active
 table* (e.g. right after a corpus-wide invalidation), risking a query past
@@ -458,8 +458,8 @@ corpus size (not with the request's own bound), and prefer resolving only as
 many eligible targets as the cap needs rather than classifying the entire
 candidate set up front, when the two aren't in tension (see the cap-vs-exact-
 remaining-count trade-off noted below). **Overhype:**
-`factsWithInFlightRefresh`/`factsWithActiveVariants` in
-`adminTaxonomyHealth.ts` chunk their guard queries at 500 ids/query
+`factsWithInFlightRefresh` in
+`adminTaxonomyHealth.ts` chunks its guard queries at 500 ids/query
 (`GUARD_QUERY_CHUNK_SIZE`) rather than passing the full stale-for-reprocess id
 set (which the Stale-for-reprocess card's own docs note can be "nearly the
 whole corpus," especially after a "Mark major update" bump) in one call —
@@ -487,7 +487,10 @@ force-enqueues `review_render_scenarios_prepare` with **no** key and guards the
 concurrent approvals yield exactly one force batch. Re-prep/regenerate is blocked
 while `visual_concept_status = "pending"` for the same reason. See
 `moderation-workflow.md` and the PR #179 decision in
-[`decisions.md`](./decisions.md).
+[`decisions.md`](./decisions.md). (Since 2026-11-15 the advance enqueues only
+the male iteration render of each new or changed gag rather than a full batch;
+the keyless enqueue and the compare-and-set are unchanged;
+[decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates).)
 
 ## Repairing state on a caught async error races the thing it's repairing
 
