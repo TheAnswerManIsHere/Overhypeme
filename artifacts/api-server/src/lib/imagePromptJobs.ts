@@ -76,6 +76,45 @@ import { logger } from "./logger";
 export const IMAGE_PROMPT_QUEUE = "image_prompt_generation";
 export const IMAGE_GENERATION_QUEUE = "image_generation";
 
+/**
+ * The longest one image request may take before the render gives up on it.
+ * A real render takes one to two minutes; a request the image service never
+ * answers would otherwise hold the job, and the moderator's tile on
+ * "Drawing…", until the 30-minute stuck-job sweep (RECOVER_STUCK_CUTOFF_MIN)
+ * re-runs it. Must stay well below that sweep, or the sweep re-runs a job
+ * still waiting here.
+ */
+export const IMAGE_GENERATION_TIMEOUT_MS = 5 * 60_000;
+let imageGenerationTimeoutMs = IMAGE_GENERATION_TIMEOUT_MS;
+/** Test seam: shorten the image request's time limit. */
+export function __setImageGenerationTimeoutForTest(ms: number | null): void {
+  imageGenerationTimeoutMs = ms ?? IMAGE_GENERATION_TIMEOUT_MS;
+}
+
+/**
+ * One image request, bounded. The SDK's own `timeout` option is documented as
+ * not enforced, so the race is what bounds it; the abort stops the SDK's
+ * polling once we have given up.
+ */
+async function subscribeWithin(endpointId: string, input: Record<string, unknown>): Promise<unknown> {
+  const ms = imageGenerationTimeoutMs;
+  const ac = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      fal.subscribe(endpointId, { input, logs: false, abortSignal: ac.signal }),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          ac.abort();
+          reject(new Error(`the image service did not answer within ${Math.round(ms / 1000)} seconds`));
+        }, ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export interface ImagePromptJobPayload {
   attemptId: number;
 }
@@ -394,7 +433,7 @@ export const imageGenerationHandler: JobHandler = {
     let resultUrl: string;
     let vendorData: unknown;
     try {
-      const response = await fal.subscribe(engine.endpointId, { input: falInput, logs: false });
+      const response = await subscribeWithin(engine.endpointId, falInput);
       await setVendorRequestId(generationRequestId, (response as { requestId?: string }).requestId);
       const data = (response as { data?: unknown }).data ?? response;
       vendorData = data;
