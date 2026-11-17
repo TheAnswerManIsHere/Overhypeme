@@ -1,5 +1,5 @@
 /**
- * Migration 0144 (plan docs/plans/PLAN_GAG_EXAMPLES.md, increment 2; Issue
+ * Migration 0145 (plan docs/plans/PLAN_GAG_EXAMPLES.md, increment 2; Issue
  * #964): a picture's subject is a person or a pet, and under "Deprecated means
  * removed" (decisions.md, 2026-11-17) the records only the vehicle, object and
  * mascot subject kinds produced are deleted or converted.
@@ -24,7 +24,7 @@ import { db } from "@workspace/db";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../../../..");
-const MIGRATION_SQL = readFileSync(path.join(ROOT, "lib/db/migrations/0144_people_and_pets_only.sql"), "utf8");
+const MIGRATION_SQL = readFileSync(path.join(ROOT, "lib/db/migrations/0145_people_and_pets_only.sql"), "utf8");
 const P = "t_0144_";
 const RUN = randomUUID().slice(0, 8);
 const OV = "i2i_nonhuman_object_vehicle";
@@ -74,7 +74,7 @@ async function recipe(pieces: Record<string, string>): Promise<number> {
     VALUES (${P + RUN}, ${n}, ${JSON.stringify(pieces)}::jsonb, 'test') RETURNING id::integer AS id`)).id;
 }
 
-describe("migration 0144: people and pets only", () => {
+describe("migration 0145: people and pets only", () => {
   const ids: Record<string, number> = {};
 
   before(async () => {

@@ -89,8 +89,9 @@ loses the work. See CLAUDE.md's *This environment's git constraints*.)
 (David, 2026-08-09).** With routed entry, bug reports can land while a
 feature branch has in-flight work. Don't stash-juggle the feature state: run
 the bugfix in an isolated worktree (`EnterWorktree`, branched from
-`origin/main` per above) or say plainly that a fresh session is cleaner and
-let David choose — either way the feature tree comes back untouched.
+`origin/main` per above) or, when a fresh session is cleaner, start one for
+the bug (the `handoff` skill, Step 5, for the call and its fallback) and say
+which I chose — either way the feature tree comes back untouched.
 
 Then confirm the branch name (the classification announcement at entry
 already named the workflow).
@@ -130,7 +131,10 @@ pre-launch, but the interrupted UAT is what gets lost. Per
   body, and one line in its State of Play naming **which UAT step failed**
   — that's what turns resumption into "resume at step 4" rather than a full
   re-run.
-- **Also flip the interrupted issue's `waiting:` label to `claude`**,
+- **Also flip the interrupted issue's `waiting:` label to `claude`** —
+  unless this session was started from a `/uat` run's intake whose prompt
+  says the run is still live: that label, and its parent's, are then the
+  UAT session's to set when the run stops (the `uat` skill, section 4). Otherwise flip it,
   recording its prior value (normally `david`, mid-UAT) in the same State
   of Play line. Left at `waiting:david`, `/status-all` — which doesn't
   parse `Blocked by:` and was deliberately left unchanged — keeps showing

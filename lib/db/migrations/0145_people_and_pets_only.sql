@@ -66,7 +66,7 @@ BEGIN
     FROM fact_gag_examples e
     JOIN _retired_subject_attempts r ON r.id = e.attempt_id;
   IF v_examples > 0 THEN
-    RAISE EXCEPTION '0144_people_and_pets_only: % gag example(s) use a vehicle, object or mascot render; refusing to break an example set', v_examples;
+    RAISE EXCEPTION '0145_people_and_pets_only: % gag example(s) use a vehicle, object or mascot render; refusing to break an example set', v_examples;
   END IF;
 
   UPDATE fact_gags g
@@ -93,6 +93,6 @@ BEGIN
    WHERE jsonb_typeof(pieces) = 'object' AND pieces ? 'identity.object';
   GET DIAGNOSTICS v_recipes = ROW_COUNT;
 
-  RAISE NOTICE '0144_people_and_pets_only: deleted % comparison panel(s), % render attempt(s); updated % comparison set(s), % gag pick snapshot(s), % cached upload analysis(es), % recipe version(s)',
+  RAISE NOTICE '0145_people_and_pets_only: deleted % comparison panel(s), % render attempt(s); updated % comparison set(s), % gag pick snapshot(s), % cached upload analysis(es), % recipe version(s)',
     v_panels, v_attempts, v_sets, v_gag_snapshots, v_uploads, v_recipes;
 END $$;

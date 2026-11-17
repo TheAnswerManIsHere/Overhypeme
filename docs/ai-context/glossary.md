@@ -675,7 +675,7 @@ One render variant of a gag, drawn from a committed reference photo. Since
 wife's) and `i2i_nonhuman_animal` (pet), and the approved one of each is the
 gag's example for that kind. A subject is a person or a pet ([the
 rule](./decisions.md#2026-11-15--a-pictures-subject-is-a-person-or-a-pet-vehicles-objects-and-mascots-are-not-subjects)): the object/vehicle scenario and its stored renders were removed
-(migration 0144), and the no-photo
+(migration 0145), and the no-photo
 `generic_t2i` is Issue #979's to remove. Each attempt is a durable
 `image_prompt_attempts` row.
 → [visual-pipeline](./visual-pipeline.md)

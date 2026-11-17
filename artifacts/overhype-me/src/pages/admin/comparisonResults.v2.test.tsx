@@ -100,6 +100,57 @@ describe("ComparisonResults, second edition", () => {
     expect(screen.queryByText("Promote")).toBeNull();
   });
 
+  it("on a planner-vs-direct comparison, names each row's path and reports every case on its own", async () => {
+    window.history.replaceState(null, "", "/admin/eval/results?sets=30");
+    const planned = { ...row("gpt-image-2-6-edit", 1, 2, cats(4, 4, 4, 4)), recipeVersionId: null, recipeLabel: "Baseline", renderPath: "planned" };
+    const direct = { ...row("gpt-image-2-6-edit", 1, 2, cats(4, 3, 4, 4)), recipeVersionId: null, recipeLabel: "Baseline", renderPath: "direct" };
+    const body = {
+      ...JUDGED, kind: "path", rows: { i2i: [planned, direct] }, byLook: {},
+      byCase: { "11|i2i_male_default|501": { i2i: [planned, direct] }, "12|i2i_nonhuman_animal|0": { i2i: [direct, planned] } },
+      pictures: [],
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => body }) as unknown as Response));
+    render(<ComparisonResults />);
+    const main = within(await screen.findByTestId("results-judged-Reference edit"));
+    expect(main.getByTestId("results-row-gpt-image-2-6-edit-planned").textContent).toMatch(/Planned \(today: planner \+ compiler\)/);
+    expect(main.getByTestId("results-row-gpt-image-2-6-edit-direct").textContent).toMatch(/Direct \(from the gag alone\)/);
+    const cases = screen.getByTestId("results-by-case");
+    expect(within(cases).getByTestId("results-judged-Fact #11 · i2i_male_default · gag 501")).toBeTruthy();
+    expect(within(cases).getByTestId("results-judged-Fact #12 · i2i_nonhuman_animal")).toBeTruthy();
+  });
+
+  it("flags, per case and engine, a direct Gag fidelity more than half a point below the planned one, and nothing at exactly half or on other comparisons", async () => {
+    window.history.replaceState(null, "", "/admin/eval/results?sets=31");
+    const r = (engineId: string, path: string, gf: number) => ({ ...row(engineId, 1, 2, cats(4, gf, 4, 4)), recipeVersionId: null, recipeLabel: "Baseline", renderPath: path });
+    const body = {
+      ...JUDGED, kind: "path", rows: { i2i: [] }, byLook: {}, pictures: [],
+      byCase: {
+        // GPT drops 0.75 on fact 11; Nano improves there.
+        "11|i2i_male_default|501": { i2i: [r("gpt-image-2-6-edit", "planned", 4), r("gpt-image-2-6-edit", "direct", 3.25), r("nano-banana-2-1-edit", "planned", 3), r("nano-banana-2-1-edit", "direct", 4)] },
+        // Exactly half a point: no flag.
+        "12|i2i_male_default|0": { i2i: [r("gpt-image-2-6-edit", "planned", 4), r("gpt-image-2-6-edit", "direct", 3.5)] },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => body }) as unknown as Response));
+    render(<ComparisonResults />);
+    const flags = await screen.findAllByTestId("results-fidelity-drop");
+    expect(flags.map((f) => f.textContent)).toEqual(["Fact #11 · i2i_male_default · gag 501 · gpt-image-2-6: planned 4.00, direct 3.25"]);
+  });
+
+  it("says no case is flagged when none drops by more than half a point, and shows no flag on an engine comparison", async () => {
+    window.history.replaceState(null, "", "/admin/eval/results?sets=32");
+    const r = (path: string, gf: number) => ({ ...row("gpt-image-2-6-edit", 1, 2, cats(4, gf, 4, 4)), recipeVersionId: null, recipeLabel: "Baseline", renderPath: path });
+    const path = { ...JUDGED, kind: "path", rows: { i2i: [] }, byLook: {}, pictures: [], byCase: { "11|i2i_male_default|501": { i2i: [r("planned", 4), r("direct", 4)] } } };
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => path }) as unknown as Response));
+    const first = render(<ComparisonResults />);
+    expect(await screen.findByTestId("results-fidelity-drops-none")).toBeTruthy();
+    first.unmount();
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ ...JUDGED, kind: "engine", byLook: {}, pictures: [] }) }) as unknown as Response));
+    render(<ComparisonResults />);
+    await screen.findByTestId("results-judged-Reference edit");
+    expect(screen.queryByTestId("results-fidelity-drops")).toBeNull();
+  });
+
   it("explains a refusal to read the two editions together", async () => {
     window.history.replaceState(null, "", "/admin/eval/results?sets=4,9");
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 409, json: async () => ({}) }) as unknown as Response));

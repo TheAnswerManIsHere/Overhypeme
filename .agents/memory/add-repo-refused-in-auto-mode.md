@@ -32,7 +32,7 @@ settings carry no allow rule for it:
 
 - `/sync-fleet` Step 2 (the measured case).
 - A handoff prompt's first action, when the work is in another repository
-  (the `handoff` skill, step 3). There a refusal is easy to misread as
+  (the `handoff` skill, Step 5, prompt item 3). There a refusal is easy to misread as
   "the handoff pointed at something that does not exist"; it is not.
 - The paid-AI ledger write, when a session's access does not reach KITT
   (`uat-doc-format.md`, *Lanes*).

@@ -628,7 +628,7 @@ classification joined with one gag's content (`gagRenderInput`,
   kinds are the scenarios `i2i_male_default`, `i2i_female_default` and
   `i2i_nonhuman_animal` (`SCENARIO_FOR_KIND`); generic text-to-image is no
   longer drawn, and the object/vehicle scenario is removed (a subject is a
-  person or a pet, [the rule](./decisions.md#2026-11-15--a-pictures-subject-is-a-person-or-a-pet-vehicles-objects-and-mascots-are-not-subjects); migration 0144). `image_prompt_attempts.gag_id` names the
+  person or a pet, [the rule](./decisions.md#2026-11-15--a-pictures-subject-is-a-person-or-a-pet-vehicles-objects-and-mascots-are-not-subjects); migration 0145). `image_prompt_attempts.gag_id` names the
   gag each render drew, and a render is **reused** when its attempt's
   `fact_enrichment_snapshot` matches the gag's current render input in what
   shapes the picture: the gag's content and the classification fields the

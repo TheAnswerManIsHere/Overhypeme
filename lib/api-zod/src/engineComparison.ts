@@ -37,9 +37,20 @@ export const COMPARISON_ROUND_PRESETS: Record<1 | 2, { scenarioKeys: readonly Re
 export const COMPARISON_IMAGE_SIZES = ["comparison", "final"] as const;
 export type ComparisonImageSize = (typeof COMPARISON_IMAGE_SIZES)[number];
 
-/** What a set compares: engines, each with its live wording, or prompt versions on one engine. */
-export const COMPARISON_SET_KINDS = ["engine", "prompt"] as const;
+/**
+ * What a set compares: engines, each with its live wording; prompt versions on
+ * one engine; or, per engine, the same gag drawn by today's planned path and
+ * by the direct path (plan PLAN_GAG_DIRECT_RENDER.md, A).
+ */
+export const COMPARISON_SET_KINDS = ["engine", "prompt", "path"] as const;
 export type ComparisonSetKind = (typeof COMPARISON_SET_KINDS)[number];
+
+/** How a path set's cell makes its prompt: the planner and the compiler, or the compiler alone from the gag. */
+export const COMPARISON_RENDER_PATHS = ["planned", "direct"] as const;
+export type ComparisonRenderPath = (typeof COMPARISON_RENDER_PATHS)[number];
+
+/** A path set may name at most this many gags. */
+export const COMPARISON_MAX_GAGS = 30;
 
 export const comparisonSetCreateSchema = z.object({
   label: z.string().trim().min(1).max(200),
@@ -57,7 +68,11 @@ export const comparisonSetCreateSchema = z.object({
    */
   kind: z.enum(COMPARISON_SET_KINDS).optional(),
   recipeVersionIds: z.array(z.number().int().positive().nullable()).min(2).max(4).optional(),
+  /** A path comparison's chosen gags; a fact none of them belongs to draws its default gag. */
+  gagIds: z.array(z.number().int().positive()).min(1).max(COMPARISON_MAX_GAGS).optional(),
 }).strict().superRefine((v, ctx) => {
+  if (v.gagIds && v.kind !== "path") ctx.addIssue({ code: "custom", path: ["gagIds"], message: "gags are chosen only on a path comparison" });
+  if (v.gagIds && new Set(v.gagIds).size !== v.gagIds.length) ctx.addIssue({ code: "custom", path: ["gagIds"], message: "each gag once" });
   if (v.kind === "prompt") {
     if (v.engineFamilies.length !== 1) ctx.addIssue({ code: "custom", path: ["engineFamilies"], message: "a prompt comparison names exactly one engine family" });
     if (!v.recipeVersionIds) ctx.addIssue({ code: "custom", path: ["recipeVersionIds"], message: "a prompt comparison names two or more versions" });
@@ -230,8 +245,12 @@ export const evaluationSelectionSchema = z.object({
   lookStyleIds: z.array(z.string().trim().min(1).max(64)).min(1),
   /** A prompt evaluation's versions, null for the baseline. */
   recipeVersionIds: z.array(z.number().int().positive().nullable()).min(2).max(4).optional(),
+  /** A path evaluation's chosen gags; a fact none of them belongs to draws its default gag. */
+  gagIds: z.array(z.number().int().positive()).min(1).max(COMPARISON_MAX_GAGS).optional(),
 }).strict().superRefine((v, ctx) => {
   const unique = <T>(xs: T[]) => new Set(xs).size === xs.length;
+  if (v.gagIds && v.kind !== "path") ctx.addIssue({ code: "custom", path: ["gagIds"], message: "gags are chosen only on a path evaluation" });
+  if (v.gagIds && !unique(v.gagIds)) ctx.addIssue({ code: "custom", path: ["gagIds"], message: "each gag once" });
   if (!unique(v.factIds)) ctx.addIssue({ code: "custom", path: ["factIds"], message: "each fact once" });
   if (!unique(v.engineFamilies)) ctx.addIssue({ code: "custom", path: ["engineFamilies"], message: "each engine once" });
   if (!unique(v.scenarioKeys)) ctx.addIssue({ code: "custom", path: ["scenarioKeys"], message: "each photo type once" });

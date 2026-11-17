@@ -188,6 +188,13 @@ export interface BlindPanel {
    * for a fact with no approved gag.
    */
   gag: string | null;
+  /**
+   * Second edition: the gag's bubbles as the panel expected them, each with
+   * its speaker, so attribution and wording can be judged (plan
+   * PLAN_GAG_DIRECT_RENDER.md, A); null when the gag has none or the panel
+   * was prepared before they were frozen. Names no engine and no path.
+   */
+  bubbles: Array<{ type: string; speaker: string; text: string }> | null;
   /** Second edition: the categories each picture is scored on; empty on the first edition. */
   categories: JudgingCategoryKey[];
   /**
@@ -241,6 +248,16 @@ async function panelRows(setIds: number[]) {
   return { panels, cellsByPanel: groupCellsByPanel(cells), picks: new Map(picks.map((p) => [p.panelId, p])) };
 }
 
+/** A panel's frozen bubbles, read defensively: only well-formed entries, null when none. */
+function frozenBubblesFrom(v: unknown): Array<{ type: string; speaker: string; text: string }> | null {
+  if (!Array.isArray(v)) return null;
+  const out = v.filter((b): b is { type: string; speaker: string; text: string } =>
+    !!b && typeof b === "object" && typeof (b as Record<string, unknown>).type === "string"
+    && typeof (b as Record<string, unknown>).speaker === "string" && typeof (b as Record<string, unknown>).text === "string")
+    .map(({ type, speaker, text }) => ({ type, speaker, text }));
+  return out.length ? out : null;
+}
+
 const asIds = (v: unknown): number[] => (Array.isArray(v) ? v.filter((n): n is number => typeof n === "number") : []);
 
 /** The blind view of a set: every panel, skipped ones included. */
@@ -279,6 +296,7 @@ export async function getBlindSet(setId: number): Promise<BlindSet | null> {
       faceMarkable: isHumanReference(panel.scenarioKey),
       styleMarkable: isStyled(panel.lookStyleId),
       gag: second ? panel.frozenGag : null,
+      bubbles: second ? frozenBubblesFrom(panel.frozenBubbles) : null,
       categories: second ? panelCategories(panel) : [],
       reference: panel.referenceImageUrl ? { src: panel.referenceImageUrl, identityType: panel.referenceIdentityType } : null,
       prompt: second ? null : promptTextOf(panel.compiledPrompt),
@@ -766,6 +784,8 @@ export interface JudgedRow {
   /** "Baseline" or "Version N". */
   recipeLabel: string;
   recipeNote: string | null;
+  /** On a path comparison, "planned" or "direct" (plan PLAN_GAG_DIRECT_RENDER.md, A); null elsewhere. */
+  renderPath: string | null;
   /** Judged panels on which this engine had a picture, drawn or lost: the pick share's denominator. */
   panels: number;
   /** Panels on which its picture was the one to send. */
@@ -794,8 +814,12 @@ export interface JudgedRow {
 
 export interface JudgedResults {
   edition: 2;
-  /** "prompt" when every set is a prompt comparison on one family, whose versions can then be promoted here. */
-  kind: "engine" | "prompt";
+  /**
+   * "prompt" when every set is a prompt comparison on one family, whose
+   * versions can then be promoted here; "path" when every set compares the
+   * planned and direct paths.
+   */
+  kind: "engine" | "prompt" | "path";
   family: string | null;
   sets: Array<{ id: number; label: string; round: number; imageSize: string; kind: string }>;
   panels: { total: number; judged: number; judgeable: number; skipped: number; lost: number };
@@ -808,10 +832,16 @@ export interface JudgedResults {
   rows: Record<string, JudgedRow[]>;
   /** The same rows within each look (style id, or "none"): an engine can win photoreal and another a style. */
   byLook: Record<string, Record<string, JudgedRow[]>>;
+  /**
+   * The same rows within each case: one fact, photo type and gag (plan
+   * PLAN_GAG_DIRECT_RENDER.md, A: results are reported per case within each
+   * engine, never only pooled). Keyed "<factId>|<scenarioKey>|<gagId or 0>".
+   */
+  byCase: Record<string, Record<string, JudgedRow[]>>;
   /** Every picture, revealed: its engine, prompt version, the exact prompt it sent, and how it was judged. */
   pictures: Array<{
     panelId: number; factId: number; scenarioKey: string; lookStyleId: string; imageMode: string;
-    engineId: string; family: string; recipeVersionId: number | null; recipeLabel: string;
+    engineId: string; family: string; recipeVersionId: number | null; recipeLabel: string; renderPath: string | null; gagId: number | null;
     promptText: string | null; picked: boolean; broken: boolean; lost: boolean; scores: CategoryScores | null;
   }>;
 }
@@ -840,20 +870,25 @@ export async function getJudgedResults(setIds: number[]): Promise<JudgedResults 
   const newAcc = (): Acc => ({ panels: 0, picked: 0, scored: 0, lost: 0, broken: 0, cats: {}, secs: [], usd: [] });
   const overall = new Map<string, Acc>();
   const perLook = new Map<string, Map<string, Acc>>();
-  const keyOf = (mode: string, c: ComparisonCell) => `${mode}|${c.engineId}|${c.recipeVersionId ?? 0}`;
-  const accsFor = (look: string, key: string): Acc[] => {
-    const lookMap = perLook.get(look) ?? new Map<string, Acc>();
-    perLook.set(look, lookMap);
+  const perCase = new Map<string, Map<string, Acc>>();
+  const keyOf = (mode: string, c: ComparisonCell) => `${mode}|${c.engineId}|${c.recipeVersionId ?? 0}|${c.renderPath ?? ""}`;
+  const caseOf = (panel: (typeof panels)[number]) => `${panel.factId}|${panel.scenarioKey}|${panel.gagId ?? 0}`;
+  const accsFor = (panel: (typeof panels)[number], key: string): Acc[] => {
+    const within = (groups: Map<string, Map<string, Acc>>, group: string) => {
+      const m = groups.get(group) ?? new Map<string, Acc>();
+      groups.set(group, m);
+      if (!m.has(key)) m.set(key, newAcc());
+      return m.get(key)!;
+    };
     if (!overall.has(key)) overall.set(key, newAcc());
-    if (!lookMap.has(key)) lookMap.set(key, newAcc());
-    return [overall.get(key)!, lookMap.get(key)!];
+    return [overall.get(key)!, within(perLook, panel.lookStyleId), within(perCase, caseOf(panel))];
   };
   const pictures: JudgedResults["pictures"] = [];
   let judged = 0;
   for (const panel of panels) {
     const cells = cellsByPanel.get(panel.id) ?? [];
     for (const c of cells) {
-      for (const a of accsFor(panel.lookStyleId, keyOf(panel.imageMode, c))) {
+      for (const a of accsFor(panel, keyOf(panel.imageMode, c))) {
         if (c.submittedAt && c.completedAt) a.secs.push((c.completedAt.getTime() - c.submittedAt.getTime()) / 1000);
         if (c.billedUsd != null && c.state === "rendered") a.usd.push(Number(c.billedUsd));
       }
@@ -864,7 +899,7 @@ export async function getJudgedResults(setIds: number[]): Promise<JudgedResults 
     for (const c of cells) {
       pictures.push({
         panelId: panel.id, factId: panel.factId, scenarioKey: panel.scenarioKey, lookStyleId: panel.lookStyleId, imageMode: panel.imageMode,
-        engineId: c.engineId, family: familyOf.get(c.engineId) ?? c.engineId, recipeVersionId: c.recipeVersionId, recipeLabel: recipeLabel(c.recipeVersionId),
+        engineId: c.engineId, family: familyOf.get(c.engineId) ?? c.engineId, recipeVersionId: c.recipeVersionId, recipeLabel: recipeLabel(c.recipeVersionId), renderPath: c.renderPath, gagId: panel.gagId,
         promptText: c.promptText, picked: !!pick && pick.pickedCellId === c.id, broken: broken.has(c.id), lost: cellLost(c), scores: scores.get(c.id) ?? null,
       });
     }
@@ -875,7 +910,7 @@ export async function getJudgedResults(setIds: number[]): Promise<JudgedResults 
       const s = scores.get(c.id);
       const lost = !s && cellLost(c);
       if (!s && !lost) continue;
-      for (const a of accsFor(panel.lookStyleId, keyOf(panel.imageMode, c))) {
+      for (const a of accsFor(panel, keyOf(panel.imageMode, c))) {
         a.panels += 1;
         if (pick!.pickedCellId === c.id) a.picked += 1;
         if (broken.has(c.id)) a.broken += 1;
@@ -888,7 +923,7 @@ export async function getJudgedResults(setIds: number[]): Promise<JudgedResults 
   const toRows = (accs: Map<string, Acc>): Record<string, JudgedRow[]> => {
     const rows: Record<string, JudgedRow[]> = {};
     for (const [key, a] of accs) {
-      const [mode, engineId, version] = key.split("|") as [string, string, string];
+      const [mode, engineId, version, path] = key.split("|") as [string, string, string, string];
       const recipeVersionId = Number(version) || null;
       (rows[mode] ??= []).push({
         family: familyOf.get(engineId) ?? engineId,
@@ -896,6 +931,7 @@ export async function getJudgedResults(setIds: number[]): Promise<JudgedResults 
         recipeVersionId,
         recipeLabel: recipeLabel(recipeVersionId),
         recipeNote: recipeVersionId == null ? null : (versionOf.get(recipeVersionId)?.note ?? null),
+        renderPath: path || null,
         panels: a.panels,
         picked: a.picked,
         pickShare: a.panels > 0 ? Math.round((a.picked / a.panels) * 100) / 100 : null,
@@ -908,7 +944,7 @@ export async function getJudgedResults(setIds: number[]): Promise<JudgedResults 
       });
     }
     for (const list of Object.values(rows)) {
-      list.sort((x, y) => (y.pickShare ?? -1) - (x.pickShare ?? -1) || x.family.localeCompare(y.family) || x.recipeLabel.localeCompare(y.recipeLabel));
+      list.sort((x, y) => (y.pickShare ?? -1) - (x.pickShare ?? -1) || x.family.localeCompare(y.family) || x.recipeLabel.localeCompare(y.recipeLabel) || (x.renderPath ?? "").localeCompare(y.renderPath ?? ""));
     }
     return rows;
   };
@@ -916,7 +952,7 @@ export async function getJudgedResults(setIds: number[]): Promise<JudgedResults 
   const prompt = sets.every((s) => s.kind === "prompt") && new Set(sets.map((s) => s.engineFamilies as string[]).flat()).size === 1;
   return {
     edition: 2,
-    kind: prompt ? "prompt" : "engine",
+    kind: prompt ? "prompt" : sets.every((s) => s.kind === "path") ? "path" : "engine",
     family: prompt ? (sets[0]!.engineFamilies as string[])[0]! : null,
     sets: sets.map((s) => ({ id: s.id, label: s.label, round: s.round, imageSize: s.imageSize, kind: s.kind })),
     panels: {
@@ -928,6 +964,7 @@ export async function getJudgedResults(setIds: number[]): Promise<JudgedResults 
     },
     rows: toRows(overall),
     byLook: Object.fromEntries([...perLook].map(([look, accs]) => [look, toRows(accs)])),
+    byCase: Object.fromEntries([...perCase].map(([c, accs]) => [c, toRows(accs)])),
     pictures,
   };
 }

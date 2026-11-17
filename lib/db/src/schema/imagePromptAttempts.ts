@@ -92,7 +92,7 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
   reviewRenderInputHash: varchar("review_render_input_hash", { length: 64 }),
   /** Version of the default reference asset used (for i2i scenarios), for stale detection. */
   reviewReferenceAssetVersion: varchar("review_reference_asset_version", { length: 32 }),
-  /** Reference identity class used: "male" | "female" | "nonhuman_animal" | "nonhuman_object_vehicle". */
+  /** Reference identity class used: "male" | "female" | "nonhuman_animal" (a pet). */
   reviewReferenceIdentityType: varchar("review_reference_identity_type", { length: 32 }),
   /** Groups the scenarios auto-enqueued in one default batch (debugging/audit). */
   reviewRenderBatchId: varchar("review_render_batch_id", { length: 64 }),

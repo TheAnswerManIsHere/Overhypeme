@@ -44,6 +44,7 @@ import {
   reprepareFailedPanel,
   rerunCell,
   retryCellStorage,
+  __setCastExtractorForTest,
 } from "../lib/comparison/runs.js";
 import { llmMaxRetriesInScope } from "../lib/utilityLLM.js";
 import { testEngineRow } from "./helpers/testEngines.js";
@@ -109,6 +110,7 @@ after(async () => {
   __setReferenceFalUploadForTest(null);
   __setComparisonImageStoreForTest(null);
   __setPlanGeneratorForTest(null);
+  __setCastExtractorForTest(null);
   CELL_POLL.intervalMs = 3_000;
   await db.delete(asyncJobsTable).where(inArray(asyncJobsTable.queue, [COMPARISON_PREPARE_QUEUE, COMPARISON_RENDER_QUEUE]));
   await db.delete(comparisonSetsTable).where(like(comparisonSetsTable.label, `${P}%`));
@@ -574,6 +576,118 @@ describe("a prompt comparison", () => {
       await db.delete(promptRecipePromotionsTable).where(eq(promptRecipePromotionsTable.engineFamily, FAMILIES.gpt));
       await db.delete(promptRecipeVersionsTable).where(eq(promptRecipeVersionsTable.id, v!.id));
     }
+  });
+});
+
+// Pictures drawn straight from the approved gag, increment 1 (plan
+// docs/plans/PLAN_GAG_DIRECT_RENDER.md, A): a path set draws each chosen gag
+// twice per engine, by the planned path and by the direct path, from the same
+// frozen gag, photo, look and size; only the path differs, and nothing of it
+// reaches the judge.
+describe("a planned-versus-direct comparison", () => {
+  const scene = "{NAME} drives {POSS} mom home from the hospital; mom grips the dashboard.";
+  const bubbles = [{ type: "speech", entity: "mom", text: "Slow down, {NAME}!" }];
+  let gagA = 0;
+  let gagB = 0;
+  let castCalls: Array<{ scene: string; speakers: string[] }> = [];
+
+  before(async () => {
+    const { EMPTY_VISUAL_STRATEGY_OVERRIDE } = await import("@workspace/api-zod");
+    const [a] = await db.insert(factGagsTable).values({ factId, slot: 1, pendingContent: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: scene, bubbles } as never }).returning({ id: factGagsTable.id });
+    const [b] = await db.insert(factGagsTable).values({ factId, slot: 2, pendingContent: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "{NAME} parallel-parks a hospital bed.", bubbles: [] } as never }).returning({ id: factGagsTable.id });
+    gagA = a!.id;
+    gagB = b!.id;
+  });
+  after(async () => {
+    await db.delete(comparisonSetsTable).where(like(comparisonSetsTable.label, `${P} path%`));
+    await db.delete(factGagsTable).where(inArray(factGagsTable.id, [gagA, gagB]));
+  });
+  beforeEach(() => {
+    castCalls = [];
+    __setCastExtractorForTest(async (input) => {
+      castCalls.push({ scene: input.scene, speakers: input.bubbles.map((b) => b.entity) });
+      const speakers = input.bubbles.map((b) => b.entity).filter((e) => e !== "subject");
+      return {
+        cast: speakers.filter((s) => s !== "nurse").map((label) => ({ label, description: "the older woman in the passenger seat" })),
+        unboundSpeakers: speakers.filter((s) => s === "nurse"),
+        extraction: { promptVersion: "v1", extractedAt: new Date().toISOString() },
+      };
+    });
+  });
+
+  async function pathSet(label: string, gagIds?: number[]) {
+    return createComparisonSet({
+      label: `${P} path ${label}`, round: 1, factIds: [factId], scenarioKeys: ["i2i_male_default"], lookStyleIds: ["none"],
+      engineFamilies: [FAMILIES.gpt], kind: "path", ...(gagIds ? { gagIds } : {}),
+    }, adminId);
+  }
+
+  it("lays out one panel per chosen gag and one picture per path, defaulting to the fact's lowest gag", async () => {
+    const both = await pathSet("layout", [gagA, gagB]);
+    assert.deepEqual([both.panels, both.cells], [2, 4]);
+    const panels = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, both.setId));
+    assert.deepEqual(panels.map((p) => p.gagId).sort(), [gagA, gagB].sort());
+    const cells = await db.select().from(comparisonCellsTable).where(inArray(comparisonCellsTable.panelId, panels.map((p) => p.id)));
+    assert.deepEqual(cells.map((c) => c.renderPath).sort(), ["direct", "direct", "planned", "planned"]);
+    const dflt = await pathSet("default");
+    const [panel] = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, dflt.setId));
+    assert.equal(panel!.gagId, gagA, "a fact with no gag chosen draws its lowest live gag, named on the panel");
+    const refused = await pathSet("foreign", [999_999_999]).then(() => null, (e: Error) => e);
+    assert.match(String(refused?.message), /not a live gag/);
+  });
+
+  it("freezes the gag's cast and bubbles; the direct picture is the gag alone and the planned one keeps the planner", async () => {
+    const { setId } = await pathSet("draw", [gagA]);
+    await drain((await start(setId, "prepare")).body.run.id);
+    assert.equal(castCalls.length, 1, "one cast call per panel");
+    assert.deepEqual(castCalls[0]!.speakers, ["mom"]);
+    const [panel] = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId));
+    assert.equal(panel!.state, "prepared", String(panel!.error ?? panel!.skipReason));
+    assert.deepEqual((panel!.gagCast as { cast: unknown }).cast, [{ label: "mom", description: "the older woman in the passenger seat" }]);
+    const expected = panel!.frozenBubbles as Array<{ speaker: string; text: string }>;
+    assert.equal(expected[0]!.speaker, "mom");
+    assert.doesNotMatch(expected[0]!.text, /\{NAME\}/, "rendered for the panel's subject");
+
+    await drain((await start(setId, "render")).body.run.id);
+    const cells = await db.select().from(comparisonCellsTable).where(eq(comparisonCellsTable.panelId, panel!.id));
+    const direct = cells.find((c) => c.renderPath === "direct")!;
+    const planned = cells.find((c) => c.renderPath === "planned")!;
+    assert.match(String(direct.promptText), /mom: the older woman in the passenger seat\./);
+    assert.match(String(direct.promptText), /as comedy, without intense gore/);
+    assert.doesNotMatch(String(direct.promptText), /A protagonist lifts a mountain/, "nothing the planner wrote");
+    assert.notEqual(planned.promptText, direct.promptText);
+
+    const { getBlindSet, getJudgedResults } = await import("../lib/comparison/judging.js");
+    const blind = await getBlindSet(setId);
+    const shown = blind!.panels[0]!;
+    assert.deepEqual(shown.bubbles?.map((b) => b.speaker), ["mom"]);
+    assert.doesNotMatch(JSON.stringify(shown), /planned|direct/, "the judge never learns the path");
+    const results = await getJudgedResults([setId]);
+    assert.equal(results!.kind, "path");
+    assert.ok(Object.keys(results!.byCase).length === 1, "results are reported per case");
+    assert.deepEqual(results!.pictures.map((p) => p.renderPath).sort(), ["direct", "planned"]);
+  });
+
+  it("skips a panel whose scene does not show a bubble's speaker, naming the speaker", async () => {
+    const { EMPTY_VISUAL_STRATEGY_OVERRIDE } = await import("@workspace/api-zod");
+    await db.update(factGagsTable).set({ pendingContent: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "{NAME} parallel-parks a hospital bed.", bubbles: [{ type: "speech", entity: "nurse", text: "Bye!" }] } as never }).where(eq(factGagsTable.id, gagB));
+    const { setId } = await pathSet("unbound", [gagB]);
+    const calls = plannerRetries.length;
+    await drain((await start(setId, "prepare")).body.run.id);
+    const [panel] = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId));
+    assert.equal(panel!.state, "skipped");
+    assert.match(String(panel!.skipReason), /"nurse"/);
+    assert.equal(plannerRetries.length, calls, "no planner call is made for a gag that cannot be drawn");
+  });
+
+  it("fails a panel whose cast call fails, never treating it as an empty cast", async () => {
+    __setCastExtractorForTest(async () => { throw new Error("model unavailable"); });
+    const { setId } = await pathSet("castfail", [gagA]);
+    await drain((await start(setId, "prepare")).body.run.id);
+    const [panel] = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId));
+    assert.equal(panel!.state, "failed");
+    assert.match(String(panel!.error), /cast failed: model unavailable/);
+    assert.equal(panel!.gagCast, null);
   });
 });
 });
