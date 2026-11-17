@@ -22,18 +22,11 @@ interface Lane {
   stalled: boolean;
 }
 
-type IncidentSource =
-  | "test"
-  | "job_failed"
-  | "job_interrupted"
-  | "payment_webhook_failed"
-  | "unrecorded_spend"
-  | "site_down"
-  | "error";
-
 interface Incident {
   title: string;
-  source: IncidentSource;
+  source: string;
+  /** The server's label for the source. */
+  label: string;
   lastSeen: string;
   count: number;
   link: string;
@@ -47,16 +40,6 @@ interface OperationsPayload {
     | { status: "unavailable"; reason: "not_configured" | "unreachable" };
 }
 
-const SOURCE_LABEL: Record<IncidentSource, string> = {
-  test: "Test alert",
-  job_failed: "Job failed",
-  job_interrupted: "Job interrupted",
-  payment_webhook_failed: "Payment webhook",
-  unrecorded_spend: "Spend not recorded",
-  site_down: "Site down",
-  error: "Error",
-};
-
 function formatTime(iso: string | null): string {
   if (!iso) return "never";
   const d = new Date(iso);
@@ -67,8 +50,7 @@ export default function AdminOperations() {
   const [data, setData] = useState<OperationsPayload | null>(null);
   const [initialError, setInitialError] = useState<string | null>(null);
   const [staleSince, setStaleSince] = useState<string | null>(null);
-  const [testState, setTestState] = useState<"idle" | "sending" | "sent" | "failed">("idle");
-  const [testEnv, setTestEnv] = useState<string | null>(null);
+  const [test, setTest] = useState<{ status: "idle" | "sending" | "failed" } | { status: "sent"; rings: boolean }>({ status: "idle" });
   const hasData = useRef(false);
   const seq = useRef(0);
   const appliedSeq = useRef(0);
@@ -94,22 +76,31 @@ export default function AdminOperations() {
     }
   }, []);
 
+  // No polling while the tab is hidden; a fresh read when it comes back.
   useEffect(() => {
     void load();
-    const id = setInterval(() => void load(), POLL_INTERVAL_MS);
-    return () => clearInterval(id);
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, POLL_INTERVAL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [load]);
 
   const sendTest = async (): Promise<void> => {
-    setTestState("sending");
+    setTest({ status: "sending" });
     try {
       const res = await fetch("/api/admin/operations/test-alert", { method: "POST", credentials: "include" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const body = (await res.json()) as { environment?: string };
-      setTestEnv(body.environment ?? null);
-      setTestState("sent");
+      const body = (await res.json()) as { rings?: boolean };
+      setTest({ status: "sent", rings: body.rings === true });
     } catch {
-      setTestState("failed");
+      setTest({ status: "failed" });
     }
   };
 
@@ -183,7 +174,7 @@ export default function AdminOperations() {
                 <ul className="space-y-1 text-sm" data-testid="operations-incidents">
                   {data.incidents.incidents.map((i) => (
                     <li key={i.link || i.title} className="flex flex-wrap items-center gap-2">
-                      <span className="rounded bg-muted px-1.5 py-0.5 text-xs">{SOURCE_LABEL[i.source]}</span>
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-xs">{i.label}</span>
                       <span>{i.title}</span>
                       <span className="text-muted-foreground">
                         · {i.count}× · last {formatTime(i.lastSeen)}
@@ -207,17 +198,17 @@ export default function AdminOperations() {
             Sends a real alert through Sentry and Pushover. On the live site your phone should ring within a minute; at
             most one test alert rings every five minutes.
           </p>
-          <Button onClick={() => void sendTest()} disabled={testState === "sending"} data-testid="operations-test-alert">
-            {testState === "sending" ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <BellRing className="mr-1 h-4 w-4" />}
+          <Button onClick={() => void sendTest()} disabled={test.status === "sending"} data-testid="operations-test-alert">
+            {test.status === "sending" ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <BellRing className="mr-1 h-4 w-4" />}
             Send test alert
           </Button>
-          {testState === "sent" && (
+          {test.status === "sent" && (
             <p className="mt-2 text-sm" data-testid="operations-test-sent">
               Sent to Sentry.
-              {testEnv === "production" ? " Your phone should ring shortly." : " This is not the live site, so it is recorded in Sentry but does not ring your phone."}
+              {test.rings ? " Your phone should ring shortly." : " This is not the live site, so it is recorded in Sentry but does not ring your phone."}
             </p>
           )}
-          {testState === "failed" && (
+          {test.status === "failed" && (
             <p className="mt-2 text-sm text-destructive">The test alert could not be sent. Try again in a minute.</p>
           )}
         </section>

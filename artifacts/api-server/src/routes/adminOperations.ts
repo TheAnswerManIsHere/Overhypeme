@@ -14,7 +14,8 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { requireAdmin } from "./admin";
 import { laneHealth } from "../lib/queueHealth";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
-import { ALERT_SOURCES, alertTitle, reportOperationalAlert, type AlertSource } from "../lib/operationalAlerts";
+import { alertLabel, alertSourceForTitle, reportOperationalAlert, type AlertSource } from "../lib/operationalAlerts";
+import { isProductionEnv } from "../lib/env";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -24,6 +25,8 @@ export type IncidentSource = AlertSource | "site_down" | "error";
 export interface Incident {
   title: string;
   source: IncidentSource;
+  /** What the page shows for the source; sent so the page holds no copy of the list. */
+  label: string;
   lastSeen: string;
   count: number;
   link: string;
@@ -49,9 +52,10 @@ interface SentryIssue {
 
 /** Map one Sentry issue to the source shown on the page. */
 export function classifyIssue(issue: SentryIssue): IncidentSource {
-  for (const source of ALERT_SOURCES) {
-    if (issue.title === alertTitle(source)) return source;
-  }
+  // Sentry's issue list carries no tags, so an operational alert is recognised
+  // by its fixed title, which lib/operationalAlerts.ts defines once.
+  const source = alertSourceForTitle(issue.title);
+  if (source) return source;
   if (issue.issueCategory === "uptime" || (issue.issueType ?? "").startsWith("uptime")) return "site_down";
   return "error";
 }
@@ -60,6 +64,29 @@ type Fetch = typeof fetch;
 let fetchImpl: Fetch = (...args) => fetch(...args);
 export function __setOperationsFetchForTest(fn: Fetch | null): void {
   fetchImpl = fn ?? ((...args) => fetch(...args));
+}
+
+/**
+ * The page polls every 15 s, possibly from several tabs; Sentry is asked at
+ * most once a minute, and concurrent requests share one call. Only a good
+ * answer is cached: "unavailable" is asked again on the next poll.
+ */
+const INCIDENT_CACHE_MS = 60_000;
+let cached: { at: number; list: IncidentList } | null = null;
+let inFlight: Promise<IncidentList> | null = null;
+
+export function __resetIncidentCacheForTest(): void {
+  cached = null;
+  inFlight = null;
+}
+
+export async function readRecentIncidentsCached(): Promise<IncidentList> {
+  if (cached && Date.now() - cached.at < INCIDENT_CACHE_MS) return cached.list;
+  inFlight ??= readRecentIncidents().then((list) => {
+    if (list.status === "ok") cached = { at: Date.now(), list };
+    return list;
+  }).finally(() => { inFlight = null; });
+  return inFlight;
 }
 
 /** Recent unresolved production incidents, newest first. Never throws. */
@@ -84,13 +111,17 @@ export async function readRecentIncidents(token = process.env["SENTRY_API_TOKEN"
     }
     const body = (await res.json()) as unknown;
     if (!Array.isArray(body)) return { status: "unavailable", reason: "unreachable" };
-    const incidents = (body as SentryIssue[]).slice(0, INCIDENT_LIMIT).map((issue) => ({
-      title: String(issue.title ?? "(untitled)"),
-      source: classifyIssue(issue),
-      lastSeen: String(issue.lastSeen ?? ""),
-      count: Number(issue.count ?? 0) || 0,
-      link: String(issue.permalink ?? ""),
-    }));
+    const incidents = (body as SentryIssue[]).slice(0, INCIDENT_LIMIT).map((issue): Incident => {
+      const source = classifyIssue(issue);
+      return {
+        title: String(issue.title ?? "(untitled)"),
+        source,
+        label: source === "site_down" ? "Site down" : source === "error" ? "Error" : alertLabel(source),
+        lastSeen: String(issue.lastSeen ?? ""),
+        count: Number(issue.count ?? 0) || 0,
+        link: String(issue.permalink ?? ""),
+      };
+    });
     return { status: "ok", incidents };
   } catch (err) {
     logger.warn({ err }, "[operations] Sentry issue list unreachable");
@@ -114,7 +145,7 @@ router.get("/admin/operations", requireAdmin, async (req: Request, res: Response
         return { status: "unavailable" as const };
       },
     ),
-    readRecentIncidents(),
+    readRecentIncidentsCached(),
   ]);
   res.json({ checkedAt: new Date().toISOString(), lanes: lanesResult, incidents });
 });
@@ -126,7 +157,7 @@ router.post("/admin/operations/test-alert", requireAdmin, async (req: Request, r
   );
   if (!rateLimit.allowed) { res.status(429).json({ error: "Too many requests" }); return; }
   reportOperationalAlert("test", { requestedAt: new Date().toISOString() });
-  res.json({ sent: true, environment: process.env["NODE_ENV"] === "production" ? "production" : "development" });
+  res.json({ sent: true, rings: isProductionEnv() });
 });
 
 export default router;

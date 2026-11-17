@@ -14,31 +14,42 @@
  *    the database itself.
  *  - **It never throws and never waits.** A report that fails is logged and
  *    dropped; the work being reported on carries on unaffected.
+ *
+ * Repeats of one source are throttled by the Sentry rule (one push per five
+ * minutes per source), not here: an in-process cooldown would not be shared
+ * across autoscaled servers.
  */
 import * as Sentry from "@sentry/node";
 import { logger } from "./logger";
 
-/** Every source of an operational alert. One Sentry issue per source. */
-export const ALERT_SOURCES = [
-  "test",
-  "job_failed",
-  "job_interrupted",
-  "payment_webhook_failed",
-  "unrecorded_spend",
-] as const;
-export type AlertSource = (typeof ALERT_SOURCES)[number];
+/**
+ * Every source of an operational alert, defined once: its title (the push
+ * body, and how the Operations page recognises the incident), its label on
+ * that page, and its Sentry level. One Sentry issue per source.
+ */
+const SOURCES = {
+  test: { title: "Test alert from the Operations page", label: "Test alert", level: "error" },
+  job_failed: { title: "A background job failed for good", label: "Job failed", level: "error" },
+  job_interrupted: { title: "A background job was interrupted and resumed", label: "Job interrupted", level: "warning" },
+  payment_webhook_failed: { title: "A Stripe webhook could not be processed", label: "Payment webhook", level: "error" },
+  unrecorded_spend: { title: "Spend could not be recorded after a paid call", label: "Spend not recorded", level: "error" },
+} as const satisfies Record<string, { title: string; label: string; level: "error" | "warning" }>;
 
-/** Short, fixed titles: the push body is the Sentry event title. */
-const TITLES: Record<AlertSource, string> = {
-  test: "Test alert from the Operations page",
-  job_failed: "A background job failed for good",
-  job_interrupted: "A background job was interrupted and resumed",
-  payment_webhook_failed: "A Stripe webhook could not be processed",
-  unrecorded_spend: "Spend could not be recorded after a paid call",
-};
+export type AlertSource = keyof typeof SOURCES;
+export const ALERT_SOURCES = Object.keys(SOURCES) as AlertSource[];
 
 export function alertTitle(source: AlertSource): string {
-  return TITLES[source];
+  return SOURCES[source].title;
+}
+
+export function alertLabel(source: AlertSource): string {
+  return SOURCES[source].label;
+}
+
+/** The source whose title this is, if any. */
+const SOURCE_BY_TITLE = new Map<string, AlertSource>(ALERT_SOURCES.map((s) => [SOURCES[s].title, s]));
+export function alertSourceForTitle(title: string | undefined): AlertSource | null {
+  return (title && SOURCE_BY_TITLE.get(title)) || null;
 }
 
 /** The capture function, swappable in tests. */
@@ -59,8 +70,8 @@ export function reportOperationalAlert(
   detail: Record<string, string | number | boolean | null> = {},
 ): void {
   try {
-    capture(TITLES[source], {
-      level: source === "job_interrupted" ? "warning" : "error",
+    capture(SOURCES[source].title, {
+      level: SOURCES[source].level,
       fingerprint: ["operational-alert", source],
       tags: { alert_source: source },
       extra: detail,

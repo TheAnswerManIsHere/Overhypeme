@@ -18,9 +18,11 @@ import { usersTable } from "@workspace/db/schema";
 import { like } from "drizzle-orm";
 
 import adminOperationsRouter, {
+  __resetIncidentCacheForTest,
   __setOperationsFetchForTest,
   classifyIssue,
   readRecentIncidents,
+  readRecentIncidentsCached,
 } from "../routes/adminOperations.js";
 import { __setAlertCaptureForTest, alertTitle, reportOperationalAlert } from "../lib/operationalAlerts.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
@@ -52,6 +54,7 @@ describe("/admin/operations", () => {
   afterEach(() => {
     captured.length = 0;
     __setOperationsFetchForTest(null);
+    __resetIncidentCacheForTest();
   });
 
   after(async () => {
@@ -72,6 +75,7 @@ describe("/admin/operations", () => {
     const res = await request(buildTestApp({ kind: "authenticated", userId: adminId }, adminOperationsRouter))
       .post("/api/admin/operations/test-alert");
     assert.equal(res.status, 200);
+    assert.equal(typeof res.body.rings, "boolean");
     assert.equal(captured.length, 1);
     assert.equal(captured[0]!.message, alertTitle("test"));
     const ctx = captured[0]!.context as { tags: Record<string, string>; fingerprint: string[] };
@@ -108,6 +112,7 @@ describe("readRecentIncidents", () => {
     assert.equal(list.status, "ok");
     if (list.status !== "ok") return;
     assert.deepEqual(list.incidents.map((i) => i.source), ["unrecorded_spend", "site_down", "error"]);
+    assert.deepEqual(list.incidents.map((i) => i.label), ["Spend not recorded", "Site down", "Error"]);
     assert.equal(list.incidents[0]!.count, 2);
   });
 
@@ -116,6 +121,27 @@ describe("readRecentIncidents", () => {
     assert.deepEqual(await readRecentIncidents("token"), { status: "unavailable", reason: "unreachable" });
     __setOperationsFetchForTest(async () => { throw new Error("network down"); });
     assert.deepEqual(await readRecentIncidents("token"), { status: "unavailable", reason: "unreachable" });
+  });
+
+  it("asks Sentry once for concurrent and repeated reads, and does not cache an unavailable answer", async () => {
+    const saved = process.env["SENTRY_API_TOKEN"];
+    process.env["SENTRY_API_TOKEN"] = "token";
+    let calls = 0;
+    try {
+      __resetIncidentCacheForTest();
+      __setOperationsFetchForTest(async () => { calls++; return new Response("no", { status: 503 }); });
+      await readRecentIncidentsCached();
+      await readRecentIncidentsCached();
+      assert.equal(calls, 2, "an unavailable answer is asked again");
+      calls = 0;
+      __setOperationsFetchForTest(async () => { calls++; return new Response("[]", { status: 200 }); });
+      await Promise.all([readRecentIncidentsCached(), readRecentIncidentsCached()]);
+      await readRecentIncidentsCached();
+      assert.equal(calls, 1);
+    } finally {
+      __resetIncidentCacheForTest();
+      if (saved === undefined) delete process.env["SENTRY_API_TOKEN"]; else process.env["SENTRY_API_TOKEN"] = saved;
+    }
   });
 
   it("classifies by title before category", () => {
