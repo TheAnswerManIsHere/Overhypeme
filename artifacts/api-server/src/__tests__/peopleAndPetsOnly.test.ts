@@ -12,7 +12,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { classifyTier2 } from "../lib/sourceImageAnalysis/tier2Heuristics.js";
-import { FACT_SOURCE_CLASSIFIER_SYSTEM_DEFAULT, FACT_IMAGE_PROMPT_SYSTEM_DEFAULT } from "../lib/imagePromptConfig.js";
+import { FACT_SOURCE_CLASSIFIER_SYSTEM_DEFAULT } from "../lib/imagePromptConfig.js";
 import { FACT_VISUAL_CONCEPTS_SYSTEM_DEFAULT } from "../lib/visualConceptsConfig.js";
 import { baselineRecipeFor } from "../lib/imagePrompt/recipe.js";
 import { VISUAL_PROMPT_GLOBAL_RULES, SOURCE_SUBJECT_KIND_VALUES, RENDER_SCENARIO_KEYS, REFERENCE_IDENTITY_TYPES, EVALUATION_PHOTO_TYPES } from "@workspace/api-zod";
@@ -67,7 +67,7 @@ describe("prompts: no vehicle, object or mascot as the subject", () => {
     assert.match(FACT_VISUAL_CONCEPTS_SYSTEM_DEFAULT, /The subject can also be themselves or a pet\./);
   });
 
-  it("the classifier and planner prompts", () => {
+  it("the classifier prompt", () => {
     // Every phrasing that offered a vehicle, object or mascot as the subject.
     const OFFERS = [
       /object_subject|vehicle_subject|mascot_or_character_subject/,
@@ -78,7 +78,7 @@ describe("prompts: no vehicle, object or mascot as the subject", () => {
       /for objects\/vehicles/i,
       /\(human face, animal, object, vehicle, mascot\)/i,
     ];
-    for (const text of [FACT_SOURCE_CLASSIFIER_SYSTEM_DEFAULT, FACT_IMAGE_PROMPT_SYSTEM_DEFAULT]) {
+    for (const text of [FACT_SOURCE_CLASSIFIER_SYSTEM_DEFAULT]) {
       for (const re of OFFERS) assert.doesNotMatch(text, re);
     }
     assert.match(FACT_SOURCE_CLASSIFIER_SYSTEM_DEFAULT, /a vehicle, an object, a toy, a statue or a mascot costume is never the subject/);

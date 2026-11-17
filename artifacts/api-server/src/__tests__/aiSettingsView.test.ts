@@ -8,7 +8,6 @@ import assert from "node:assert/strict";
 
 import { aiSettingsView } from "../lib/aiSettingsView.js";
 import { CODE_OWNED_PROMPT_DEFS } from "../lib/codeOwnedPrompts.js";
-import { IMAGE_PROMPT_PLATFORM_HARD_RULES_MARKER } from "../lib/imagePromptConfig.js";
 
 const param = (row: { parameters: Array<{ name: string; value: string }> }, name: string) =>
   row.parameters.find((p) => p.name === name)?.value;
@@ -68,7 +67,11 @@ describe("aiSettingsView", () => {
     assert.equal(param(research, "Token limit"), String(1500 + 25_000));
     assert.equal(param(research, "Temperature"), "not sent");
 
-    const planner = prompts.find((p) => p.key === "fact_image_prompt_system")!;
-    assert.ok(planner.text.includes(IMAGE_PROMPT_PLATFORM_HARD_RULES_MARKER), "the planner prompt is shown as sent, with its hard rules");
+  });
+
+  it("lists no picture planner: the planner is retired, so neither its step nor its prompt is shown (PLAN_GAG_DIRECT_RENDER.md, D)", async () => {
+    const { steps, prompts } = await aiSettingsView();
+    assert.equal(steps.find((s) => /planner/i.test(s.step)), undefined);
+    assert.equal(prompts.find((p) => p.key === "fact_image_prompt_system"), undefined);
   });
 });

@@ -28,7 +28,6 @@ import {
 } from "@workspace/api-zod";
 import {
   measureRequiredPromptBudget,
-  measureModeratorAdditionsEmission,
   measureBubbleDirectivesEmission,
   validateVisualStrategyOverridePersistence,
 } from "../lib/imagePrompt/promptBudget";
@@ -97,82 +96,29 @@ describe("validateVisualStrategyOverrideForSave (§10.2 / §10.3)", () => {
   });
 });
 
-describe("measureModeratorAdditionsEmission — compiler-measured, wrapping included (Codex P1)", () => {
-  const base = (): VisualPromptStrategyOverride => ({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE });
-
-  it("an empty override adds nothing (presence-based — no content, no emission)", () => {
-    assert.equal(measureModeratorAdditionsEmission(base()), 0);
-  });
-
-  it("counts the compiler wrapping the naive raw-field sum misses (this is the bug being fixed)", () => {
-    // 40 forbiddenVisualDetails of 20 chars: naive sum = 800, but the compiler
-    // emits each as "Do not ….", so the measured emission is meaningfully larger.
-    const ov: VisualPromptStrategyOverride = {
-      ...base(),
-      forbiddenVisualDetails: Array.from({ length: 40 }, (_, i) => `banned prop number ${i}`.slice(0, 20).padEnd(20, "x")),
-    };
-    const naive = naiveAdditionsRenderedLowerBound(ov);
-    const measured = measureModeratorAdditionsEmission(ov);
-    assert.ok(
-      measured > naive,
-      `measured emission ${measured} must exceed the naive lower bound ${naive} (wrapping counted)`,
-    );
-  });
-
-  it("a save the naive sum would ACCEPT can still exceed the pool once wrapping is measured", () => {
-    // Enough forbidden entries that naive stays under the pool but the emitted
-    // "Do not …." wrapping pushes the real contribution over it → rejected.
-    const entry = "x".repeat(30);
-    const ov: VisualPromptStrategyOverride = {
-      ...base(),
-      forbiddenVisualDetails: Array.from({ length: 40 }, () => entry),
-    };
-    const naive = naiveAdditionsRenderedLowerBound(ov); // 40 * 30 = 1200 (< pool)
-    assert.ok(naive <= MODERATOR_ADDITIONS_RENDERED_MAX, `sanity: naive ${naive} is under the pool`);
-    const measured = measureModeratorAdditionsEmission(ov);
-    const r = validateVisualStrategyOverrideForSave(ov, measured, 0);
-    assert.equal(r.ok, false, `measured ${measured} should exceed the pool ${MODERATOR_ADDITIONS_RENDERED_MAX}`);
-    assert.ok(r.errors.some((e) => e.code === "moderator_additions_rendered_too_long"));
-  });
-});
-
-describe("combined moderator guidance — measured through the real compiler (UAT PR224 step 4)", () => {
+describe("the retired art-direction fields emit nothing (PLAN_GAG_DIRECT_RENDER.md, D)", () => {
   const filler = (n: number, len: number, prefix: string) =>
     Array.from({ length: n }, (_, i) => `${prefix} ${i} `.padEnd(len, "w"));
   const roleBindings = Array.from({ length: 6 }, (_, i) => ({
     entity: `guard ${i}`,
     visualRole: `stands watch number ${i} `.padEnd(110, "w"),
   }));
-  const fields: Record<string, Partial<VisualPromptStrategyOverride>> = {
-    roleBindings: { roleBindings },
-    requiredVisualDetails: { requiredVisualDetails: filler(8, 70, "prop") },
-    compositionGuidance: { compositionGuidance: filler(6, 80, "shot") },
-    styleAgnosticPromptAdditions: { styleAgnosticPromptAdditions: filler(6, 80, "extra") },
-  };
-  const ov = (parts: Partial<VisualPromptStrategyOverride>): VisualPromptStrategyOverride =>
-    ({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, ...parts }) as VisualPromptStrategyOverride;
+  // Guidance that, while the planner path compiled it, overflowed the
+  // additions pool once combined (UAT PR224 step 4). The direct compile reads
+  // none of it, so it adds nothing to the prompt and charges nothing.
+  const combined = {
+    ...EMPTY_VISUAL_STRATEGY_OVERRIDE,
+    roleBindings,
+    requiredVisualDetails: filler(8, 70, "prop"),
+    forbiddenVisualDetails: Array.from({ length: 40 }, () => "x".repeat(30)),
+    compositionGuidance: filler(6, 80, "shot"),
+    styleAgnosticPromptAdditions: filler(6, 80, "extra"),
+  } as VisualPromptStrategyOverride;
 
-  it("each guidance kind alone fits the additions pool and saves", () => {
-    for (const [name, part] of Object.entries(fields)) {
-      const one = ov(part);
-      assert.ok(measureModeratorAdditionsEmission(one) <= MODERATOR_ADDITIONS_RENDERED_MAX, name);
-      assert.equal(validateVisualStrategyOverridePersistence(one).ok, true, name);
-    }
-  });
-
-  it("the same guidance combined (role bindings + required details + composition + additions) is rejected on the compiler-measured length", () => {
-    const combined = ov(Object.assign({}, ...Object.values(fields)));
-    const measured = measureModeratorAdditionsEmission(combined);
-    assert.ok(measured > MODERATOR_ADDITIONS_RENDERED_MAX, `measured ${measured} should exceed the pool`);
+  it("the persistence preflight charges the additions pool nothing for them", () => {
     const res = validateVisualStrategyOverridePersistence(combined);
-    assert.equal(res.ok, false);
-    assert.ok(res.errors.some((e) => e.code === "moderator_additions_rendered_too_long"), JSON.stringify(res.errors));
-    assert.equal(res.usage.moderatorAdditionsRendered, measured);
-    // Every kind genuinely contributes to the measured total.
-    for (const name of Object.keys(fields)) {
-      const without = ov(Object.assign({}, ...Object.entries(fields).filter(([k]) => k !== name).map(([, v]) => v)));
-      assert.ok(measureModeratorAdditionsEmission(without) < measured, `${name} contributes to the combined emission`);
-    }
+    assert.equal(res.usage.moderatorAdditionsRendered, 0);
+    assert.ok(!res.errors.some((e) => e.code === "moderator_additions_rendered_too_long"), JSON.stringify(res.errors));
   });
 });
 
@@ -282,7 +228,7 @@ describe("bubble directives pool", () => {
 
   it("the additions measurement EXCLUDES bubbles (no double counting)", () => {
     const ov = withBubbles([bubble("Hello there, this is a fairly long bubble line.")]);
-    assert.equal(measureModeratorAdditionsEmission(ov), 0);
+    assert.equal(validateVisualStrategyOverridePersistence(ov).usage.moderatorAdditionsRendered, 0);
     assert.ok(measureBubbleDirectivesEmission(ov) > 0);
   });
 

@@ -65,11 +65,18 @@ describe("buildScenarioInputHash", () => {
     assert.equal(buildScenarioInputHash(baseHashInputs()), buildScenarioInputHash(baseHashInputs()));
   });
 
-  it("changes when a render-affecting field changes (modifier)", () => {
+  it("does NOT change when a classification field changes (the picture is drawn from the gag alone; PLAN_GAG_DIRECT_RENDER.md, D)", () => {
     const a = buildScenarioInputHash(baseHashInputs());
     const inputs = baseHashInputs();
-    inputs.enrichment = { ...ENRICHMENT, modifiers: ["grounded_realism", "baby_child_version"] };
-    assert.notEqual(buildScenarioInputHash(inputs), a);
+    inputs.enrichment = {
+      ...ENRICHMENT,
+      modifiers: ["grounded_realism", "baby_child_version"],
+      primaryArchetype: "presence_induced_reaction_aura",
+      subtype: "awe_deference",
+      visualLiteralness: "mixed",
+      visualComplexity: "high",
+    };
+    assert.equal(buildScenarioInputHash(inputs), a);
   });
 
   it("does NOT change when only a non-render field changes (notes / hashtags / confidence / overhypeFit / adultSuitability)", () => {
@@ -155,21 +162,21 @@ describe("buildScenarioInputHash", () => {
     assert.equal(buildScenarioInputHash(a), buildScenarioInputHash(withRetired));
   });
 
-  it("DOES change when a non-retired custom modifier is added (still render-affecting)", () => {
+  it("does NOT change when a non-retired custom modifier is added (no modifier reaches the picture since the switch)", () => {
     const a = baseHashInputs();
     a.enrichment = { ...ENRICHMENT, modifiers: ["grounded_realism"] };
     const withCustom = baseHashInputs();
     withCustom.enrichment = { ...ENRICHMENT, modifiers: ["grounded_realism", "custom_live_modifier"] };
-    assert.notEqual(buildScenarioInputHash(a), buildScenarioInputHash(withCustom));
+    assert.equal(buildScenarioInputHash(a), buildScenarioInputHash(withCustom));
   });
 });
 
 describe("buildScenarioInputHash — fact characters (PLAN_BUBBLE_SPEAKERS.md, A)", () => {
   const MOM = [{ label: "mom", kind: "person" as const, ofSubject: true }];
-  it("changes when the character list changes (the planner reads it)", () => {
+  it("does NOT change when the character list changes (the retired planner read it; the direct compile does not)", () => {
     const a = buildScenarioInputHash(baseHashInputs());
     const b = buildScenarioInputHash({ ...baseHashInputs(), enrichment: { ...ENRICHMENT, characters: MOM } });
-    assert.notEqual(a, b);
+    assert.equal(a, b);
   });
   it("does NOT change for an empty list (hashes exactly as before the field existed)", () => {
     const a = buildScenarioInputHash(baseHashInputs());
@@ -204,7 +211,7 @@ describe("engine provenance + status derivation", () => {
   it("derives scenario status from attempt fields", () => {
     const base = { id: 1, subjectRenderMode: "t2i_fallback", generationMode: "t2i", visualPlan: null, compiledPrompt: null, subjectFactCompatibility: null, generatedImageObjectPath: null, error: null };
     assert.equal(deriveScenarioStatus(base as never), "queued");
-    assert.equal(deriveScenarioStatus({ ...base, visualPlan: { a: 1 } } as never), "rendering");
+    assert.equal(deriveScenarioStatus({ ...base, compiledPrompt: { a: 1 } } as never), "rendering");
     assert.equal(deriveScenarioStatus({ ...base, generatedImageObjectPath: "/x.png" } as never), "done");
     assert.equal(deriveScenarioStatus({ ...base, error: "boom" } as never), "failed");
     // Legacy-row compatibility only: new attempts never write this error string
@@ -217,9 +224,13 @@ describe("engine provenance + status derivation", () => {
 describe("buildScenarioInputHash — a gag's cast (PLAN_GAG_DIRECT_RENDER.md, increment 2)", () => {
   const gag = { version: 1 as const, coreSceneOverride: "{NAME} lifts a car; mom gasps.", requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [], bubbles: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [] };
   const withGag = (vso: unknown) => buildScenarioInputHash({ ...baseHashInputs(), enrichment: { ...ENRICHMENT, visualPromptStrategyOverride: vso as FactEnrichment["visualPromptStrategyOverride"] } });
-  it("does NOT change when the cast fill adds a cast (no render reads it before the switch)", () => {
-    const filled = { ...gag, cast: [{ label: "mom", description: "the woman gasping" }], castExtraction: { promptVersion: "v2", extractedAt: "2026-11-17T00:00:00.000Z", sourceKey: "k" } };
-    assert.equal(withGag(gag), withGag(filled));
+  const filled = { ...gag, cast: [{ label: "mom", description: "the woman gasping" }], castExtraction: { promptVersion: "v2", extractedAt: "2026-11-17T00:00:00.000Z", sourceKey: "k" } };
+  it("changes when the cast changes (the direct compile draws it)", () => {
+    assert.notEqual(withGag(gag), withGag(filled));
+    assert.notEqual(withGag(filled), withGag({ ...filled, cast: [{ label: "mom", description: "the woman fainting" }] }));
+  });
+  it("does NOT change when only the cast's extraction marker changes", () => {
+    assert.equal(withGag(filled), withGag({ ...filled, castExtraction: { promptVersion: "v3", extractedAt: "2026-11-18T00:00:00.000Z", sourceKey: "other" } }));
   });
   it("still changes when the scene changes", () => {
     assert.notEqual(withGag(gag), withGag({ ...gag, coreSceneOverride: "{NAME} lifts a bus." }));

@@ -15,19 +15,20 @@
 //
 // `effect` says what kind of system consequence the field has; `staleBehavior`
 // says whether editing it flips render-scenario tiles stale. They are separate
-// axes because they genuinely diverge: e.g. Visual Literalness is advisory to
-// the deterministic compiler (no directive keys off it) yet it IS in the
-// render-input hash, so editing it marks renders stale.
+// axes: since pictures are drawn straight from the approved gag, only the gag's
+// scene and bubbles are render-affecting (and in the render-input hash);
+// classification fields are advisory (read by the gag writer, never by a
+// picture prompt) and never mark a render stale.
 
 export type FieldEffectClass =
-  | "render-affecting" // feeds the prompt pipeline (strategy selection, directives, planner input)
-  | "advisory-only" // planner context only; no deterministic compiler directive
+  | "render-affecting" // reaches the picture prompt (the gag's scene and bubbles)
+  | "advisory-only" // read by the gag writer or a label only; never reaches a picture prompt
   | "gating-only" // approval / taxonomy-health gate; never compiled into the prompt
   | "product-metadata" // ships with the live fact (e.g. discovery hashtags) but never affects the render
   | "human-only"; // never leaves the admin UI
 
 export type StaleBehavior =
-  | "marks-render-stale" // in renderAffectingEnrichment (factRenderScenarios.ts) — editing re-flags scenario tiles
+  | "marks-render-stale" // in renderAffectingEnrichment (factRenderScenarios.ts: the gag's scene, bubbles, cast) — editing re-flags scenario tiles
   | "does-not-mark-render-stale"
   | "not-applicable"; // e.g. read-only fields
 
@@ -40,7 +41,7 @@ export type AuthoredStatus = "code-derived" | "authored-needs-david-review";
 export interface FieldDocSourceRef {
   /** Repo-relative path, e.g. "artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts". */
   path: string;
-  /** Preferred: a stable exported symbol, e.g. "composeSubjectBinding", "FACT_ENRICHMENT_SYSTEM_DEFAULT". */
+  /** Preferred: a stable exported symbol, e.g. "compileDirect", "FACT_ENRICHMENT_SYSTEM_DEFAULT". */
   symbol?: string;
   /** For docs-only or prompt-text anchors where no symbol exists. */
   anchor?: string;
