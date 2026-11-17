@@ -31,19 +31,19 @@ import {
 import { enrichFact, materializeEnrichment } from "./factEnrichment";
 import { recordOverrideHistory } from "./enrichmentOverrideHistory";
 import { currentProcessingSignatureFromConfig } from "./processingSignature";
-import { assertJobOwnership, fencedTransaction, whileOwned } from "./jobFence";
+import { assertJobOwnership, fencedTransaction } from "./jobFence";
 import { renderCanonical } from "./renderCanonical";
 import {
   advanceReviewForStagingFactEnrichment,
   resolveGenericFactEnrichmentDecision,
 } from "./moderationStaging";
 import {
+  RESUMES_FROM_CHECKPOINTS,
   registerJobHandler,
   type JobHandler,
   type HandlerResult,
 } from "./asyncJobs";
 import { logger } from "./logger";
-import { ownedFact, reviewConceptOwner } from "./visualConceptOwner";
 
 // ─── Payload shapes ─────────────────────────────────────────────────────────
 
@@ -263,14 +263,17 @@ export async function runEnrichmentForFact(
         tx,
       );
     }
+    // Advance a linked staging review prep_pending → concept_review (Step 2)
+    // and queue its Visual-Idea draft, in this same commit (Issue #1000 §F):
+    // apart, a stop after the advance left the review past prep_pending with no
+    // job, and a resumed run skips it as `staging_prep_left`. No-op for a
+    // live-fact re-enrich (no linked review); refused for refresh cycles.
+    if (recheck.mode === "first_time_staging") {
+      await advanceReviewForStagingFactEnrichment({ factId, outcome: "success" }, tx);
+    }
     return true;
   });
   if (!wrote) return { ok: true }; // retired as a successful no-op — the new owner (e.g. a refresh cycle) has the fact
-
-  // Advance a linked staging review prep_pending → concept_review (Step 2). No-op
-  // for live-fact re-enrich (no linked review) and refused for refresh cycles.
-  await whileOwned(() => advanceReviewForStagingFactEnrichment({ factId, outcome: "success" }));
-
   return { ok: true };
 }
 
@@ -298,7 +301,7 @@ export const enrichmentJobHandler: JobHandler = {
 /** Register the enrichment queue with the shared async-jobs worker. */
 export function registerEnrichmentJobHandlers(): void {
   // Execution limit (Issue #1000): two classifier calls, each up to 3 tries of 120 s (about 12 min), then database work, plus margin.
-  registerJobHandler("enrichment", enrichmentJobHandler, { executionLimitMs: 20 * 60_000 });
+  registerJobHandler("enrichment", enrichmentJobHandler, { executionLimitMs: 20 * 60_000, ...RESUMES_FROM_CHECKPOINTS });
 }
 
 // Exported for callers (the routes file consumes the registerer + this helper).

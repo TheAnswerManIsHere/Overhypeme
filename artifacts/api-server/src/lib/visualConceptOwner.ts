@@ -17,7 +17,7 @@
 import { and, eq, sql, type SQL } from "drizzle-orm";
 import { db, factsTable } from "@workspace/db";
 
-type Executor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+export type Executor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 const LIVE_PREFIX = "live:";
 

@@ -18,6 +18,7 @@ import {
   type OverrideLayers,
 } from "../lib/enrichmentOverrideLayers";
 import { enqueueJob, USE_CONFIGURED_MAX_ATTEMPTS } from "../lib/asyncJobs";
+import { emailRetryReset } from "../lib/email";
 import { laneHealth, queueHealth, queueHealthJobs } from "../lib/queueHealth";
 import { isNcmecReservedConfigKey, NCMEC_RESERVED_KEY_REFUSAL } from "../lib/moderation/ncmecConfig";
 import { CODE_OWNED_AI_SETTING_REFUSAL, isCodeOwnedAiConfigKey, withoutCodeOwnedAiSettings } from "../lib/codeOwnedPrompts";
@@ -2750,7 +2751,7 @@ router.delete("/admin/email-queue", requireAdmin, async (req: Request, res: Resp
   }
 });
 
-// POST /admin/email-queue/:id/retry — reset a failed row back to pending
+// POST /admin/email-queue/:id/retry — reset a failed row for one more send (into recovery, Issue #1000)
 router.post("/admin/email-queue/:id/retry", requireAdmin, async (req: Request, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) {
@@ -2773,11 +2774,15 @@ router.post("/admin/email-queue/:id/retry", requireAdmin, async (req: Request, r
     const [updated] = await db
       .update(asyncJobsTable)
       .set({
-        status: "pending",
         attempts: 0,
         maxAttempts: USE_CONFIGURED_MAX_ATTEMPTS,
         nextAttemptAt: new Date(),
         updatedAt: new Date(),
+        // A person retrying a failed email means "send it", including one held
+        // back because it may already have gone out (Issue #1000, Q14: 2). The
+        // reset also puts the row in recovery, so only a worker that sends
+        // under the no-duplicate key may take it.
+        ...emailRetryReset(),
       })
       .where(and(
         eq(asyncJobsTable.id, id),

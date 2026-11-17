@@ -77,7 +77,7 @@ export interface JobHandler {
    * Process one row. Should never throw; return `{ ok:false, error }` (retryable)
    * or `terminalFailure(code, error)` (deterministic, no retry) instead.
    */
-  run(payload: unknown, row: AsyncJobRow): Promise<HandlerResult>;
+  run(payload: unknown, row: ClaimedJobRow): Promise<HandlerResult>;
   /** Optional: fired when a row is marked `failed` after exhausting retries. */
   onAbandon?(row: AsyncJobRow): Promise<void> | void;
   /** Optional: skip a row purge during retention sweep (returns true to keep). */
@@ -94,6 +94,16 @@ export interface JobHandler {
    */
   unavailableReason?(): string | null;
 }
+
+/**
+ * The row a handler runs, as its claim left it, plus the recovery protocol the
+ * PREVIOUS claim declared (null when nothing claimed it before, or when what
+ * did declared none: an earlier release, or a worker from before leases). A
+ * handler whose own records say what it already did (email) trusts them only
+ * when the previous claim came from a worker that keeps them. Absent when a
+ * test calls a handler directly.
+ */
+export type ClaimedJobRow = AsyncJobRow & { previousClaimRecoveryProtocol?: number | null };
 
 const HANDLERS = new Map<string, JobHandler>();
 
@@ -118,6 +128,7 @@ interface QueueSettings {
   executionLimitMs: number;
   recoveryProtocol: number | null;
   fastReclaim: boolean;
+  retriesRecover: boolean;
 }
 const SETTINGS_OF_QUEUE = new Map<string, QueueSettings>();
 
@@ -154,6 +165,16 @@ export interface RegisterJobHandlerOptions {
    * leases. Switched on per queue only once that queue's recovery is built.
    */
   fastReclaim?: boolean;
+  /**
+   * Every retry of this queue — the handler's own, or a run ended at its
+   * execution limit — goes back `recovering`, stamped with its claim's
+   * protocol, in the same fenced update (Issue #1000 increment 3; Fable's
+   * candidate from PR #1017 round 4, built for email). For a queue whose every
+   * attempt may have reached a vendor and whose retry only a worker that can
+   * recover it may take: an earlier release would repeat the step without its
+   * protection. Needs `recoveryProtocol`.
+   */
+  retriesRecover?: boolean;
 }
 
 /**
@@ -172,12 +193,29 @@ export function registerJobHandler(
   if (!(Number.isFinite(executionLimitMs) && executionLimitMs > 0)) {
     throw new Error(`[asyncJobs] ${queue}: executionLimitMs must be a positive number of milliseconds`);
   }
+  if (opts?.retriesRecover && opts.recoveryProtocol == null) {
+    throw new Error(`[asyncJobs] ${queue}: retriesRecover needs a recoveryProtocol`);
+  }
   SETTINGS_OF_QUEUE.set(queue, {
     executionLimitMs,
     recoveryProtocol: opts?.recoveryProtocol ?? null,
     fastReclaim: opts?.fastReclaim ?? false,
+    retriesRecover: opts?.retriesRecover ?? false,
   });
 }
+
+/**
+ * The registration a queue takes once its handler resumes safely after a stop
+ * by its own completion checkpoints (plan §F; Issue #1000 increment 3): a
+ * successor reuses what its predecessor committed, creates a missing child job
+ * idempotently, and repeats a paid step only where no committed result of it
+ * exists (Q13: 1, logged at the resumed run's start). Each such queue's rows
+ * taken back from a stopped holder require protocol 1, so a worker from before
+ * this release never runs them, and its rows are reclaimed as soon as their
+ * lease lapses.
+ */
+export const RESUMES_FROM_CHECKPOINTS = { recoveryProtocol: 1, fastReclaim: true } as const satisfies RegisterJobHandlerOptions;
+
 
 
 /** Queues currently registered to a given lane. Resolved fresh at each call. */
@@ -477,6 +515,15 @@ async function processClaimedJob(
 
   const invocation = new JobInvocation(row.id, row.queue, leaseToken);
   HELD.set(leaseToken, invocation);
+  if (row.recoveryProtocol != null) {
+    // Plan §F, Q13: a job in recovery repeats a paid step only where no
+    // committed result of it exists. Logged so a repeated call can be traced
+    // to the stop (or vendor-reaching retry) that put the job in recovery.
+    logger.info(
+      { ...laneField(lane), id: row.id, queue: row.queue, attempts: row.attempts },
+      `${lanePrefix(lane)} running a job in recovery — a paid step without a committed result may run again`,
+    );
+  }
   // Set at registration with the handler, so present whenever the handler is.
   const limitMs = SETTINGS_OF_QUEUE.get(row.queue)!.executionLimitMs;
   let limitTimer: NodeJS.Timeout | undefined;
@@ -604,8 +651,16 @@ async function finalizeOutcome(
         abandoned = newAttempts >= effectiveMax;
         const scheduledDelay = retryDelays[newAttempts];
         const delayMs = scheduledDelay ?? retryDelays[retryDelays.length - 1] ?? 0;
+        // A retry only a recovery-capable worker may take (`retriesRecover`,
+        // increment 3). Status and stamp go in this one write: a `recovering`
+        // row without a stamp is one no worker may claim.
+        const enterRecovery = !abandoned
+          && row.recoveryProtocol == null
+          && row.claimRecoveryProtocol != null
+          && SETTINGS_OF_QUEUE.get(row.queue)?.retriesRecover === true;
         owned = await fencedFinalize({
-          status: abandoned ? "failed" : requeueStatus(row),
+          status: abandoned ? "failed" : enterRecovery ? "recovering" : requeueStatus(row),
+          ...(enterRecovery ? { recoveryProtocol: row.claimRecoveryProtocol } : {}),
           attempts: newAttempts,
           lastError: outcome.error,
           nextAttemptAt: abandoned ? new Date() : new Date(Date.now() + delayMs),
@@ -718,7 +773,7 @@ async function claimOne(
   now: Date,
   queues: readonly string[],
   lane?: JobLane,
-): Promise<AsyncJobRow | null> {
+): Promise<ClaimedJobRow | null> {
   return dbInstance.transaction(async (tx) => {
     // Bounded: each deferred row leaves the due set, so this cannot spin.
     for (let guard = 0; guard < TICK_CLAIM_LIMIT; guard++) {
@@ -745,7 +800,7 @@ async function claimOne(
         })
         .where(eq(asyncJobsTable.id, row.id))
         .returning()) as AsyncJobRow[];
-      return claimed ?? null;
+      return claimed ? { ...claimed, previousClaimRecoveryProtocol: row.claimRecoveryProtocol } : null;
     }
     return null;
   });
@@ -780,7 +835,7 @@ export async function asyncJobsTick(
   let inFlight = 0;
 
   /** Claim the next due row, or null when nothing is due or the tick's quota is spent. */
-  const claimNext = async (): Promise<AsyncJobRow | null> => {
+  const claimNext = async (): Promise<ClaimedJobRow | null> => {
     if (claimedCount >= TICK_CLAIM_LIMIT) return null;
     claimedCount++; // reserved before the await, so slots never over-claim
     try {
@@ -795,7 +850,7 @@ export async function asyncJobsTick(
   };
 
   /** Run a claimed row, then keep claiming into this slot until nothing is due. */
-  const runSlot = async (initial: AsyncJobRow | null): Promise<void> => {
+  const runSlot = async (initial: ClaimedJobRow | null): Promise<void> => {
     for (let row = initial; row; row = await claimNext()) {
       // Publish the in-flight count as soon as the claim commits, before the
       // handler is awaited: a wedged tick never completes, so a completion-only
@@ -908,12 +963,17 @@ export async function recoverStuckProcessing(
     ? sql`CASE ${asyncJobsTable.queue} ${sql.join(declared.map(([q, s]) => sql`WHEN ${q} THEN ${s.recoveryProtocol}::integer`), sql` `)} END`
     : sql`NULL::integer`;
   const required = sql`GREATEST(${asyncJobsTable.recoveryProtocol}, ${asyncJobsTable.claimRecoveryProtocol}, ${declaredForQueue})`;
+  // Both reclaim paths below take a row back the same way: into recovery,
+  // stamped, for a queue that declares it; to pending otherwise.
+  const takenBack = {
+    status: sql`CASE WHEN ${required} IS NULL THEN 'pending' ELSE 'recovering' END`,
+    recoveryProtocol: required,
+  };
 
   const leased = await dbInstance
     .update(asyncJobsTable)
     .set({
-      status: sql`CASE WHEN ${required} IS NULL THEN 'pending' ELSE 'recovering' END`,
-      recoveryProtocol: required,
+      ...takenBack,
       leaseExpiresAt: null,
       updatedAt: new Date(),
     })
@@ -946,17 +1006,20 @@ export async function recoverStuckProcessing(
     );
   }
 
+  // Taken back from a stopped holder like any other row (plan §A): a queue
+  // that declares recovery here puts it in recovery, so the handler knows it
+  // was interrupted (email: an earlier release may have sent it, Q14).
   const legacy = await dbInstance
     .update(asyncJobsTable)
-    .set({ status: "pending", updatedAt: new Date() })
+    .set({ ...takenBack, updatedAt: new Date() })
     .where(and(
       eq(asyncJobsTable.status, "processing"),
       isNull(asyncJobsTable.leaseToken),
       sql`${asyncJobsTable.updatedAt} < ${cutoff}`,
     ))
-    .returning({ id: asyncJobsTable.id, queue: asyncJobsTable.queue });
+    .returning({ id: asyncJobsTable.id, queue: asyncJobsTable.queue, status: asyncJobsTable.status });
   for (const r of legacy) {
-    logger.info({ id: r.id, queue: r.queue }, "[asyncJobs] reclaimed an unleased job left processing by an earlier release");
+    logger.info({ id: r.id, queue: r.queue, to: r.status }, "[asyncJobs] reclaimed an unleased job left processing by an earlier release");
   }
   return leased.length + legacy.length;
 }

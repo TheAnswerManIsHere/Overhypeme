@@ -49,7 +49,7 @@ import {
 } from "@workspace/api-zod";
 import { resolveReviewCycleEnrichment } from "./moderationStaging";
 import { loadGags, normaliseGagContent, openReviewForFact } from "./gags/resolver";
-import {
+import { type Executor,
   claimConceptsForReview,
   liveConceptOwner,
   ownedFact,
@@ -59,6 +59,7 @@ import { generateVisualConcepts, resolveVisualConceptsLLMSettings, VisualConcept
 import { buildVisualConceptInputHash, hashText } from "./visualConcepts/inputHash";
 import { getVisualConceptsSystem } from "./visualConceptsConfig";
 import {
+  RESUMES_FROM_CHECKPOINTS,
   registerJobHandler,
   enqueueJob,
   type JobHandler,
@@ -103,10 +104,11 @@ export async function enqueueVisualConceptsForReview(args: {
   factId: number;
   moderatorDraftScene?: string | null;
   moderatorDraftBubbles?: Array<Pick<VisualStrategyBubble, "type" | "entity" | "text">> | null;
-}): Promise<EnqueueJobResult> {
+}, executor: Executor = db): Promise<EnqueueJobResult> {
   // The review takes the fact's candidate state (a live draft's is cleared)
-  // and marks it working, in one write.
-  await claimConceptsForReview(db, args.factId, args.reviewId, { markPending: true });
+  // and marks it working, in one write. Given a transaction, both the claim
+  // and the job commit with the caller's write or not at all (Issue #1000 §F).
+  await claimConceptsForReview(executor, args.factId, args.reviewId, { markPending: true });
   return enqueueJob({
     queue: FACT_VISUAL_CONCEPTS_QUEUE,
     payload: {
@@ -117,7 +119,7 @@ export async function enqueueVisualConceptsForReview(args: {
       moderatorDraftBubbles: args.moderatorDraftBubbles ?? null,
     },
     dedupeKey: visualConceptsDedupeKey(args.reviewId),
-  });
+  }, executor);
 }
 
 /** Why a Draft more gags request is refused. */
@@ -434,7 +436,7 @@ export const factVisualConceptsJobHandler: JobHandler = {
 
 export function registerVisualConceptJobHandlers(): void {
   // Execution limit (Issue #1000): two 360 s concept calls and their name conversions, each up to 3 tries (about 39 min), plus margin.
-  registerJobHandler(FACT_VISUAL_CONCEPTS_QUEUE, factVisualConceptsJobHandler, { executionLimitMs: 45 * 60_000 });
+  registerJobHandler(FACT_VISUAL_CONCEPTS_QUEUE, factVisualConceptsJobHandler, { executionLimitMs: 45 * 60_000, ...RESUMES_FROM_CHECKPOINTS });
 }
 
 // ─── Normalized review-detail response (server-computed `current`) ───────────

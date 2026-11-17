@@ -466,3 +466,34 @@ describe("NCMEC_SEQUENCE_DEADLINE_MS", () => {
     );
   });
 });
+
+// ─── Fast reclaim (Issue #1000 increment 3) ─────────────────────────────────
+
+describe("NCMEC queue and fast reclaim", () => {
+  it("no NCMEC queue registers fast reclaim: its duplicate-filing protection rests on the 30-minute rule", async () => {
+    // G11's inequality above holds only while an NCMEC row waits the full
+    // RECOVER_STUCK_CUTOFF_MIN before it can be taken back. Fast reclaim (a
+    // queue registered with `fastReclaim`, or with RESUMES_FROM_CHECKPOINTS)
+    // takes a row back 90 s after its holder stops renewing, which bypasses that
+    // rule without moving the constant this file checks. No NCMEC queue exists
+    // yet (phase 5 adds the worker); this fails the moment one is registered
+    // with fast reclaim, so that choice is made on purpose, against G11 and G15.
+    const { readdir, readFile } = await import("node:fs/promises");
+    const path = await import("node:path");
+    const root = path.resolve(import.meta.dirname, "..");
+    const files = (await readdir(root, { recursive: true }))
+      .filter((f) => /\.ts$/.test(f) && !f.includes("__tests__"));
+    const offenders: string[] = [];
+    let scanned = 0;
+    for (const f of files) {
+      const text = await readFile(path.join(root, f), "utf8");
+      for (const m of text.matchAll(/registerJobHandler\(([\s\S]*?)\);/g)) {
+        const call = m[1]!;
+        scanned++;
+        if (/ncmec/i.test(call) && /fastReclaim|RESUMES_FROM_CHECKPOINTS/.test(call)) offenders.push(`${f}: registerJobHandler(${call.slice(0, 80)}…)`);
+      }
+    }
+    assert.ok(scanned >= 10, `the scan must see the real registrations (saw ${scanned})`);
+    assert.deepEqual(offenders, [], "an NCMEC queue registered with fast reclaim");
+  });
+});

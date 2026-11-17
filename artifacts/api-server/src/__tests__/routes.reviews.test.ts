@@ -36,6 +36,7 @@ import { __setUtilityLLMClientForTest } from "../lib/utilityLLM.js";
 import { materializeEnrichment } from "../lib/factEnrichment.js";
 import { FACT_SUBMIT_PENDING_CAP, FACT_SUBMIT_MAX } from "../lib/rateLimit.js";
 import { runEnrichmentForFact } from "../lib/enrichmentJobs.js";
+import { blockChildJobsForFact } from "./helpers/blockChildJob.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 
@@ -473,6 +474,40 @@ describe("staging-fact enrichment stage advancement", () => {
     assert.equal(f.enrichmentStatus, "ok");
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
     assert.equal(r.workflowStage, "concept_review");
+  });
+
+  it("the stage advance and the Visual-Idea job commit with the enrichment or not at all, so a resumed run is never stranded (Issue #1000 §F)", async () => {
+    const submitterId = await createTestUser();
+    const [fact] = await db.insert(factsTable).values({ text: "{NAME} bends a girder", submittedById: submitterId, isActive: false }).returning();
+    const [review] = await db.insert(pendingReviewsTable).values({
+      submittedText: "{NAME} bends a girder", submittedById: submitterId, status: "pending",
+      workflowStage: "prep_pending", stagingFactId: fact.id,
+    }).returning();
+    const conceptJobs = () => db.select({ id: asyncJobsTable.id }).from(asyncJobsTable)
+      .where(and(eq(asyncJobsTable.queue, "fact_visual_concepts"), eq(asyncJobsTable.dedupeKey, `fact_visual_concepts:review:${review.id}`)));
+
+    const unblock = await blockChildJobsForFact(fact.id);
+    try {
+      await assert.rejects(runEnrichmentForFact(fact.id, { classify: async () => VALID_APPROVAL_ENRICHMENT }));
+    } finally {
+      await unblock();
+    }
+    const [stuck] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
+    assert.equal(stuck.workflowStage, "prep_pending", "no stage advance without its job");
+    assert.equal((await conceptJobs()).length, 0);
+
+    let classified = 0;
+    const result = await runEnrichmentForFact(fact.id, { classify: async () => { classified++; return VALID_APPROVAL_ENRICHMENT; } });
+    assert.equal(result.ok, true);
+    assert.equal(classified, 1, "the retry classifies (nothing was committed before)");
+    const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
+    assert.equal(r.workflowStage, "concept_review");
+    assert.equal((await conceptJobs()).length, 1, "exactly one Visual-Idea job");
+
+    let again = 0;
+    await runEnrichmentForFact(fact.id, { classify: async () => { again++; return VALID_APPROVAL_ENRICHMENT; } });
+    assert.equal(again, 0, "a successor after the commit makes no second paid call");
+    assert.equal((await conceptJobs()).length, 1, "and no second job");
   });
 
   it("COST GUARD: skips classification when the linked review left prep_pending", async () => {
