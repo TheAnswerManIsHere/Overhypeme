@@ -108,7 +108,7 @@ export function defaultPreviewSubjectForGender(
 }
 
 /**
- * The sample subject for a fixed reference photo: the wife's renders as Susan
+ * The sample subject for a fixed reference photo: the wife's renders as Raena
  * Franklin, she/her, so the fact text agrees with the face; David's, the
  * pet's and the object's as the historical default.
  */
