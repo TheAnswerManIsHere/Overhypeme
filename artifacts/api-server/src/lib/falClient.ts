@@ -236,3 +236,39 @@ export const fal = {
   },
   config: (opts: unknown) => backendFal().config(opts),
 } as unknown as typeof vendorFal;
+
+/**
+ * fal's reason when a model refused a request under its content policy (a
+ * 422 whose `detail` carries `type: "content_policy_violation"`), else null.
+ *
+ * Read structurally rather than with `instanceof`, so it holds for an error
+ * the recorded double raises in the same shape (Issue #985).
+ */
+export function falContentRefusal(err: unknown): string | null {
+  if (!err || typeof err !== "object") return null;
+  const { status, body } = err as { status?: unknown; body?: unknown };
+  if (status !== 422 || !body || typeof body !== "object") return null;
+  const detail = (body as { detail?: unknown }).detail;
+  if (!Array.isArray(detail)) return null;
+  for (const d of detail) {
+    if (d && typeof d === "object" && (d as { type?: unknown }).type === "content_policy_violation") {
+      const msg = (d as { msg?: unknown }).msg;
+      return typeof msg === "string" && msg.trim() ? msg.trim() : "content_policy_violation";
+    }
+  }
+  return null;
+}
+
+/**
+ * The attempt error recorded when a render's fal submission fails. A content
+ * refusal names the engine and fal's reason instead of the bare HTTP status
+ * ("Unprocessable Entity"), so a moderator can tell the model declined the
+ * picture (Issue #985). The "fal submit failed: " prefix is kept.
+ */
+export function falSubmitErrorMessage(err: unknown, engineLabel: string): string {
+  const refusal = falContentRefusal(err);
+  if (refusal) {
+    return `fal submit failed: ${engineLabel} refused this picture under its content policy (${refusal})`;
+  }
+  return `fal submit failed: ${err instanceof Error ? err.message : String(err)}`;
+}

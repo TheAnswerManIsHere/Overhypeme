@@ -69,7 +69,7 @@ import { isValidPromptIdentitySnapshot } from "./imagePrompt/promptIdentity";
 import { resolveRenderStyle, isValidRenderStyleSnapshot } from "./imagePrompt/styleResolution";
 import { buildEngineInput } from "./engineInterpreter";
 import { downloadToBuffer, extractFirstImageUrl, imageEngineParams } from "./imageEngineRequest";
-import { fal, ensureFalConfigured } from "./falClient";
+import { fal, ensureFalConfigured, falSubmitErrorMessage } from "./falClient";
 import { ObjectStorageService } from "./objectStorage";
 import { logger } from "./logger";
 
@@ -403,9 +403,11 @@ export const imageGenerationHandler: JobHandler = {
         throw new Error("fal response missing image url");
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      await markAttemptError(p.attemptId, `fal submit failed: ${msg}`);
-      return { ok: false, error: `fal submit failed: ${msg}` };
+      // Still retryable, a content refusal included: the same prompt can be
+      // refused once and drawn on the next try (Issue #980).
+      const msg = falSubmitErrorMessage(err, engine.label);
+      await markAttemptError(p.attemptId, msg);
+      return { ok: false, error: msg };
     }
 
     // Download + persist to object storage.
