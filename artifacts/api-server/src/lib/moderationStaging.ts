@@ -312,8 +312,12 @@ export async function resolveGenericFactEnrichmentDecision(
 export async function advanceReviewForStagingFactEnrichment(args: {
   factId: number;
   outcome: "success" | "terminal_failed";
-}): Promise<void> {
-  const review = await findUnresolvedReviewForStagingFact(args.factId);
+}, tx?: DbLike): Promise<void> {
+  // Given the caller's transaction (the enrichment write), the advance, the
+  // claim and the draft job all commit with it or not at all, and a failure
+  // rolls the whole write back for the job's retry (Issue #1000 §F).
+  const executor = tx ?? db;
+  const review = await findUnresolvedReviewForStagingFact(args.factId, executor);
   if (!review) return; // live-fact enrichment — nothing to advance
   if (review.candidateVersionId != null || review.workflowStage !== "prep_pending") {
     logger.info(
@@ -326,7 +330,7 @@ export async function advanceReviewForStagingFactEnrichment(args: {
   // Conditional, like every other stage transition: a review withdrawn (or
   // otherwise resolved) since the read above stays as it is, and nothing is
   // enqueued for it (plan PLAN_THREE_GAGS.md, increment 3).
-  const advanced = await db
+  const advanced = await executor
     .update(pendingReviewsTable)
     .set({ workflowStage: nextStage })
     .where(and(
@@ -358,13 +362,20 @@ export async function advanceReviewForStagingFactEnrichment(args: {
   // enqueueVisualConceptsForReview) so this widely-imported helper doesn't import
   // visualConceptJobs and create a cycle.
   if (nextStage === "concept_review") {
-    try {
-      await claimConceptsForReview(db, args.factId, review.id, { markPending: true });
+    const enqueueDraft = async (): Promise<void> => {
+      await claimConceptsForReview(executor, args.factId, review.id, { markPending: true });
       await enqueueJob({
         queue: FACT_VISUAL_CONCEPTS_QUEUE,
         payload: { reviewId: review.id, factId: args.factId, owner: reviewConceptOwner(review.id), candidateVersionId: null, moderatorDraftScene: null },
         dedupeKey: `fact_visual_concepts:review:${review.id}`,
-      });
+      }, executor);
+    };
+    if (tx) {
+      await enqueueDraft();
+      return;
+    }
+    try {
+      await enqueueDraft();
     } catch (err) {
       logger.error(
         { err, reviewId: review.id },

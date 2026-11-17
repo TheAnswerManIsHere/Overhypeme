@@ -35,7 +35,7 @@ import {
   type EnrichmentOverrides,
   type FactCharacter,
 } from "@workspace/api-zod";
-import { registerJobHandler, type HandlerResult, type JobHandler } from "./asyncJobs";
+import { RESUMES_FROM_CHECKPOINTS, registerJobHandler, type HandlerResult, type JobHandler } from "./asyncJobs";
 import { materializeEnrichment, resolveFactEnrichmentLLMSettings } from "./factEnrichment";
 import { extractFactCharacters, withExtractedCharacters } from "./factCharacters";
 import { renderCanonical } from "./renderCanonical";
@@ -245,5 +245,5 @@ export const factCharacterFillHandler: JobHandler = {
 
 export function registerFactCharacterFillHandler(): void {
   // Execution limit (Issue #1000): one extraction call, up to 3 tries of 120 s (about 6 min), plus margin.
-  registerJobHandler(FACT_CHARACTER_FILL_QUEUE, factCharacterFillHandler, { executionLimitMs: 12 * 60_000 });
+  registerJobHandler(FACT_CHARACTER_FILL_QUEUE, factCharacterFillHandler, { executionLimitMs: 12 * 60_000, ...RESUMES_FROM_CHECKPOINTS });
 }

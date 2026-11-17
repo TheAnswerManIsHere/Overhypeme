@@ -217,12 +217,30 @@ deliberately excludes them and points here instead.
   **Reclaim:** a leased row whose lease has lapsed goes back once its queue's
   `fastReclaim` is on, otherwise not before `RECOVER_STUCK_CUTOFF_MIN = 30`
   minutes after its claim. The switch is on, with `recoveryProtocol: 1`, for
-  the two render queues (`image_prompt_generation`, `image_generation`;
-  increment 2, Issue #1015), and off for every other queue until its resume is
-  built (increment 3). A row claimed by a release before leases (no
-  token) keeps the old 30-minute rule on `updated_at`. A reclaimed row of a
-  queue that declares a `recoveryProtocol` becomes `recovering`, claimable only
-  by a worker declaring at least that protocol.
+  every queue: the two render queues since increment 2 (Issue #1015), and every
+  other since increment 3 (Issue #1024). Increment 3's queues register
+  `RESUMES_FROM_CHECKPOINTS`, and email registers its own. A row claimed by a
+  release before leases (no token) keeps the old 30-minute rule on
+  `updated_at`. A reclaimed row of a queue that declares a `recoveryProtocol`,
+  leased or not, becomes `recovering`, claimable only by a worker declaring at
+  least that protocol. A handler may also send a retry into recovery: either it
+  returns `recoverOnRetry`, or its queue registers `recoverAfterLimit` and the
+  run was ended at its limit. Email does both, so an earlier release never
+  resends it without the key.
+  **Email never goes out twice (plan §E, `email.ts`).** The job's sending record
+  lives on its payload (`delivery`): the message frozen at enqueue, a nonce, and
+  the state (`unsent`, `possibly_sent` or `sent`). Every attempt sends with
+  Resend's `Idempotency-Key` `overhype-email-<job id>-<nonce>`, which Resend
+  honours for 24 hours. A resumed job finishes if the email was sent, and resends
+  under the same key if it was possibly sent within 24 hours. Otherwise it is
+  marked failed (Q14: 2): possibly sent more than 24 hours ago, or claimed by
+  something the record does not account for, such as an earlier release. The
+  handler tells those claims apart by the lease token the row carried before its
+  claim (`previousLeaseToken`). The email queue's Retry resets the record, so a
+  person can send a held-back email.
+  **Completion checkpoints (plan §F).** Enrichment's write, its review's move to
+  `concept_review` and the Visual-Idea job commit in one fenced transaction. A
+  stop therefore never strands a review with no job, as it could before.
   **Every AI text call checks ownership at the one dispatch point**
   (`callUtilityLLM`, Issue #1010) and carries the run's abort signal; a
   helper that absorbs its own failures lets the refusal through

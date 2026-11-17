@@ -3,6 +3,7 @@ import { z } from "zod";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
 import { factsTable, commentsTable, adminConfigTable, featureFlagsTable, userGenerationCostsTable, membershipEntitlementsTable, entitlementSourceDisputesTable, membershipHistoryTable, asyncJobsTable, stripeWebhookAuditTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, pendingReviewsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
+import { randomUUID } from "node:crypto";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, getTableColumns } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
@@ -2868,6 +2869,17 @@ router.post("/admin/email-queue/:id/retry", requireAdmin, async (req: Request, r
         maxAttempts: USE_CONFIGURED_MAX_ATTEMPTS,
         nextAttemptAt: new Date(),
         updatedAt: new Date(),
+        // A person retrying a failed email means "send it", including one held
+        // back because it may already have gone out (Issue #1000, Q14: 2). The
+        // sending record is reset to unsent under a fresh no-duplicate key and
+        // made to account for every claim so far, so the handler sends it once.
+        recoveryProtocol: null,
+        payload: sql`jsonb_set(
+          ${asyncJobsTable.payload},
+          '{delivery}',
+          (COALESCE(${asyncJobsTable.payload}->'delivery', '{}'::jsonb) - 'firstDispatchAt' - 'providerId')
+            || jsonb_build_object('v', 1, 'nonce', ${randomUUID()}::text, 'state', 'unsent', 'accountedToken', ${asyncJobsTable.leaseToken})
+        )`,
       })
       .where(and(
         eq(asyncJobsTable.id, id),

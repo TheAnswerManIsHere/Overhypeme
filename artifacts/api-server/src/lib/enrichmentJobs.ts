@@ -34,19 +34,18 @@ import { recordOverrideHistory } from "./enrichmentOverrideHistory";
 import { hashFactText } from "./enrichmentVersioning";
 import { currentProcessingSignatureFromConfig } from "./processingSignature";
 import { enqueueVisualConceptsForReview } from "./visualConceptJobs";
-import { assertJobOwnership, fencedTransaction, whileOwned } from "./jobFence";
+import { assertJobOwnership, fencedTransaction } from "./jobFence";
 import { renderCanonical } from "./renderCanonical";
 import {
   advanceReviewForStagingFactEnrichment,
   resolveGenericFactEnrichmentDecision,
 } from "./moderationStaging";
-import {
+import { RESUMES_FROM_CHECKPOINTS,
   registerJobHandler,
   type JobHandler,
   type HandlerResult,
 } from "./asyncJobs";
 import { logger } from "./logger";
-import { ownedFact, reviewConceptOwner } from "./visualConceptOwner";
 
 // ─── Payload shapes ─────────────────────────────────────────────────────────
 
@@ -270,14 +269,17 @@ export async function runEnrichmentForFact(
         tx,
       );
     }
+    // Advance a linked staging review prep_pending → concept_review (Step 2)
+    // and queue its Visual-Idea draft, in this same commit (Issue #1000 §F):
+    // apart, a stop after the advance left the review past prep_pending with no
+    // job, and a resumed run skips it as `staging_prep_left`. No-op for a
+    // live-fact re-enrich (no linked review); refused for refresh cycles.
+    if (recheck.mode === "first_time_staging") {
+      await advanceReviewForStagingFactEnrichment({ factId, outcome: "success" }, tx);
+    }
     return true;
   });
   if (!wrote) return { ok: true }; // retired as a successful no-op — the new owner (e.g. a refresh cycle) has the fact
-
-  // Advance a linked staging review prep_pending → concept_review (Step 2). No-op
-  // for live-fact re-enrich (no linked review) and refused for refresh cycles.
-  await whileOwned(() => advanceReviewForStagingFactEnrichment({ factId, outcome: "success" }));
-
   return { ok: true };
 }
 
@@ -398,38 +400,23 @@ export async function runEnrichmentForCandidateVersion(
       .where(eq(pendingReviewsTable.id, v1.sourceReviewId));
     // Clear the live fact's "working" pill; facts.* enrichment itself is untouched.
     await tx.update(factsTable).set({ enrichmentStatus: "ok" }).where(eq(factsTable.id, v0.factId));
+    // A refresh cycle lands at Step 2 (concept_review) — NO render prep here.
+    // Renders are Step 3 and force-fire only when the moderator approves the
+    // visual gag (see approve-visual-concept). We draft the candidate
+    // Visual-Idea concepts, review-aware via candidateVersionId so they reflect
+    // the CANDIDATE's enrichment, not the active fact's. The draft job commits
+    // with the stage advance (Issue #1000 §F): a server stop between the two
+    // used to leave the review at concept_review with no job, and a resumed run
+    // returns early at the preflight, so nothing would ever create it.
+    await enqueueVisualConceptsForReview({
+      reviewId: v1.sourceReviewId,
+      factId: v0.factId,
+      candidateVersionId: versionId,
+    }, tx);
     return { advancedReviewId: v1.sourceReviewId };
   });
-
-  // A refresh cycle lands at Step 2 (concept_review) — NO render prep here.
-  // Renders are Step 3 and force-fire only when the moderator approves the visual
-  // gag (see approve-visual-concept). We draft the candidate Visual-Idea
-  // concepts, review-aware via candidateVersionId so they reflect the CANDIDATE's
-  // enrichment, not the active fact's. Visual Ideas gate gag approval (Step 2 =
-  // Visual Concept gate), so on enqueue failure we mark the status "failed"
-  // (retryable) rather than leaving it stuck "pending". A failure here must not
-  // fail the (already-committed) enrichment.
   if (advancedReviewId != null) {
-    try {
-      await whileOwned(() => enqueueVisualConceptsForReview({
-        reviewId: advancedReviewId,
-        factId: v0.factId,
-        candidateVersionId: versionId,
-      }));
-    } catch (err) {
-      logger.error(
-        { err, reviewId: advancedReviewId, versionId },
-        "[refresh] failed to enqueue visual concepts (enrichment kept; status → failed)",
-      );
-      try {
-        await fencedTransaction(db, (tx) => tx.update(factsTable).set({ visualConceptStatus: "failed" }).where(ownedFact(v0.factId, reviewConceptOwner(advancedReviewId))));
-      } catch (statusErr) {
-        logger.error(
-          { err: statusErr, reviewId: advancedReviewId, versionId },
-          "[refresh] failed to mark visual concepts failed after enqueue error",
-        );
-      }
-    }
+    logger.info({ reviewId: advancedReviewId, versionId }, "[refresh] candidate enriched; visual concepts queued");
   }
   return { ok: true };
 }
@@ -492,7 +479,7 @@ export const enrichmentJobHandler: JobHandler = {
 /** Register the enrichment queue with the shared async-jobs worker. */
 export function registerEnrichmentJobHandlers(): void {
   // Execution limit (Issue #1000): two classifier calls, each up to 3 tries of 120 s (about 12 min), then database work, plus margin.
-  registerJobHandler("enrichment", enrichmentJobHandler, { executionLimitMs: 20 * 60_000 });
+  registerJobHandler("enrichment", enrichmentJobHandler, { executionLimitMs: 20 * 60_000, ...RESUMES_FROM_CHECKPOINTS });
 }
 
 // Exported for callers (the routes file consumes the registerer + this helper).

@@ -12,16 +12,33 @@
  * existed before: Resend-401 process-wide disable, abandoned-email admin
  * alert, retention exclusion for the alert thread itself.
  *
+ * Never twice (Issue #1000 increment 3, plan §E): each job freezes the message
+ * it will send and records its sending state on the job (`payload.delivery`),
+ * and every send carries a no-duplicate key Resend honours for 24 hours. A job
+ * resumed after a server stop resends with the same key, finishes without
+ * sending, or, when a duplicate can no longer be ruled out, is marked failed
+ * for a person (Q14: 2). See `emailJobHandler`.
+ *
  * Brand: dark bg (#0d0d0e), danger orange (BRAND_ORANGE), Oswald + Inter typography.
  */
+import { randomUUID } from "node:crypto";
 import { BRAND_ORANGE } from "@workspace/api-zod";
 import { Resend } from "resend";
+import { eq, sql } from "drizzle-orm";
 import { db as defaultDb } from "@workspace/db";
-import type { AsyncJobRow } from "@workspace/db/schema";
+import { asyncJobsTable, type AsyncJobRow } from "@workspace/db/schema";
 import { getConfigString, getConfigInt } from "./adminConfig";
 import { getSiteBaseUrl } from "./siteUrl";
 import { logger } from "./logger";
-import { enqueueJob, registerJobHandler, type HandlerResult, type JobHandler } from "./asyncJobs";
+import {
+  enqueueJob,
+  registerJobHandler,
+  terminalFailure,
+  type ClaimedJobRow,
+  type HandlerResult,
+  type JobHandler,
+} from "./asyncJobs";
+import { fencedTransaction } from "./jobFence";
 // NOTE: Do NOT add a static import of ./adminNotify here. adminNotify imports
 // sendEmail from this file, so a static import would create a circular module
 // dependency. With ESM + top-level await anywhere in the bundled graph, esbuild
@@ -64,11 +81,19 @@ export interface OutgoingEmail {
 
 /** What a transport reports back — the subset of Resend's response we read. */
 export interface EmailTransportResult {
+  /** Resend's id for the accepted email. */
+  data?: { id?: string } | null;
   error?: { message: unknown; name?: unknown; statusCode?: unknown } | null;
 }
 
+/** Per-send options: the subset of Resend's `emails.send` options we use. */
+export interface EmailSendOptions {
+  /** Sent as Resend's `Idempotency-Key` header: a repeat within 24 h is not sent again. */
+  idempotencyKey?: string;
+}
+
 export interface EmailTransport {
-  send(message: OutgoingEmail): Promise<EmailTransportResult>;
+  send(message: OutgoingEmail, options?: EmailSendOptions): Promise<EmailTransportResult>;
 }
 
 /**
@@ -118,6 +143,8 @@ export function isEnabled(): boolean {
  * Exported for tests to reset between runs.
  */
 let resendAuthDisabled = false;
+const RESEND_DISABLED_ERROR =
+  "Resend disabled this process: invalid RESEND_API_KEY (HTTP 401). Restart after rotating the key.";
 export function _resetResendAuthDisabledForTests(): void {
   resendAuthDisabled = false;
 }
@@ -160,6 +187,60 @@ export interface EmailJobPayload {
   text: string;
   html?: string | null;
   kind?: string | null;
+  /** The job's sending record (plan §E). Absent on a job an earlier release enqueued. */
+  delivery?: EmailDelivery;
+}
+
+/**
+ * Where one email job stands with Resend (plan §E). Kept on the job's payload,
+ * written only through fenced updates, so the job row is its one home.
+ *
+ * - `unsent`: no send has been attempted by a run that records here.
+ * - `possibly_sent`: a send was attempted (from `firstDispatchAt`); it may
+ *   have reached Resend. Every later attempt resends the same message with the
+ *   same key, which Resend delivers once while the key lives (24 h).
+ * - `sent`: Resend accepted it (`providerId`).
+ *
+ * `accountedToken` is the lease token of the last claim whose activity this
+ * record fully accounts for. A claim that left no trace here (an earlier
+ * release, which sends with no key and records nothing) is what makes an
+ * `unsent` record untrustworthy.
+ */
+export interface EmailDelivery {
+  v: 1;
+  /** Mixed into the no-duplicate key, so job ids reused across databases never collide at Resend. */
+  nonce: string;
+  /** The resolved message, frozen before the first possible send. */
+  message?: OutgoingEmail;
+  state: "unsent" | "possibly_sent" | "sent";
+  firstDispatchAt?: string;
+  providerId?: string | null;
+  accountedToken?: string | null;
+}
+
+/** The recovery protocol the email handler implements (plan §A). */
+export const EMAIL_RECOVERY_PROTOCOL = 1;
+
+/** How long Resend keeps an idempotency key (its documentation: "kept in the system for 24 hours"). */
+export const EMAIL_IDEMPOTENCY_WINDOW_MS = 24 * 3_600_000;
+
+/** The no-duplicate key every attempt of one job sends with: the job id and the record's nonce. */
+export function emailIdempotencyKey(jobId: number, nonce: string): string {
+  return `overhype-email-${jobId}-${nonce}`;
+}
+
+/** Resolve the outgoing message from a job's payload and the current sender settings. */
+async function resolveOutgoingMessage(ep: Pick<EmailJobPayload, "to" | "subject" | "text" | "html">): Promise<OutgoingEmail> {
+  const from = await getFromAddress();
+  const replyTo = await getReplyToAddress();
+  return {
+    to: ep.to,
+    from,
+    ...(replyTo ? { replyTo } : {}),
+    subject: ep.subject,
+    text: ep.text,
+    html: ep.html ?? ep.text,
+  };
 }
 
 export async function sendEmail(
@@ -199,12 +280,20 @@ export async function sendEmail(
     );
     return;
   }
-  const jobPayload: EmailJobPayload = {
+  const base = {
     to: payload.to,
     subject: payload.subject,
     text: payload.text,
     html: payload.html ?? null,
+  };
+  const jobPayload: EmailJobPayload = {
+    ...base,
     kind: payload.kind ?? null,
+    // Frozen at enqueue (plan §E): a sender setting changed between attempts
+    // cannot make a retry differ from the first send, which Resend would
+    // refuse under the same key. The top-level fields stay for the email
+    // queue page and for an earlier release still running beside this one.
+    delivery: { v: 1, nonce: randomUUID(), message: await resolveOutgoingMessage(base), state: "unsent", accountedToken: null },
   };
   await enqueueJob(
     { queue: "email", payload: jobPayload as unknown as Record<string, unknown> },
@@ -218,24 +307,20 @@ export async function sendEmail(
  */
 export async function deliverFromOutbox(
   row: Pick<EmailJobPayload, "to" | "subject" | "text" | "html">,
-): Promise<{ ok: boolean; error?: string }> {
+  frozen?: { message: OutgoingEmail; idempotencyKey: string },
+): Promise<{ ok: boolean; error?: string; errorName?: string; providerId?: string }> {
   if (resendAuthDisabled) {
     return {
       ok: false,
-      error: "Resend disabled this process: invalid RESEND_API_KEY (HTTP 401). Restart after rotating the key.",
+      error: RESEND_DISABLED_ERROR,
     };
   }
-  const from    = await getFromAddress();
-  const replyTo = await getReplyToAddress();
+  const message = frozen?.message ?? await resolveOutgoingMessage(row);
   try {
-    const { error } = await transport!.send({
-      to:      row.to,
-      from,
-      ...(replyTo ? { replyTo } : {}),
-      subject: row.subject,
-      text:    row.text,
-      html:    row.html ?? row.text,
-    });
+    const { data, error } = await transport!.send(
+      message,
+      frozen ? { idempotencyKey: frozen.idempotencyKey } : undefined,
+    );
     if (error) {
       if (isResendAuthError(error)) {
         resendAuthDisabled = true;
@@ -250,9 +335,9 @@ export async function deliverFromOutbox(
           `Error: ${String(error.message)}`,
         );
       }
-      return { ok: false, error: String(error.message) };
+      return { ok: false, error: String(error.message), ...(typeof error.name === "string" ? { errorName: error.name } : {}) };
     }
-    return { ok: true };
+    return { ok: true, ...(data?.id ? { providerId: data.id } : {}) };
   } catch (err) {
     if (isResendAuthError(err)) {
       resendAuthDisabled = true;
@@ -284,15 +369,19 @@ export const emailJobHandler: JobHandler = {
     return isEnabled() ? null : "Email delivery is not configured; leaving job pending";
   },
 
-  async run(payload: unknown): Promise<HandlerResult> {
+  async run(payload: unknown, row: ClaimedJobRow): Promise<HandlerResult> {
     const ep = payload as EmailJobPayload;
     if (!isEnabled()) {
       // The dev-fallback path: pretend success so the row terminates as done.
       logger.info({ to: ep.to, subject: ep.subject }, "[email] Resend not configured — skipping delivery");
       return { ok: true };
     }
-    const { ok, error } = await deliverFromOutbox(ep);
-    return ok ? { ok: true } : { ok: false, error: error ?? "unknown" };
+    if (typeof row?.id !== "number") {
+      // Called directly, not as a job (a harness probe): nothing to record against.
+      const { ok, error } = await deliverFromOutbox(ep);
+      return ok ? { ok: true } : { ok: false, error: error ?? "unknown" };
+    }
+    return runEmailJob(ep, row);
   },
 
   async onAbandon(row: AsyncJobRow): Promise<void> {
@@ -323,13 +412,115 @@ export const emailJobHandler: JobHandler = {
   },
 };
 
+/** Write the job's sending record, fenced: a run that lost its claim writes nothing. */
+async function writeDelivery(jobId: number, record: EmailDelivery): Promise<void> {
+  await fencedTransaction(defaultDb, (tx) => tx
+    .update(asyncJobsTable)
+    .set({ payload: sql`jsonb_set(${asyncJobsTable.payload}, '{delivery}', ${JSON.stringify(record)}::jsonb)` })
+    .where(eq(asyncJobsTable.id, jobId)));
+}
+
+/**
+ * Whether an `unsent` record (or none) can be trusted to mean that nothing was
+ * sent: every claim since the record was last brought up to date left a trace
+ * in it. A previous claim it does not account for — an earlier release's, or
+ * an attempt or interruption from before leases — may have sent the email
+ * with no no-duplicate key.
+ */
+function unsentIsTrustworthy(prior: EmailDelivery | undefined, row: ClaimedJobRow): boolean {
+  const previous = row.previousLeaseToken ?? null;
+  const accounted = prior?.accountedToken ?? null;
+  if (previous === null) {
+    // No lease-era claim before this one: trustworthy only when nothing at all
+    // happened to the row (no attempt, no interruption taken back).
+    return accounted === null && row.attempts === 0 && row.recoveryProtocol == null;
+  }
+  return previous === accounted;
+}
+
+/** The email job proper (plan §E), for a run that holds a claim. */
+async function runEmailJob(ep: EmailJobPayload, row: ClaimedJobRow): Promise<HandlerResult> {
+  const prior = ep.delivery;
+  const token = row.leaseToken ?? null;
+
+  if (prior?.state === "sent") {
+    // Resend accepted it before the run that sent it could finish the job.
+    logger.info({ id: row.id, providerId: prior.providerId }, "[email] already sent — finishing without sending again");
+    return { ok: true, result: { providerId: prior.providerId ?? null } };
+  }
+
+  if (prior?.state === "possibly_sent") {
+    const since = prior.firstDispatchAt ? Date.parse(prior.firstDispatchAt) : NaN;
+    if (!(Date.now() - since < EMAIL_IDEMPOTENCY_WINDOW_MS)) {
+      // Q14: 2 — the key no longer protects a resend.
+      logger.warn({ id: row.id, firstDispatchAt: prior.firstDispatchAt }, "[email] possibly sent more than 24 h ago — marked failed rather than risk a duplicate");
+      return terminalFailure(
+        "email_duplicate_unprotected",
+        "This email may already have been sent more than 24 hours ago, when duplicate protection lapsed; it was not sent again. Retry it from the email queue to send it anyway.",
+      );
+    }
+  } else if (!unsentIsTrustworthy(prior, row)) {
+    // Q14: 2 — an earlier release may have sent it with no key.
+    logger.warn({ id: row.id, attempts: row.attempts }, "[email] may have been sent by an earlier release without duplicate protection — marked failed");
+    return terminalFailure(
+      "email_possibly_sent_without_key",
+      "An earlier version of the server may already have sent this email without duplicate protection; it was not sent again. Retry it from the email queue to send it anyway.",
+    );
+  }
+
+  if (resendAuthDisabled) {
+    // Nothing is sent; the record accounts for this claim, so the retry still trusts it.
+    await writeDelivery(row.id, { ...(prior ?? { v: 1, nonce: randomUUID(), state: "unsent" }), accountedToken: token });
+    return { ok: false, error: RESEND_DISABLED_ERROR };
+  }
+
+  // Freeze the message and record the possible send BEFORE it can happen.
+  const record: EmailDelivery = {
+    v: 1,
+    nonce: prior?.nonce ?? randomUUID(),
+    message: prior?.message ?? await resolveOutgoingMessage(ep),
+    state: "possibly_sent",
+    firstDispatchAt: prior?.firstDispatchAt ?? new Date().toISOString(),
+    providerId: null,
+    accountedToken: token,
+  };
+  await writeDelivery(row.id, record);
+  if (prior?.state === "possibly_sent") {
+    logger.info({ id: row.id, firstDispatchAt: prior.firstDispatchAt }, "[email] resending with the same no-duplicate key after an interrupted or failed attempt");
+  }
+
+  const sent = await deliverFromOutbox(ep, {
+    message: record.message!,
+    idempotencyKey: emailIdempotencyKey(row.id, record.nonce),
+  });
+  if (sent.ok) {
+    // If this write is refused (the claim moved on), the successor resends with
+    // the same key and Resend answers without sending again.
+    await writeDelivery(row.id, { ...record, state: "sent", providerId: sent.providerId ?? null });
+    return { ok: true, result: { providerId: sent.providerId ?? null } };
+  }
+  if (sent.errorName === "invalid_idempotent_request") {
+    // Same key, different message: cannot happen with a frozen message, and retrying cannot fix it.
+    return terminalFailure("email_idempotency_conflict", sent.error ?? "Resend refused the no-duplicate key");
+  }
+  // It may have reached Resend: only a worker that resends with the key may retry it.
+  return { ok: false, error: sent.error ?? "unknown", recoverOnRetry: true };
+}
+
 /**
  * Register the email handler with the shared async-jobs worker. Called once
  * from index.ts before `runAsyncJobsWorker()` starts.
  */
 export function registerEmailHandler(): void {
-  // Execution limit (Issue #1000): one send with no idempotency key yet; kept at the old 30-minute reclaim until increment 3 adds one.
-  registerJobHandler("email", emailJobHandler, { executionLimitMs: 30 * 60_000 });
+  registerJobHandler("email", emailJobHandler, {
+    // One send of seconds; 5 min ends only a wedged one (Q15). A run ended at
+    // its limit may have reached Resend, so its retry stays with workers that
+    // resend with the key (recoverAfterLimit).
+    executionLimitMs: 5 * 60_000,
+    recoveryProtocol: EMAIL_RECOVERY_PROTOCOL,
+    fastReclaim: true,
+    recoverAfterLimit: true,
+  });
 }
 
 /**

@@ -54,6 +54,7 @@ import adminImagePromptRouter from "../routes/adminImagePrompt.js";
 import { materializeEnrichment } from "../lib/factEnrichment.js";
 import { sendFactBackToReview, SendBackToReviewError } from "../lib/sendBackToReview.js";
 import { runEnrichmentForCandidateVersion, enrichmentJobHandler } from "../lib/enrichmentJobs.js";
+import { blockChildJobsForFact } from "./helpers/blockChildJob.js";
 import { __setUtilityLLMClientForTest } from "../lib/utilityLLM.js";
 import {
   advanceReviewForStagingFactEnrichment,
@@ -577,6 +578,36 @@ describe("runEnrichmentForCandidateVersion", () => {
     assert.equal(reviewB.status, "rejected");
     const [fB] = await db.select().from(factsTable).where(eq(factsTable.id, factB.id));
     assert.equal(fB.enrichmentStatus, "ok", "the LIVE fact's pill must not flip to failed after a reject");
+  });
+
+  it("the stage advance and the Visual-Idea job commit with the candidate write or not at all, so a resumed run is never stranded (Issue #1000 §F)", async () => {
+    const fact = await seedActiveFact();
+    const { reviewId, candidateVersionId } = await sendFactBackToReview({ factId: fact.id, adminId });
+    const conceptJobs = () => db.select({ id: asyncJobsTable.id }).from(asyncJobsTable)
+      .where(and(eq(asyncJobsTable.queue, "fact_visual_concepts"), eq(asyncJobsTable.dedupeKey, `fact_visual_concepts:review:${reviewId}`)));
+
+    const unblock = await blockChildJobsForFact(fact.id);
+    try {
+      await assert.rejects(runEnrichmentForCandidateVersion(candidateVersionId, { classify: async () => REFRESHED_AI_BASELINE }));
+    } finally {
+      await unblock();
+    }
+    const [stuck] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
+    assert.equal(stuck.workflowStage, "prep_pending", "no stage advance without its job");
+    const [unwritten] = await db.select().from(factEnrichmentVersionsTable).where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
+    assert.equal(unwritten.enrichment, null);
+    assert.equal((await conceptJobs()).length, 0);
+
+    const result = await runEnrichmentForCandidateVersion(candidateVersionId, { classify: async () => REFRESHED_AI_BASELINE });
+    assert.equal(result.ok, true);
+    const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
+    assert.equal(r.workflowStage, "concept_review");
+    assert.equal((await conceptJobs()).length, 1, "exactly one Visual-Idea job");
+
+    let again = 0;
+    await runEnrichmentForCandidateVersion(candidateVersionId, { classify: async () => { again++; return REFRESHED_AI_BASELINE; } });
+    assert.equal(again, 0, "a successor after the commit makes no second paid call");
+    assert.equal((await conceptJobs()).length, 1, "and no second job");
   });
 
   it("phase 3 recheck: a mid-classify rejection makes the write a no-op", async () => {

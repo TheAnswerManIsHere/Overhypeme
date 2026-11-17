@@ -42,7 +42,7 @@ import {
   type GagFoldVersionReport,
   type VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
-import { enqueueJob, registerJobHandler, type HandlerResult, type JobHandler } from "../asyncJobs";
+import { RESUMES_FROM_CHECKPOINTS, enqueueJob, registerJobHandler, type HandlerResult, type JobHandler } from "../asyncJobs";
 import { stableStringify } from "../factRenderScenarios";
 import { normaliseGagContent } from "./resolver";
 import { foldGagContent } from "./fold";
@@ -292,5 +292,5 @@ export const gagFoldHandler: JobHandler = { run: (payload: unknown) => runGagFol
 
 export function registerGagFoldHandler(): void {
   // Execution limit (Issue #1000): one cast call, up to 3 tries of 30 s (about 1.5 min), then database work, plus margin.
-  registerJobHandler(GAG_FOLD_QUEUE, gagFoldHandler, { executionLimitMs: 10 * 60_000 });
+  registerJobHandler(GAG_FOLD_QUEUE, gagFoldHandler, { executionLimitMs: 10 * 60_000, ...RESUMES_FROM_CHECKPOINTS });
 }

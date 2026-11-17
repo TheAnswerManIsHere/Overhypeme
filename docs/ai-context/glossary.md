@@ -1305,11 +1305,14 @@ writes nothing (Issue #1000).
 A job taken back from a process that stopped mid-run, for a queue whose handler
 knows how to resume one (it declares a recovery protocol). Only a worker
 declaring at least that protocol may claim it, and it stays recovering through
-retries until it finishes. Queue Health shows it as "Picking back up"; a
-render's tile does too, until a run after the reclaim fails and the job is
-waiting out its retry, which the tile shows as "Retrying shortly…". The two
-render queues declare one (Issue #1000, increment 2); the other queues declare
-none yet.
+retries until it finishes. An email is also put in recovery when its run may
+already have reached Resend: a send that failed or a run ended at its time
+limit. Only a release that resends with the no-duplicate key may take it, never
+an earlier one (Issue #1000, increment 3). Queue Health shows it as "Picking
+back up". A render's tile does too, until a run after the reclaim fails and the
+job is waiting out its retry, which the tile shows as "Retrying shortly…". Every
+queue declares one: the two render queues since increment 2, the rest since
+increment 3.
 → [architecture-map](./architecture-map.md#async-jobs-and-queues)
 
 ### Recovery sweep

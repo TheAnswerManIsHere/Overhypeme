@@ -8,7 +8,7 @@
  */
 
 import type { TaxonomyHealthSkipReason } from "@workspace/api-zod";
-import { registerJobHandler, enqueueJob, type JobHandler, type HandlerResult } from "./asyncJobs";
+import { RESUMES_FROM_CHECKPOINTS, registerJobHandler, enqueueJob, type JobHandler, type HandlerResult } from "./asyncJobs";
 import { sendFactBackToReview, SendBackToReviewError, type SendBackToReviewErrorCode } from "./sendBackToReview";
 import { findInFlightRefreshCandidate } from "./enrichmentVersioning";
 import { logger } from "./logger";
@@ -123,5 +123,5 @@ export function registerFactSendBackHandler(): void {
   // `fast` lane: pure-DB admin action (no model/image wait) — must stay
   // near-instant regardless of bulk/render backlog.
   // Execution limit (Issue #1000): database only.
-  registerJobHandler(FACT_SEND_BACK_QUEUE, factSendBackHandler, { lane: "fast", executionLimitMs: 5 * 60_000 });
+  registerJobHandler(FACT_SEND_BACK_QUEUE, factSendBackHandler, { lane: "fast", executionLimitMs: 5 * 60_000, ...RESUMES_FROM_CHECKPOINTS });
 }
