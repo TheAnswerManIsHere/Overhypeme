@@ -15,6 +15,9 @@ import {
   hasNoLikelySubjectReference,
 } from "../lib/factTokenizer";
 import { renderCanonical } from "../lib/renderCanonical";
+import { duplicateMatchText } from "../lib/duplicateText";
+import type { DuplicateOutcome } from "../lib/duplicateVerdict";
+export type { DuplicateOutcome };
 import { logger } from "../lib/logger";
 import { requireRole } from "../middlewares/tierMiddleware";
 import {
@@ -163,12 +166,30 @@ export async function moderateComment(commentId: number, text: string): Promise<
   }
 }
 
+/**
+ * The duplicate detector's verdict (plan docs/plans/PLAN_DUPLICATE_VERDICT.md):
+ *   - "duplicate": an exact match (case, whitespace and punctuation ignored)
+ *     against an active fact or another pending review, or a validated positive
+ *     AI answer naming one of the supplied candidates;
+ *   - "distinct": a validated negative AI answer, or a successful search with no
+ *     candidate at or above STAGE1_THRESHOLD;
+ *   - "unavailable": the search or the AI step failed, or the AI's answer was
+ *     malformed. Never reported as "distinct".
+ * `matchingFactId` is the matched fact on "duplicate" and the nearest fact
+ * otherwise (when the search found one); `confidence` is that fact's cosine
+ * similarity as a percentage, a detail no screen shows.
+ */
+
 export interface DuplicateCheckResult {
+  outcome: DuplicateOutcome;
+  /** `outcome === "duplicate"`, kept for older clients. */
   isDuplicate: boolean;
   confidence: number;
   matchingFactId?: number;
   matchingFactText?: string;
   matchingCanonicalText?: string;
+  /** The other pending review an exact match found. */
+  matchingReviewId?: number;
   llmChecked?: boolean;
 }
 
@@ -176,18 +197,24 @@ export interface DuplicateCheckResult {
 // Anything below this is geometrically too distant to be a paraphrase.
 const STAGE1_THRESHOLD = 0.65;
 
-// Stage 2 fallback: if the LLM call fails, fall back to this vector-only threshold.
-const VECTOR_FALLBACK_THRESHOLD = 0.75;
-
 // Token pattern: {NAME}, {SUBJ}, {does|do}, etc.
 const TEMPLATE_TOKEN_RE = /\{[A-Z_]+\}|\{[A-Za-z_]+\}|\{[^}|]+\|[^}]+\}/;
 
 type Neighbor = { id: number; text: string; canonicalText: string | null; similarity: number };
 
+export class MalformedDuplicateAnswerError extends Error {
+  constructor(readonly content: string) {
+    super("The duplicate check's answer was malformed.");
+    this.name = "MalformedDuplicateAnswerError";
+  }
+}
+
 /**
- * Stage 2: Ask the LLM whether any of the vector candidates is a true duplicate
- * of the new entry. One batched call handles all candidates.
- * Returns which candidate index (1-based) is a duplicate, or null.
+ * Stage 2: ask the LLM whether any of the vector candidates is a true duplicate
+ * of the new entry. One batched call handles all candidates. Validates the
+ * answer: the verdict must be a boolean, and a positive verdict must name one of
+ * the candidates by its 1-based index. Anything else throws
+ * MalformedDuplicateAnswerError, which the detector reports as "unavailable".
  */
 export async function llmDuplicateCheck(
   newText: string,
@@ -214,47 +241,70 @@ export async function llmDuplicateCheck(
     reasoningEffort: JUDGEMENT_REASONING_EFFORT,
   });
 
-  const content = response.choices[0]?.message?.content ?? "{}";
-  const parsed = JSON.parse(content) as { isDuplicate?: boolean; matchIndex?: number | null };
-  return {
-    isDuplicate: parsed.isDuplicate === true,
-    matchIndex: typeof parsed.matchIndex === "number" ? parsed.matchIndex : null,
-  };
+  const content = response.choices[0]?.message?.content ?? "";
+  return parseDuplicateAnswer(content, candidates.length);
+}
+
+/** Validate the duplicate check's JSON answer against the number of candidates it was given. */
+export function parseDuplicateAnswer(content: string, candidateCount: number): { isDuplicate: boolean; matchIndex: number | null } {
+  let parsed: unknown;
+  try { parsed = JSON.parse(content); } catch { throw new MalformedDuplicateAnswerError(content); }
+  if (typeof parsed !== "object" || parsed === null) throw new MalformedDuplicateAnswerError(content);
+  const { isDuplicate, matchIndex } = parsed as { isDuplicate?: unknown; matchIndex?: unknown };
+  if (typeof isDuplicate !== "boolean") throw new MalformedDuplicateAnswerError(content);
+  if (!isDuplicate) return { isDuplicate: false, matchIndex: null };
+  if (typeof matchIndex !== "number" || !Number.isInteger(matchIndex) || matchIndex < 1 || matchIndex > candidateCount) {
+    throw new MalformedDuplicateAnswerError(content);
+  }
+  return { isDuplicate: true, matchIndex };
 }
 
 /**
- * A pending review whose wording matches, case and surrounding space ignored,
- * other than `excludeReviewId` (the review whose own wording is being checked).
+ * A pending review whose wording matches under duplicateMatchText (case,
+ * whitespace and punctuation ignored), other than `excludeReviewId` (the review
+ * whose own wording is being checked).
  */
-export async function findPendingReviewWithText(normalizedText: string, excludeReviewId?: number): Promise<{ id: number; submittedText: string } | null> {
+export async function findPendingReviewWithText(text: string, excludeReviewId?: number): Promise<{ id: number; submittedText: string } | null> {
   const [row] = await db
     .select({ id: pendingReviewsTable.id, submittedText: pendingReviewsTable.submittedText })
     .from(pendingReviewsTable)
     .where(and(
       eq(pendingReviewsTable.status, "pending"),
-      sql`LOWER(TRIM(${pendingReviewsTable.submittedText})) = ${normalizedText}`,
+      sql`${duplicateMatchText(pendingReviewsTable.submittedText)} = ${duplicateMatchText(text)}`,
       excludeReviewId != null ? ne(pendingReviewsTable.id, excludeReviewId) : undefined,
     ))
     .limit(1);
   return row ?? null;
 }
 
+function nearest(n: Neighbor): Pick<DuplicateCheckResult, "confidence" | "matchingFactId" | "matchingFactText" | "matchingCanonicalText"> {
+  return {
+    confidence: Math.round(n.similarity * 100),
+    matchingFactId: n.id,
+    matchingFactText: n.text,
+    matchingCanonicalText: n.canonicalText ?? n.text,
+  };
+}
+
 /**
  * `opts.excludeReviewId` leaves one pending review out of the pending-review
  * pre-check: a submission whose wording is edited at triage is compared with
  * other content, never with itself (plan PLAN_THREE_GAGS.md, increment 3).
+ *
+ * The exact pre-checks may throw (a database failure); every caller turns a
+ * throw into "unavailable". The search and AI stages report their own failures
+ * as "unavailable" here.
  */
 export async function checkDuplicateInternal(text: string, opts: { excludeReviewId?: number } = {}): Promise<DuplicateCheckResult> {
-  const normalizedText = text.trim().toLowerCase();
-
   // Fast pre-check: exact text match against approved facts (avoids embedding round-trip).
   const [exactFact] = await db
     .select({ id: factsTable.id, text: factsTable.text, canonicalText: factsTable.canonicalText })
     .from(factsTable)
-    .where(and(eq(factsTable.isActive, true), sql`LOWER(TRIM(${factsTable.text})) = ${normalizedText}`))
+    .where(and(eq(factsTable.isActive, true), sql`${duplicateMatchText(factsTable.text)} = ${duplicateMatchText(text)}`))
     .limit(1);
   if (exactFact) {
     return {
+      outcome: "duplicate",
       isDuplicate: true,
       confidence: 100,
       matchingFactId: exactFact.id,
@@ -265,11 +315,13 @@ export async function checkDuplicateInternal(text: string, opts: { excludeReview
   }
 
   // Fast pre-check: exact text match against pending reviews still awaiting decision.
-  const exactReview = await findPendingReviewWithText(normalizedText, opts.excludeReviewId);
+  const exactReview = await findPendingReviewWithText(text, opts.excludeReviewId);
   if (exactReview) {
     return {
+      outcome: "duplicate",
       isDuplicate: true,
       confidence: 100,
+      matchingReviewId: exactReview.id,
       matchingFactText: exactReview.submittedText,
       matchingCanonicalText: renderCanonical(exactReview.submittedText),
       llmChecked: false,
@@ -278,48 +330,38 @@ export async function checkDuplicateInternal(text: string, opts: { excludeReview
 
   // Render template tokens to canonical form so embeddings compare apples-to-apples.
   const textToEmbed = TEMPLATE_TOKEN_RE.test(text) ? renderCanonical(text) : text;
-  const embedding = await embedText(textToEmbed);
 
-  // Stage 1 — vector recall: retrieve top-5 with threshold:0 (for UI display),
-  // but only forward candidates that clear STAGE1_THRESHOLD to the LLM.
-  const neighbors = await findSimilarFacts(embedding, { limit: 5, threshold: 0 });
-
-  if (neighbors.length === 0) return { isDuplicate: false, confidence: 0 };
-
-  const best = neighbors[0];
-  const candidates = neighbors.filter((n) => n.similarity >= STAGE1_THRESHOLD);
-
-  // Stage 2 — LLM precision: let the model decide if any candidate is truly
-  // the same fact. Fall back to vector threshold if the LLM call fails.
-  if (candidates.length > 0) {
-    try {
-      const { isDuplicate, matchIndex } = await llmDuplicateCheck(textToEmbed, candidates);
-      const matched =
-        matchIndex !== null && matchIndex >= 1 && matchIndex <= candidates.length
-          ? candidates[matchIndex - 1]
-          : candidates[0];
-      return {
-        isDuplicate,
-        confidence: Math.round(best.similarity * 100),
-        matchingFactId: matched.id,
-        matchingFactText: matched.text,
-        matchingCanonicalText: matched.canonicalText ?? matched.text,
-        llmChecked: true,
-      };
-    } catch (err) {
-      logger.error({ err }, "[AI] LLM duplicate check failed, falling back to vector threshold");
-    }
+  // Stage 1 — vector recall: the top 5 (the nearest is kept for display), of
+  // which only those clearing STAGE1_THRESHOLD go to the LLM.
+  let neighbors: Neighbor[];
+  try {
+    const embedding = await embedText(textToEmbed);
+    neighbors = await findSimilarFacts(embedding, { limit: 5, threshold: 0 });
+  } catch (err) {
+    logger.error({ err }, "[AI] Duplicate check: the similarity search failed");
+    return { outcome: "unavailable", isDuplicate: false, confidence: 0, llmChecked: false };
   }
 
-  // Vector-only result (no candidates above Stage 1 threshold, or LLM failed)
-  return {
-    isDuplicate: best.similarity >= VECTOR_FALLBACK_THRESHOLD,
-    confidence: Math.round(best.similarity * 100),
-    matchingFactId: best.id,
-    matchingFactText: best.text,
-    matchingCanonicalText: best.canonicalText ?? best.text,
-    llmChecked: false,
-  };
+  if (neighbors.length === 0) return { outcome: "distinct", isDuplicate: false, confidence: 0, llmChecked: false };
+
+  const best = neighbors[0]!;
+  const candidates = neighbors.filter((n) => n.similarity >= STAGE1_THRESHOLD);
+  if (candidates.length === 0) {
+    return { outcome: "distinct", isDuplicate: false, ...nearest(best), llmChecked: false };
+  }
+
+  // Stage 2 — LLM precision: the model decides whether any candidate is truly
+  // the same fact. A failure or a malformed answer is "unavailable", never a guess.
+  try {
+    const { isDuplicate, matchIndex } = await llmDuplicateCheck(textToEmbed, candidates);
+    if (isDuplicate && matchIndex !== null) {
+      return { outcome: "duplicate", isDuplicate: true, ...nearest(candidates[matchIndex - 1]!), llmChecked: true };
+    }
+    return { outcome: "distinct", isDuplicate: false, ...nearest(best), llmChecked: true };
+  } catch (err) {
+    logger.error({ err }, "[AI] Duplicate check: the AI step failed");
+    return { outcome: "unavailable", isDuplicate: false, ...nearest(best), llmChecked: false };
+  }
 }
 
 router.post("/ai/check-duplicate", requireAuth, requireRateLimit, async (req: Request, res: Response) => {
@@ -333,7 +375,8 @@ router.post("/ai/check-duplicate", requireAuth, requireRateLimit, async (req: Re
     res.json(result);
   } catch (err) {
     logger.error({ err }, "[AI] check-duplicate error");
-    res.json({ isDuplicate: false, confidence: 0 });
+    const unavailable: DuplicateCheckResult = { outcome: "unavailable", isDuplicate: false, confidence: 0 };
+    res.json(unavailable);
   }
 });
 

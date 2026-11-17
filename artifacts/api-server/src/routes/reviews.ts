@@ -19,7 +19,8 @@ import { logActivity } from "../lib/activity";
 import { sendEmail, buildReviewApprovedEmail, buildReviewRejectedEmail } from "../lib/email";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { notifyAdmins } from "../lib/adminNotify";
-import { createFactSubmitRateLimiter, FACT_SUBMIT_PENDING_CAP } from "../lib/rateLimit";
+import { createFactSubmitRateLimiter, createRateLimiter, FACT_SUBMIT_PENDING_CAP, RATE_WINDOW_MS } from "../lib/rateLimit";
+import { checkReviewDuplicate, duplicateView, duplicateViews, needsDuplicateCheck, type DuplicateDetector } from "../lib/duplicateVerdict";
 import { normalizeFactTemplateForPendingReview } from "../lib/normalizeFactTemplateForStorage";
 import {
   validateEnrichment,
@@ -88,7 +89,7 @@ import {
 import { resolveDefaultReferenceUrl, ReferenceAssetUnavailableError } from "../lib/defaultReferenceResolver";
 import { referenceAssetHealth } from "../lib/defaultReferenceResolver";
 import { logger } from "../lib/logger";
-import { editTriageWording, lockReview, WordingError, withdrawForWording, type WordingDuplicate } from "../lib/reviewWording";
+import { editTriageWording, lockReview, WordingError, withdrawForWording } from "../lib/reviewWording";
 import { checkDuplicateInternal } from "./ai";
 
 // Re-export the plan-generator test seam (owned by the shared preview helper).
@@ -99,6 +100,8 @@ import { checkDuplicateInternal } from "./ai";
 export { __setPlanGeneratorForTest } from "../lib/imagePrompt/preview";
 
 const requireFactSubmitRateLimit = createFactSubmitRateLimiter();
+// Each on-demand duplicate check may spend an embedding and an AI call.
+const requireDuplicateCheckRateLimit = createRateLimiter("admin-duplicate-check", 60, RATE_WINDOW_MS);
 
 const router: IRouter = Router();
 
@@ -118,6 +121,9 @@ function requireAuth(req: Request, res: Response, next: () => void): void {
 
 // ─── Submit for Review ────────────────────────────────────────────────────────
 
+// matchingFactId / matchingSimilarity / isDuplicate are still accepted, so an
+// older open tab is not refused, and discarded: the duplicate verdict is the
+// server's own check of the saved wording (plan PLAN_DUPLICATE_VERDICT.md).
 const SubmitReviewBody = z.object({
   text: z.string().min(SUBMISSION_TEXT_MIN_CHARS).max(SUBMISSION_TEXT_MAX_CHARS),
   matchingFactId: z.number().int().optional(),
@@ -151,7 +157,7 @@ router.post("/facts/submit-review", requireAuth, requireFactSubmitRateLimit, asy
     res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
     return;
   }
-  const { text: rawText, matchingFactId, matchingSimilarity = 0, isDuplicate = false, hashtags: rawHashtags = [], reason } = parsed.data;
+  const { text: rawText, hashtags: rawHashtags = [], reason } = parsed.data;
   // Run the full deterministic grammar cleanup at ingress: a submission that
   // bypassed the tokenize route (API clients, stale front-ends) may still
   // carry a {NAME}-subject pair, an unexpanded {Subj}'s contraction, or a
@@ -198,8 +204,6 @@ router.post("/facts/submit-review", requireAuth, requireFactSubmitRateLimit, asy
     review = await createTriageReview(tx, {
       submittedText: text,
       submittedById: req.user.id,
-      matchingFactId,
-      matchingSimilarity,
       hashtags,
       reason: reason ?? null,
     });
@@ -222,15 +226,21 @@ router.post("/facts/submit-review", requireAuth, requireFactSubmitRateLimit, asy
     reviewUrl: `${getSiteBaseUrl()}/admin/reviews`,
   });
 
-  const isDuplicateFlagged = !!matchingFactId && isDuplicate;
   await logActivity({
     userId: req.user.id,
     actionType: "review_submitted",
-    message: isDuplicateFlagged
-      ? `You submitted a fact for admin review — flagged as a possible duplicate at ${matchingSimilarity}% similarity.`
-      : `You submitted a fact for admin review. You'll be notified when it's approved or declined.`,
-    metadata: { reviewId: review.id, matchingFactId, text: text.slice(0, 120) },
+    message: `You submitted a fact for admin review. You'll be notified when it's approved or declined.`,
+    metadata: { reviewId: review.id, text: text.slice(0, 120) },
   });
+
+  // The duplicate check of the saved wording, after the commit: the submitter
+  // never waits on it, and it writes only while the wording is unchanged.
+  const submittedId = review.id;
+  pendingSubmitChecks.add(
+    checkReviewDuplicate(submittedId, duplicateDetector)
+      .catch((err) => logger.error({ err, reviewId: submittedId }, "[duplicate] the post-submit check failed"))
+      .then(() => undefined),
+  );
 
   res.status(201).json({ success: true, reviewId: review.id });
 });
@@ -310,7 +320,10 @@ router.get("/admin/reviews", requireAdmin, async (req: Request, res: Response) =
   const productionReviewIds = reviews
     .filter((r) => r.workflowStage === "production_review")
     .map((r) => r.id);
-  const renderStates = await reviewRenderStates(productionReviewIds);
+  const [renderStates, duplicates] = await Promise.all([
+    reviewRenderStates(productionReviewIds),
+    duplicateViews(reviews),
+  ]);
 
   const enriched = reviews.map((r) => {
     const renderReviewState = r.workflowStage === "production_review"
@@ -322,6 +335,7 @@ router.get("/admin/reviews", requireAdmin, async (req: Request, res: Response) =
       reviewedAt: r.reviewedAt?.toISOString() ?? null,
       submitter: r.submittedById ? submitterMap[r.submittedById] ?? null : null,
       matchingFact: r.matchingFactId ? factMap[r.matchingFactId] ?? null : null,
+      duplicate: duplicates.get(r.id)!,
       stagingFact: r.stagingFactId ? stagingMap[r.stagingFactId] ?? null : null,
       rendersRunning: renderReviewState === "running",
       renderReviewState,
@@ -385,6 +399,8 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
       })
     : { status: null, candidates: [], current: false };
 
+  const duplicate = await duplicateView(review);
+
   res.json({
     ...review,
     createdAt: review.createdAt.toISOString(),
@@ -393,6 +409,7 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
     matchingFact: matchingFact
       ? { ...matchingFact, createdAt: matchingFact.createdAt.toISOString() }
       : null,
+    duplicate,
     stagingFact,
     visualConcepts,
   });
@@ -897,14 +914,22 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
 
 const WordingBody = z.object({ text: z.string() });
 
-/** The duplicate match for edited wording: the embedding and LLM check a submission uses. A seam for tests. */
-const defaultWordingDuplicate = async (text: string, reviewId: number): Promise<WordingDuplicate> => {
-  const match = await checkDuplicateInternal(text, { excludeReviewId: reviewId });
-  return { matchingFactId: match.matchingFactId ?? null, matchingSimilarity: match.confidence ?? 0 };
-};
-let wordingDuplicate = defaultWordingDuplicate;
-export function __setWordingDuplicateForTest(fn: ((text: string, reviewId: number) => Promise<WordingDuplicate>) | null): void {
-  wordingDuplicate = fn ?? defaultWordingDuplicate;
+/**
+ * The duplicate detector every trigger uses: after a submission, a triage
+ * wording edit, and triage's on-demand check. A seam for tests.
+ */
+let duplicateDetector: DuplicateDetector = checkDuplicateInternal;
+export function __setDuplicateDetectorForTest(fn: DuplicateDetector | null): void {
+  duplicateDetector = fn ?? checkDuplicateInternal;
+}
+/** Post-submit checks still running; a test awaits them. */
+const pendingSubmitChecks = new Set<Promise<void>>();
+export async function __settleSubmitDuplicateChecksForTest(): Promise<void> {
+  while (pendingSubmitChecks.size) {
+    const batch = [...pendingSubmitChecks];
+    pendingSubmitChecks.clear();
+    await Promise.all(batch);
+  }
 }
 const WithdrawBody = z.object({ note: z.string().max(500).optional() });
 
@@ -922,22 +947,35 @@ router.post("/admin/reviews/:id/wording", requireAdmin, async (req: Authenticate
   const body = WordingBody.safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: "The wording is required." }); return; }
   try {
-    const review = await editTriageWording(id, body.data.text, req.user.id, (text) => wordingDuplicate(text, id));
-    // The matched fact's text, so the screen redraws its duplicate card.
-    const [matchingFact] = review.matchingFactId != null
-      ? await db.select({ id: factsTable.id, text: factsTable.text }).from(factsTable).where(and(eq(factsTable.id, review.matchingFactId), eq(factsTable.isActive, true))).limit(1)
-      : [];
+    const review = await editTriageWording(id, body.data.text, req.user.id, (text) => duplicateDetector(text, { excludeReviewId: id }));
+    // The new wording's verdict, so the screen redraws its duplicate line.
     res.json({
       success: true,
       submittedText: review.submittedText,
       submittedTextOriginal: review.submittedTextOriginal,
-      matchingFactId: review.matchingFactId,
-      matchingSimilarity: review.matchingSimilarity,
-      matchingFact: matchingFact ?? null,
+      duplicate: await duplicateView(review),
     });
   } catch (err) {
     if (!sendWordingError(res, err)) throw err;
   }
+});
+
+// Triage's on-demand duplicate check (plan PLAN_DUPLICATE_VERDICT.md; David,
+// Q1: a review with no usable verdict is checked the first time it is opened).
+// Runs only when the review is at triage and its verdict is missing, stale or
+// "unavailable"; otherwise it returns the stored verdict without spending. The
+// response carries the wording the verdict belongs to, so the screen can drop
+// a result a newer wording has superseded.
+router.post("/admin/reviews/:id/duplicate-check", requireAdmin, requireDuplicateCheckRateLimit, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
+  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
+  let current = review;
+  if (needsDuplicateCheck(review, await duplicateView(review))) {
+    current = (await checkReviewDuplicate(id, duplicateDetector)) ?? review;
+  }
+  res.json({ submittedText: current.submittedText, duplicate: await duplicateView(current) });
 });
 
 router.post("/admin/reviews/:id/withdraw", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {

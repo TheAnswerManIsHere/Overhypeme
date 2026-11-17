@@ -30,7 +30,7 @@ const base = {
 
 describe("SubmissionWording", () => {
   it("at triage, an edit is saved to the wording route and reported back; the screen knows while it is unsaved", async () => {
-    const saved = { submittedText: "{NAME} counted to infinity. Twice.", submittedTextOriginal: base.text, matchingFactId: null, matchingSimilarity: 3, matchingFact: null };
+    const saved = { submittedText: "{NAME} counted to infinity. Twice.", submittedTextOriginal: base.text, duplicate: { state: "distinct" as const, fact: null, review: null } };
     const calls = stubFetch(200, saved);
     const onSaved = vi.fn();
     const onDirtyChange = vi.fn();
@@ -54,7 +54,7 @@ describe("SubmissionWording", () => {
     fireEvent.change(box, { target: { value: "{NAME} counted to infinity. Twice." } });
     fireEvent.click(screen.getByTestId("submission-wording-save"));
     await waitFor(() => expect(box.readOnly).toBe(true));
-    answer({ ok: true, status: 200, json: async () => ({ submittedText: "{NAME} counted to infinity. Twice.", submittedTextOriginal: base.text, matchingFactId: null, matchingSimilarity: 0, matchingFact: null }) });
+    answer({ ok: true, status: 200, json: async () => ({ submittedText: "{NAME} counted to infinity. Twice.", submittedTextOriginal: base.text, duplicate: { state: "distinct", fact: null, review: null } }) });
     await waitFor(() => expect(box.readOnly).toBe(false));
   });
 

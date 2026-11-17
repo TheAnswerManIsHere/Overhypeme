@@ -30,6 +30,7 @@ import { memeKey } from "../../lib/storageKeys";
 import { includedTables, primaryKey, quoteIdent, sqlColumnRules, sqlName } from "./allowlist";
 import type { ExportManifest, Row } from "./export";
 import { journalHead } from "./journal";
+import { RETIRED_ADMIN_CONFIG_KEYS } from "../../lib/retirementLosses";
 import { objectPathOf, type MediaPlaceholder } from "./media";
 
 /** Tables whose rows are product configuration: upserted over the migration seed rather than inserted. */
@@ -110,8 +111,12 @@ export async function loadFixtureRows(
     await client.query("BEGIN");
     for (const entry of includedTables()) {
       const table = sqlName(entry.table);
-      const rows = readRows(fixtureDir, table);
-      rowCounts[table] = rows.length;
+      const allRows = readRows(fixtureDir, table);
+      rowCounts[table] = allRows.length;
+      // A setting a migration retired is not restored over its deletion (0149).
+      const rows = table === "admin_config"
+        ? allRows.filter((r) => !RETIRED_ADMIN_CONFIG_KEYS.includes(String((r as Record<string, unknown>)["key"])))
+        : allRows;
       if (rows.length === 0) continue;
       const columns = sqlColumnRules(entry).filter((c) => c.rule !== "drop").map((c) => c.column);
       const colList = columns.map(quoteIdent).join(", ");

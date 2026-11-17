@@ -642,20 +642,38 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [isDuplicate, confidence]
+                required: [outcome, isDuplicate, confidence]
                 properties:
+                  outcome:
+                    type: string
+                    enum: [duplicate, distinct, unavailable]
+                    description: >-
+                      The verdict. "unavailable" means the check could not run
+                      (search or AI failure, or a malformed AI answer); it is
+                      never reported as "distinct".
                   isDuplicate:
                     type: boolean
+                    description: outcome == "duplicate"; kept for older clients.
                   confidence:
                     type: integer
                     minimum: 0
                     maximum: 100
+                    description: >-
+                      Cosine similarity of the matched (or nearest) fact, as a
+                      percentage. A detail, not a likelihood; no screen shows it.
                   matchingFactId:
                     type: integer
                     nullable: true
                   matchingFactText:
                     type: string
                     nullable: true
+                  matchingCanonicalText:
+                    type: string
+                    nullable: true
+                  matchingReviewId:
+                    type: integer
+                    nullable: true
+                    description: The other pending review an exact match found.
         "401":
           description: Authentication required
         "429":

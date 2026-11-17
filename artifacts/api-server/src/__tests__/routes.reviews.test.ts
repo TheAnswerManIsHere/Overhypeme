@@ -32,7 +32,7 @@ import {
 import { and, eq, gte, like, sql, count, inArray } from "drizzle-orm";
 import type { FactEnrichment } from "@workspace/api-zod";
 
-import reviewsRouter, { __setPlanGeneratorForTest } from "../routes/reviews.js";
+import reviewsRouter, { __setDuplicateDetectorForTest, __setPlanGeneratorForTest, __settleSubmitDuplicateChecksForTest } from "../routes/reviews.js";
 import { materializeEnrichment } from "../lib/factEnrichment.js";
 import { FACT_SUBMIT_PENDING_CAP, FACT_SUBMIT_MAX } from "../lib/rateLimit.js";
 import { runEnrichmentForFact } from "../lib/enrichmentJobs.js";
@@ -134,6 +134,10 @@ async function cleanup() {
   }
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
 }
+
+// A submission's post-commit duplicate check runs through a stub: no paid call.
+before(() => __setDuplicateDetectorForTest(async () => ({ outcome: "distinct", confidence: 0 })));
+after(async () => { await __settleSubmitDuplicateChecksForTest(); __setDuplicateDetectorForTest(null); });
 
 before(cleanup);
 after(cleanup);
