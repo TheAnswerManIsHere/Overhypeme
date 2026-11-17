@@ -186,7 +186,7 @@ export function classifyTier2(
   if (confidence === "low") {
     return {
       analysis: {
-        subjectKind: confidence === "low" ? "ambiguous" : dominant.category,
+        subjectKind: "ambiguous",
         confidence,
         hasUsableHumanFace: false,
         hasUsableSubject: usable,

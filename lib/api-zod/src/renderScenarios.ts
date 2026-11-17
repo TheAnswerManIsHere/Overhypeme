@@ -133,9 +133,6 @@ export const ACTIVE_RENDER_SCENARIO_KEYS: readonly RenderScenarioKey[] = RENDER_
   (k) => !RENDER_SCENARIO_DESCRIPTORS[k].retired,
 );
 
-export const NONHUMAN_RENDER_SCENARIO_KEYS: readonly RenderScenarioKey[] = [
-  "i2i_nonhuman_animal",
-];
 
 // ─── Scenario card (GET /render-scenarios response item) ─────────────────────
 
