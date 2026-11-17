@@ -1,5 +1,5 @@
 /**
- * Migration 0144_engine_fallback (plan docs/plans/PLAN_NB_FALLBACK.md, Data
+ * Migration 0145_engine_fallback (plan docs/plans/PLAN_NB_FALLBACK.md, Data
  * Model): one nullable jsonb column, added expand-only, with no backfill. It is
  * idempotent (re-running changes nothing), leaves existing rows null, and keeps
  * a recorded fallback across a re-run, which is what the plan's rollback
@@ -17,14 +17,14 @@ import { factsTable, imagePromptAttemptsTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const MIGRATION_SQL = readFileSync(path.resolve(__dirname, "../../../../lib/db/migrations/0144_engine_fallback.sql"), "utf8");
+const MIGRATION_SQL = readFileSync(path.resolve(__dirname, "../../../../lib/db/migrations/0145_engine_fallback.sql"), "utf8");
 
 const factIds: number[] = [];
 after(async () => {
   for (const id of factIds) await db.delete(factsTable).where(eq(factsTable.id, id));
 });
 
-describe("migration 0144_engine_fallback", () => {
+describe("migration 0145_engine_fallback", () => {
   it("adds a nullable jsonb column, is idempotent, and keeps recorded values across a re-run", async () => {
     await db.execute(sql.raw(MIGRATION_SQL));
     const cols = await db.execute<{ data_type: string; is_nullable: string }>(sql`

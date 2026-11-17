@@ -27,11 +27,10 @@ import {
   validateEnrichment,
   type EvaluationCreate,
   type EvaluationSelection,
-  type EvaluationStatus,
-} from "@workspace/api-zod";
+  type EvaluationStatus, COMPARISON_RENDER_PATHS, type ComparisonSetKind } from "@workspace/api-zod";
 import { ComparisonLayoutError, deriveComparisonLayout } from "./layout";
-import { cellBoundUsd, panelPreparationBoundUsd, panelPreparationTypicalUsd, round4 } from "./admission";
-import { createComparisonSet, groupCellsByPanel, planComparisonRun, plannerSettings, type RunScope } from "./sets";
+import { cellBoundUsd, preparationBoundUsd as preparationBound, panelPreparationBoundUsd, panelPreparationTypicalUsd, round4 } from "./admission";
+import { createComparisonSet, groupCellsByPanel, planComparisonRun, plannerSettings, resolvePathGags, type RunScope } from "./sets";
 import { ComparisonRunRefused, startComparisonRun } from "./runs";
 import { cellLost, isJudgeable, panelWait } from "./judging";
 import { allEngines, imageEngines } from "../engineInterpreter";
@@ -137,18 +136,23 @@ export async function actionPricing(): Promise<ActionPricing> {
  */
 export async function estimateEvaluation(sel: EvaluationSelection): Promise<EvaluationEstimate> {
   const engines = imageEngines();
-  const layout = deriveComparisonLayout({ factIds: sel.factIds, scenarioKeys: sel.scenarioKeys, lookStyleIds: sel.lookStyleIds, engineFamilies: sel.engineFamilies }, engines);
+  const base = deriveComparisonLayout({ factIds: sel.factIds, scenarioKeys: sel.scenarioKeys, lookStyleIds: sel.lookStyleIds, engineFamilies: sel.engineFamilies }, engines);
+  // A path evaluation draws one panel per gag, resolved as set creation
+  // resolves it, each picture once per path.
+  const path = sel.kind === "path" ? await resolvePathGags(sel.factIds, sel.gagIds) : null;
+  const layout = base.flatMap((p) => Array.from({ length: path?.gagsByFact.get(p.factId)?.length ?? 1 }, () => p));
   const price = new Map(engines.map((e) => [e.id, e.priceModel]));
-  const perCell = sel.kind === "prompt" ? (sel.recipeVersionIds?.length ?? 0) : 1;
+  const perCell = sel.kind === "prompt" ? (sel.recipeVersionIds?.length ?? 0) : sel.kind === "path" ? COMPARISON_RENDER_PATHS.length : 1;
   const renderBoundUsd = round4(layout.reduce((s, p) => s + p.engineIds.reduce((t, id) => t + cellBoundUsd(price.get(id)) * perCell, 0), 0));
   const images = layout.reduce((s, p) => s + p.engineIds.length * perCell, 0);
   let preparationBoundUsd: number | null = null;
   let preparationTypicalUsd: number | null = null;
-  let refusal: string | null = null;
+  let refusal: string | null = path?.reasons.length ? path.reasons.join("; ") : null;
   try {
-    const settings = await plannerSettings();
-    preparationBoundUsd = round4(layout.length * panelPreparationBoundUsd(settings));
-    preparationTypicalUsd = layout.length * panelPreparationTypicalUsd(settings);
+    const settings = await plannerSettings({ withCast: sel.kind === "path" });
+    const cast = preparationBound(settings, sel.kind) - panelPreparationBoundUsd(settings);
+    preparationBoundUsd = round4(layout.length * preparationBound(settings, sel.kind));
+    preparationTypicalUsd = layout.length * (panelPreparationTypicalUsd(settings) + cast);
   } catch (err) {
     if (!(err instanceof ComparisonLayoutError)) throw err;
     refusal = err.reasons.join("; ");
@@ -242,6 +246,7 @@ export async function createEvaluation(req: EvaluationCreate, adminUserId: strin
       imageSize: "comparison",
       kind: sel.kind,
       ...(sel.kind === "prompt" ? { recipeVersionIds: sel.recipeVersionIds } : {}),
+      ...(sel.kind === "path" && sel.gagIds ? { gagIds: sel.gagIds } : {}),
     }, adminUserId, { requestToken: req.requestToken }));
   } catch (err) {
     // Two requests with one token racing: the loser reads the winner's set
@@ -384,7 +389,7 @@ export interface EvaluationSummary extends EvaluationProgress {
 }
 
 /** Every evaluation of a kind, newest first, with its derived status. */
-export async function listEvaluations(kind: "engine" | "prompt"): Promise<EvaluationSummary[]> {
+export async function listEvaluations(kind: ComparisonSetKind): Promise<EvaluationSummary[]> {
   const sets = await db.select().from(comparisonSetsTable).where(eq(comparisonSetsTable.kind, kind)).orderBy(desc(comparisonSetsTable.createdAt));
   if (!sets.length) return [];
   const panels = await db.select().from(comparisonPanelsTable).where(inArray(comparisonPanelsTable.setId, sets.map((s) => s.id))).orderBy(asc(comparisonPanelsTable.id));

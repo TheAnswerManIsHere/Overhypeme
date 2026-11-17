@@ -12,15 +12,17 @@ import { EvaluationWizard, type EvaluationKind } from "@/components/admin/Evalua
 import { EvaluationsList } from "@/components/admin/EvaluationsList";
 import { PromptRecipes } from "@/components/admin/PromptRecipes";
 
-type Tab = "models" | "prompts";
+type Tab = "models" | "prompts" | "paths";
 
 function tabFromUrl(): Tab {
-  return new URLSearchParams(window.location.search).get("tab") === "prompts" ? "prompts" : "models";
+  const tab = new URLSearchParams(window.location.search).get("tab");
+  return tab === "prompts" || tab === "paths" ? tab : "models";
 }
 
 const TABS: Array<{ id: Tab; label: string; kind: EvaluationKind; blurb: string }> = [
   { id: "models", label: "Evaluate Models", kind: "engine", blurb: "Draw the same facts with several engines and judge them blind, to choose which engine draws best." },
   { id: "prompts", label: "Evaluate Prompts", kind: "prompt", blurb: "Draw the same facts on one engine with different prompt wordings and judge them blind, then promote the winner." },
+  { id: "paths", label: "Planner vs. Direct", kind: "path", blurb: "Draw each chosen gag twice on each engine, once through today's planner and once straight from the gag, and judge them blind. Results are shown per case, so you can see where the direct path holds up and where it does not." },
 ];
 
 export default function EvalDashboard() {

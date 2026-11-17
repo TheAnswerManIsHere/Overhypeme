@@ -52,6 +52,7 @@ import type {
 import { failureModeConstraints, isActiveActionFrame } from "./failureModeConstraints";
 import { renderPersonalized, hasUnresolvedFactTokens } from "../../renderCanonical";
 import { BASELINE_PIECES, BASELINE_RECIPE, fillPiece, type ResolvedRecipe } from "../recipe";
+import { VIOLENCE_RULE } from "../violenceRule";
 
 // Mirrors PROMPT_TOTAL_BUDGET (api-zod promptBudget.ts) — an editorial forcing
 // function against bloated/redundant authoring, NOT an engine capacity
@@ -1335,24 +1336,7 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
     // A non-empty Concept therefore never falls back to AI content.
     coreScene = moderatorCoreRaw;
     coreSceneModeratorAuthored = true;
-    const owned = detectOwnedLanguage(moderatorCoreRaw);
-    if (owned) {
-      moderatorCoreWarnings.push({
-        code: "moderator_core_scene_owned_language",
-        severity: "warning",
-        message: `The Visual concept contains ${owned.category} language the compiler owns ("${owned.matchedText}"). It is rendered verbatim as authored; rewrite it as visible scene description only so the compiler's identity/reference/text-policy clauses stay the single source.`,
-      });
-    }
-    // Moderator content is verbatim (warn, never strip): a Concept that authors
-    // its own balloon while structured bubbles are active would double-render.
-    if (hasBubbles && BUBBLE_DIRECTIVE_LANGUAGE_RE.test(moderatorCoreRaw)) {
-      moderatorCoreWarnings.push({
-        code: "bubble_language_in_moderator_scene",
-        severity: "warning",
-        message:
-          "The Visual concept describes a speech/thought balloon while structured bubbles are configured. The SPEECH & THOUGHT BUBBLES section owns balloon rendering — describe only the staging (pose, expression, headroom) in the Concept to avoid a doubled balloon.",
-      });
-    }
+    moderatorCoreWarnings.push(...moderatorSceneWarnings(moderatorCoreRaw, hasBubbles));
   }
   if (!coreSceneModeratorAuthored) {
     const sanitized = sanitizePlannerProse(aiCore, { stripBubbleDirectives: hasBubbles });
@@ -1664,6 +1648,158 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   if (mode.withReferenceUrl && input.referenceImageUrl) {
     out.referenceImageUrl = input.referenceImageUrl;
   }
+  return out;
+}
+
+/**
+ * The moderator scene is verbatim (warn, never strip): compiler-owned
+ * language in it, and a balloon it describes itself while structured bubbles
+ * are configured (which would double-render), are reported here. One copy
+ * for the planned and the direct paths.
+ */
+function moderatorSceneWarnings(scene: string, hasBubbles: boolean): PromptWarning[] {
+  const warnings: PromptWarning[] = [];
+  const owned = detectOwnedLanguage(scene);
+  if (owned) {
+    warnings.push({
+      code: "moderator_core_scene_owned_language",
+      severity: "warning",
+      message: `The Visual concept contains ${owned.category} language the compiler owns ("${owned.matchedText}"). It is rendered verbatim as authored; rewrite it as visible scene description only so the compiler's identity/reference/text-policy clauses stay the single source.`,
+    });
+  }
+  if (hasBubbles && BUBBLE_DIRECTIVE_LANGUAGE_RE.test(scene)) {
+    warnings.push({
+      code: "bubble_language_in_moderator_scene",
+      severity: "warning",
+      message:
+        "The Visual concept describes a speech/thought balloon while structured bubbles are configured. The SPEECH & THOUGHT BUBBLES section owns balloon rendering — describe only the staging (pose, expression, headroom) in the Concept to avoid a doubled balloon.",
+    });
+  }
+  return warnings;
+}
+
+// ─── The direct path (no planner) ──────────────────────────────────────────
+//
+// Plan `docs/plans/PLAN_GAG_DIRECT_RENDER.md`, *Proposed Design* A: a picture
+// drawn from ONE selected gag's content and wording that is the same for every
+// fact, with no planner call. The input is explicit and holds no
+// classification: nothing a fact's enrichment says can reach this prompt, by
+// the shape of the arguments. Increment 1 runs it inside the planned-vs-direct
+// comparison only; nothing else calls it yet.
+
+/** One cast entry: a character in the gag's scene other than the subject. */
+export interface DirectCastEntry {
+  label: string;
+  description: string;
+}
+
+export interface DirectCompileArgs {
+  /** The one selected gag's content: its scene and its bubbles. */
+  gag: { scene: string; bubbles: readonly VisualStrategyBubble[] };
+  /** The gag's cast, from cast extraction (`lib/gags/castExtraction.ts`). */
+  cast: readonly DirectCastEntry[];
+  subjectRenderMode: SubjectRenderMode;
+  /** The resolved look's suffix; empty or the photoreal default means no look. */
+  stylePrompt?: string | null;
+  renderControls?: { negativeSpacePreference?: string | null } | null;
+  referenceImageUrl?: string | null;
+  renderedSubject?: { name: string; pronouns: string | null };
+  recipe?: ResolvedRecipe;
+}
+
+/**
+ * The direct path's fixed wording for what the gag leaves unstated (the
+ * filler hypothesis, plan A): the engine keeps the scene and fills the rest.
+ * Code constants for the comparison; whether they become recipe pieces is
+ * settled at the switch.
+ */
+export const DIRECT_FILL_INSTRUCTION =
+  "Draw the scene above exactly as described. Where it leaves the setting, background, lighting, poses or expressions unstated, choose plausible details that serve it, and add nothing that changes what happens.";
+
+/** The direct path's fixed wording for a pet's photo (plan A): one line, no per-picture call. */
+export const DIRECT_PET_INSTRUCTION =
+  "The subject is the animal in the reference image: stage the scene's action for that animal's own body, keeping the action and its outcome, and keep the animal's recognizable features.";
+
+export function compileDirect(args: DirectCompileArgs): CompiledImagePrompt {
+  const r = args.recipe ?? BASELINE_RECIPE;
+  const notes: string[] = [];
+  const mode = args.subjectRenderMode;
+  if (mode === "t2i_fallback") throw new Error("no-photo renders are retired: every picture starts from a photo");
+  const bindingMode = bindingModeFromRenderMode(mode);
+  const subjectName = args.renderedSubject?.name?.trim() ?? "";
+  const render = (t: string) => renderIdentityTokens(t, args.renderedSubject);
+
+  const coreScene = render(args.gag.scene.trim());
+  if (!coreScene) throw new Error("the direct path needs the gag's scene");
+  const activeBubbles = args.gag.bubbles.filter((b) => b.entity.trim() && b.text.trim());
+  const warnings: PromptWarning[] = moderatorSceneWarnings(coreScene, activeBubbles.length > 0);
+
+  const identity = [fillPiece(r, mode === "human_identity_i2i" ? "identity.person" : "identity.object"), mode === "nonhuman_subject_i2i" ? DIRECT_PET_INSTRUCTION : ""]
+    .filter(Boolean).join(" ");
+
+  // Speaker bindings come from the gag's own cast: the cast is the effective
+  // character list, and no planned list exists.
+  const castCharacters = args.cast
+    .map((c) => ({ label: c.label.trim(), visualRole: c.description.trim() }))
+    .filter((c) => c.label && c.visualRole);
+  const speakerBindings = composeSpeakerBindings({ speakers: activeBubbleSpeakers(activeBubbles), effective: castCharacters, planned: [] });
+  const bubbleResult = composeBubbleDirectives({
+    bubbles: activeBubbles,
+    subjectNoun: bindingSubjectNoun(subjectName, bindingMode),
+    effectiveCharacterLabels: castCharacters.map((c) => c.label),
+    boundLabels: speakerBindings.boundLabels,
+    renderText: render,
+    recipe: r,
+  });
+  const bubbleSectionBody = bubbleResult.text ? [speakerBindings.text, bubbleResult.text].filter(Boolean).join(" ") : "";
+  warnings.push(...bubbleResult.warnings);
+
+  const side = args.renderControls?.negativeSpacePreference ?? "";
+  const composition = ["top", "bottom", "left", "right"].includes(side) ? fillPiece(r, "composition.captionSpace", { side }) : "";
+
+  const stylePrompt = args.stylePrompt?.trim() ?? "";
+  const renderStyle = !stylePrompt || stylePrompt === DEFAULT_PHOTOREALISTIC_STYLE ? fillPiece(r, "style.photoreal") : stylePrompt;
+  const engineNotesText = fillPiece(r, "notes.engine").trim();
+  const strictConstraints = [overlayTextExclusion(r), incidentalTextGuard(r), VIOLENCE_RULE].join(" ");
+
+  const L = (key: LabelKey) => fillPiece(r, `label.${key}`);
+  const rawSections: Section[] = [
+    { id: "core_scene", label: L("coreScene"), text: labeled(r, L("coreScene"), coreScene), priority: "required", moderatorAuthored: true },
+    { id: "identity_reference", label: L("identityReference"), text: labeled(r, L("identityReference"), identity), priority: "required" },
+    { id: "additional_details", label: L("additionalDetails"), text: labeled(r, L("additionalDetails"), DIRECT_FILL_INSTRUCTION), priority: "required" },
+    {
+      id: "bubbles", label: L("bubbles"), text: labeled(r, L("bubbles"), bubbleSectionBody), priority: "required", dedupe: "none",
+      ...(activeBubbles.length ? { moderatorAuthored: true } : {}),
+    },
+    { id: "composition", label: L("composition"), text: labeled(r, L("composition"), composition), priority: "high" },
+    ...(engineNotesText
+      ? [{ id: "engine_notes", label: L("engineNotes"), text: labeled(r, L("engineNotes"), engineNotesText), priority: "required" as const }]
+      : []),
+    { id: "render_style", label: L("renderStyle"), text: labeled(r, L("renderStyle"), renderStyle), priority: "required" },
+    { id: "strict_constraints", label: L("strictConstraints"), text: labeled(r, L("strictConstraints"), strictConstraints), priority: "required" },
+  ];
+  const sections = rawSections.map((s) => ({ ...s, text: render(s.text) }));
+
+  const { prompt, breakdown, overflowBy } = assembleSections(sections, notes, r.pieces["shape.join"] || " ");
+  if (hasUnresolvedFactTokens(prompt)) {
+    warnings.push({
+      code: "unresolved-token-in-final-prompt",
+      severity: "warning",
+      message: "The compiled prompt still contains an unresolved personalization token; check the gag's scene and bubbles.",
+    });
+  }
+  const out: CompiledImagePrompt = {
+    prompt,
+    imagePrompt: prompt,
+    promptBreakdown: breakdown,
+    diagnostics: {
+      removedPlannerProseSentences: [],
+      warnings,
+      ...(overflowBy > 0 ? { requiredBudgetOverflow: { overBy: overflowBy, totalLength: prompt.length, budget: MAX_PROMPT_CHARS } } : {}),
+    },
+  };
+  if (notes.length) out.engineNotes = notes.join(" ");
+  if (args.referenceImageUrl) out.referenceImageUrl = args.referenceImageUrl;
   return out;
 }
 

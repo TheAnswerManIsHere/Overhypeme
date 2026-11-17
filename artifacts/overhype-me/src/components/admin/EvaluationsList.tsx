@@ -147,7 +147,7 @@ export function EvaluationsList({ kind, active = true, refreshKey }: { kind: Eva
               <div className="space-y-0.5">
                 <p className="text-sm font-bold text-foreground">{e.description}</p>
                 <p className="text-xs text-muted-foreground">
-                  {new Date(e.createdAt).toLocaleString()} · {e.factCount} fact{e.factCount === 1 ? "" : "s"} · {kind === "engine" ? e.engineFamilies.map(engineLabel).join(", ") : engineLabel(e.engineFamilies[0] ?? "")} · {e.images} images
+                  {new Date(e.createdAt).toLocaleString()} · {e.factCount} fact{e.factCount === 1 ? "" : "s"} · {kind === "prompt" ? engineLabel(e.engineFamilies[0] ?? "") : e.engineFamilies.map(engineLabel).join(", ")} · {e.images} images
                   {e.round !== 1 || e.imageSize !== "comparison" ? ` · round ${e.round}${e.imageSize === "final" ? ", member size" : ""}` : ""}
                 </p>
                 <p className="text-sm" data-testid={`evaluation-status-${e.id}`}><StatusLine e={e} /></p>

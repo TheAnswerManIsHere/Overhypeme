@@ -99,7 +99,7 @@ export function __setUtilityLLMClientForTest(client: ReturnType<typeof getOpenAI
 export const UTILITY_LLM_ENGINE_ID = "openai-general";
 
 /** Resolve the model + sampling defaults from the utility engine's code definition. */
-async function resolveLLMSettings(): Promise<LLMSettings> {
+export async function resolveLLMSettings(): Promise<LLMSettings> {
   try {
     const engine = engineById(UTILITY_LLM_ENGINE_ID);
     if (!engine || !engine.isActive) throw new Error(`utility engine "${UTILITY_LLM_ENGINE_ID}" is unavailable`);

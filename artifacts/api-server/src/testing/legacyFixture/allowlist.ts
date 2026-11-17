@@ -339,7 +339,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     // builder's settings are dropped (the fixture predates them).
     actualImageEngineId: "keep",
     requestSettings: "drop",
-    // 0144: the photoreal fallback's record (engine ids, a vendor request id
+    // 0145: the photoreal fallback's record (engine ids, a vendor request id
     // and fal's refusal text); dropped, as the fixture predates it.
     engineFallback: "drop",
     // 0134: the prompt recipe version it compiled with; the recipe tables are

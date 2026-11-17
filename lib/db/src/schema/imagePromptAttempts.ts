@@ -135,7 +135,7 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
   /** The endpoint settings the request builder chose (purpose, size, aspect), as sent. */
   requestSettings: jsonb("request_settings"),
   /**
-   * The photoreal fallback (migration 0144; plan PLAN_NB_FALLBACK.md): set when
+   * The photoreal fallback (migration 0145; plan PLAN_NB_FALLBACK.md): set when
    * the routed engine refused this attempt on content grounds and it was
    * redrawn on the fallback engine. Written before the fallback runs and never
    * cleared, so it keeps the routed engine and the refusal after
@@ -175,7 +175,7 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
 ]);
 
 /**
- * `image_prompt_attempts.engine_fallback` (migration 0144). `preparing`: the
+ * `image_prompt_attempts.engine_fallback` (migration 0145). `preparing`: the
  * routed engine's refusal is recorded and the fallback prompt is being built;
  * `switched`: the attempt now draws on the fallback engine. No state returns
  * to the routed engine.

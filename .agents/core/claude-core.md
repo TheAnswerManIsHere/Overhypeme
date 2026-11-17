@@ -438,7 +438,8 @@ step's carve-out
    needed"*): the approved work finished is the plan-done line below;
    anything else that leaves me idle until he acts — a question, a
    prototype version delivered for his feedback, a hand-off to a new
-   session, a check-in that tripped its cap — is a 🛑 banner naming what
+   session I could not start myself (the `handoff` skill, Step 5), a
+   check-in that tripped its cap — is a 🛑 banner naming what
    he can do, even when it offers no choice. Work that continues on a named
    wake (a webhook, a background task, a `send_later`) rings nothing. **When the approved work is finished and nothing of mine
    is scheduled after it, the message's last line is `✅ **PLAN DONE** —
@@ -575,13 +576,16 @@ versioned files don't. `/compact` is an in-session relief valve, not the memory.
 
 - **`/handoff`** carries a session's live state to a new session when — and only
   when — the context actually needs to move. It decides first and stops when the
-  answer is no. Runs in the main loop, never a subagent. It never names a
+  answer is no; when it is yes, it starts the new session itself with the
+  prompt it wrote (`create_session`), pasting only where it cannot
+  (`handoff`, Step 5). Runs in
+  the main loop, never a subagent. It never names a
   working-tree file as a resume point: a file the next session needs is
   pushed, or quoted into the issue, first (`handoff`, Step 2;
   Planning rule 3 for a plan).
 - **`/archive`** answers only whether this session is finished — what dies
   with it, checked cheaply — and archives it when nothing does. Main loop,
-  like `/handoff`, which it recommends rather than runs.
+  like `/handoff`, which it runs on a *hand off* verdict.
 - **`/document`** is the batched harvest of durable learnings (see below).
 - [`docs/handoff/`](../../docs/handoff/README.md) is cross-*tool* transit, which a
   session handoff never writes to.
@@ -1180,8 +1184,10 @@ just completed, what is next; and **Session** — continue, hand off, or
 archive. The session line is **mine, under a label saying so**: only
 this session can see its own context, so it is the `archive` skill's
 verdict, run here without being asked (that skill defers to the `handoff`
-skill's Step 1 for hand off), with the hand-off prompt following
-the report when the answer is hand off; only an explicit `/archive`
+skill's Step 1 for hand off), with the `handoff` skill run after
+the report when the answer is hand off — it starts the new session
+itself, or hands David the prompt and a 🛑 where it cannot (`handoff`,
+Step 5; David, 2026-11-17); only an explicit `/archive`
 archives. Delivered twice, verbatim: in chat — where its landing rings
 nothing, since it holds nothing up (interaction rule 6; David,
 2026-11-02, retiring the ring KITT #264 gave it) —

@@ -497,7 +497,7 @@ redrawn once on Nano Banana 2.1, photoreal, with the same photo and scene
   time (`engineFallback`), so a recipe promotion never changes queued work; an
   attempt queued before that resolves them at the handover and says so.
 - **Recorded before it happens.** `image_prompt_attempts.engine_fallback`
-  (migration 0144) is written in state `preparing` with the routed engine, its
+  (migration 0145) is written in state `preparing` with the routed engine, its
   refused request and fal's reason; the stored scene is recompiled with Nano
   Banana's recipe (no planner call, the same render-time gates); then one write
   switches the engine, recipe and prompt (state `switched`). Every run resumes

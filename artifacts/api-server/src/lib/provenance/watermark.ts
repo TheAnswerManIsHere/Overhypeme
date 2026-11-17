@@ -177,7 +177,7 @@ async function readBits(raw: Buffer, w: number, h: number, channels: 3 | 4): Pro
 }
 
 /** Bounds of a picture without uniform bars around it (a screenshot's or a letterbox's), or null when there are none. */
-function contentBox(raw: Buffer, w: number, h: number, channels: number): { left: number; top: number; width: number; height: number } | null {
+function contentBox(raw: Buffer, w: number, h: number, channels: number): Box | null {
   const at = (x: number, y: number) => (y * w + x) * channels;
   const same = (p: number, q: number) =>
     Math.abs(raw[p] - raw[q]) <= 12 && Math.abs(raw[p + 1] - raw[q + 1]) <= 12 && Math.abs(raw[p + 2] - raw[q + 2]) <= 12;
@@ -196,24 +196,151 @@ function contentBox(raw: Buffer, w: number, h: number, channels: number): { left
   return { left, top, width, height };
 }
 
+type Box = { left: number; top: number; width: number; height: number };
+
+const BAND = 3; // an edge compares the mean of this many pixels on either side of a line, not two single pixels
+const EDGE_STEP = 4; // a band this much brighter or darker in some channel than the band across the line is an edge
+const MAX_LINES = 24; // strongest edge lines kept per direction
+const MAX_FRAMED_READS = 12; // candidate rectangles decoded at most, best outlined first
+const MIN_SIDE_SUPPORT = 0.5; // share of each side of a candidate that must lie on an edge
+const SAME_BOX = 6; // pixels within which two candidates are one read: the decoder tolerates that much misalignment
+
+/**
+ * Rectangles a picture could occupy inside a screenshot whose surroundings are not plain bars — a web page's
+ * chrome above it, an info bar and buttons below it, rounded corners (#981). Every long horizontal and vertical
+ * edge in the screenshot is a possible side; a candidate is a rectangle whose four sides each lie mostly on an
+ * edge, at least a fifth of the screenshot. The decoder and the payload's error check decide which, if any, holds
+ * a mark, so a wrong candidate costs one read and nothing else.
+ *
+ * A dark picture on a dark page has almost no step between neighbouring pixels at its border — measured on a real
+ * iPad screenshot (#981): a night-sky meme's top edge differed from the page by under 16 levels everywhere — so an
+ * edge compares the mean of a few pixels on each side, at a low threshold, which also rides out the one- or
+ * two-pixel blur a scaled picture's border gets. Candidates are ranked by their weakest side, so the rectangle
+ * best outlined on all four sides is read first, whatever its size.
+ */
+function framedBoxes(raw: Buffer, w: number, h: number, channels: number): Box[] {
+  // hEdge(y, x): the BAND rows from y down differ from the BAND rows above y, in column x (a boundary just above
+  // row y: a side at row y means the rectangle starts there (top) or ends at row y-1 (bottom)). vEdge likewise.
+  const hEdge = (y: number, x: number) => {
+    if (y < BAND || y + BAND > h) return false;
+    for (let c = 0; c < 3; c++) {
+      let below = 0, above = 0;
+      for (let k = 0; k < BAND; k++) {
+        below += raw[((y + k) * w + x) * channels + c];
+        above += raw[((y - 1 - k) * w + x) * channels + c];
+      }
+      if (Math.abs(below - above) > EDGE_STEP * BAND) return true;
+    }
+    return false;
+  };
+  const vEdge = (x: number, y: number) => {
+    if (x < BAND || x + BAND > w) return false;
+    const row = y * w;
+    for (let c = 0; c < 3; c++) {
+      let right = 0, left = 0;
+      for (let k = 0; k < BAND; k++) {
+        right += raw[(row + x + k) * channels + c];
+        left += raw[(row + x - 1 - k) * channels + c];
+      }
+      if (Math.abs(right - left) > EDGE_STEP * BAND) return true;
+    }
+    return false;
+  };
+  const prefix = (len: number, at: (i: number) => boolean) => {
+    const out = new Int32Array(len + 1);
+    for (let i = 0; i < len; i++) out[i + 1] = out[i] + (at(i) ? 1 : 0);
+    return out;
+  };
+  const lines = (count: number, len: number, edgeAt: (line: number, i: number) => boolean) => {
+    const strength = new Int32Array(count + 1);
+    for (let l = 1; l < count; l++) {
+      let n = 0;
+      for (let i = 0; i < len; i++) if (edgeAt(l, i)) n++;
+      strength[l] = n;
+    }
+    const min = Math.max(64, Math.floor(len * 0.15));
+    const picked: number[] = [];
+    for (let l = 1; l < count; l++) {
+      if (strength[l] < min) continue;
+      // keep one line per edge: the band makes an edge a few lines wide, and a scaled picture's border is soft
+      let peak = true;
+      for (let d = -BAND; d <= BAND && peak; d++) {
+        const o = l + d;
+        if (d === 0 || o < 1 || o >= count) continue;
+        if (strength[o] > strength[l] || (strength[o] === strength[l] && d < 0)) peak = false;
+      }
+      if (peak) picked.push(l);
+    }
+    picked.sort((a, b) => strength[b] - strength[a]);
+    const kept = picked.slice(0, MAX_LINES);
+    kept.push(0, count); // the screenshot's own edges are sides too
+    return [...new Set(kept)].sort((a, b) => a - b);
+  };
+  const rows = lines(h, w, hEdge);
+  const cols = lines(w, h, vEdge);
+  const always = () => true;
+  const rowSum = new Map(rows.map((y) => [y, y === 0 || y === h ? prefix(w, always) : prefix(w, (x) => hEdge(y, x))]));
+  const colSum = new Map(cols.map((x) => [x, x === 0 || x === w ? prefix(h, always) : prefix(h, (y) => vEdge(x, y))]));
+  const support = (sum: Int32Array, from: number, to: number) => (sum[to] - sum[from]) / (to - from);
+
+  const found: { box: Box; weakest: number }[] = [];
+  const minArea = (w * h) / 5;
+  for (let i = 0; i < rows.length; i++) for (let j = i + 1; j < rows.length; j++) {
+    const top = rows[i], bottom = rows[j]; // the rectangle is rows top..bottom-1
+    if (bottom - top < 64) continue;
+    for (let k = 0; k < cols.length; k++) for (let m = k + 1; m < cols.length; m++) {
+      const left = cols[k], right = cols[m];
+      if (right - left < 64 || (right - left) * (bottom - top) < minArea) continue;
+      if (left === 0 && top === 0 && right === w && bottom === h) continue; // the whole screenshot was read already
+      const weakest = Math.min(
+        support(rowSum.get(top)!, left, right), support(rowSum.get(bottom)!, left, right),
+        support(colSum.get(left)!, top, bottom), support(colSum.get(right)!, top, bottom),
+      );
+      if (weakest >= MIN_SIDE_SUPPORT) found.push({ box: { left, top, width: right - left, height: bottom - top }, weakest });
+    }
+  }
+  found.sort((a, b) => b.weakest - a.weakest || b.box.width * b.box.height - a.box.width * a.box.height);
+  const near = (a: Box, b: Box) =>
+    Math.abs(a.left - b.left) <= SAME_BOX && Math.abs(a.top - b.top) <= SAME_BOX &&
+    Math.abs(a.left + a.width - b.left - b.width) <= SAME_BOX && Math.abs(a.top + a.height - b.top - b.height) <= SAME_BOX;
+  const reads: Box[] = [];
+  for (const { box } of found) {
+    if (reads.length >= MAX_FRAMED_READS) break;
+    if (!reads.some((r) => near(r, box))) reads.push(box);
+  }
+  return reads;
+}
+
 export interface WatermarkReading {
   id: number;
   /** Bits the error-correcting code repaired (0-5): how worn the mark was. */
   corrected: number;
-  /** True when the id was read only after cutting away uniform bars round the picture. */
+  /** True when the id was read only after cutting the picture out of its surroundings: plain bars, or a page round it (#981). */
   trimmed: boolean;
 }
 
-/** Read a record id from a picture file, as it is and then with any uniform bars cut away. null when no mark is found. */
+/** Read a record id from a picture file: as it is, then with any plain bars cut away, then from the rectangles its edges outline inside a screenshot. null when no mark is found. */
 export async function readWatermark(file: Buffer): Promise<WatermarkReading | null> {
   const { data, info } = await sharp(file, { failOn: "none" }).rotate().removeAlpha().raw().toBuffer({ resolveWithObject: true });
   const w = info.width, h = info.height;
   if (w < 32 || h < 32) return null;
   const direct = decodeWatermarkPayload(await readBits(data, w, h, 3));
   if (direct) return { ...direct, trimmed: false };
+  const readBox = async (box: Box) => {
+    const cropped = await sharp(data, { raw: { width: w, height: h, channels: 3 } }).extract(box).raw().toBuffer();
+    return decodeWatermarkPayload(await readBits(cropped, box.width, box.height, 3));
+  };
   const box = contentBox(data, w, h, 3);
-  if (!box) return null;
-  const cropped = await sharp(data, { raw: { width: w, height: h, channels: 3 } }).extract(box).raw().toBuffer();
-  const trimmed = decodeWatermarkPayload(await readBits(cropped, box.width, box.height, 3));
-  return trimmed ? { ...trimmed, trimmed: true } : null;
+  const same = (a: Box, b: Box) => a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height;
+  if (box) {
+    const trimmed = await readBox(box);
+    if (trimmed) return { ...trimmed, trimmed: true };
+  }
+  // Bars that are not plain — a web page round the picture — stop contentBox short; find the picture by its edges (#981).
+  for (const framed of framedBoxes(data, w, h, 3)) {
+    if (box && same(framed, box)) continue;
+    const found = await readBox(framed);
+    if (found) return { ...found, trimmed: true };
+  }
+  return null;
 }
