@@ -27,6 +27,7 @@ import {
   pendingReviewsTable,
   activityFeedTable,
   asyncJobsTable,
+  adminActionsTable,
 } from "@workspace/db/schema";
 import { and, eq, gte, like, sql, count, inArray } from "drizzle-orm";
 import type { FactEnrichment } from "@workspace/api-zod";
@@ -737,6 +738,9 @@ describe("POST /admin/reviews/:id/reject", () => {
     assert.equal(after.adminNote, "doesn't fit");
     assert.equal(after.reason, "spam");
     assert.equal(after.reviewedById, adminId);
+    const actions = await db.select({ action: adminActionsTable.action, actorId: adminActionsTable.actorId, detail: adminActionsTable.detail })
+      .from(adminActionsTable).where(eq(adminActionsTable.reviewId, r.id));
+    assert.deepEqual(actions, [{ action: "reject", actorId: adminId, detail: { reason: "spam", adminNote: "doesn't fit", stage: "triage_pending" } }]);
   });
 });
 
@@ -869,6 +873,13 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
 
     const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, stagingFactId));
     assert.equal(fact.isActive, true, "staging fact must become active");
+    // The fact now records that it was approved, and by whom (plan, Source-of-Truth Analysis).
+    assert.ok(fact.approvedAt, "the approval is recorded");
+    assert.equal(fact.approvedById, adminId);
+    assert.equal(fact.approvalSource, "moderator");
+    const actions = await db.select({ action: adminActionsTable.action, reviewId: adminActionsTable.reviewId, actorId: adminActionsTable.actorId })
+      .from(adminActionsTable).where(eq(adminActionsTable.factId, stagingFactId));
+    assert.deepEqual(actions, [{ action: "approve_for_production", reviewId, actorId: adminId }]);
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
     assert.equal(r.workflowStage, "production_approved");
     assert.equal(r.status, "approved");

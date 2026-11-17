@@ -3,8 +3,8 @@
  * docs/plans/PLAN_THREE_GAGS.md, Testing Plan item 4), by raw SQL so nothing
  * in the application stands between the statement and the rule:
  *   - a fourth gag, a duplicate live slot, an approved version with no example set
- *     outside the migration's carried-over marker, an empty scene, and a
- *     refresh-only operation with no owning review are refused;
+ *     outside the migration's carried-over marker and an empty scene are
+ *     refused (the refresh-only operations went with migration 0153);
  *   - a fact cannot be activated without an approved gag, and the last
  *     approved gag of a live fact cannot be removed or emptied;
  *   - with two connections, two concurrent removals of a live fact's two
@@ -74,11 +74,6 @@ describe("fact_gags: rules the database enforces", () => {
     await assert.rejects(exec(`INSERT INTO fact_gags (fact_id, slot, pending_content) VALUES ($1, 1, '{"coreSceneOverride":"  "}'::jsonb)`, [factId]), /fact_gags_pending_scene_nonempty/);
     await assert.rejects(exec(`INSERT INTO fact_gags (fact_id, slot, pending_content) VALUES ($1, 1, '{"coreSceneOverride":42}'::jsonb)`, [factId]), /fact_gags_pending_scene_nonempty/);
     await assert.rejects(exec("INSERT INTO fact_gags (fact_id, slot) VALUES ($1, 1)", [factId]), /fact_gags_has_a_version/);
-  });
-
-  it("refuses a pending removal or example pick that no refresh review owns", async () => {
-    const { gagIds } = await makeFact("owned", { gags: 1, active: false });
-    await assert.rejects(exec("UPDATE fact_gags SET pending_remove = true WHERE id = $1", [gagIds[0]]), /fact_gags_pending_ops_owned/);
   });
 
   it("refuses activating a fact with no approved gag, including one with only a pending gag", async () => {

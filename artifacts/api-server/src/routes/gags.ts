@@ -34,6 +34,7 @@ import {
 import type { z } from "zod";
 import { requireAdmin } from "./admin";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
+import { recordAdminAction } from "../lib/adminActions";
 import {
   GagError,
   approveGagRender,
@@ -106,6 +107,7 @@ router.post("/admin/facts/:factId/gags", requireAdmin, async (req: Authenticated
   if (!body) return;
   await respond(res, p.factId, async () => {
     const gag = await createGag(p.factId, body.content, { adminId: req.user.id, reviewId: body.reviewId ?? null }, body.slot);
+    await recordAdminAction({ factId: p.factId, reviewId: body.reviewId ?? null }, req.user.id, "gag_create", { gagId: gag.id, content: body.content });
     await enqueueGagIterationRender(p.factId, gag.id, { adminId: req.user.id, reviewId: body.reviewId ?? null });
   });
 });
@@ -136,6 +138,7 @@ router.put("/admin/facts/:factId/gags/:gagId", requireAdmin, async (req: Authent
   if (!body) return;
   await respond(res, p.factId, async () => {
     await saveGagContent(p.factId, p.gagId, body.content, { adminId: req.user.id, reviewId: body.reviewId ?? null });
+    await recordAdminAction({ factId: p.factId, reviewId: body.reviewId ?? null }, req.user.id, "gag_save", { gagId: p.gagId, content: body.content });
     await enqueueGagIterationRender(p.factId, p.gagId, { adminId: req.user.id, reviewId: body.reviewId ?? null });
   });
 });
@@ -147,6 +150,7 @@ router.post("/admin/facts/:factId/gags/:gagId/discard", requireAdmin, async (req
   if (!body) return;
   await respond(res, p.factId, async () => {
     const gag = await discardGagChange(p.factId, p.gagId, { adminId: req.user.id, reviewId: body.reviewId ?? null });
+    await recordAdminAction({ factId: p.factId, reviewId: body.reviewId ?? null }, req.user.id, "gag_discard", { gagId: p.gagId });
     if (gag.removedAt == null) await enqueueGagIterationRender(p.factId, p.gagId, { adminId: req.user.id, reviewId: body.reviewId ?? null });
   });
 });
@@ -156,7 +160,10 @@ router.post("/admin/facts/:factId/gags/:gagId/remove", requireAdmin, async (req:
   if (!p) { res.status(400).json({ error: "Invalid id" }); return; }
   const body = parse(gagScopeBodySchema, req, res);
   if (!body) return;
-  await respond(res, p.factId, () => removeGag(p.factId, p.gagId, { adminId: req.user.id, reviewId: body.reviewId ?? null }));
+  await respond(res, p.factId, async () => {
+    await removeGag(p.factId, p.gagId, { adminId: req.user.id, reviewId: body.reviewId ?? null });
+    await recordAdminAction({ factId: p.factId, reviewId: body.reviewId ?? null }, req.user.id, "gag_remove", { gagId: p.gagId });
+  });
 });
 
 router.post("/admin/facts/:factId/gags/:gagId/approve", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
@@ -164,7 +171,10 @@ router.post("/admin/facts/:factId/gags/:gagId/approve", requireAdmin, async (req
   if (!p) { res.status(400).json({ error: "Invalid id" }); return; }
   const body = parse(gagApproveBodySchema, req, res);
   if (!body) return;
-  await respond(res, p.factId, () => approveGagRender(p.factId, p.gagId, body.attemptId, { adminId: req.user.id, reviewId: body.reviewId ?? null }));
+  await respond(res, p.factId, async () => {
+    await approveGagRender(p.factId, p.gagId, body.attemptId, { adminId: req.user.id, reviewId: body.reviewId ?? null });
+    await recordAdminAction({ factId: p.factId, reviewId: body.reviewId ?? null }, req.user.id, "gag_render_approval", { gagId: p.gagId, attemptId: body.attemptId });
+  });
 });
 
 // Draft more gags on a live fact (plan docs/plans/PLAN_THREE_GAGS.md,
@@ -185,6 +195,7 @@ router.post("/admin/facts/:factId/gags/ideas", requireAdmin, async (req: Request
   if (!p) { res.status(400).json({ error: "Invalid id" }); return; }
   try {
     await enqueueLiveVisualConcepts(p.factId);
+    await recordAdminAction({ factId: p.factId }, req.user?.id, "gag_ideas_requested", {});
   } catch (err) {
     if (err instanceof LiveDraftRefused) {
       res.status(err.code === "FACT_NOT_FOUND" ? 404 : 409).json({ error: err.message, code: err.code });
@@ -206,6 +217,7 @@ router.post("/admin/facts/:factId/gags/:gagId/renders", requireAdmin, async (req
     await assertCanRunGagRenders(p.factId, p.gagId, { adminId: req.user.id, reviewId: body.reviewId ?? null });
     const result = await drawGagKinds(p.gagId, body.kinds, { adminUserId: req.user.id, redraw: body.redraw === true });
     if ("error" in result) throw new GagError("REVIEW_NOT_EDITABLE", `The renders could not start: ${result.error}.`);
+    await recordAdminAction({ factId: p.factId, reviewId: body.reviewId ?? null }, req.user.id, "gag_renders_requested", { gagId: p.gagId, kinds: body.kinds ?? null, redraw: body.redraw === true });
   });
 });
 

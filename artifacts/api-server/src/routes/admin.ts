@@ -44,6 +44,7 @@ import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { normalizeFactTemplateForPendingReview, normalizeFactTemplateForStorage } from "../lib/normalizeFactTemplateForStorage";
 import { createTriageReview } from "../lib/moderationStaging";
 import { logActivity } from "../lib/activity";
+import { recordAdminAction, recordAdminActions, type AdminActionRecord } from "../lib/adminActions";
 import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConfig";
 import {
   isMembershipConfigKey,
@@ -885,7 +886,11 @@ router.delete("/admin/facts/:id", requireAdmin, async (req: Request, res: Respon
   if (isNaN(id)) { res.status(400).json({ error: "Invalid fact id" }); return; }
 
   try {
-    const [updated] = await db.update(factsTable).set({ isActive: false }).where(and(eq(factsTable.id, id), eq(factsTable.isActive, true))).returning({ id: factsTable.id });
+    const updated = await db.transaction(async (tx) => {
+      const [row] = await tx.update(factsTable).set({ isActive: false }).where(and(eq(factsTable.id, id), eq(factsTable.isActive, true))).returning({ id: factsTable.id });
+      if (row) await recordAdminAction({ factId: id }, req.user?.id, "deactivate", {}, tx);
+      return row;
+    });
     if (!updated) { res.status(404).json({ error: "Fact not found or already inactive" }); return; }
     res.json({ success: true, deleted: false });
   } catch (e) {
@@ -984,7 +989,16 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
     respondFactUpdate(res, current);
     return;
   }
-  const [row] = await db.update(factsTable).set(nonTextUpdates).where(eq(factsTable.id, id)).returning();
+  const row = await db.transaction(async (tx) => {
+    const [updated] = await tx.update(factsTable).set(nonTextUpdates).where(eq(factsTable.id, id)).returning();
+    if (updated) {
+      // Turning Active off here is a deactivation like DELETE's; anything else is an edit.
+      const { isActive: deactivating, ...edited } = nonTextUpdates;
+      if (deactivating === false) await recordAdminAction({ factId: id }, req.user?.id, "deactivate", {}, tx);
+      if (Object.keys(edited).length > 0) await recordAdminAction({ factId: id }, req.user?.id, "fact_edit", { changed: edited }, tx);
+    }
+    return updated;
+  });
   if (!row) { res.status(404).json({ error: "Fact not found" }); return; }
   respondFactUpdate(res, row);
 });
@@ -1144,6 +1158,7 @@ router.put("/admin/facts/:id/enrichment-overrides", requireAdmin, async (req: Re
         })),
         tx,
       );
+      await recordAdminAction({ factId: id }, adminId, "classification_edit", { changes: result.changes.map((c) => ({ path: c.path, action: c.action, newValue: c.newValue })) }, tx);
       return { status: 200, state: { ...state, overrides: result.overrides } };
     });
 
@@ -1183,6 +1198,7 @@ router.delete("/admin/facts/:id/enrichment-overrides", requireAdmin, async (req:
         })),
         tx,
       );
+      await recordAdminAction({ factId: id }, adminId, "classification_edit", { changes: result.changes.map((c) => ({ path: c.path, action: c.action, newValue: c.newValue })) }, tx);
       return { status: 200, state: { ...state, overrides: result.overrides } };
     });
 
@@ -1258,11 +1274,15 @@ router.patch("/admin/facts/:id/enrichment", requireAdmin, async (req: Request, r
   const newAiDerived = { ...baseline, suggestedHashtags: submitted.suggestedHashtags } as FactEnrichment;
 
   const { columns } = materializeEnrichment({ aiDerived: newAiDerived, overrides: state.overrides });
-  const [updated] = await db
-    .update(factsTable)
-    .set({ ...columns, enrichmentStatus: "ok" })
-    .where(eq(factsTable.id, id))
-    .returning({ id: factsTable.id });
+  const updated = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(factsTable)
+      .set({ ...columns, enrichmentStatus: "ok" })
+      .where(eq(factsTable.id, id))
+      .returning({ id: factsTable.id });
+    if (row) await recordAdminAction({ factId: id }, req.user?.id, "classification_edit", { suggestedHashtags: submitted.suggestedHashtags ?? null }, tx);
+    return row;
+  });
   if (!updated) { res.status(404).json({ error: "Fact not found" }); return; }
 
   res.json({
@@ -1294,6 +1314,7 @@ router.post("/admin/facts/:id/enrich", requireAdmin, async (req: Request, res: R
     payload: { factId: id },
     dedupeKey: `enrichment:fact:${id}`,
   });
+  await recordAdminAction({ factId: id }, req.user?.id, "classification_rerun", {});
 
   res.json({ success: true, enrichmentStatus: "pending" });
 });
@@ -1394,12 +1415,15 @@ async function queueTextsForTriage(
   let queued = 0;
   let skipped = 0;
   await db.transaction(async (tx) => {
+    const records: AdminActionRecord[] = [];
     for (const text of texts) {
       if (seen.has(text)) { skipped++; continue; }
       seen.add(text);
-      await createTriageReview(tx, { submittedText: text, submittedById, hashtags: [] });
+      const review = await createTriageReview(tx, { submittedText: text, submittedById, hashtags: [] });
+      records.push({ target: { reviewId: review.id }, actorId: submittedById, action: "import" });
       queued++;
     }
+    await recordAdminActions(records, tx);
   });
   return { queued, skipped };
 }

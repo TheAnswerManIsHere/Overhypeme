@@ -225,6 +225,11 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     shareCount: "keep",
     hasPronouns: "fact-derived",
     isActive: "keep",
+    // 0152: whether the fact was ever approved. The committed fixture predates
+    // it; the loader derives it with 0152's own backfill after the rows land.
+    approvedAt: "drop",
+    approvedById: "map-user",
+    approvalSource: "drop",
     // Launch Phase 5 (0121): left to its default, 'general', since the
     // committed fixture predates the column and nothing reads it yet.
     audience: "drop",
@@ -594,6 +599,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
   exclude(s.searchHistoryTable, "telemetry", "free-text search queries"),
   exclude(s.shareIntentsTable, "telemetry", "per-visitor share events"),
   exclude(s.activityFeedTable, "telemetry", "per-user notification prose"),
+  exclude(s.adminActionsTable, "telemetry", "who did what to which fact: admin identities and their edits, written from 0152 on"),
   exclude(s.userFactPreferencesTable, "telemetry", "per-user viewing state"),
   exclude(s.referenceResearchCacheTable, "not-catalogue", "cached admin research calls"),
   exclude(s.evalRunsTable, "not-catalogue", "the eval lane, dropped with image_prompt_attempts.eval_*"),

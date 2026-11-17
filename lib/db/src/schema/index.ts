@@ -34,3 +34,4 @@ export * from "./promptRecipes";
 export * from "./accountDeletion";
 export * from "./imageProvenance";
 export * from "./factGags";
+export * from "./adminActions";

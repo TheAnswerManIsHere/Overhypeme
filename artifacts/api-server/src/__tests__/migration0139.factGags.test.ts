@@ -120,6 +120,9 @@ describe("migration 0139: every gag in one place", () => {
     // in this shard are already in the new shape; it is still enforced on writes.
     await db.execute(sql`ALTER TABLE facts DROP CONSTRAINT IF EXISTS facts_active_requires_concept`);
     await db.execute(sql.raw(OLD_RULE + " NOT VALID"));
+    // 0139 wrote the refresh-owner columns that 0153 later dropped; put them back for its run.
+    await db.execute(sql`ALTER TABLE fact_gags ADD COLUMN IF NOT EXISTS pending_review_id integer REFERENCES pending_reviews(id) ON DELETE SET NULL`);
+    await db.execute(sql`ALTER TABLE fact_gags ADD COLUMN IF NOT EXISTS pending_remove boolean NOT NULL DEFAULT false`);
 
     const live = await insertFact("live", true, { ...classification, visualPromptStrategyOverride: ov("{NAME} lifts the moon.") });
     const staging = await insertFact("staging", false, { ...classification, visualPromptStrategyOverride: ov("{NAME} waits.") });
@@ -140,7 +143,13 @@ describe("migration 0139: every gag in one place", () => {
     ids = { live, staging, approvedThenDeactivated, emptyScene, noOverride, refreshDiffers, refreshSame, candDiffers, candSame, reviewDiffers };
     await db.execute(sql.raw(MIGRATION_SQL));
   });
-  after(cleanup);
+  after(async () => {
+    await cleanup();
+    // Back to the structure 0153 leaves.
+    await db.execute(sql`ALTER TABLE fact_gags DROP CONSTRAINT IF EXISTS fact_gags_pending_ops_owned`);
+    await db.execute(sql`ALTER TABLE fact_gags DROP COLUMN IF EXISTS pending_remove`);
+    await db.execute(sql`ALTER TABLE fact_gags DROP COLUMN IF EXISTS pending_review_id`);
+  });
 
   it("a live fact's gag becomes an approved, carried-over slot-1 gag, byte for byte", async () => {
     const [g, ...more] = await gags(ids.live);

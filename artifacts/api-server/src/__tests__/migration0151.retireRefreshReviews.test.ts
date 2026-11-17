@@ -20,8 +20,13 @@
  * - an approved resubmission: kept (a record of the fact's approval);
  * - an open first-time submission: untouched;
  * - a second run changes nothing.
+ *
+ * Migration 0153 dropped the three columns 0151 reads, so this file first puts
+ * them back as they stood before it (the schema 0151 ran against), and ends by
+ * running 0153 itself: its closing pass closes a refresh written after 0151 ran,
+ * and it drops the columns again.
  */
-import { describe, it, before } from "node:test";
+import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -35,6 +40,7 @@ import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../../../..");
 const MIGRATION_SQL = readFileSync(path.join(ROOT, "lib/db/migrations/0151_retire_refresh_reviews.sql"), "utf8");
+const CONTRACT_SQL = readFileSync(path.join(ROOT, "lib/db/migrations/0153_drop_refresh_review_columns.sql"), "utf8");
 const P = `t_0151_${randomUUID().slice(0, 8)}`;
 
 type Row = Record<string, unknown>;
@@ -142,6 +148,19 @@ async function seed(): Promise<Seed> {
   };
 }
 
+// The schema 0151 ran against: the columns 0153 drops, as 0139 and 0143 left them.
+before(async () => {
+  await db.execute(sql.raw(`
+    ALTER TABLE pending_reviews ADD COLUMN IF NOT EXISTS candidate_version_id bigint;
+    ALTER TABLE fact_gags ADD COLUMN IF NOT EXISTS pending_review_id integer REFERENCES pending_reviews(id) ON DELETE SET NULL;
+    ALTER TABLE fact_gags ADD COLUMN IF NOT EXISTS pending_remove boolean NOT NULL DEFAULT false;
+    ALTER TABLE fact_gags DROP CONSTRAINT IF EXISTS fact_gags_pending_ops_owned;
+    ALTER TABLE fact_gags ADD CONSTRAINT fact_gags_pending_ops_owned CHECK (NOT pending_remove OR pending_review_id IS NOT NULL);
+  `));
+});
+// Whatever happens above, leave the schema as the migrations build it.
+after(async () => { await db.execute(sql.raw(CONTRACT_SQL)); });
+
 describe("migration 0151: refresh and resubmission reviews are retired", () => {
   let s: Seed;
   let untouchedBefore: Row | undefined;
@@ -219,5 +238,46 @@ describe("migration 0151: refresh and resubmission reviews are retired", () => {
     const first = await snap();
     await db.execute(sql.raw(MIGRATION_SQL));
     assert.deepEqual(await snap(), first);
+  });
+});
+
+describe("migration 0153: a late refresh is closed, then the columns are dropped", () => {
+  let lateRefresh: number;
+  let lateGag: number;
+  let live: number;
+  before(async () => {
+    const f = await insertLiveFact({ text: `{NAME} ${P} late`, enrichment: buildPlaceholderFactEnrichment() }, { ...buildPlaceholderGag(), coreSceneOverride: "{NAME} late." });
+    live = f.id;
+    lateGag = f.gags[0]!.id;
+    const candidate = await version(live, "candidate", null);
+    lateRefresh = await review(live, "pending", "concept_review", { candidateVersionId: candidate });
+    await db.execute(sql`UPDATE fact_gags SET pending_content = ${content("{NAME} changed late.")}::jsonb, pending_review_id = ${lateRefresh} WHERE id = ${lateGag}`);
+    await db.execute(sql.raw(CONTRACT_SQL));
+  });
+
+  it("closes the refresh as 0151 did, leaving the live fact's gag as approved", async () => {
+    assert.equal(await exists("pending_reviews", lateRefresh), false);
+    const g = await gag(lateGag);
+    assert.equal(g!.pending_content, null, "the late change is discarded");
+    assert.notEqual(g!.approved_content, null, "the approved version stays");
+    assert.equal(g!.removed_at, null);
+    const fact = await one<{ is_active: boolean }>(sql`SELECT is_active FROM facts WHERE id = ${live}`);
+    assert.equal(fact!.is_active, true);
+  });
+
+  it("drops the three columns and their constraint", async () => {
+    const cols = await rows(sql`
+      SELECT table_name || '.' || column_name AS c FROM information_schema.columns
+       WHERE table_schema = current_schema()
+         AND ((table_name = 'pending_reviews' AND column_name = 'candidate_version_id')
+           OR (table_name = 'fact_gags' AND column_name IN ('pending_review_id', 'pending_remove')))`);
+    assert.deepEqual(cols, []);
+    const con = await rows(sql`SELECT 1 FROM pg_constraint WHERE conname = 'fact_gags_pending_ops_owned' AND connamespace = current_schema()::regnamespace`);
+    assert.deepEqual(con, []);
+  });
+
+  it("a re-run changes nothing", async () => {
+    await db.execute(sql.raw(CONTRACT_SQL));
+    assert.equal(await exists("pending_reviews", lateRefresh), false);
   });
 });

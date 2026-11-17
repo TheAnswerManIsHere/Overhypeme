@@ -23,3 +23,8 @@ export function journalHead(): JournalHead {
   const hashes = journal.entries.map((e) => createHash("sha256").update(fs.readFileSync(path.join(MIGRATIONS, `${e.tag}.sql`), "utf8")).digest("hex"));
   return { entries: journal.entries.length, latestTag: journal.entries.at(-1)!.tag, hashes };
 }
+
+/** A migration file's SQL, as the migrator reads it. */
+export function migrationSql(tag: string): string {
+  return fs.readFileSync(path.join(MIGRATIONS, `${tag}.sql`), "utf8");
+}

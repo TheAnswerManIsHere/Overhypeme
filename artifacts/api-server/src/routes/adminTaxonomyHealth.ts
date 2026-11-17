@@ -54,6 +54,7 @@ import { PROJECTION_REPAIR_QUEUE } from "../lib/projectionRepairJob";
 import { FACT_CHARACTER_FILL_QUEUE, fillDedupeKey, pickCharacterFillTargets } from "../lib/factCharacterFillJob";
 import { logger } from "../lib/logger";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
+import { recordAdminActions, type AdminActionRecord } from "../lib/adminActions";
 
 const router: IRouter = Router();
 
@@ -289,6 +290,7 @@ router.post(
       const targets = await pickEnrichmentTargets(mode, body.factIds, force);
       const jobs: QueuedJobDescriptor[] = [];
       const outcomes: ActionOutcome[] = [];
+      const reruns: AdminActionRecord[] = [];
       let failed = 0;
       for (const factId of targets.toEnqueue) {
         try {
@@ -301,12 +303,14 @@ router.post(
             factId, jobId: r.jobId, queue: r.queue, dedupeKey: r.dedupeKey,
             action: "re_enrich", status: r.status, deduped: !r.inserted,
           });
+          if (r.inserted) reruns.push({ target: { factId }, actorId: req.user?.id, action: "classification_rerun", detail: { mode, forceOverwriteAdminEdited: force, from: "taxonomy_health" } });
         } catch (err) {
           logger.warn({ err, factId }, "[backfill-enrichment] enqueue failed");
           failed++;
           outcomes.push({ factId, action: "re_enrich", status: "failed", error: "Could not queue the enrichment job." });
         }
       }
+      await recordAdminActions(reruns);
       // Admin-edited rows are protected by default — surface them as first-class
       // skipped outcomes (not failed, not invisible) so the UI can explain why.
       for (const factId of targets.skippedAdminEdited) {

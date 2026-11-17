@@ -272,12 +272,7 @@ describe("schema baseline", { concurrency: false }, () => {
  * declares a column reads it in every full-row query. Each entry names the
  * migration that drops it, and leaves this set in that same change.
  */
-const UNDECLARED_AWAITING_DROP = new Set<string>([
-  // Refresh reviews retired by 0151 (Issue #1018, increment 1.2a); dropped by 1.2b's contract migration.
-  "pending_reviews.candidate_version_id",
-  "fact_gags.pending_review_id",
-  "fact_gags.pending_remove",
-]);
+const UNDECLARED_AWAITING_DROP = new Set<string>([]);
 
 /** The spellings drizzle and PostgreSQL use for the same column type. */
 function sameType(declared: string, stored: string): boolean {

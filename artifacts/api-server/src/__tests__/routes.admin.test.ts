@@ -39,6 +39,7 @@ import {
   membershipEntitlementsTable,
   membershipHistoryTable,
   factGagsTable,
+  adminActionsTable,
 } from "@workspace/db/schema";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import { like, eq, inArray, or, and } from "drizzle-orm";
@@ -829,6 +830,26 @@ describe("DELETE /admin/facts/:id", () => {
     const [kept] = await db.select({ id: factsTable.id, isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, targetId));
     assert.ok(kept, "the fact row, and with it every member's memes, pictures and comments, is kept");
     assert.equal(kept.isActive, false);
+
+    // The deactivation is on the fact's admin-action record (plan 1I, 3C).
+    const actions = await db.select({ action: adminActionsTable.action, actorId: adminActionsTable.actorId })
+      .from(adminActionsTable).where(eq(adminActionsTable.factId, targetId));
+    assert.deepEqual(actions, [{ action: "deactivate", actorId: adminUserId }]);
+  });
+
+  it("an edit that turns Active off records a deactivation; one that changes a field records an edit", async () => {
+    const targetId = await createTestFact(`${FACT_PREFIX}${randomUUID()} patch target`);
+    const res = await request(makeApp())
+      .patch(`/admin/facts/${targetId}`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ isActive: false, upvotes: 7 });
+    assert.equal(res.status, 200);
+    const actions = await db.select({ action: adminActionsTable.action, detail: adminActionsTable.detail })
+      .from(adminActionsTable).where(eq(adminActionsTable.factId, targetId)).orderBy(adminActionsTable.id);
+    assert.deepEqual(actions, [
+      { action: "deactivate", detail: {} },
+      { action: "fact_edit", detail: { changed: { upvotes: 7 } } },
+    ]);
   });
 });
 
