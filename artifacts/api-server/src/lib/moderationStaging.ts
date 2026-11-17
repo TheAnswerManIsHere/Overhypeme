@@ -22,7 +22,7 @@ import { renderCanonical } from "./renderCanonical";
 import { computeSplitTokenIndex } from "./splitTokenIndex";
 import { enqueueJob } from "./asyncJobs";
 import { logger } from "./logger";
-import { claimConceptsForReview, ownedFact, reviewConceptOwner } from "./visualConceptOwner";
+import { claimConceptsForReview, reviewConceptOwner } from "./visualConceptOwner";
 import { gagRenderInput, primaryWorkingGag } from "./gags/resolver";
 
 // Queue name owned by visualConceptJobs.ts (kept as a literal for the same
@@ -306,8 +306,8 @@ export async function resolveGenericFactEnrichmentDecision(
  * On success we enqueue the Visual-Idea candidates (fact_visual_concepts) but
  * NOT the render batch: renders are Step 3 and only fire once the moderator
  * approves the visual gag (see approve-visual-concept). Visual Ideas are a
- * BLOCKING prep artifact for that gag approval, so an enqueue failure marks the
- * status "failed" (retryable) rather than leaving it stuck "pending".
+ * BLOCKING prep artifact for that gag approval, so the draft job commits with
+ * the stage advance or not at all (Issue #1000 §F).
  */
 export async function advanceReviewForStagingFactEnrichment(args: {
   factId: number;
@@ -361,39 +361,15 @@ export async function advanceReviewForStagingFactEnrichment(args: {
   // Enqueued inline (literal queue name + "pending" status write, matching
   // enqueueVisualConceptsForReview) so this widely-imported helper doesn't import
   // visualConceptJobs and create a cycle.
+  // The success path runs inside the enrichment's own fenced write (its one
+  // caller passes `tx`), so a failure here rolls the whole write back for the
+  // job's retry: the stage never advances without its draft job.
   if (nextStage === "concept_review") {
-    const enqueueDraft = async (): Promise<void> => {
-      await claimConceptsForReview(executor, args.factId, review.id, { markPending: true });
-      await enqueueJob({
-        queue: FACT_VISUAL_CONCEPTS_QUEUE,
-        payload: { reviewId: review.id, factId: args.factId, owner: reviewConceptOwner(review.id), candidateVersionId: null, moderatorDraftScene: null },
-        dedupeKey: `fact_visual_concepts:review:${review.id}`,
-      }, executor);
-    };
-    if (tx) {
-      await enqueueDraft();
-      return;
-    }
-    try {
-      await enqueueDraft();
-    } catch (err) {
-      logger.error(
-        { err, reviewId: review.id },
-        "[moderation] failed to enqueue visual concepts (stage advance kept; status → failed)",
-      );
-      // Don't leave the gate stuck "pending" with no job — mark failed so the
-      // moderator can retry/regenerate. Best-effort; swallow secondary errors.
-      try {
-        await db
-          .update(factsTable)
-          .set({ visualConceptStatus: "failed" })
-          .where(ownedFact(args.factId, reviewConceptOwner(review.id)));
-      } catch (statusErr) {
-        logger.error(
-          { err: statusErr, reviewId: review.id },
-          "[moderation] failed to mark visual concepts failed after enqueue error",
-        );
-      }
-    }
+    await claimConceptsForReview(executor, args.factId, review.id, { markPending: true });
+    await enqueueJob({
+      queue: FACT_VISUAL_CONCEPTS_QUEUE,
+      payload: { reviewId: review.id, factId: args.factId, owner: reviewConceptOwner(review.id), candidateVersionId: null, moderatorDraftScene: null },
+      dedupeKey: `fact_visual_concepts:review:${review.id}`,
+    }, executor);
   }
 }

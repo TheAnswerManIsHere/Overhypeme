@@ -623,9 +623,9 @@ describe("async job leases", () => {
       assert.equal((await getJob(jobId)).recoveryProtocol, 2);
     });
 
-    it("increment 3: a retry the handler marks recoverOnRetry goes back recovering with its claim's protocol, in one write", async () => {
+    it("increment 3: on a queue registered retriesRecover, every retry goes back recovering with its claim's protocol, in one write", async () => {
       const queue = newQueue();
-      registerJobHandler(queue, { async run() { return { ok: false, error: "may have reached the vendor", recoverOnRetry: true }; } }, { recoveryProtocol: 2 });
+      registerJobHandler(queue, { async run() { return { ok: false, error: "may have reached the vendor" }; } }, { recoveryProtocol: 2, retriesRecover: true });
       const { jobId } = await enqueueJob({ queue, payload: {} });
       await asyncJobsTick(db, new Date(), { queues: [queue] });
       const after = await getJob(jobId);
@@ -634,35 +634,29 @@ describe("async job leases", () => {
       assert.equal(after.attempts, 1);
     });
 
-    it("increment 3: recoverOnRetry on a queue that declares no recovery is an ordinary retry", async () => {
-      const queue = newQueue();
-      registerJobHandler(queue, { async run() { return { ok: false, error: "x", recoverOnRetry: true }; } });
-      const { jobId } = await enqueueJob({ queue, payload: {} });
-      await asyncJobsTick(db, new Date(), { queues: [queue] });
-      const after = await getJob(jobId);
-      assert.equal(after.status, "pending");
-      assert.equal(after.recoveryProtocol, null);
-    });
-
-    it("increment 3: a run ended at its limit stays an ordinary retry unless its queue asks for recoverAfterLimit", async () => {
+    it("increment 3: without retriesRecover, a handler's retry and a run ended at its limit stay ordinary retries (the render queues' behaviour)", async () => {
       const release = makeDeferred();
+      const failing = newQueue();
+      const wedgedPlain = newQueue();
+      const wedgedAsking = newQueue();
+      registerJobHandler(failing, { async run() { return { ok: false, error: "x" }; } }, { recoveryProtocol: 1 });
       const wedged: JobHandler = { async run() { await release.promise; return { ok: true }; } };
-      const plain = newQueue();
-      const asking = newQueue();
-      registerJobHandler(plain, wedged, { executionLimitMs: 100, recoveryProtocol: 1 });
-      registerJobHandler(asking, wedged, { executionLimitMs: 100, recoveryProtocol: 1, recoverAfterLimit: true });
-      const a = await enqueueJob({ queue: plain, payload: {} });
-      const b = await enqueueJob({ queue: asking, payload: {} });
-      await asyncJobsTick(db, new Date(), { queues: [plain, asking] });
-      const [pa, pb] = [await getJob(a.jobId), await getJob(b.jobId)];
-      assert.equal(pa.status, "pending", "the render queues' behaviour is unchanged");
-      assert.equal(pb.status, "recovering");
-      assert.equal(pb.recoveryProtocol, 1);
+      registerJobHandler(wedgedPlain, wedged, { executionLimitMs: 100, recoveryProtocol: 1 });
+      registerJobHandler(wedgedAsking, wedged, { executionLimitMs: 100, recoveryProtocol: 1, retriesRecover: true });
+      const a = await enqueueJob({ queue: failing, payload: {} });
+      const b = await enqueueJob({ queue: wedgedPlain, payload: {} });
+      const c = await enqueueJob({ queue: wedgedAsking, payload: {} });
+      await asyncJobsTick(db, new Date(), { queues: [failing, wedgedPlain, wedgedAsking], maxConcurrency: 3 });
+      assert.equal((await getJob(a.jobId)).status, "pending");
+      assert.equal((await getJob(b.jobId)).status, "pending");
+      const pc = await getJob(c.jobId);
+      assert.equal(pc.status, "recovering", "a run ended at its limit on a retriesRecover queue");
+      assert.equal(pc.recoveryProtocol, 1);
       release.resolve();
     });
 
-    it("increment 3: recoverAfterLimit without a recovery protocol is refused at registration", () => {
-      assert.throws(() => registerJobHandler(newQueue(), { async run() { return { ok: true }; } }, { recoverAfterLimit: true }), /needs a recoveryProtocol/);
+    it("increment 3: retriesRecover without a recovery protocol is refused at registration", () => {
+      assert.throws(() => registerJobHandler(newQueue(), { async run() { return { ok: true }; } }, { retriesRecover: true }), /needs a recoveryProtocol/);
     });
 
     it("increment 3: an unleased row of a declaring queue, taken back at 30 minutes, goes to recovering stamped with this worker's protocol", async () => {
@@ -676,17 +670,21 @@ describe("async job leases", () => {
       assert.equal(after.recoveryProtocol, 1);
     });
 
-    it("increment 3: a handler is told the lease token the row carried before its claim", async () => {
+    it("increment 3: a handler is told the recovery protocol the previous claim declared", async () => {
       const queue = newQueue();
-      let previous: string | null | undefined;
-      registerJobHandler(queue, { async run(_p, row) { previous = row.previousLeaseToken; return { ok: false, error: "again" }; } });
+      let previous: number | null | undefined;
+      const handler: JobHandler = { async run(_p, row) { previous = row.previousClaimRecoveryProtocol; return { ok: false, error: "again" }; } };
+      registerJobHandler(queue, handler); // an earlier release: declares nothing
       const { jobId } = await enqueueJob({ queue, payload: {} });
       await asyncJobsTick(db, new Date(), { queues: [queue] });
       assert.equal(previous, null, "never claimed before");
-      const firstToken = (await getJob(jobId)).leaseToken;
+      registerJobHandler(queue, handler, { recoveryProtocol: 2 });
       await db.update(asyncJobsTable).set({ nextAttemptAt: new Date(Date.now() - 1000) }).where(eq(asyncJobsTable.id, jobId));
       await asyncJobsTick(db, new Date(), { queues: [queue] });
-      assert.equal(previous, firstToken);
+      assert.equal(previous, null, "the previous claim declared nothing");
+      await db.update(asyncJobsTable).set({ nextAttemptAt: new Date(Date.now() - 1000) }).where(eq(asyncJobsTable.id, jobId));
+      await asyncJobsTick(db, new Date(), { queues: [queue] });
+      assert.equal(previous, 2, "the previous claim declared protocol 2");
     });
 
     it("dedupe: enqueueing a job whose key matches a recovering row is refused as a duplicate", async () => {

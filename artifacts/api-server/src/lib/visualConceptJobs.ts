@@ -51,7 +51,7 @@ import {
 } from "@workspace/api-zod";
 import { resolveReviewCycleEnrichment } from "./moderationStaging";
 import { loadGags, normaliseGagContent, openReviewForFact } from "./gags/resolver";
-import {
+import { type Executor,
   claimConceptsForReview,
   liveConceptOwner,
   ownedFact,
@@ -60,7 +60,8 @@ import {
 import { generateVisualConcepts, resolveVisualConceptsLLMSettings, VisualConceptsEngineUnusable, type ContextGag } from "./visualConcepts/generator";
 import { buildVisualConceptInputHash, hashText } from "./visualConcepts/inputHash";
 import { getVisualConceptsSystem } from "./visualConceptsConfig";
-import { RESUMES_FROM_CHECKPOINTS,
+import {
+  RESUMES_FROM_CHECKPOINTS,
   registerJobHandler,
   enqueueJob,
   type JobHandler,
@@ -107,7 +108,7 @@ export async function enqueueVisualConceptsForReview(args: {
   candidateVersionId?: number | null;
   moderatorDraftScene?: string | null;
   moderatorDraftBubbles?: Array<Pick<VisualStrategyBubble, "type" | "entity" | "text">> | null;
-}, executor: Parameters<typeof claimConceptsForReview>[0] & Parameters<typeof enqueueJob>[1] = db): Promise<EnqueueJobResult> {
+}, executor: Executor = db): Promise<EnqueueJobResult> {
   // The review takes the fact's candidate state (a live draft's is cleared)
   // and marks it working, in one write. Given a transaction, both the claim
   // and the job commit with the caller's write or not at all (Issue #1000 §F).

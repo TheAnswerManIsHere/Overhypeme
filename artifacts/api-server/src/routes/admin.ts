@@ -3,7 +3,6 @@ import { z } from "zod";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
 import { factsTable, commentsTable, adminConfigTable, featureFlagsTable, userGenerationCostsTable, membershipEntitlementsTable, entitlementSourceDisputesTable, membershipHistoryTable, asyncJobsTable, stripeWebhookAuditTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, pendingReviewsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
-import { randomUUID } from "node:crypto";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, getTableColumns } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
@@ -22,6 +21,7 @@ import {
   type OverrideLayers,
 } from "../lib/enrichmentOverrideLayers";
 import { enqueueJob, USE_CONFIGURED_MAX_ATTEMPTS } from "../lib/asyncJobs";
+import { emailRetryReset } from "../lib/email";
 import { laneHealth, queueHealth, queueHealthJobs } from "../lib/queueHealth";
 import { isNcmecReservedConfigKey, NCMEC_RESERVED_KEY_REFUSAL } from "../lib/moderation/ncmecConfig";
 import { CODE_OWNED_AI_SETTING_REFUSAL, isCodeOwnedAiConfigKey, withoutCodeOwnedAiSettings } from "../lib/codeOwnedPrompts";
@@ -2870,16 +2870,8 @@ router.post("/admin/email-queue/:id/retry", requireAdmin, async (req: Request, r
         nextAttemptAt: new Date(),
         updatedAt: new Date(),
         // A person retrying a failed email means "send it", including one held
-        // back because it may already have gone out (Issue #1000, Q14: 2). The
-        // sending record is reset to unsent under a fresh no-duplicate key and
-        // made to account for every claim so far, so the handler sends it once.
-        recoveryProtocol: null,
-        payload: sql`jsonb_set(
-          ${asyncJobsTable.payload},
-          '{delivery}',
-          (COALESCE(${asyncJobsTable.payload}->'delivery', '{}'::jsonb) - 'firstDispatchAt' - 'providerId')
-            || jsonb_build_object('v', 1, 'nonce', ${randomUUID()}::text, 'state', 'unsent', 'accountedToken', ${asyncJobsTable.leaseToken})
-        )`,
+        // back because it may already have gone out (Issue #1000, Q14: 2).
+        ...emailRetryReset(),
       })
       .where(and(
         eq(asyncJobsTable.id, id),

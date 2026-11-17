@@ -40,7 +40,8 @@ import {
   advanceReviewForStagingFactEnrichment,
   resolveGenericFactEnrichmentDecision,
 } from "./moderationStaging";
-import { RESUMES_FROM_CHECKPOINTS,
+import {
+  RESUMES_FROM_CHECKPOINTS,
   registerJobHandler,
   type JobHandler,
   type HandlerResult,
@@ -416,7 +417,7 @@ export async function runEnrichmentForCandidateVersion(
     return { advancedReviewId: v1.sourceReviewId };
   });
   if (advancedReviewId != null) {
-    logger.info({ reviewId: advancedReviewId, versionId }, "[refresh] candidate enriched; visual concepts queued");
+    logger.info({ reviewId: advancedReviewId, versionId }, "[refresh] candidate enriched with its visual concepts job, in one commit");
   }
   return { ok: true };
 }

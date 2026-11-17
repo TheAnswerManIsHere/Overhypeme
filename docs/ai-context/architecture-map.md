@@ -223,20 +223,20 @@ deliberately excludes them and points here instead.
   release before leases (no token) keeps the old 30-minute rule on
   `updated_at`. A reclaimed row of a queue that declares a `recoveryProtocol`,
   leased or not, becomes `recovering`, claimable only by a worker declaring at
-  least that protocol. A handler may also send a retry into recovery: either it
-  returns `recoverOnRetry`, or its queue registers `recoverAfterLimit` and the
-  run was ended at its limit. Email does both, so an earlier release never
-  resends it without the key.
+  least that protocol. A queue registered `retriesRecover` (email) sends every
+  retry into recovery, including a run ended at its limit, so an earlier
+  release never resends an email without the key.
   **Email never goes out twice (plan §E, `email.ts`).** The job's sending record
   lives on its payload (`delivery`): the message frozen at enqueue, a nonce, and
   the state (`unsent`, `possibly_sent` or `sent`). Every attempt sends with
   Resend's `Idempotency-Key` `overhype-email-<job id>-<nonce>`, which Resend
   honours for 24 hours. A resumed job finishes if the email was sent, and resends
   under the same key if it was possibly sent within 24 hours. Otherwise it is
-  marked failed (Q14: 2): possibly sent more than 24 hours ago, or claimed by
-  something the record does not account for, such as an earlier release. The
-  handler tells those claims apart by the lease token the row carried before its
-  claim (`previousLeaseToken`). The email queue's Retry resets the record, so a
+  marked failed (Q14: 2): possibly sent more than 24 hours ago, or `unsent`
+  but last claimed by a worker that keeps no record, such as an earlier release.
+  The handler sees which by the recovery protocol the previous claim declared
+  (`previousClaimRecoveryProtocol`). The email queue's Retry
+  (`emailRetryReset`) resets the record and marks it `resendApproved`, so a
   person can send a held-back email.
   **Completion checkpoints (plan §F).** Enrichment's write, its review's move to
   `concept_review` and the Visual-Idea job commit in one fenced transaction. A

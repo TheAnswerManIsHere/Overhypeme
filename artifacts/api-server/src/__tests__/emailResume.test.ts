@@ -63,7 +63,7 @@ function stubResend(): void {
 let queue = "";
 function useEmailHandler(handler: JobHandler = emailJobHandler, declare = true): void {
   registerJobHandler(queue, handler, declare
-    ? { executionLimitMs: 5 * 60_000, recoveryProtocol: EMAIL_RECOVERY_PROTOCOL, fastReclaim: true, recoverAfterLimit: true }
+    ? { executionLimitMs: 5 * 60_000, recoveryProtocol: EMAIL_RECOVERY_PROTOCOL, fastReclaim: true, retriesRecover: true }
     : {});
 }
 
@@ -99,13 +99,12 @@ async function setDelivery(id: number, patch: Partial<EmailDelivery>): Promise<v
 }
 
 /** A holder claimed the row and stopped: processing, its lease lapsed. */
-async function stopHolder(id: number, claimProtocol: number | null, token = randomUUID()): Promise<string> {
+async function stopHolder(id: number, claimProtocol: number | null, token = randomUUID()): Promise<void> {
   await db.execute(sql`
     UPDATE async_jobs SET status = 'processing', lease_token = ${token}, claim_owner = 'gone',
            claim_recovery_protocol = ${claimProtocol}, lease_expires_at = now() - interval '1 second',
            claimed_at = now() - interval '1 minute'
      WHERE id = ${id}`);
-  return token;
 }
 
 const tick = () => asyncJobsTick(db, new Date(), { queues: [queue] });
@@ -175,8 +174,8 @@ describe("email is never sent twice (plan §E)", () => {
     const id = await enqueueEmail();
     const { nonce } = (await deliveryOf(id))!;
     useEmailHandler();
-    const token = await stopHolder(id, EMAIL_RECOVERY_PROTOCOL);
-    await setDelivery(id, { state: "possibly_sent", firstDispatchAt: new Date(Date.now() - 60_000).toISOString(), accountedToken: token });
+    await stopHolder(id, EMAIL_RECOVERY_PROTOCOL);
+    await setDelivery(id, { state: "possibly_sent", firstDispatchAt: new Date(Date.now() - 60_000).toISOString() });
     await recoverStuckProcessing(db);
     assert.equal((await getJob(id)).status, "recovering");
     await tick();
@@ -188,8 +187,8 @@ describe("email is never sent twice (plan §E)", () => {
   it("sent: a resumed job finishes without sending", async () => {
     const id = await enqueueEmail();
     useEmailHandler();
-    const token = await stopHolder(id, EMAIL_RECOVERY_PROTOCOL);
-    await setDelivery(id, { state: "sent", providerId: "re_earlier", firstDispatchAt: new Date().toISOString(), accountedToken: token });
+    await stopHolder(id, EMAIL_RECOVERY_PROTOCOL);
+    await setDelivery(id, { state: "sent", providerId: "re_earlier", firstDispatchAt: new Date().toISOString() });
     await recoverStuckProcessing(db);
     await tick();
     assert.equal(sent.length, 0);
@@ -199,11 +198,10 @@ describe("email is never sent twice (plan §E)", () => {
   it("possibly submitted more than 24 h ago: marked failed with the reason, nothing sent (Q14: 2)", async () => {
     const id = await enqueueEmail();
     useEmailHandler();
-    const token = await stopHolder(id, EMAIL_RECOVERY_PROTOCOL);
+    await stopHolder(id, EMAIL_RECOVERY_PROTOCOL);
     await setDelivery(id, {
       state: "possibly_sent",
       firstDispatchAt: new Date(Date.now() - EMAIL_IDEMPOTENCY_WINDOW_MS - 60_000).toISOString(),
-      accountedToken: token,
     });
     await recoverStuckProcessing(db);
     await tick();
@@ -238,10 +236,10 @@ describe("email is never sent twice (plan §E)", () => {
     assert.equal((await getJob(id)).status, "failed");
   });
 
-  it("a row this release enqueued but an earlier release attempted (attempts it did not record): marked failed", async () => {
+  it("a row this release enqueued but an earlier release attempted (its claim declared no recovery): marked failed", async () => {
     const id = await enqueueEmail();
     useEmailHandler();
-    await db.update(asyncJobsTable).set({ attempts: 1, leaseToken: randomUUID() }).where(eq(asyncJobsTable.id, id));
+    await db.update(asyncJobsTable).set({ attempts: 1, leaseToken: randomUUID(), claimRecoveryProtocol: null }).where(eq(asyncJobsTable.id, id));
     await tick();
     assert.equal(sent.length, 0);
     assert.equal((await getJob(id)).status, "failed");
@@ -271,9 +269,9 @@ describe("email is never sent twice (plan §E)", () => {
     await db.update(asyncJobsTable).set({ nextAttemptAt: new Date(Date.now() - 1000) }).where(eq(asyncJobsTable.id, id));
     await tick();
     const refused = await getJob(id);
-    assert.equal(refused.status, "pending", "no send was attempted, so an ordinary retry");
+    assert.equal(refused.status, "recovering", "every email retry stays with this release");
     assert.equal(refused.attempts, 1);
-    assert.equal((await deliveryOf(id))?.state, "unsent");
+    assert.equal((await deliveryOf(id))?.state, "unsent", "nothing was recorded as possibly sent");
 
     _resetResendAuthDisabledForTests();
     answer = () => ({ data: { id: "re_after_rotation" }, error: null });
@@ -313,7 +311,7 @@ describe("email is never sent twice (plan §E)", () => {
         await wedged; // a send that never answers
         return emailJobHandler.run(payload, row);
       },
-    }, { executionLimitMs: 100, recoveryProtocol: EMAIL_RECOVERY_PROTOCOL, recoverAfterLimit: true });
+    }, { executionLimitMs: 100, recoveryProtocol: EMAIL_RECOVERY_PROTOCOL, retriesRecover: true });
     await tick();
     const after = await getJob(id);
     assert.equal(after.status, "recovering");
@@ -328,7 +326,6 @@ describe("email is never sent twice (plan §E)", () => {
     useEmailHandler();
     await tick();
     assert.equal((await getJob(id)).status, "failed");
-    const oldToken = (await getJob(id)).leaseToken;
 
     const adminId = `email_resume_${randomUUID()}`;
     await db.insert(usersTable).values({ id: adminId, membershipTier: "registered", isAdmin: true });
@@ -356,11 +353,21 @@ describe("email is never sent twice (plan §E)", () => {
     assert.equal(reset.recoveryProtocol, null);
     const record = (reset.payload as EmailJobPayload).delivery;
     assert.equal(record?.state, "unsent");
-    assert.equal(record?.accountedToken, oldToken, "the person's retry accounts for every claim so far");
+    assert.equal(record?.resendApproved, true, "the person's retry is recorded as their choice to send");
 
     await tick();
     assert.equal(sent.length, 1);
     assert.equal(sent[0]!.key, emailIdempotencyKey(id, record!.nonce));
+    assert.equal((await getJob(id)).status, "done");
+  });
+
+  it("a stop before the first possible send, under this release, is trusted: the email is sent normally", async () => {
+    const id = await enqueueEmail();
+    useEmailHandler();
+    await stopHolder(id, EMAIL_RECOVERY_PROTOCOL); // record still unsent
+    await recoverStuckProcessing(db);
+    await tick();
+    assert.equal(sent.length, 1);
     assert.equal((await getJob(id)).status, "done");
   });
 });
