@@ -341,6 +341,10 @@ test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
     await expect(page.getByTestId("deactivate-fact-button"), "an active fact can be deactivated").toHaveText("Deactivate Fact");
     await expect(page.getByTestId("send-back-button"), "Send Back to Review is removed").toHaveCount(0);
     await expect(page.getByTestId("resubmit-for-moderation-button"), "Resubmit for Moderation is removed").toHaveCount(0);
+    // The confirmation says Deactivate is one-way for now, before the admin presses it.
+    await page.getByTestId("deactivate-fact-button").click();
+    await expect(page.getByText(/can't be reactivated from the admin yet/), "the confirmation says there is no way back yet").toBeVisible();
+    await page.getByTestId("deactivate-fact-confirm").locator("..").getByRole("button", { name: "Cancel", exact: true }).click();
     // Variants are retired (plan PLAN_RETIRE_VARIANTS.md): no way to add one, and no nesting in the list.
     await expect(page.getByRole("button", { name: /add variant/i })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /expand variants/i })).toHaveCount(0);
@@ -352,12 +356,14 @@ test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
     await expect(page.getByTestId("deactivate-fact-button"), "an inactive fact is not offered Deactivate").toHaveCount(0);
 
     // Step 7: the editor refuses the toggle itself and says why, so no false→true save can be sent.
-    const activeToggle = page.getByTitle("Deactivated — re-moderate to reactivate");
+    // It names no route back: moderation no longer reactivates a fact (plan PLAN_FACT_LIFECYCLE_REBUILD.md 1H).
+    const activeToggle = page.getByTitle("Deactivated — can't be reactivated yet");
     await expect(activeToggle, "PR242 step 7: toggling an inactive fact Active is refused").toBeDisabled();
     await expect(
-      page.getByText("Deactivated facts can only go live again through moderation.", { exact: true }),
-      "PR242 step 7: the refusal says activation is through moderation",
+      page.getByText("A deactivated fact can't be reactivated from the admin yet.", { exact: true }),
+      "PR242 step 7: the refusal says there is no way back yet",
     ).toBeVisible();
+    await expect(page.getByText(/through moderation|re-moderate/i), "no hint points at a removed route").toHaveCount(0);
 
   });
 

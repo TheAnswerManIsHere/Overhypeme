@@ -663,7 +663,7 @@ export default function AdminFacts() {
             </div>
             <p className="text-sm text-muted-foreground line-clamp-2 italic">"{selectedFact.text}"</p>
             <p className="text-sm text-muted-foreground">
-              Takes the fact off the site. Members' memes, pictures and comments are kept.
+              Takes the fact off the site. Members' memes, pictures and comments are kept. It can't be reactivated from the admin yet.
             </p>
             <div className="flex gap-3">
               <Button onClick={() => void deleteFact()} isLoading={deleting} className="flex-1" data-testid="deactivate-fact-confirm">
@@ -887,7 +887,7 @@ export default function AdminFacts() {
                 <p className="text-xs text-muted-foreground">
                   {draft.isActive
                     ? "Inactive facts are hidden from the public."
-                    : "Deactivated facts can only go live again through moderation."}
+                    : "A deactivated fact can't be reactivated from the admin yet."}
                 </p>
               </div>
               <button
@@ -897,7 +897,7 @@ export default function AdminFacts() {
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
                   draft.isActive ? "bg-green-500" : "bg-muted-foreground/30 cursor-not-allowed opacity-60"
                 }`}
-                title={draft.isActive ? "Click to deactivate" : "Deactivated — re-moderate to reactivate"}
+                title={draft.isActive ? "Click to deactivate" : "Deactivated — can't be reactivated yet"}
               >
                 <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
                   draft.isActive ? "translate-x-6" : "translate-x-1"
