@@ -13,6 +13,12 @@
 
 ---
 
+### 2026-11-17 · Deprecated means removed: nothing is "retired" and left in the product
+- **Decision:** when functionality is deprecated, it is **removed from the product**: its code, routes, screens, settings, enum values, queue handlers, test fixtures and the stored records that only it produced. Nothing stays behind as a "retired" value kept for history, a look-only card, a do-nothing handler, a route answering "retired", or skipped test cases kept "as a record". Pre-launch there is no production data to protect, so stored records of a removed feature are deleted or converted by a migration. Deleted code stays recoverable from git and, for a cut feature, its `pre-cut/<feature>` tag and ledger row (the 2026-10-21 entry below).
+- **Why:** David, 2026-11-17, after PR #971 — Compiler review, Phase 2: no picture without a photo, everywhere — kept the no-photo mode, the Generic scenario and the AI-background generator's queue and route in a "retired" state: *"I don't want to "retire" things and leave them around. If we're deprecating functionality, I want it removed from the product."*
+- **Supersedes:** the clauses of [Every picture starts from a photo](#2026-11-14--every-picture-starts-from-a-photo-there-is-no-picture-without-one) that keep the no-photo mode, its stored attempts, panels and pictures, and the retired generator's handler. Their removal is its own piece of work.
+- **Revisit if:** the product has launched and holds user data a removal would destroy. That case is a decision for David, never a default.
+
 ### 2026-11-17 · David is the product's default person: his name and his photo
 - **Decision:** wherever the system needs a stand-in person, it is David, with his name and his reference photo: in samples, demos, moderation test renders and previews, and documentation. Three exceptions, each used only where the need is explicit:
   - a female default is **Raena** (Raena Franklin, she/her, his wife, with her reference photo);
