@@ -150,6 +150,22 @@ describe("GagsPanel", () => {
     expect(call.body).toEqual({ attemptId: 902, reviewId: 77 });
   });
 
+  it("a tile whose picture Nano Banana drew after GPT Image refused says so; others do not (plan PLAN_NB_FALLBACK.md)", async () => {
+    const renders: PerKind<RenderScenarioCard | null> = {
+      male: card("i2i_male_default", { latestAttemptId: 901, engineFallback: { refusedEngineId: "gpt-image-2-6-edit", drawnByEngineId: "nano-banana-2-1-edit" } }),
+      female: card("i2i_female_default", { latestAttemptId: 902 }),
+      pet: null,
+    };
+    stubFetch(view([
+      gag({ id: 2, slot: 1, state: "new", availableToUsers: false, approvedContent: null, approvedAt: null, pendingContent: scene("{NAME} drives home."), renders }),
+    ], { isActive: false }));
+    render(<GagsPanel factId={5} reviewId={77} rendersEnabled subjectNames={[]} />);
+    const tiles = await screen.findAllByTestId("gag-render");
+    expect(within(tiles[0]!).getByTestId("gag-render-fallback").textContent).toBe("GPT Image refused this picture; Nano Banana drew it.");
+    expect(within(tiles[1]!).queryByTestId("gag-render-fallback")).toBeNull();
+    expect(within(tiles[0]!).getByTestId("gag-approve-render")).toBeTruthy();
+  });
+
   it("\"Render female and pet\" draws only those kinds; a tile draws its own again on request", async () => {
     const calls = stubFetch(view([gag({ id: 1, slot: 1, isDefault: true, renders: { ...NONE, male: card("i2i_male_default") } })]));
     render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);

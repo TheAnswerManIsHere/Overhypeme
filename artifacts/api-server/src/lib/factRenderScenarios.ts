@@ -19,6 +19,7 @@
  * drift from the current enrichment/config.
  */
 
+import { switchedFallbackOf } from "./engineFallback";
 import { createHash } from "node:crypto";
 import {
   IMAGE_PROMPT_GENERATION_VERSION,
@@ -194,9 +195,25 @@ export function deriveScenarioStatus(attempt: ImagePromptAttempt): RenderScenari
   }
 }
 
-/** A latest attempt is stale when its frozen input hash differs from the current one. */
-export function isAttemptStale(attempt: ImagePromptAttempt, currentHash: string): boolean {
-  return (attempt.reviewRenderInputHash ?? "") !== currentHash;
+/**
+ * A latest attempt is stale when its frozen input hash differs from the
+ * current one, or, for an attempt the photoreal fallback redrew, when the
+ * fallback recipe it drew with is no longer the fallback family's live one
+ * (plan PLAN_NB_FALLBACK.md, *Moderation freshness*). The hash is never
+ * rewritten by a fallback, so a fallback alone never makes a render stale,
+ * and a change to the fallback's wording never touches a render GPT drew.
+ * `currentFallbackRecipeVersionId` is undefined when the caller did not read
+ * it, which compares the hash alone.
+ */
+export function isAttemptStale(
+  attempt: ImagePromptAttempt,
+  currentHash: string,
+  currentFallbackRecipeVersionId?: number | null,
+): boolean {
+  if ((attempt.reviewRenderInputHash ?? "") !== currentHash) return true;
+  const fallback = switchedFallbackOf(attempt);
+  if (!fallback || currentFallbackRecipeVersionId === undefined) return false;
+  return fallback.fallbackRecipeVersionId !== currentFallbackRecipeVersionId;
 }
 
 // ─── Non-human applicability (conservative) ──────────────────────────────────

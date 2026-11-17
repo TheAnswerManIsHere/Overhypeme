@@ -192,6 +192,13 @@ export interface RenderScenarioCard {
   imageUrl: string | null;
   /** Present for failed/blocked tiles. */
   message: string | null;
+  /**
+   * Set when the routed engine refused this render on content grounds and the
+   * photoreal fallback drew the picture shown (plan PLAN_NB_FALLBACK.md); null
+   * otherwise, and while that picture has not arrived. Optional so older card
+   * constructors still type-check.
+   */
+  engineFallback?: { refusedEngineId: string; drawnByEngineId: string } | null;
   /** Only set for the non-human scenarios: why it was included / skipped. */
   applicability: NonHumanApplicability | null;
   // Eval harness (Slice 2B): the moderator's opportunistic verdict on the latest

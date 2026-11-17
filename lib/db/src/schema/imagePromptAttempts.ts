@@ -135,6 +135,15 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
   /** The endpoint settings the request builder chose (purpose, size, aspect), as sent. */
   requestSettings: jsonb("request_settings"),
   /**
+   * The photoreal fallback (migration 0144; plan PLAN_NB_FALLBACK.md): set when
+   * the routed engine refused this attempt on content grounds and it was
+   * redrawn on the fallback engine. Written before the fallback runs and never
+   * cleared, so it keeps the routed engine and the refusal after
+   * `actual_image_engine_id` names the engine that drew the picture. Null when
+   * the attempt never fell back.
+   */
+  engineFallback: jsonb("engine_fallback").$type<EngineFallbackRecord>(),
+  /**
    * The gag this attempt drew (migration 0139). Null on every attempt made
    * before gags had their own table; those drew the fact's only gag, whose
    * content is in `fact_enrichment_snapshot`. The snapshot stays the exact
@@ -164,6 +173,28 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
   // `WHERE review_id IS NOT NULL` partial) are declared in the migration SQL
   // only — drizzle-kit's partial-index detection is brittle.
 ]);
+
+/**
+ * `image_prompt_attempts.engine_fallback` (migration 0144). `preparing`: the
+ * routed engine's refusal is recorded and the fallback prompt is being built;
+ * `switched`: the attempt now draws on the fallback engine. No state returns
+ * to the routed engine.
+ */
+export interface EngineFallbackRecord {
+  state: "preparing" | "switched";
+  routedEngineId: string;
+  routedRecipeVersionId: number | null;
+  refusedGenerationRequestId: number | null;
+  refusedVendorRequestId: string | null;
+  /** fal's own reason for the refusal. */
+  reason: string;
+  fallbackEngineId: string;
+  fallbackRecipeVersionId: number | null;
+  /** True when the attempt was queued before fallbacks were frozen at queue time, so they were resolved at the handover. */
+  resolvedAtHandover: boolean;
+  /** ISO time the refusal was recorded. */
+  at: string;
+}
 
 export type ImagePromptAttempt = typeof imagePromptAttemptsTable.$inferSelect;
 export type InsertImagePromptAttempt = typeof imagePromptAttemptsTable.$inferInsert;
