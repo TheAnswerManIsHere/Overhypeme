@@ -129,7 +129,9 @@ export default function SubmitFact() {
   // The text being judged: what was typed, then — once tokenized — the template
   // that will be submitted, including any advanced-editor edit.
   const { checking: checkingDuplicate, shown: shownDuplicate, clear: clearDuplicate } =
-    useDuplicatePreview(step === "preview" ? template : rawText);
+    // Stopped from the moment Submit is pressed until it fails or the next fact
+    // starts: a check landing after the save would match the submitter's own review.
+    useDuplicatePreview(step === "preview" ? template : rawText, !submitting && !submitted);
 
   async function handleTokenize() {
     if (rawText.length < 10) return;

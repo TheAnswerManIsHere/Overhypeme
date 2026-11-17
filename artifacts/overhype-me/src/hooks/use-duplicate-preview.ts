@@ -27,7 +27,15 @@ export interface DuplicatePreview {
 export const DUPLICATE_PREVIEW_MIN_CHARS = 20;
 export const DUPLICATE_PREVIEW_DELAY_MS = 1200;
 
-export function useDuplicatePreview(input: string): {
+/**
+ * `active` is false from the moment a submission starts (Codex 4603544371):
+ * a pending pause is cancelled and a request in flight is dropped, so nothing
+ * that lands after the click — which could match the submitter's own, just
+ * saved, review — changes what is shown. A verdict already held for the
+ * current text stays shown. Making it true again (a failed submission, or the
+ * next fact) re-checks the current text after the pause.
+ */
+export function useDuplicatePreview(input: string, active = true): {
   checking: boolean;
   /** The "duplicate" verdict for the current input, or null. */
   shown: DuplicatePreview | null;
@@ -60,12 +68,13 @@ export function useDuplicatePreview(input: string): {
   }, [requests]);
 
   useEffect(() => {
-    requests.next();               // abort any request for older text
+    requests.next();               // abort any request for older text, or once inactive
     setChecking(false);
+    if (!active) return;           // keep what is held; start nothing
     if (input.length < DUPLICATE_PREVIEW_MIN_CHARS) { setResult(null); return; }
     const timer = setTimeout(() => { void check(input); }, DUPLICATE_PREVIEW_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [input, check, requests]);
+  }, [input, active, check, requests]);
 
   const clear = useCallback(() => { requests.next(); setResult(null); setChecking(false); }, [requests]);
   const shown = result && result.forText === input && result.outcome === "duplicate" ? result : null;

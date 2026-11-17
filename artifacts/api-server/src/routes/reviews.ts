@@ -232,12 +232,13 @@ router.post("/facts/submit-review", requireAuth, requireFactSubmitRateLimit, asy
 
   // The duplicate check of the saved wording, after the commit: the submitter
   // never waits on it, and it writes only while the wording is unchanged.
+  // It is tracked only while it runs (a test awaits it), and leaves the set
+  // when it settles.
   const submittedId = review.id;
-  pendingSubmitChecks.add(
-    checkReviewDuplicate(submittedId, detectorFor(req))
-      .catch((err) => logger.error({ err, reviewId: submittedId }, "[duplicate] the post-submit check failed"))
-      .then(() => undefined),
-  );
+  const check: Promise<void> = checkReviewDuplicate(submittedId, detectorFor(req))
+    .then(() => undefined, (err) => { logger.error({ err, reviewId: submittedId }, "[duplicate] the post-submit check failed"); })
+    .finally(() => { pendingSubmitChecks.delete(check); });
+  pendingSubmitChecks.add(check);
 
   res.status(201).json({ success: true, reviewId: review.id });
 });
@@ -922,11 +923,9 @@ function detectorFor(req: Request): DuplicateDetector {
 /** Post-submit checks still running; a test awaits them. */
 const pendingSubmitChecks = new Set<Promise<void>>();
 export async function __settleSubmitDuplicateChecksForTest(): Promise<void> {
-  while (pendingSubmitChecks.size) {
-    const batch = [...pendingSubmitChecks];
-    pendingSubmitChecks.clear();
-    await Promise.all(batch);
-  }
+  // Each check removes itself when it settles; this also waits for checks that
+  // start while it is waiting.
+  while (pendingSubmitChecks.size) await Promise.all([...pendingSubmitChecks]);
 }
 const WithdrawBody = z.object({ note: z.string().max(500).optional() });
 

@@ -65,4 +65,43 @@ describe("useDuplicatePreview", () => {
     expect(result.current.shown).toBeNull();
     expect(result.current.checking).toBe(false);
   });
+
+  describe("stopped when a submission starts (Codex 4603544371)", () => {
+    const hook = () => renderHook(({ input, active }) => useDuplicatePreview(input, active), { initialProps: { input: A, active: true } });
+
+    it("a pause still pending when it stops starts no request", async () => {
+      const { rerender } = hook();
+      rerender({ input: A, active: false });
+      await act(async () => { vi.advanceTimersByTime(DUPLICATE_PREVIEW_DELAY_MS * 2); });
+      expect(pending).toHaveLength(0);
+    });
+
+    it("a request in flight when it stops cannot show its answer", async () => {
+      const { result, rerender } = hook();
+      await act(async () => { vi.advanceTimersByTime(DUPLICATE_PREVIEW_DELAY_MS); });
+      expect(pending).toHaveLength(1);
+      rerender({ input: A, active: false });
+      await act(async () => pending[0]!.resolve(dup));
+      await settle();
+      expect(result.current.shown).toBeNull();
+      expect(result.current.checking).toBe(false);
+    });
+
+    it("a verdict shown before it stops is still shown after", async () => {
+      const { result, rerender } = hook();
+      await act(async () => { vi.advanceTimersByTime(DUPLICATE_PREVIEW_DELAY_MS); });
+      await act(async () => pending[0]!.resolve(dup));
+      await settle();
+      rerender({ input: A, active: false });
+      expect(result.current.shown?.matchingFactId).toBe(41);
+    });
+
+    it("resuming without a success (a failed submission) checks the current text again", async () => {
+      const { rerender } = hook();
+      rerender({ input: A, active: false });
+      rerender({ input: A, active: true });
+      await act(async () => { vi.advanceTimersByTime(DUPLICATE_PREVIEW_DELAY_MS); });
+      expect(pending.map((p) => p.text)).toEqual([A]);
+    });
+  });
 });
