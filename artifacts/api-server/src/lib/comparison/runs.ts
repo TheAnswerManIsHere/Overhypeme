@@ -49,6 +49,7 @@ import {
   type FactEnrichment,
 } from "@workspace/api-zod";
 import { enqueueJob, registerJobHandler, terminalFailure, type HandlerResult } from "../asyncJobs";
+import { assertJobOwnership, fencedTransaction } from "../jobFence";
 import { defaultScenarioRenderControls, syntheticAnalysisForReference } from "../reviewRenderScenarios";
 import { ReferenceAssetUnavailableError, resolveDefaultReferenceUrl } from "../defaultReferenceResolver";
 import { resolveRenderReviewInput } from "../imagePrompt/resolveRenderReviewInput";
@@ -200,7 +201,7 @@ async function waitingReservations(tx: Tx, panelId: number): Promise<Array<{ cel
 
 /** The call never reached a vendor: its bound is free again. */
 async function release(reservationId: number): Promise<void> {
-  await db.update(comparisonReservationsTable).set({ state: "released", settledAt: new Date() }).where(eq(comparisonReservationsTable.id, reservationId));
+  await fencedTransaction(db, (tx) => tx.update(comparisonReservationsTable).set({ state: "released", settledAt: new Date() }).where(eq(comparisonReservationsTable.id, reservationId)));
 }
 
 /**
@@ -209,9 +210,9 @@ async function release(reservationId: number): Promise<void> {
  * record of what was actually billed.
  */
 async function settleAtBound(reservationId: number): Promise<void> {
-  await db.update(comparisonReservationsTable)
+  await fencedTransaction(db, (tx) => tx.update(comparisonReservationsTable)
     .set({ state: "settled", settledUsd: sql`${comparisonReservationsTable.boundUsd}`, settledAt: new Date() })
-    .where(and(eq(comparisonReservationsTable.id, reservationId), eq(comparisonReservationsTable.state, "reserved")));
+    .where(and(eq(comparisonReservationsTable.id, reservationId), eq(comparisonReservationsTable.state, "reserved"))));
 }
 
 /** A run ends when none of its items is still in flight. */
@@ -226,7 +227,7 @@ async function finishRunIfDone(runId: number): Promise<void> {
       sql`(${comparisonPanelsTable.state} in ('preparing', 'planning') or ${comparisonCellsTable.state} in ('enqueued', 'waiting'))`,
     ));
   if ((row?.inFlight ?? 0) === 0) {
-    await db.update(comparisonRunsTable).set({ state: "done", endedAt: new Date() }).where(and(eq(comparisonRunsTable.id, runId), eq(comparisonRunsTable.state, "running")));
+    await fencedTransaction(db, (tx) => tx.update(comparisonRunsTable).set({ state: "done", endedAt: new Date() }).where(and(eq(comparisonRunsTable.id, runId), eq(comparisonRunsTable.state, "running"))));
   }
 }
 
@@ -240,7 +241,7 @@ interface PreparePayload { runId: number; panelId: number; reservationId: number
  * retry of the panel admits them again and nothing waits for ever.
  */
 async function failPanel(panelId: number, state: "failed" | "skipped", reason: string): Promise<void> {
-  await db.transaction(async (tx) => {
+  await fencedTransaction(db, async (tx) => {
     await tx.update(comparisonPanelsTable)
       .set(state === "skipped" ? { state, skipReason: reason, updatedAt: new Date() } : { state, error: reason, updatedAt: new Date() })
       .where(eq(comparisonPanelsTable.id, panelId));
@@ -351,7 +352,7 @@ async function preparePanelInFlight(panel: ComparisonPanel, p: PreparePayload): 
   // Recording the panel prepared and queueing its waiting cells is one
   // transaction: a restart between the two can neither strand a cell nor
   // queue it twice (each cell leaves "waiting" exactly once).
-  await db.transaction(async (tx) => {
+  await fencedTransaction(db, async (tx) => {
   await tx.update(comparisonPanelsTable).set({
     state: "prepared",
     compiledPrompt: assembled.compiled,
@@ -516,14 +517,14 @@ async function panelLineage(panelId: number): Promise<Record<string, unknown> | 
 }
 
 async function failCell(cellId: number, error: string): Promise<void> {
-  await db.update(comparisonCellsTable).set({ state: "failed", error, updatedAt: new Date() }).where(eq(comparisonCellsTable.id, cellId));
+  await fencedTransaction(db, (tx) => tx.update(comparisonCellsTable).set({ state: "failed", error, updatedAt: new Date() }).where(eq(comparisonCellsTable.id, cellId)));
 }
 
 /** Store a rendered cell's vendor image; a failure keeps the URL for a storage-only retry. */
 async function storeCell(cell: ComparisonCell, url: string, vendorResult?: unknown): Promise<boolean> {
   try {
     const path = await storeVendorImage(cell, url, vendorResult);
-    await db.update(comparisonCellsTable).set({ state: "rendered", imageObjectPath: path, error: null, updatedAt: new Date() }).where(eq(comparisonCellsTable.id, cell.id));
+    await fencedTransaction(db, (tx) => tx.update(comparisonCellsTable).set({ state: "rendered", imageObjectPath: path, error: null, updatedAt: new Date() }).where(eq(comparisonCellsTable.id, cell.id)));
     return true;
   } catch (err) {
     await failCell(cell.id, `storage failed (the image is kept at the vendor; retry storage, not the render): ${err instanceof Error ? err.message : String(err)}`);
@@ -597,7 +598,7 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
   let requestId = cell.falRequestId;
   if (!requestId) {
     // The submission's clock starts here, with the marker (David, 2026-11-10: render time matters).
-    await db.update(comparisonCellsTable).set({ requestSettings, promptText, submittedAt: new Date(), completedAt: null, updatedAt: new Date() }).where(eq(comparisonCellsTable.id, cell.id));
+    await fencedTransaction(db, (tx) => tx.update(comparisonCellsTable).set({ requestSettings, promptText, submittedAt: new Date(), completedAt: null, updatedAt: new Date() }).where(eq(comparisonCellsTable.id, cell.id)));
     // Image tracing: the exact input and the admin who started the run,
     // persisted before the vendor is called; a recovery reads this row.
     const [run] = await db.select({ createdBy: comparisonRunsTable.createdBy }).from(comparisonRunsTable)
@@ -612,6 +613,8 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
       attemptId: cell.attemptId ?? null,
       factId: panel!.factId,
     });
+    // The picture is paid: only while this run still owns its job (plan PLAN_JOB_RESUME.md §A, §G).
+    await assertJobOwnership();
     try {
       requestId = await comparisonFal().submit(engine!.endpointId, input);
       await setVendorRequestId(generationRequestId, requestId);
@@ -621,7 +624,7 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
       return terminalFailure("comparison_submit_failed", msg);
     }
     const submitted = requestId;
-    await db.transaction(async (tx) => {
+    await fencedTransaction(db, async (tx) => {
       await tx.update(comparisonCellsTable).set({ falRequestId: submitted, updatedAt: new Date() }).where(eq(comparisonCellsTable.id, cell.id));
       await tx.update(comparisonReservationsTable).set({ falRequestId: submitted }).where(eq(comparisonReservationsTable.id, p.reservationId));
     });
@@ -638,12 +641,12 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
   }
   const completedAt = new Date();
   await settleAtBound(p.reservationId);
-  await db.update(comparisonCellsTable).set({ completedAt, updatedAt: completedAt }).where(eq(comparisonCellsTable.id, cell.id));
+  await fencedTransaction(db, (tx) => tx.update(comparisonCellsTable).set({ completedAt, updatedAt: completedAt }).where(eq(comparisonCellsTable.id, cell.id)));
   if (!url) {
     await failCell(cell.id, "render failed: the response carried no image URL");
     return terminalFailure("comparison_render_failed", "no image url");
   }
-  await db.update(comparisonCellsTable).set({ vendorResultUrl: url, updatedAt: new Date() }).where(eq(comparisonCellsTable.id, cell.id));
+  await fencedTransaction(db, (tx) => tx.update(comparisonCellsTable).set({ vendorResultUrl: url, updatedAt: new Date() }).where(eq(comparisonCellsTable.id, cell.id)));
   await storeCell({ ...cell, vendorResultUrl: url }, url, vendorResult);
   return { ok: true, result: "rendered" };
 }

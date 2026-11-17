@@ -36,7 +36,7 @@ import { FLUX_3 } from "../lib/engines/flux-3.js";
 import { computeScenarioInputHash } from "../lib/reviewRenderScenarios.js";
 import { isAttemptStale } from "../lib/factRenderScenarios.js";
 import { imageGenerationHandler } from "../lib/imagePromptJobs.js";
-import { fal } from "../lib/falClient.js";
+import { __setRenderFalForTest } from "../lib/renderFalTransport.js";
 import adminRouter from "../routes/admin.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 
@@ -198,15 +198,19 @@ describe("the worker renders through the engine recorded at construction", () =>
     }).returning({ id: imagePromptAttemptsTable.id });
 
     const calls: Array<{ endpoint: string; input: Record<string, unknown> }> = [];
-    const original = fal.subscribe;
-    (fal as { subscribe: unknown }).subscribe = async (endpoint: string, opts: { input: Record<string, unknown> }) => {
-      calls.push({ endpoint, input: opts.input });
-      throw new Error("stub: stop before download");
-    };
+    __setRenderFalForTest({
+      async submit(endpoint, input) {
+        calls.push({ endpoint, input });
+        throw new Error("stub: stop before download");
+      },
+      async status() { return "UNKNOWN"; },
+      async result() { throw new Error("unused"); },
+      async history() { throw new Error("unused"); },
+    });
     try {
       await imageGenerationHandler.run({ attemptId: attempt!.id }, {} as never);
     } finally {
-      (fal as { subscribe: unknown }).subscribe = original;
+      __setRenderFalForTest(null);
     }
     assert.equal(calls.length, 1);
     assert.equal(calls[0]!.endpoint, "fal-ai/nano-banana-2", "the code's endpoint");

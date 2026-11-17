@@ -196,3 +196,12 @@ export async function whileOwned<T>(fn: () => Promise<T>): Promise<T> {
   if (!INVOCATION.getStore()) return fn();
   return fencedTransaction(defaultDb, () => fn());
 }
+
+/**
+ * Let an ownership refusal pass a catch untouched (Issue #1010): a helper that
+ * converts or absorbs its own failures calls this first, so a run that lost
+ * its job stops instead of carrying on as though its call had merely failed.
+ */
+export function rethrowIfOwnershipLost(err: unknown): void {
+  if (err instanceof JobOwnershipLostError) throw err;
+}

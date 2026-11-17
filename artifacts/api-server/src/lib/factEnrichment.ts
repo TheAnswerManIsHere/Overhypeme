@@ -44,6 +44,7 @@ import {
   FACT_ENRICHMENT_MAX_TOKENS,
 } from "./factEnrichmentConfig";
 import { callUtilityLLM } from "./utilityLLM";
+import { rethrowIfOwnershipLost } from "./jobFence";
 import { engineById } from "./engineInterpreter";
 import { logger } from "./logger";
 import { stripGag } from "./gags/resolver";
@@ -510,6 +511,7 @@ export async function enrichAndStorePendingReview(
       .set({ enrichment, enrichmentStatus: "ok" })
       .where(eq(pendingReviewsTable.id, reviewId));
   } catch (err) {
+    rethrowIfOwnershipLost(err); // Issue #1010
     logger.error({ err, reviewId }, "[factEnrichment] enrichment failed for review");
     await db
       .update(pendingReviewsTable)

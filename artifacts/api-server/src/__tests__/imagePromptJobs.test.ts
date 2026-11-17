@@ -23,7 +23,6 @@ import {
   IMAGE_GENERATION_QUEUE,
   imageGenerationHandler,
 } from "../lib/imagePromptJobs.js";
-import { fal } from "../lib/falClient.js";
 import { fallbackEngineIdFor } from "../lib/imageEngineRouting.js";
 import { fallbackLineFor } from "../lib/reviewRenderScenarios.js";
 import { isAttemptStale } from "../lib/factRenderScenarios.js";
@@ -31,6 +30,8 @@ import { buildRenderStatusPayload } from "../lib/imagePromptAttempts.js";
 import { traceIdOrLink } from "../lib/provenance/trace.js";
 import { photoBackgrounds } from "./helpers/photoBackground.js";
 import { __setUtilityLLMClientForTest } from "../lib/utilityLLM.js";
+import { __setRenderFalForTest, type FalHistoryEntry, type RenderFal } from "../lib/renderFalTransport.js";
+import { __setRecoveryClockForTest, recoverLostReceipt } from "../lib/renderRequestRecovery.js";
 import { defaultIdentityPolicyForRenderMode } from "@workspace/api-zod";
 import { withCast } from "./helpers/gagCast.js";
 
@@ -490,23 +491,40 @@ describe("image_generation — the photoreal fallback: GPT Image refuses, Nano B
     return attemptId;
   }
 
-  /** Run the image job with fal answering per endpoint; returns the result and the endpoints called. */
+  /**
+   * Run the image job with fal answering per endpoint; returns the result and
+   * the endpoints submitted to. The render's transport is a submit followed by
+   * status and result reads (plan PLAN_JOB_RESUME.md §C). A content refusal, as
+   * at fal, surfaces when the result is read; any other error fails the submit.
+   */
   async function draw(attemptId: number, answer: (endpoint: string, n: number) => unknown) {
     const calls: Array<{ endpoint: string; input: Record<string, unknown> }> = [];
-    const original = fal.subscribe;
-    (fal as { subscribe: unknown }).subscribe = async (endpoint: string, o: { input: Record<string, unknown> }) => {
-      calls.push({ endpoint, input: o.input });
-      const a = answer(endpoint, calls.filter((c) => c.endpoint === endpoint).length);
-      if (a instanceof Error) throw a;
-      return a;
-    };
+    const answers = new Map<string, unknown>();
+    __setRenderFalForTest({
+      async submit(endpoint, input) {
+        calls.push({ endpoint, input });
+        const a = answer(endpoint, calls.filter((c) => c.endpoint === endpoint).length);
+        // A gateway error is fal refusing the submission itself; a content refusal comes with the result.
+        if (a instanceof Error && (a as { status?: number }).status !== 422) throw a;
+        const id = `req-${randomUUID()}`;
+        answers.set(id, a);
+        return id;
+      },
+      async status() { return "COMPLETED"; },
+      async result(_endpoint, requestId) {
+        const a = answers.get(requestId);
+        if (a instanceof Error) throw a;
+        return (a as { data?: unknown }).data ?? a;
+      },
+      async history() { throw new Error("no history in this test"); },
+    });
     const priorKey = process.env["FAL_AI_API_KEY"];
     process.env["FAL_AI_API_KEY"] = priorKey ?? "test-fal-key";
     try {
       const out = await imageGenerationHandler.run({ attemptId }, {} as never);
       return { out, calls };
     } finally {
-      (fal as { subscribe: unknown }).subscribe = original;
+      __setRenderFalForTest(null);
       if (priorKey === undefined) delete process.env["FAL_AI_API_KEY"];
       else process.env["FAL_AI_API_KEY"] = priorKey;
     }
@@ -704,5 +722,355 @@ describe("image_generation — the photoreal fallback: GPT Image refuses, Nano B
     assert.equal(isAttemptStale(fellBack, "other", null), true, "content and routing changes keep their effect");
     assert.equal(isAttemptStale(gptDrawn, "h", 7), false);
     assert.equal(isAttemptStale(fellBack, "h"), false, "a caller that read no fallback recipe compares the hash alone");
+  });
+});
+
+// ─── A resumed render collects, never re-pays (plan PLAN_JOB_RESUME.md §C, Issue #1000) ───
+
+describe("image_generation — a resumed render collects what was already paid for (plan PLAN_JOB_RESUME.md §C)", () => {
+  const photos = photoBackgrounds();
+  const NB = "google/nano-banana-2.1/edit";
+  let png: Buffer;
+  const factIdsHere: number[] = [];
+
+  before(async () => {
+    photos.setUp();
+    png = await sharp({ create: { width: 32, height: 18, channels: 3, background: "#654" } }).png().toBuffer();
+    // The waits (the lost-receipt horizon, status polling) take no real time here.
+    __setRecoveryClockForTest({ sleep: async () => {} });
+  });
+  after(async () => {
+    __setRecoveryClockForTest(null);
+    if (factIdsHere.length) {
+      await db.delete(imageProvenanceTable).where(inArray(imageProvenanceTable.factId, factIdsHere));
+      await db.delete(imageGenerationRequestsTable).where(inArray(imageGenerationRequestsTable.factId, factIdsHere));
+    }
+    await photos.tearDown();
+  });
+
+  const pictureData = () => ({ images: [{ url: `data:image/png;base64,${png.toString("base64")}` }] });
+
+  /** A compiled attempt on the styled engine (no fallback), as a moderation render. */
+  async function planned(): Promise<{ attemptId: number; factId: number }> {
+    installLlmCounter();
+    const attemptId = await seedHandlerAttempt({ snapshot: handlerEnrichment({ coreSceneOverride: "{NAME} lifts a library." }) });
+    const row = await attemptRow(attemptId);
+    factIdsHere.push(row.factId);
+    await db.update(imagePromptAttemptsTable).set({
+      actualImageEngineId: "nano-banana-2-1-edit",
+      renderControls: { ...(row.renderControls as Record<string, unknown>), referenceImageUrl: "https://example.test/reference.png", mirrorToLegacyStorage: false } as never,
+    }).where(eq(imagePromptAttemptsTable.id, attemptId));
+    const res = await runHandler(attemptId);
+    assert.equal(res.ok, true, JSON.stringify(res));
+    return { attemptId, factId: row.factId };
+  }
+
+  /** A fake fal: each request has a status script and an answer; every submit is counted. */
+  function fakeFal(opts: { history?: () => Promise<FalHistoryEntry[]> } = {}) {
+    const requests = new Map<string, { statuses: string[]; answer: unknown }>();
+    const submits: string[] = [];
+    const transport: RenderFal = {
+      async submit(endpoint) {
+        submits.push(endpoint);
+        const id = `new-${randomUUID()}`;
+        requests.set(id, { statuses: ["IN_PROGRESS", "COMPLETED"], answer: pictureData() });
+        return id;
+      },
+      async status(_endpoint, id) {
+        const r = requests.get(id);
+        if (!r) throw new ApiError({ message: "Not Found", status: 404, body: {} });
+        return r.statuses.length > 1 ? r.statuses.shift()! : r.statuses[0]!;
+      },
+      async result(_endpoint, id) {
+        const r = requests.get(id)!;
+        if (r.answer instanceof Error) throw r.answer;
+        return r.answer;
+      },
+      async history() {
+        if (opts.history) return opts.history();
+        throw new Error("history unavailable in this test");
+      },
+    };
+    return { transport, requests, submits };
+  }
+
+  async function run(attemptId: number, fake: ReturnType<typeof fakeFal>) {
+    __setRenderFalForTest(fake.transport);
+    const priorKey = process.env["FAL_AI_API_KEY"];
+    process.env["FAL_AI_API_KEY"] = priorKey ?? "test-fal-key";
+    try {
+      return await imageGenerationHandler.run({ attemptId }, {} as never);
+    } finally {
+      __setRenderFalForTest(null);
+      if (priorKey === undefined) delete process.env["FAL_AI_API_KEY"];
+      else process.env["FAL_AI_API_KEY"] = priorKey;
+    }
+  }
+
+  /** A request row an earlier run recorded for this attempt. */
+  async function earlierRequest(attemptId: number, factId: number, over: {
+    vendorRequestId?: string | null; vendorStatus?: "IN_QUEUE" | "IN_PROGRESS" | "COMPLETED" | "FAILED" | "LOST" | null;
+    request?: Record<string, unknown>; minutesAgo?: number;
+  } = {}) {
+    const [row] = await db.insert(imageGenerationRequestsTable).values({
+      producer: "review_render", engineId: "nano-banana-2-1-edit", endpointId: NB,
+      request: over.request ?? { prompt: `earlier ${randomUUID()}` },
+      vendorRequestId: over.vendorRequestId ?? null, vendorStatus: over.vendorStatus ?? null,
+      attemptId, factId, actorKind: "system",
+      createdAt: new Date(Date.now() - (over.minutesAgo ?? 10) * 60_000),
+    }).returning();
+    return row!;
+  }
+
+  async function requestRow(id: number) {
+    const [row] = await db.select().from(imageGenerationRequestsTable).where(eq(imageGenerationRequestsTable.id, id));
+    return row!;
+  }
+
+  it("the request id is on record and fal is still drawing it: the run collects it, with no new submit", async () => {
+    const { attemptId, factId } = await planned();
+    const fake = fakeFal();
+    const prior = await earlierRequest(attemptId, factId, { vendorRequestId: "v-running", vendorStatus: "IN_PROGRESS" });
+    fake.requests.set("v-running", { statuses: ["IN_PROGRESS", "IN_PROGRESS", "COMPLETED"], answer: pictureData() });
+    const out = await run(attemptId, fake);
+    assert.equal(out.ok, true, JSON.stringify(out));
+    assert.deepEqual(fake.submits, [], "nothing new is paid for");
+    assert.ok((await attemptRow(attemptId)).generatedImageObjectPath);
+    assert.equal((await requestRow(prior.id)).vendorStatus, "COMPLETED");
+  });
+
+  it("the request had completed: the run stores it, with no new submit", async () => {
+    const { attemptId, factId } = await planned();
+    const fake = fakeFal();
+    await earlierRequest(attemptId, factId, { vendorRequestId: "v-done", vendorStatus: "COMPLETED" });
+    fake.requests.set("v-done", { statuses: ["COMPLETED"], answer: pictureData() });
+    const out = await run(attemptId, fake);
+    assert.equal(out.ok, true, JSON.stringify(out));
+    assert.deepEqual(fake.submits, []);
+    assert.ok((await attemptRow(attemptId)).generatedImageObjectPath);
+  });
+
+  it("the earlier request failed: it is marked failed, the existing retry applies, and the retry submits once", async () => {
+    const { attemptId, factId } = await planned();
+    const fake = fakeFal();
+    const prior = await earlierRequest(attemptId, factId, { vendorRequestId: "v-bad", vendorStatus: "IN_PROGRESS" });
+    fake.requests.set("v-bad", { statuses: ["COMPLETED"], answer: new ApiError({ message: "Bad Request", status: 400, body: {} }) });
+    const first = await run(attemptId, fake);
+    assert.equal(first.ok, false);
+    assert.notEqual((first as { retryable?: boolean }).retryable, false, "the queue retries it, as before");
+    assert.equal((await requestRow(prior.id)).vendorStatus, "FAILED", "a known failure is never collected again");
+    const second = await run(attemptId, fake);
+    assert.equal(second.ok, true, JSON.stringify(second));
+    assert.equal(fake.submits.length, 1, "one new submit in total");
+  });
+
+  for (const status of [500, 504]) {
+    it(`fal finished the request with a model ${status}: the row is marked failed and the retry draws anew, once (PR #1017 round 2)`, async () => {
+      const { attemptId, factId } = await planned();
+      const fake = fakeFal();
+      const prior = await earlierRequest(attemptId, factId, { vendorRequestId: `v-model-${status}`, vendorStatus: "IN_PROGRESS" });
+      fake.requests.set(`v-model-${status}`, { statuses: ["COMPLETED"], answer: new ApiError({ message: "model error", status, body: { detail: "internal_server_error" } }) });
+      const first = await run(attemptId, fake);
+      assert.equal(first.ok, false);
+      assert.notEqual((first as { retryable?: boolean }).retryable, false, "the existing retry applies");
+      assert.equal((await requestRow(prior.id)).vendorStatus, "FAILED", "a finished failure is never collected again");
+      assert.deepEqual(fake.submits, []);
+      const second = await run(attemptId, fake);
+      assert.equal(second.ok, true, JSON.stringify(second));
+      assert.equal(fake.submits.length, 1, "exactly one new draw");
+    });
+  }
+
+  it("a fresh request fal finishes with no picture is failed, and the retry draws anew, once (PR #1017 round 3)", async () => {
+    const { attemptId } = await planned();
+    const fake = fakeFal();
+    let firstSubmit = true;
+    const submitOf = fake.transport.submit.bind(fake.transport);
+    fake.transport.submit = async (endpoint, input, signal) => {
+      const id = await submitOf(endpoint, input, signal);
+      if (firstSubmit) {
+        firstSubmit = false;
+        fake.requests.set(id, { statuses: ["COMPLETED"], answer: { images: [] } });
+      }
+      return id;
+    };
+    const first = await run(attemptId, fake);
+    assert.equal(first.ok, false);
+    assert.notEqual((first as { retryable?: boolean }).retryable, false, "the existing retry applies");
+    assert.match((first as { error: string }).error, /missing image url/);
+    const [row] = await db.select().from(imageGenerationRequestsTable).where(eq(imageGenerationRequestsTable.attemptId, attemptId));
+    assert.equal(row!.vendorStatus, "FAILED", "an empty answer is never collected again");
+    const second = await run(attemptId, fake);
+    assert.equal(second.ok, true, JSON.stringify(second));
+    assert.equal(fake.submits.length, 2, "two submissions in total, as before");
+  });
+
+  it("a recorded request that finished with no picture: no submit on that run, failed, then exactly one submit on the next", async () => {
+    const { attemptId, factId } = await planned();
+    const fake = fakeFal();
+    const prior = await earlierRequest(attemptId, factId, { vendorRequestId: "v-empty", vendorStatus: "IN_PROGRESS" });
+    fake.requests.set("v-empty", { statuses: ["COMPLETED"], answer: { images: [] } });
+    const first = await run(attemptId, fake);
+    assert.equal(first.ok, false);
+    assert.deepEqual(fake.submits, []);
+    assert.equal((await requestRow(prior.id)).vendorStatus, "FAILED");
+    const second = await run(attemptId, fake);
+    assert.equal(second.ok, true, JSON.stringify(second));
+    assert.equal(fake.submits.length, 1);
+  });
+
+  it("a result read that got no HTTP answer leaves the request open, and the retry collects it with no new submit", async () => {
+    const { attemptId, factId } = await planned();
+    const fake = fakeFal();
+    const prior = await earlierRequest(attemptId, factId, { vendorRequestId: "v-flaky", vendorStatus: "IN_PROGRESS" });
+    let reads = 0;
+    fake.requests.set("v-flaky", { statuses: ["COMPLETED"], answer: pictureData() });
+    const resultOf = fake.transport.result.bind(fake.transport);
+    fake.transport.result = async (endpoint, id) => {
+      if (id === "v-flaky" && ++reads === 1) throw new TypeError("fetch failed");
+      return resultOf(endpoint, id);
+    };
+    const first = await run(attemptId, fake);
+    assert.equal(first.ok, false);
+    assert.notEqual((await requestRow(prior.id)).vendorStatus, "FAILED", "nothing was learned, so nothing is closed");
+    const second = await run(attemptId, fake);
+    assert.equal(second.ok, true, JSON.stringify(second));
+    assert.deepEqual(fake.submits, [], "collected, never paid again");
+  });
+
+  it("a status word fal does not document is not taken as a failure: the request stays open", async () => {
+    const { attemptId, factId } = await planned();
+    const fake = fakeFal();
+    const prior = await earlierRequest(attemptId, factId, { vendorRequestId: "v-odd", vendorStatus: "IN_PROGRESS" });
+    fake.requests.set("v-odd", { statuses: ["CANCELLING"], answer: new ApiError({ message: "Bad Request", status: 400, body: {} }) });
+    const out = await run(attemptId, fake);
+    assert.equal(out.ok, false);
+    assert.notEqual((await requestRow(prior.id)).vendorStatus, "FAILED");
+    assert.deepEqual(fake.submits, []);
+  });
+
+  it("the receipt was lost and fal's history holds exactly one unclaimed match: it is collected", async () => {
+    const { attemptId, factId } = await planned();
+    const input = { prompt: `lost ${randomUUID()}` };
+    const fake = fakeFal({ history: async () => [{ requestId: "v-found", input }, { requestId: "v-other", input: { prompt: "someone else" } }] });
+    fake.requests.set("v-found", { statuses: ["COMPLETED"], answer: pictureData() });
+    const prior = await earlierRequest(attemptId, factId, { request: input });
+    const out = await run(attemptId, fake);
+    assert.equal(out.ok, true, JSON.stringify(out));
+    assert.deepEqual(fake.submits, []);
+    const row = await requestRow(prior.id);
+    assert.equal(row.vendorRequestId, "v-found");
+    assert.equal(row.vendorStatus, "COMPLETED");
+  });
+
+  for (const [name, history] of [
+    ["two identical matches", async () => [{ requestId: "v-a", input: { prompt: "PLACEHOLDER" } }, { requestId: "v-b", input: { prompt: "PLACEHOLDER" } }]],
+    ["a history lookup that fails", async () => { throw new Error("fal history returned 500"); }],
+    ["no match at all", async () => []],
+  ] as const) {
+    it(`the receipt was lost and the history gives ${name}: ambiguous, so it is drawn again (Q13: 1), once`, async () => {
+      const { attemptId, factId } = await planned();
+      const input = { prompt: `ambiguous ${randomUUID()}` };
+      const fake = fakeFal({
+        history: async () => (await history()).map((e) => ({ ...e, input })),
+      });
+      const prior = await earlierRequest(attemptId, factId, { request: input });
+      const out = await run(attemptId, fake);
+      assert.equal(out.ok, true, JSON.stringify(out));
+      assert.equal(fake.submits.length, 1, "drawn again once");
+      const row = await requestRow(prior.id);
+      assert.equal(row.vendorStatus, "LOST");
+      assert.equal(row.vendorRequestId, null, "nothing collected");
+    });
+  }
+
+  it("the history's match is already held by another request of ours: ambiguous, never attached twice", async () => {
+    const { attemptId, factId } = await planned();
+    const other = await planned();
+    const input = { prompt: `held ${randomUUID()}` };
+    await earlierRequest(other.attemptId, other.factId, { vendorRequestId: `v-held-${attemptId}`, vendorStatus: "COMPLETED", request: input });
+    let historyRead = false;
+    const fake = fakeFal({ history: async () => { historyRead = true; return [{ requestId: `v-held-${attemptId}`, input }]; } });
+    const prior = await earlierRequest(attemptId, factId, { request: input });
+    __setRenderFalForTest(fake.transport);
+    try {
+      assert.equal(await recoverLostReceipt(prior), null);
+    } finally {
+      __setRenderFalForTest(null);
+    }
+    assert.ok(historyRead, "decided after reading the history, by the match being held");
+    const row = await requestRow(prior.id);
+    assert.equal(row.vendorStatus, "LOST");
+    assert.equal(row.vendorRequestId, null);
+  });
+
+  it("two of our receipt-less requests with the same input and one history match: ambiguous for both, recovered one after the other or together", async () => {
+    const a = await planned();
+    const b = await planned();
+    const input = { prompt: `twin ${randomUUID()}` };
+    const earlier = await earlierRequest(a.attemptId, a.factId, { request: input, minutesAgo: 12 });
+    const later = await earlierRequest(b.attemptId, b.factId, { request: input, minutesAgo: 8 });
+    __setRenderFalForTest(fakeFal({ history: async () => [{ requestId: "v-twin", input }] }).transport);
+    try {
+      assert.equal(await recoverLostReceipt(later), null, "the later-recorded one first");
+      // Both again, together, from their rows as a fresh run would read them.
+      const [ra, rb] = await Promise.all([recoverLostReceipt(await requestRow(earlier.id)), recoverLostReceipt(await requestRow(later.id))]);
+      assert.equal(ra, null);
+      assert.equal(rb, null);
+    } finally {
+      __setRenderFalForTest(null);
+    }
+    assert.equal((await requestRow(earlier.id)).vendorRequestId, null, "nothing collected");
+    assert.equal((await requestRow(later.id)).vendorRequestId, null);
+  });
+
+  it("the picture is already stored: the run finishes with no submit", async () => {
+    const { attemptId } = await planned();
+    await db.update(imagePromptAttemptsTable).set({ generatedImageObjectPath: "/objects/already-there.png" }).where(eq(imagePromptAttemptsTable.id, attemptId));
+    const fake = fakeFal();
+    const out = await run(attemptId, fake);
+    assert.equal(out.ok, true);
+    assert.deepEqual(fake.submits, []);
+  });
+
+  it("a fresh render stores fal's receipt the moment it is accepted, before the picture is ready", async () => {
+    const { attemptId } = await planned();
+    const fake = fakeFal();
+    let seenWhileDrawing: { vendorRequestId: string | null; vendorStatus: string | null } | null = null;
+    const statusOf = fake.transport.status.bind(fake.transport);
+    fake.transport.status = async (endpoint, id) => {
+      if (!seenWhileDrawing) {
+        const [row] = await db.select().from(imageGenerationRequestsTable).where(eq(imageGenerationRequestsTable.attemptId, attemptId));
+        seenWhileDrawing = { vendorRequestId: row!.vendorRequestId, vendorStatus: row!.vendorStatus };
+      }
+      return statusOf(endpoint, id);
+    };
+    const out = await run(attemptId, fake);
+    assert.equal(out.ok, true, JSON.stringify(out));
+    assert.equal(fake.submits.length, 1);
+    assert.match(seenWhileDrawing!.vendorRequestId ?? "", /^new-/, "the receipt was on record before the first status read");
+    assert.equal(seenWhileDrawing!.vendorStatus, "IN_QUEUE");
+  });
+});
+
+describe("image_prompt_generation — a resumed run reuses the prompt it saved (plan PLAN_JOB_RESUME.md §F)", () => {
+  it("never compiles again; the missing image job is created, and only once", async () => {
+    installLlmCounter();
+    const attemptId = await seedHandlerAttempt({ snapshot: handlerEnrichment({ coreSceneOverride: "{NAME} lifts a library." }) });
+    const first = await runHandler(attemptId);
+    assert.equal(first.ok, true, JSON.stringify(first));
+    const saved = (await attemptRow(attemptId)).compiledPrompt;
+    // The run stopped after the prompt was saved; its image job is gone.
+    await db.delete(asyncJobsTable).where(eq(asyncJobsTable.dedupeKey, `image_generation:attempt:${attemptId}`));
+    const again = await runHandler(attemptId);
+    assert.equal(again.ok, true, JSON.stringify(again));
+    assert.deepEqual(again.ok && again.result, { attemptId, reusedSavedPrompt: true }, "the saved prompt was reused");
+    assert.deepEqual((await attemptRow(attemptId)).compiledPrompt, saved, "the saved prompt is unchanged");
+    assert.ok(await generationJob(attemptId), "the missing image job was created");
+    assert.equal((await runHandler(attemptId)).ok, true);
+    const jobs = await db.select().from(asyncJobsTable).where(eq(asyncJobsTable.dedupeKey, `image_generation:attempt:${attemptId}`));
+    assert.equal(jobs.length, 1, "deduped against the one in flight");
+    assert.equal(llmCalls, 0, "no model call at any step");
+    await db.delete(asyncJobsTable).where(eq(asyncJobsTable.dedupeKey, `image_generation:attempt:${attemptId}`));
   });
 });

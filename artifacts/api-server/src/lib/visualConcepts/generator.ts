@@ -43,6 +43,7 @@ import {
 import { validateVisualStrategyOverridePersistence } from "../imagePrompt/promptBudget";
 import { VIOLENCE_RULE } from "../imagePrompt/violenceRule";
 import { callUtilityLLM } from "../utilityLLM";
+import { rethrowIfOwnershipLost } from "../jobFence";
 import { renderPersonalized, stripSubjectNameSemanticEntities } from "../renderCanonical";
 import { hasNoLikelySubjectReference, tokenizePlainTextToTemplate } from "../factTokenizer";
 import { getVisualConceptsSystem, getVisualConceptsEngineId, DEFAULT_VISUAL_CONCEPTS_ENGINE_ID } from "../visualConceptsConfig";
@@ -113,6 +114,16 @@ export interface GenerateVisualConceptsInput {
   existingGags: ContextGag[];
   /** The moderator's unsaved working draft (Regenerate). */
   draft: ContextGag | null;
+  /**
+   * Whether the request carries the classification's reference meanings and
+   * joke-mechanism line ("include", the default and today's request) or leaves
+   * both out ("omit"). "omit" exists for the blind check of plan
+   * PLAN_FACT_LIFECYCLE_REBUILD.md (1A), where the meanings travel in the
+   * humor note instead; nothing in the product sends it yet. Temporary: that
+   * plan's stage cutover (1.2) either removes these blocks for good or keeps
+   * them, and this option and blindCheck.ts go with the outcome.
+   */
+  classification?: "include" | "omit";
 }
 
 export interface VisualConceptsGenerationResult {
@@ -213,6 +224,22 @@ function gagLines(label: string, gag: ContextGag): string[] {
 }
 
 /**
+ * What the classification says the fact's references and ambiguous terms
+ * mean, one line each, as the gag writer is told them.
+ */
+export function referenceMeaningLines(e: FactEnrichment): string[] {
+  const meanings: string[] = [];
+  for (const r of e.culturalReferences ?? []) {
+    const status = isMaterialCulturalReference(r) ? "" : " (tentative)";
+    meanings.push(`- "${r.sourcePhrase}" refers to ${r.canonicalReference}${status}: ${r.explanation}${r.visualImplication ? ` Visually: ${r.visualImplication}` : ""}`);
+  }
+  for (const s of stripSubjectNameSemanticEntities(e.semanticEntities ?? []).filter((x) => x.materiallyAffectsVisualPrompt)) {
+    meanings.push(`- "${s.surfaceText}" means ${s.visualReferent}${s.requiresAdminReview ? " (tentative)" : ""}.`);
+  }
+  return meanings;
+}
+
+/**
  * The per-request message: only what a gag writer needs, absent blocks
  * omitted, no second copy of the output rules (those are in the system prompt).
  */
@@ -226,21 +253,16 @@ export function buildVisualConceptsUserMessage(input: GenerateVisualConceptsInpu
     blocks.push(["APPROVED HUMOR NOTE (written or confirmed by a moderator; the correct reading of this joke):", input.humorNote.trim()]);
   }
 
-  const meanings: string[] = [];
-  for (const r of e.culturalReferences ?? []) {
-    const status = isMaterialCulturalReference(r) ? "" : " (tentative)";
-    meanings.push(`- "${r.sourcePhrase}" refers to ${r.canonicalReference}${status}: ${r.explanation}${r.visualImplication ? ` Visually: ${r.visualImplication}` : ""}`);
-  }
-  for (const s of stripSubjectNameSemanticEntities(e.semanticEntities ?? []).filter((x) => x.materiallyAffectsVisualPrompt)) {
-    meanings.push(`- "${s.surfaceText}" means ${s.visualReferent}${s.requiresAdminReview ? " (tentative)" : ""}.`);
-  }
-  if (meanings.length) blocks.push(["WHAT THE REFERENCES MEAN:", ...meanings]);
+  if (input.classification !== "omit") {
+    const meanings = referenceMeaningLines(e);
+    if (meanings.length) blocks.push(["WHAT THE REFERENCES MEAN:", ...meanings]);
 
-  const guide = getSubtypeGuidance(e.primaryArchetype, e.subtype as FactSubtype);
-  blocks.push([
-    "JOKE MECHANISM:",
-    `${plain(e.primaryArchetype)}, ${plain(e.subtype)}${guide?.principle ? `. ${guide.principle}` : ""}`,
-  ]);
+    const guide = getSubtypeGuidance(e.primaryArchetype, e.subtype as FactSubtype);
+    blocks.push([
+      "JOKE MECHANISM:",
+      `${plain(e.primaryArchetype)}, ${plain(e.subtype)}${guide?.principle ? `. ${guide.principle}` : ""}`,
+    ]);
+  }
 
   // The one violence rule, word for word: the sentence every picture's
   // prompt carries (plan PLAN_GAG_DIRECT_RENDER.md, B), so the writer and the
@@ -342,6 +364,7 @@ export async function convertStandInName(wire: CandidateConceptsWire, tokenize: 
         if (!problem) return out.template;
         logger.warn({ problem, text: textIn, attempt, of: CONVERSION_ATTEMPTS }, "[visualConcepts.generator] the stand-in name could not be converted");
       } catch (err) {
+        rethrowIfOwnershipLost(err); // Issue #1010
         logger.warn({ err, text: textIn, attempt, of: CONVERSION_ATTEMPTS }, "[visualConcepts.generator] the tokenizer failed on a gag line");
       }
     }
@@ -413,9 +436,24 @@ export async function generateVisualConceptsWithModel(
   return { jokeRead: result.jokeRead, candidates: result.candidates };
 }
 
-function makeOpenAIConceptsCaller(settings: VisualConceptsLLMSettings): (userMessages: UserMessage[]) => Promise<string> {
+/** Token counts of one gag-writer call, for a caller that reports cost. */
+export interface VisualConceptsUsage {
+  promptTokens: number;
+  completionTokens: number;
+}
+
+export function makeOpenAIConceptsCaller(
+  settings: VisualConceptsLLMSettings,
+  onUsage?: (usage: VisualConceptsUsage) => void,
+  /**
+   * A candidate system prompt in place of the locked one. Only the blind check
+   * of PLAN_FACT_LIFECYCLE_REBUILD.md passes it, to judge a draft revision
+   * before David relocks it; the product never does.
+   */
+  systemPromptOverride?: string,
+): (userMessages: UserMessage[]) => Promise<string> {
   return async (userMessages: UserMessage[]): Promise<string> => {
-    const systemPrompt = await getVisualConceptsSystem();
+    const systemPrompt = systemPromptOverride ?? (await getVisualConceptsSystem());
     const response = await callUtilityLLM({
       model: settings.model ?? undefined,
       maxTokens: settings.maxTokens,
@@ -424,6 +462,9 @@ function makeOpenAIConceptsCaller(settings: VisualConceptsLLMSettings): (userMes
       responseFormat: zodResponseFormat(candidateConceptsWireSchema, "visual_concepts"),
       messages: [{ role: "system", content: systemPrompt }, ...userMessages],
     });
+    if (onUsage && response.usage) {
+      onUsage({ promptTokens: response.usage.prompt_tokens, completionTokens: response.usage.completion_tokens });
+    }
     return response.choices[0]?.message?.content ?? "{}";
   };
 }

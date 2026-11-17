@@ -180,6 +180,30 @@ describe("GagsPanel", () => {
     expect(call.body).toEqual({ attemptId: 902, reviewId: 77 });
   });
 
+  it("an in-flight tile reads its progress: Drawing… only while the picture is in progress; none offers Draw again (plan PLAN_JOB_RESUME.md §D)", async () => {
+    const inFlight = (progress: RenderScenarioCard["progress"], status: RenderScenarioCard["status"]) =>
+      card("i2i_male_default", { status, progress, imageUrl: null, latestAttemptId: 901 });
+    const cases: Array<[RenderScenarioCard["progress"], RenderScenarioCard["status"], string]> = [
+      ["queued", "queued", "Queued…"],
+      ["drawing", "rendering", "Drawing…"],
+      ["resuming", "rendering", "Picking back up…"],
+      ["saving", "rendering", "Saving…"],
+      ["retrying", "rendering", "Retrying shortly…"],
+    ];
+    for (const [progress, status, words] of cases) {
+      stubFetch(view([
+        gag({ id: 2, slot: 1, state: "new", availableToUsers: false, approvedContent: null, approvedAt: null,
+          pendingContent: scene("{NAME} drives home."), renders: { ...NONE, male: inFlight(progress, status) } }),
+      ], { isActive: false }));
+      const { unmount } = render(<GagsPanel factId={5} reviewId={77} rendersEnabled subjectNames={[]} />);
+      const tiles = await screen.findAllByTestId("gag-render");
+      expect(within(tiles[0]!).getByTestId("gag-render-status").textContent).toBe(words);
+      expect(within(tiles[0]!).queryByTestId("gag-redraw-render")).toBeNull();
+      unmount();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("a tile whose picture Nano Banana drew after GPT Image refused says so; others do not (plan PLAN_NB_FALLBACK.md)", async () => {
     const renders: PerKind<RenderScenarioCard | null> = {
       male: card("i2i_male_default", { latestAttemptId: 901, engineFallback: { refusedEngineId: "gpt-image-2-6-edit", drawnByEngineId: "nano-banana-2-1-edit" } }),

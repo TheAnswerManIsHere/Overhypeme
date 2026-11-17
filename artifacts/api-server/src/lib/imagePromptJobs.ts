@@ -45,8 +45,9 @@ import {
   type FactEnrichment,
 } from "@workspace/api-zod";
 import { registerJobHandler, enqueueJob, terminalFailure, type JobHandler, type HandlerResult } from "./asyncJobs";
-import { assertJobOwnership, fencedTransaction, jobAbortSignal } from "./jobFence";
-import { finishAndStore, recordGenerationRequest, setVendorRequestId } from "./provenance/records";
+import { assertJobOwnership, fencedTransaction, rethrowIfOwnershipLost } from "./jobFence";
+import { drawOrCollect } from "./renderRequestRecovery";
+import { finishAndStore, recordGenerationRequest } from "./provenance/records";
 import { vendorContext } from "./provenance/vendorContext";
 import { attemptProvenanceContext } from "./provenance/attemptActor";
 import { attemptImageEngineId, ImageEngineRoutingError, resolveImageEngine } from "./imageEngineRouting";
@@ -63,7 +64,7 @@ import { isValidPromptIdentitySnapshot } from "./imagePrompt/promptIdentity";
 import { resolveRenderStyle, isValidRenderStyleSnapshot } from "./imagePrompt/styleResolution";
 import { buildEngineInput } from "./engineInterpreter";
 import { downloadToBuffer, extractFirstImageUrl, imageEngineParams } from "./imageEngineRequest";
-import { fal, ensureFalConfigured, falContentRefusal, falSubmitErrorMessage } from "./falClient";
+import { ensureFalConfigured, falContentRefusal, falSubmitErrorMessage } from "./falClient";
 import {
   bothRefusedMessage,
   engineFallbackOf,
@@ -78,6 +79,16 @@ import { logger } from "./logger";
 
 export const IMAGE_PROMPT_QUEUE = "image_prompt_generation";
 export const IMAGE_GENERATION_QUEUE = "image_generation";
+
+/**
+ * The recovery protocol the render queues implement (plan PLAN_JOB_RESUME.md
+ * §A): version 1 is increment 2's — the prompt stage reuses a saved compiled
+ * prompt (a saved plan, before the planner was removed), and the image job
+ * collects a submitted picture instead of paying again. A row taken
+ * back from a stopped holder is claimable only by a worker declaring at least
+ * this, so a worker from before increment 2 never runs it.
+ */
+export const RENDER_RECOVERY_PROTOCOL = 1;
 
 export interface ImagePromptJobPayload {
   attemptId: number;
@@ -113,6 +124,25 @@ export const imagePromptGenerationHandler: JobHandler = {
     const attempt = await loadAttempt(p.attemptId);
     if (!attempt) {
       return { ok: false, error: `image_prompt_generation: attempt ${p.attemptId} not found` };
+    }
+
+    // Checkpoint (plan PLAN_JOB_RESUME.md §F): the compiled prompt for this
+    // attempt is already saved — an earlier run stopped after saving it and
+    // before its job finished. Reuse it: never compile again. Its image job
+    // was enqueued in the same transaction; it is created again here only if
+    // the render is still open (deduped against one in flight). Since the
+    // switch a saved prompt stands alone (plan PLAN_GAG_DIRECT_RENDER.md, D),
+    // so the compiled prompt is the checkpoint, not a stored plan.
+    if (attempt.compiledPrompt) {
+      if (!attempt.generatedImageObjectPath && !attempt.error) {
+        await fencedTransaction(db, (tx) => enqueueJob({
+          queue: IMAGE_GENERATION_QUEUE,
+          payload: { attemptId: p.attemptId } satisfies ImagePromptJobPayload,
+          dedupeKey: `image_generation:attempt:${p.attemptId}`,
+        }, tx));
+      }
+      logger.info({ attemptId: p.attemptId }, "[imagePromptJobs] compiled prompt already saved for this attempt; reusing it");
+      return { ok: true, result: { attemptId: p.attemptId, reusedSavedPrompt: true } };
     }
 
     // Reproducible inputs: validate the enrichment SNAPSHOT frozen on the
@@ -256,6 +286,13 @@ export const imageGenerationHandler: JobHandler = {
     if (!attempt) {
       return { ok: false, error: `image_generation: attempt ${p.attemptId} not found` };
     }
+    // The picture is already stored and recorded (an earlier run stopped
+    // after its completion committed, before the job finished): finish
+    // without drawing again (plan PLAN_JOB_RESUME.md §C).
+    if (attempt.generatedImageObjectPath) {
+      logger.info({ attemptId: p.attemptId }, "[imagePromptJobs] picture already stored; finishing without drawing again");
+      return { ok: true, result: { attemptId: p.attemptId, generatedImageObjectPath: attempt.generatedImageObjectPath } };
+    }
     // A refusal already recorded and its fallback not yet switched (an earlier
     // run stopped mid-preparation): resume the preparation, never the routed
     // engine (plan PLAN_NB_FALLBACK.md, step 2).
@@ -336,34 +373,34 @@ export const imageGenerationHandler: JobHandler = {
     // persisted BEFORE the vendor is called, so the record never has to be
     // rebuilt from later configuration (plan PLAN_IMAGE_TRACING.md).
     const provenance = await attemptProvenanceContext(attempt);
-    const generationRequestId = await recordGenerationRequest({
-      producer: provenance.producer,
-      engineId: engine.id,
-      endpointId: engine.endpointId,
-      request: falInput,
-      actor: provenance.actor,
-      attemptId: p.attemptId,
-      factId: attempt.factId,
-    });
-
     ensureFalConfigured();
-    // The picture is paid: check this run still owns its job immediately
-    // before submitting (plan PLAN_JOB_RESUME.md §A). The wait gives up when the
-    // run's effect context is stopped; a request fal already accepted is not
-    // undone by that, which is what increment 2's collect-on-resume is for.
-    await assertJobOwnership();
-    let resultUrl: string;
-    let vendorData: unknown;
-    try {
-      const response = await fal.subscribe(engine.endpointId, { input: falInput, logs: false, abortSignal: jobAbortSignal() });
-      await setVendorRequestId(generationRequestId, (response as { requestId?: string }).requestId);
-      const data = (response as { data?: unknown }).data ?? response;
-      vendorData = data;
-      resultUrl = extractFirstImageUrl(data);
-      if (!resultUrl) {
-        throw new Error("fal response missing image url");
-      }
-    } catch (err) {
+    // Draw it, or collect the picture an earlier run already submitted (plan
+    // PLAN_JOB_RESUME.md §C): a resumed render reads its request record first
+    // and pays again only when that request failed or cannot be found.
+    const drawn = await drawOrCollect({
+      attemptId: p.attemptId,
+      endpointId: engine.endpointId,
+      input: falInput,
+      usable: (data) => Boolean(extractFirstImageUrl(data)),
+      unusableError: () => new Error("fal response missing image url"),
+      record: async () => {
+        // The picture is paid: check this run still owns its job immediately
+        // before recording and submitting it (plan §A).
+        await assertJobOwnership();
+        return recordGenerationRequest({
+          producer: provenance.producer,
+          engineId: engine.id,
+          endpointId: engine.endpointId,
+          request: falInput,
+          actor: provenance.actor,
+          attemptId: p.attemptId,
+          factId: attempt.factId,
+        });
+      },
+    });
+    const resultUrl = drawn.ok ? extractFirstImageUrl(drawn.data) : null;
+    if (!drawn.ok || !resultUrl) {
+      const err = drawn.ok ? new Error("fal response missing image url") : drawn.err;
       const refusal = falContentRefusal(err);
       if (refusal) {
         // The fallback engine refused too: the render ends here, naming both
@@ -382,8 +419,8 @@ export const imageGenerationHandler: JobHandler = {
           const record = await recordRefusal(attempt, {
             routedEngineId: engine.id,
             reason: refusal,
-            refusedGenerationRequestId: generationRequestId,
-            refusedVendorRequestId: (err as { requestId?: string }).requestId ?? null,
+            refusedGenerationRequestId: drawn.generationRequestId,
+            refusedVendorRequestId: drawn.vendorRequestId,
           }, choice);
           // Then draw it on the fallback: the handler runs once more on the switched attempt.
           return (await prepareAndSwitchFallback({ ...attempt, engineFallback: record }, record))
@@ -400,6 +437,7 @@ export const imageGenerationHandler: JobHandler = {
       }
       return retryRender(p.attemptId, falSubmitErrorMessage(err, engine.label));
     }
+    const { generationRequestId, data: vendorData } = drawn;
 
     // Download + persist to object storage.
     let storedPath: string;
@@ -439,22 +477,25 @@ export const imageGenerationHandler: JobHandler = {
       return retryRender(p.attemptId, `image store failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 
-    // Mark attempt complete.
-    await fencedTransaction(db, (tx) => tx
-      .update(imagePromptAttemptsTable)
-      .set({ generatedImageObjectPath: storedPath, error: null, errorCode: null, updatedAt: new Date() })
-      .where(eq(imagePromptAttemptsTable.id, p.attemptId)));
-
-    // Mirror to facts.aiMemeImages + user_ai_images for read compatibility
-    // with the legacy GET /memes/ai/:factId/image endpoint — UNLESS this is an
-    // ephemeral moderation review render (mirrorToLegacyStorage === false), which
-    // must verify the pipeline without polluting the staging fact's shared set.
-    // The generatedImageObjectPath write above already happened, so the poll
-    // route can still surface the image either way.
+    // Mark the attempt complete and mirror it, in one fenced transaction (plan
+    // PLAN_JOB_RESUME.md §F): a stop between the two can no longer leave a
+    // picture recorded but unmirrored, and a resumed run that finds the
+    // picture recorded finishes without drawing or mirroring again.
+    //
+    // The mirror copies it to facts.aiMemeImages + user_ai_images for read
+    // compatibility with the legacy GET /memes/ai/:factId/image endpoint —
+    // UNLESS this is an ephemeral moderation review render
+    // (mirrorToLegacyStorage === false), which must verify the pipeline
+    // without polluting the staging fact's shared set.
     const skipMirror = isEphemeralModerationRender(renderControls);
-    if (!skipMirror) {
-      await mirrorToLegacyStorage(attempt, storedPath);
-    } else {
+    await fencedTransaction(db, async (tx) => {
+      await tx
+        .update(imagePromptAttemptsTable)
+        .set({ generatedImageObjectPath: storedPath, error: null, errorCode: null, updatedAt: new Date() })
+        .where(eq(imagePromptAttemptsTable.id, p.attemptId));
+      if (!skipMirror) await mirrorToLegacyStorage(attempt, storedPath, tx);
+    });
+    if (skipMirror) {
       logger.info(
         { attemptId: p.attemptId, factId: attempt.factId },
         "[imagePromptJobs] ephemeral review render — skipping legacy mirror",
@@ -525,10 +566,25 @@ export function registerImagePromptHandlers(): void {
   // image gen). Isolated so a "test render" never waits behind a bulk backfill.
   // Execution limit (Issue #1000): the prompt stage makes no AI call since the
   // planner was removed (plan PLAN_GAG_DIRECT_RENDER.md, D); five minutes is
-  // margin for its database reads.
-  registerJobHandler(IMAGE_PROMPT_QUEUE, imagePromptGenerationHandler, { lane: "render", executionLimitMs: 5 * 60_000 });
-  // Execution limit (Issue #1000): the image wait has no bound of its own; kept at the old 30-minute reclaim until increment 2 collects a submitted picture instead of paying again.
-  registerJobHandler(IMAGE_GENERATION_QUEUE, imageGenerationHandler, { lane: "render", executionLimitMs: 30 * 60_000 });
+  // margin for its database reads. Recovery (plan PLAN_JOB_RESUME.md §A, §F):
+  // a resumed run reuses a saved compiled prompt, so a reclaimed row is safe
+  // to run again at once (fast reclaim).
+  registerJobHandler(IMAGE_PROMPT_QUEUE, imagePromptGenerationHandler, {
+    lane: "render",
+    executionLimitMs: 5 * 60_000,
+    recoveryProtocol: RENDER_RECOVERY_PROTOCOL,
+    fastReclaim: true,
+  });
+  // Execution limit (plan §B): submit, the provider's queue and drawing (a
+  // collect waits up to COLLECT_TIMEOUT_MS), a lost receipt's wait for the
+  // history (LOST_RECEIPT_HORIZON_MS), and storing — 15 minutes. A request
+  // already submitted is collected by the next run, never paid for again (§C).
+  registerJobHandler(IMAGE_GENERATION_QUEUE, imageGenerationHandler, {
+    lane: "render",
+    executionLimitMs: 15 * 60_000,
+    recoveryProtocol: RENDER_RECOVERY_PROTOCOL,
+    fastReclaim: true,
+  });
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -687,47 +743,54 @@ function extractReferenceImageUrl(attempt: ImagePromptAttempt): string | null {
  * theirs and My content will delete and purge (#806): a background shared by
  * every member of the fact must never be one of them. Exported for its test.
  */
-export async function mirrorToLegacyStorage(attempt: ImagePromptAttempt, storedPath: string): Promise<void> {
-  try {
-    // Append to facts.aiMemeImages.neutral so the legacy GET image endpoint
-    // can serve this background by index. Every picture starts from a photo,
-    // so no render carries a fallback gender to file it under.
-    const gender = "neutral" as const;
+export async function mirrorToLegacyStorage(attempt: ImagePromptAttempt, storedPath: string, outer?: MirrorTx): Promise<void> {
+  // Append to facts.aiMemeImages.neutral so the legacy GET image endpoint
+  // can serve this background by index. Every picture starts from a photo,
+  // so no render carries a fallback gender to file it under.
+  const gender = "neutral" as const;
+  const write = async (tx: MirrorTx) => {
     // Row-locked read-modify-write: with the worker now running image_generation
     // handlers concurrently, two completions for the SAME fact could otherwise
     // read the same aiMemeImages array and clobber each other on write (last
     // write drops the other image). `SELECT … FOR UPDATE` serializes the append
     // on the fact row so both paths survive.
-    await fencedTransaction(db, async (tx) => {
-      const [factRow] = await tx
-        .select({ aiMemeImages: factsTable.aiMemeImages })
-        .from(factsTable)
-        .where(eq(factsTable.id, attempt.factId))
-        .for("update")
-        .limit(1);
-      if (!factRow) return;
-      const current = (factRow.aiMemeImages ?? {}) as Record<string, string[]>;
-      const arr = Array.isArray(current[gender]) ? [...current[gender]!] : [];
-      arr.push(storedPath);
-      const next = { ...current, [gender]: arr };
-      await tx
-        .update(factsTable)
-        .set({ aiMemeImages: next as unknown as Record<string, string[]>, updatedAt: new Date() })
-        .where(eq(factsTable.id, attempt.factId));
-    });
+    const [factRow] = await tx
+      .select({ aiMemeImages: factsTable.aiMemeImages })
+      .from(factsTable)
+      .where(eq(factsTable.id, attempt.factId))
+      .for("update")
+      .limit(1);
+    if (!factRow) return;
+    const current = (factRow.aiMemeImages ?? {}) as Record<string, string[]>;
+    const arr = Array.isArray(current[gender]) ? [...current[gender]!] : [];
+    arr.push(storedPath);
+    const next = { ...current, [gender]: arr };
+    await tx
+      .update(factsTable)
+      .set({ aiMemeImages: next as unknown as Record<string, string[]>, updatedAt: new Date() })
+      .where(eq(factsTable.id, attempt.factId));
     if (attempt.userId) {
-      await fencedTransaction(db, (tx) => tx.insert(userAiImagesTable).values({
-        userId: attempt.userId!,
+      await tx.insert(userAiImagesTable).values({
+        userId: attempt.userId,
         factId: attempt.factId,
         gender,
         storagePath: storedPath,
         imageType: "reference",
-      }));
+      });
     }
+  };
+  try {
+    // Inside the caller's transaction, under a savepoint: a mirror failure is
+    // non-fatal and must not undo the attempt's own completion.
+    if (outer) await outer.transaction((sp) => write(sp as MirrorTx));
+    else await fencedTransaction(db, (tx) => write(tx as MirrorTx));
   } catch (err) {
+    rethrowIfOwnershipLost(err);
     logger.warn({ err, attemptId: attempt.id }, "[imagePromptJobs] mirror-to-legacy-storage failed (non-fatal)");
   }
 }
+
+type MirrorTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /**
  * The direct compile's input for a stored attempt: the gag frozen on it, its

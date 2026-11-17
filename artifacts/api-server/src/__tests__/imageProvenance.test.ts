@@ -285,6 +285,7 @@ describe("the producer inventory", () => {
     "lib/aiMemePipeline.ts": "the legacy FLUX path, labelled not instrumented; retired by #887 increment 4",
     "lib/sourceImageAnalysis/tier1FalDetector.ts": "a classifier: returns no image",
     "lib/comparison/transport.ts": "the comparison's fal transport, behind comparison/runs.ts, which records",
+    "lib/renderFalTransport.ts": "the render's fal transport, behind imagePromptJobs.ts (renderRequestRecovery.ts), which records",
     "testing/legacyFixture/load.ts": "test fixture data",
   };
   const PRODUCES = /uploadObjectBuffer\(|fal\.subscribe\(|fal\.queue\.submit|fal\.queue\.result/;

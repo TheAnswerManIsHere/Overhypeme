@@ -659,12 +659,23 @@ function GagCard({
   );
 }
 
-/** A tile's state in words, when it has no image to show. */
-function statusWords(status: string, message: string | null, engineRefused = false): string {
+/**
+ * A tile's state in words, when it has no image to show. An in-flight render
+ * reads its progress (plan PLAN_JOB_RESUME.md §D): "Drawing…" only while the
+ * image service reports the picture in progress.
+ */
+function statusWords(status: string, message: string | null, progress?: string | null, engineRefused = false): string {
   // The engine's content refusal is final: it is never retried, so the tile
   // says so with the engine's reason (plan PLAN_GAG_DIRECT_RENDER.md, B).
   if (status === "failed" && engineRefused) {
     return `The engine refused this picture: ${message ?? "no reason was given"}. Change the scene, then draw it again.`;
+  }
+  switch (progress) {
+    case "queued": return "Queued…";
+    case "drawing": return "Drawing…";
+    case "resuming": return "Picking back up…";
+    case "saving": return "Saving…";
+    case "retrying": return "Retrying shortly…";
   }
   switch (status) {
     case "missing": return "Not drawn yet.";
@@ -710,7 +721,7 @@ function RenderTile({ kind, card, picked, canAct, readOnly, onApprove, onDraw }:
       ) : (
         <p className={`text-[11px] flex items-center gap-1 ${status === "failed" ? "text-destructive" : "text-muted-foreground"}`} data-testid="gag-render-status" data-refused={card?.engineRefused ? "true" : undefined}>
           {inFlight && <Loader2 className="w-3 h-3 animate-spin" />}
-          {statusWords(status, card?.message ?? null, card?.engineRefused ?? false)}
+          {statusWords(status, card?.message ?? null, card?.progress ?? null, card?.engineRefused ?? false)}
         </p>
       )}
       {approvable && (
