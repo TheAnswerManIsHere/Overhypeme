@@ -36,7 +36,7 @@ import { randomInt } from "node:crypto";
 import { db } from "@workspace/db";
 import { factsTable } from "@workspace/db/schema";
 import { inArray } from "drizzle-orm";
-import { validateEnrichment, type StoredCandidateConcept } from "@workspace/api-zod";
+import { validateEnrichment, visualConceptCandidatesBlobSchema, type StoredCandidateConcept } from "@workspace/api-zod";
 import { OPENAI_PRICES } from "../src/lib/aiDouble/recorder";
 import { armInputs, type Arm } from "../src/lib/visualConcepts/blindCheck";
 import {
@@ -69,6 +69,8 @@ interface ArmResult {
 interface FactPlan {
   factId: number;
   factText: string;
+  /** Where both arms' note came from: the approved humor note, or the gag writer's stored joke read when there is none. */
+  noteSource: "humor_note" | "joke_read";
   inputs: Record<Arm, GenerateVisualConceptsInput>;
 }
 
@@ -106,7 +108,13 @@ function ideaLines(c: StoredCandidateConcept, n: number): string[] {
 
 async function loadPlans(ids: number[]): Promise<{ plans: FactPlan[]; skipped: string[] }> {
   const rows = await db
-    .select({ id: factsTable.id, text: factsTable.text, enrichment: factsTable.enrichment, humorNote: factsTable.humorNote })
+    .select({
+      id: factsTable.id,
+      text: factsTable.text,
+      enrichment: factsTable.enrichment,
+      humorNote: factsTable.humorNote,
+      candidates: factsTable.visualConceptCandidates,
+    })
     .from(factsTable)
     .where(inArray(factsTable.id, ids));
   const plans: FactPlan[] = [];
@@ -114,10 +122,16 @@ async function loadPlans(ids: number[]): Promise<{ plans: FactPlan[]; skipped: s
   for (const id of ids) {
     const row = rows.find((r) => r.id === id);
     if (!row) { skipped.push(`#${id}: no such fact`); continue; }
-    if (!row.humorNote?.trim()) { skipped.push(`#${id}: no humor note, so the reduced arm has nothing to carry the meanings`); continue; }
+    // Both arms get the same note, so a fact with no approved note is still a
+    // fair comparison when the gag writer's own stored reading stands in.
+    const approved = row.humorNote?.trim() ?? "";
+    const blob = visualConceptCandidatesBlobSchema.safeParse(row.candidates);
+    const read = blob.success ? blob.data.jokeRead?.trim() ?? "" : "";
+    const note = approved || read;
+    if (!note) { skipped.push(`#${id}: no humor note and no stored joke read, so the reduced arm has nothing to carry the meanings`); continue; }
     const ev = validateEnrichment(row.enrichment);
     if (!ev.ok) { skipped.push(`#${id}: enrichment invalid (${ev.error}), so today's arm cannot be built`); continue; }
-    plans.push({ factId: id, factText: row.text, inputs: armInputs(row.text, ev.data, row.humorNote) });
+    plans.push({ factId: id, factText: row.text, noteSource: approved ? "humor_note" : "joke_read", inputs: armInputs(row.text, ev.data, note) });
   }
   return { plans, skipped };
 }
@@ -194,7 +208,7 @@ async function main(): Promise<void> {
       if (r.error) sheet.push(`_This set could not be written: ${r.error}_`, "");
       r.candidates.forEach((c, n) => sheet.push(...ideaLines(c, n + 1), ""));
     });
-    key.push({ factId: p.factId, set1: order[0]!.arm, set2: order[1]!.arm, arms: { today, reduced } });
+    key.push({ factId: p.factId, noteSource: p.noteSource, set1: order[0]!.arm, set2: order[1]!.arm, arms: { today, reduced } });
   }
 
   writeFileSync(join(outDir, "sheet.md"), sheet.join("\n"));
