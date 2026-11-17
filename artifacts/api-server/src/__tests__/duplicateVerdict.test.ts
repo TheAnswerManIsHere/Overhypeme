@@ -16,7 +16,8 @@
  *     and spends only when there is no usable verdict; a wording edit replaces
  *     the verdict with the wording.
  *
- * The embedding and AI calls go through their test seams. Each case embeds in
+ * The embedding and AI stages are passed to each call (the runner shares one
+ * process between test files, so no global stub is used). Each case embeds in
  * its own pair of dimensions, so the facts of one case are orthogonal to every
  * other case's query and cannot crowd its top five.
  */
@@ -31,12 +32,11 @@ import { activityFeedTable, pendingReviewsTable } from "@workspace/db/schema";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import { buildPlaceholderGag } from "@workspace/api-zod";
 
-import { __setUtilityLLMClientForTest } from "../lib/utilityLLM.js";
-import { __setEmbeddingsClientForTest, EMBEDDING_DIMENSIONS } from "../lib/embeddings.js";
-import { checkDuplicateInternal, parseDuplicateAnswer, MalformedDuplicateAnswerError } from "../routes/ai.js";
+import { EMBEDDING_DIMENSIONS } from "../lib/embeddings.js";
+import { checkDuplicateInternal, parseDuplicateAnswer, MalformedDuplicateAnswerError, type DuplicateCheckOptions } from "../routes/ai.js";
 import { checkReviewDuplicate, duplicateView, type DuplicateDetector } from "../lib/duplicateVerdict.js";
 import { duplicateMatchText } from "../lib/duplicateText.js";
-import reviewsRouter, { __setDuplicateDetectorForTest, __settleSubmitDuplicateChecksForTest } from "../routes/reviews.js";
+import reviewsRouter, { __settleSubmitDuplicateChecksForTest } from "../routes/reviews.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 
 const RUN = randomUUID().slice(0, 8);
@@ -59,27 +59,25 @@ function unit(dim: number): number[] { const v = new Array(EMBEDDING_DIMENSIONS)
 function at(a: number, b: number, cos: number): number[] {
   const v = new Array(EMBEDDING_DIMENSIONS).fill(0); v[a] = cos; v[b] = Math.sqrt(1 - cos * cos); return v;
 }
-const fakeEmbeddings = {
-  embeddings: {
-    create: async ({ input }: { input: string }) => {
-      embedCalls++;
-      if (embedThrows) throw new Error("embedding service down");
-      const v = [...vectors].find(([marker]) => input.includes(marker))?.[1];
-      if (!v) throw new Error(`no test vector for ${JSON.stringify(input)}`);
-      return { data: [{ embedding: v }] };
-    },
-  },
-} as unknown as Parameters<typeof __setEmbeddingsClientForTest>[0];
-
 let llmCalls = 0;
 let llmReply: string | Error = "{}";
-const fakeLLM = {
-  chat: { completions: { create: async () => {
+
+/** The embedding and AI stages, passed per call. The AI stage runs the real answer validator. */
+const stages: Pick<DuplicateCheckOptions, "embed" | "judge"> = {
+  embed: async (input) => {
+    embedCalls++;
+    if (embedThrows) throw new Error("embedding service down");
+    const v = [...vectors].find(([marker]) => input.includes(marker))?.[1];
+    if (!v) throw new Error(`no test vector for ${JSON.stringify(input)}`);
+    return v;
+  },
+  judge: async (_text, candidates) => {
     llmCalls++;
     if (llmReply instanceof Error) throw llmReply;
-    return { choices: [{ message: { content: llmReply } }] };
-  } } },
-} as unknown as Parameters<typeof __setUtilityLLMClientForTest>[0];
+    return parseDuplicateAnswer(llmReply, candidates.length);
+  },
+};
+const check = (text: string, opts: DuplicateCheckOptions = {}) => checkDuplicateInternal(text, { ...stages, ...opts });
 
 // ── fixtures ─────────────────────────────────────────────────────────────────
 
@@ -106,14 +104,9 @@ before(async () => {
     { id: adminId, email: `${adminId}@test.local`, isAdmin: true, membershipTier: "legendary" },
     { id: userId, email: `${userId}@test.local`, isAdmin: false, membershipTier: "registered", emailVerifiedAt: new Date(), onboardingCompletedAt: new Date() },
   ]);
-  __setEmbeddingsClientForTest(fakeEmbeddings);
-  __setUtilityLLMClientForTest(fakeLLM);
 });
 
 after(async () => {
-  __setEmbeddingsClientForTest(null);
-  __setUtilityLLMClientForTest(null);
-  __setDuplicateDetectorForTest(null);
   await db.delete(pendingReviewsTable).where(like(pendingReviewsTable.submittedById, `${USER_PREFIX}%`));
   await db.delete(activityFeedTable).where(like(activityFeedTable.userId, `${USER_PREFIX}%`));
   if (factIds.length) await db.execute(sql`DELETE FROM facts WHERE id IN (${sql.join(factIds.map((id) => sql`${id}`), sql`, `)})`);
@@ -145,7 +138,7 @@ describe("the detector's verdict", () => {
     const target = await fact(`{NAME} can hear sign language ${RUN}.`, at(300, 301, 0.77));
     vectors.set("languages", unit(300));
     llmReply = '{"isDuplicate":true,"matchIndex":1}';
-    const r = await checkDuplicateInternal(q);
+    const r = await check(q);
     assert.equal(r.outcome, "duplicate");
     assert.equal(r.matchingFactId, target);
     assert.equal(llmCalls, 1);
@@ -156,7 +149,7 @@ describe("the detector's verdict", () => {
     const near = await fact(`{NAME} out-ran a cheetah on a treadmill ${RUN}`, at(302, 303, 0.9));
     vectors.set("backwards", unit(302));
     llmReply = '{"isDuplicate":false,"matchIndex":null}';
-    const r = await checkDuplicateInternal(q);
+    const r = await check(q);
     assert.equal(r.outcome, "distinct");
     assert.equal(r.matchingFactId, near);
     assert.equal(r.confidence, 90);
@@ -168,7 +161,7 @@ describe("the detector's verdict", () => {
     vectors.set("gravity to fall", unit(304));
     for (const reply of ["{}", '{"isDuplicate":true}', new Error("model down")]) {
       llmReply = reply;
-      const r = await checkDuplicateInternal(q);
+      const r = await check(q);
       assert.equal(r.outcome, "unavailable", String(reply));
       assert.equal(r.isDuplicate, false);
       assert.equal(r.matchingFactId, near);
@@ -177,7 +170,7 @@ describe("the detector's verdict", () => {
 
   it("a failed search is unavailable with no nearest fact", async () => {
     embedThrows = true;
-    const r = await checkDuplicateInternal(`{NAME} unplugged the internet ${RUN}`);
+    const r = await check(`{NAME} unplugged the internet ${RUN}`);
     assert.equal(r.outcome, "unavailable");
     assert.equal(r.matchingFactId, undefined);
     assert.equal(llmCalls, 0);
@@ -187,7 +180,7 @@ describe("the detector's verdict", () => {
     const q = `{NAME} counted the stars twice ${RUN}`;
     const far = await fact(`{NAME} painted the ocean blue ${RUN}`, at(306, 307, 0.5));
     vectors.set("stars twice", unit(306));
-    const r = await checkDuplicateInternal(q);
+    const r = await check(q);
     assert.equal(r.outcome, "distinct");
     assert.equal(r.matchingFactId, far);
     assert.equal(llmCalls, 0);
@@ -195,7 +188,7 @@ describe("the detector's verdict", () => {
 
   it("an exact match ignores case, whitespace and punctuation, with no embedding or AI call", async () => {
     const id = await fact(`{NAME} can hear sign-language, clearly! ${RUN}.`);
-    const r = await checkDuplicateInternal(`{name}   can hear signlanguage clearly ${RUN}`);
+    const r = await check(`{name}   can hear signlanguage clearly ${RUN}`);
     assert.equal(r.outcome, "duplicate");
     assert.equal(r.matchingFactId, id);
     assert.equal(embedCalls + llmCalls, 0);
@@ -212,11 +205,11 @@ describe("the detector's verdict", () => {
     const text = `{NAME} juggles thunderstorms ${RUN}`;
     const other = await review(`${text}.`);
     const self = await review(text);
-    const r = await checkDuplicateInternal(text, { excludeReviewId: self });
+    const r = await check(text, { excludeReviewId: self });
     assert.equal(r.outcome, "duplicate");
     assert.equal(r.matchingReviewId, other);
     assert.equal(r.matchingFactId, undefined);
-    const own = await checkDuplicateInternal(`${text}.`, { excludeReviewId: other });
+    const own = await check(`${text}.`, { excludeReviewId: other });
     assert.equal(own.matchingReviewId, self, "the other review still counts");
   });
 });
@@ -287,12 +280,18 @@ describe("a stale duplicate reads not checked", () => {
 
 // ── the routes ───────────────────────────────────────────────────────────────
 
+/** The app's own detector (`app.locals.duplicateDetector`), so no global stub is shared. */
+function withDetector<T extends { locals: Record<string, unknown> }>(app: T, detector: DuplicateDetector): T {
+  app.locals["duplicateDetector"] = detector;
+  return app;
+}
+
 describe("the routes", () => {
   it("a submission ignores browser-sent match fields; the server checks the saved wording after commit", async () => {
     const seen: string[] = [];
-    __setDuplicateDetectorForTest(async (text) => { seen.push(text); return { outcome: "distinct", confidence: 12 }; });
     const factId = await fact(`{NAME} unrelated ${RUN}`);
-    const app = buildTestApp({ kind: "authenticated", userId: adminId }, reviewsRouter);
+    const app = withDetector(buildTestApp({ kind: "authenticated", userId: adminId }, reviewsRouter),
+      async (text) => { seen.push(text); return { outcome: "distinct", confidence: 12 }; });
     const text = `{NAME} submitted through the route ${RUN}`;
     const res = await request(app).post("/api/facts/submit-review")
       .send({ text, matchingFactId: factId, matchingSimilarity: 99, isDuplicate: true });
@@ -303,14 +302,13 @@ describe("the routes", () => {
     assert.equal(row.matchingFactId, null, "the browser's match was discarded");
     assert.equal(row.matchingSimilarity, 12);
     assert.deepEqual(seen, [row.submittedText]);
-    __setDuplicateDetectorForTest(null);
   });
 
   it("the on-demand check is admin-only, spends only without a usable verdict, and returns the wording it belongs to", async () => {
     let calls = 0;
-    __setDuplicateDetectorForTest(async () => { calls++; return { outcome: "distinct", confidence: 30 }; });
-    const admin = buildTestApp({ kind: "authenticated", userId: adminId }, reviewsRouter);
-    const user = buildTestApp({ kind: "authenticated", userId }, reviewsRouter);
+    const detector: DuplicateDetector = async () => { calls++; return { outcome: "distinct", confidence: 30 }; };
+    const admin = withDetector(buildTestApp({ kind: "authenticated", userId: adminId }, reviewsRouter), detector);
+    const user = withDetector(buildTestApp({ kind: "authenticated", userId }, reviewsRouter), detector);
     const text = `{NAME} opened at triage ${RUN}`;
     const id = await review(text);
 
@@ -338,12 +336,11 @@ describe("the routes", () => {
     assert.equal(detail.body.duplicate.state, "distinct");
     const list = await request(admin).get(`/api/admin/reviews?status=pending&q=${encodeURIComponent(`opened at triage ${RUN}`)}`);
     assert.equal(list.body.reviews.find((x: { id: number }) => x.id === id)?.duplicate.state, "distinct");
-    __setDuplicateDetectorForTest(null);
   });
 
   it("a wording edit replaces the verdict with the wording", async () => {
-    __setDuplicateDetectorForTest(async () => ({ outcome: "unavailable", confidence: 0 }));
-    const admin = buildTestApp({ kind: "authenticated", userId: adminId }, reviewsRouter);
+    const admin = withDetector(buildTestApp({ kind: "authenticated", userId: adminId }, reviewsRouter),
+      async () => ({ outcome: "unavailable", confidence: 0 }));
     const id = await review(`{NAME} before the edit ${RUN}`, { duplicateOutcome: "distinct", duplicateCheckedAt: new Date() });
     const res = await request(admin).post(`/api/admin/reviews/${id}/wording`).send({ text: `{NAME} after the edit ${RUN}` });
     assert.equal(res.status, 200, JSON.stringify(res.body));
@@ -351,6 +348,5 @@ describe("the routes", () => {
     const row = await reviewRow(id);
     assert.equal(row.duplicateOutcome, "unavailable");
     assert.match(row.submittedText, /after the edit/);
-    __setDuplicateDetectorForTest(null);
   });
 });

@@ -12,14 +12,8 @@ import { getEmbeddingsClient } from "./aiClients";
 export const EMBEDDING_MODEL = "text-embedding-3-small";
 export const EMBEDDING_DIMENSIONS = 384;
 
-let clientForTest: OpenAI | null = null;
-/** Tests supply an embeddings client; null restores the real one. */
-export function __setEmbeddingsClientForTest(client: OpenAI | null): void {
-  clientForTest = client;
-}
-
 function getClient(): OpenAI {
-  return clientForTest ?? getEmbeddingsClient();
+  return getEmbeddingsClient();
 }
 
 /** Generate a 384-dim embedding for a piece of text. */

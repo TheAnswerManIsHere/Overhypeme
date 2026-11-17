@@ -22,7 +22,7 @@ import { db, factsTable, usersTable } from "@workspace/db";
 import { activityFeedTable, asyncJobsTable, pendingReviewsTable } from "@workspace/db/schema";
 import { UNRESOLVED_SUBMISSION_STAGE_VALUES } from "@workspace/api-zod";
 
-import reviewsRouter, { __setDuplicateDetectorForTest } from "../routes/reviews.js";
+import reviewsRouter from "../routes/reviews.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import { resubmitInactiveFactForModeration, ResubmitForModerationError } from "../lib/resubmitForModeration.js";
 import { findPendingReviewWithText } from "../routes/ai.js";
@@ -60,16 +60,16 @@ before(async () => {
     { id: submitterId, email: `${submitterId}@test.local`, isAdmin: false, membershipTier: "registered" },
   ]);
   app = buildTestApp({ kind: "authenticated", userId: adminId }, reviewsRouter);
-  __setDuplicateDetectorForTest(async (_text, opts) => {
+  // The app's own detector: the runner shares one process between test files.
+  app.locals["duplicateDetector"] = async (_text: string, opts: { excludeReviewId?: number }) => {
     const id = opts.excludeReviewId ?? -1;
     callsFor.set(id, (callsFor.get(id) ?? 0) + 1);
     await holdFor.get(id);
     return { outcome: "distinct" as const, confidence: 42 };
-  });
+  };
 });
 
 after(async () => {
-  __setDuplicateDetectorForTest(null);
   const reviews = reviewIds.length ? await db.select({ stagingFactId: pendingReviewsTable.stagingFactId }).from(pendingReviewsTable).where(inArray(pendingReviewsTable.id, reviewIds)) : [];
   const factIds = reviews.map((r) => r.stagingFactId).filter((x): x is number => x != null);
   if (reviewIds.length) await db.delete(pendingReviewsTable).where(inArray(pendingReviewsTable.id, reviewIds));

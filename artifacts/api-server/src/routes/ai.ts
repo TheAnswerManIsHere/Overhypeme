@@ -294,7 +294,16 @@ function nearest(n: Neighbor): Pick<DuplicateCheckResult, "confidence" | "matchi
  * throw into "unavailable". The search and AI stages report their own failures
  * as "unavailable" here.
  */
-export async function checkDuplicateInternal(text: string, opts: { excludeReviewId?: number } = {}): Promise<DuplicateCheckResult> {
+export interface DuplicateCheckOptions {
+  excludeReviewId?: number;
+  /** The embedding and AI stages; tests pass their own, so no global stub is shared between test files. */
+  embed?: (text: string) => Promise<number[]>;
+  judge?: typeof llmDuplicateCheck;
+}
+
+export async function checkDuplicateInternal(text: string, opts: DuplicateCheckOptions = {}): Promise<DuplicateCheckResult> {
+  const embed = opts.embed ?? embedText;
+  const judge = opts.judge ?? llmDuplicateCheck;
   // Fast pre-check: exact text match against approved facts (avoids embedding round-trip).
   const [exactFact] = await db
     .select({ id: factsTable.id, text: factsTable.text, canonicalText: factsTable.canonicalText })
@@ -334,7 +343,7 @@ export async function checkDuplicateInternal(text: string, opts: { excludeReview
   // which only those clearing STAGE1_THRESHOLD go to the LLM.
   let neighbors: Neighbor[];
   try {
-    const embedding = await embedText(textToEmbed);
+    const embedding = await embed(textToEmbed);
     neighbors = await findSimilarFacts(embedding, { limit: 5, threshold: 0 });
   } catch (err) {
     logger.error({ err }, "[AI] Duplicate check: the similarity search failed");
@@ -352,7 +361,7 @@ export async function checkDuplicateInternal(text: string, opts: { excludeReview
   // Stage 2 — LLM precision: the model decides whether any candidate is truly
   // the same fact. A failure or a malformed answer is "unavailable", never a guess.
   try {
-    const { isDuplicate, matchIndex } = await llmDuplicateCheck(textToEmbed, candidates);
+    const { isDuplicate, matchIndex } = await judge(textToEmbed, candidates);
     if (isDuplicate && matchIndex !== null) {
       return { outcome: "duplicate", isDuplicate: true, ...nearest(candidates[matchIndex - 1]!), llmChecked: true };
     }

@@ -234,7 +234,7 @@ router.post("/facts/submit-review", requireAuth, requireFactSubmitRateLimit, asy
   // never waits on it, and it writes only while the wording is unchanged.
   const submittedId = review.id;
   pendingSubmitChecks.add(
-    checkReviewDuplicate(submittedId, duplicateDetector)
+    checkReviewDuplicate(submittedId, detectorFor(req))
       .catch((err) => logger.error({ err, reviewId: submittedId }, "[duplicate] the post-submit check failed"))
       .then(() => undefined),
   );
@@ -912,11 +912,12 @@ const WordingBody = z.object({ text: z.string() });
 
 /**
  * The duplicate detector every trigger uses: after a submission, a triage
- * wording edit, and triage's on-demand check. A seam for tests.
+ * wording edit, and triage's on-demand check. A test sets its own on its app
+ * (`app.locals.duplicateDetector`): the test runner shares one process between
+ * test files, so a module-level stub would be overwritten by another file.
  */
-let duplicateDetector: DuplicateDetector = checkDuplicateInternal;
-export function __setDuplicateDetectorForTest(fn: DuplicateDetector | null): void {
-  duplicateDetector = fn ?? checkDuplicateInternal;
+function detectorFor(req: Request): DuplicateDetector {
+  return (req.app.locals["duplicateDetector"] as DuplicateDetector | undefined) ?? checkDuplicateInternal;
 }
 /** Post-submit checks still running; a test awaits them. */
 const pendingSubmitChecks = new Set<Promise<void>>();
@@ -943,7 +944,7 @@ router.post("/admin/reviews/:id/wording", requireAdmin, async (req: Authenticate
   const body = WordingBody.safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: "The wording is required." }); return; }
   try {
-    const review = await editTriageWording(id, body.data.text, req.user.id, duplicateDetector);
+    const review = await editTriageWording(id, body.data.text, req.user.id, detectorFor(req));
     // The new wording's verdict, so the screen redraws its duplicate line.
     res.json({
       success: true,
@@ -969,7 +970,7 @@ router.post("/admin/reviews/:id/duplicate-check", requireAdmin, requireDuplicate
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
   const view = await duplicateView(review);
   if (!needsDuplicateCheck(review, view)) { res.json({ submittedText: review.submittedText, duplicate: view }); return; }
-  const current = (await checkReviewDuplicate(id, duplicateDetector)) ?? review;
+  const current = (await checkReviewDuplicate(id, detectorFor(req))) ?? review;
   res.json({ submittedText: current.submittedText, duplicate: await duplicateView(current) });
 });
 
