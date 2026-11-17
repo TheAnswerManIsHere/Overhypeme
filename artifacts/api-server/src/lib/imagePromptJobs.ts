@@ -69,7 +69,16 @@ import { isValidPromptIdentitySnapshot } from "./imagePrompt/promptIdentity";
 import { resolveRenderStyle, isValidRenderStyleSnapshot } from "./imagePrompt/styleResolution";
 import { buildEngineInput } from "./engineInterpreter";
 import { downloadToBuffer, extractFirstImageUrl, imageEngineParams } from "./imageEngineRequest";
-import { fal, ensureFalConfigured, falSubmitErrorMessage } from "./falClient";
+import { fal, ensureFalConfigured, falContentRefusal, falSubmitErrorMessage } from "./falClient";
+import {
+  bothRefusedMessage,
+  engineFallbackOf,
+  fallbackChoiceForAttempt,
+  fallbackRecipe,
+  recordRefusal,
+  switchToFallback,
+} from "./engineFallback";
+import type { EngineFallbackRecord } from "@workspace/db";
 import { ObjectStorageService } from "./objectStorage";
 import { logger } from "./logger";
 
@@ -352,6 +361,13 @@ export const imageGenerationHandler: JobHandler = {
     if (!attempt) {
       return { ok: false, error: `image_generation: attempt ${p.attemptId} not found` };
     }
+    // A refusal already recorded and its fallback not yet switched (an earlier
+    // run stopped mid-preparation): resume the preparation, never the routed
+    // engine (plan PLAN_NB_FALLBACK.md, step 2).
+    const priorFallback = engineFallbackOf(attempt);
+    if (priorFallback?.state === "preparing") {
+      return (await prepareAndSwitchFallback(attempt, priorFallback)) ?? imageGenerationHandler.run(payload, _row);
+    }
     if (!attempt.compiledPrompt) {
       return { ok: false, error: `image_generation: attempt ${p.attemptId} has no compiledPrompt` };
     }
@@ -359,8 +375,7 @@ export const imageGenerationHandler: JobHandler = {
     const compiled = attempt.compiledPrompt as { imagePrompt?: string; prompt?: string; referenceImageUrl?: string };
     const promptText = compiled.imagePrompt ?? compiled.prompt;
     if (!promptText) {
-      await markAttemptError(p.attemptId, "compiledPrompt has no prompt text");
-      return { ok: false, error: "compiledPrompt has no prompt text" };
+      return retryRender(p.attemptId, "compiledPrompt has no prompt text");
     }
 
     const generationMode = generationModeFromSubjectRenderMode(
@@ -369,8 +384,7 @@ export const imageGenerationHandler: JobHandler = {
     // Fail fast + legibly when an i2i render has no reference image, instead of
     // the opaque MissingRequiredParamError buildEngineInput would throw later.
     if (generationMode === "i2i" && !compiled.referenceImageUrl) {
-      await markAttemptError(p.attemptId, "i2i_missing_reference_url");
-      return { ok: false, error: "i2i_missing_reference_url" };
+      return retryRender(p.attemptId, "i2i_missing_reference_url");
     }
     // The engine recorded at construction draws the attempt, never today's
     // default: an attempt queued before a default changed still renders
@@ -387,9 +401,7 @@ export const imageGenerationHandler: JobHandler = {
         renderControls.aspectRatio,
       );
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      await markAttemptError(p.attemptId, msg);
-      return { ok: false, error: msg };
+      return retryRender(p.attemptId, err instanceof Error ? err.message : String(err));
     }
     await db
       .update(imagePromptAttemptsTable)
@@ -410,9 +422,7 @@ export const imageGenerationHandler: JobHandler = {
     try {
       falInput = buildEngineInput(engine, pipelineParams);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      await markAttemptError(p.attemptId, `buildEngineInput failed: ${msg}`);
-      return { ok: false, error: `buildEngineInput failed: ${msg}` };
+      return retryRender(p.attemptId, `buildEngineInput failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     // Image tracing: the exact request, its producer and who started it are
@@ -442,11 +452,34 @@ export const imageGenerationHandler: JobHandler = {
         throw new Error("fal response missing image url");
       }
     } catch (err) {
-      // Still retryable, a content refusal included: the same prompt can be
-      // refused once and drawn on the next try (Issue #980).
-      const msg = falSubmitErrorMessage(err, engine.label);
-      await markAttemptError(p.attemptId, msg);
-      return { ok: false, error: msg };
+      const refusal = falContentRefusal(err);
+      if (refusal) {
+        // The fallback engine refused too: the render ends here, naming both
+        // refusals. No third engine and no rewording (David, Q14 option 1).
+        if (priorFallback?.state === "switched") {
+          return recordTerminalAttemptFailure(
+            p.attemptId,
+            "vendor_content_refused",
+            bothRefusedMessage(priorFallback, engine.label, refusal),
+          );
+        }
+        // A photoreal engine refused: hand over to its fallback on this first
+        // refusal, with no retry on the engine that refused (Q13 option 1).
+        const choice = await fallbackChoiceForAttempt(attempt, engine.id);
+        if (choice) {
+          const record = await recordRefusal(attempt, {
+            routedEngineId: engine.id,
+            reason: refusal,
+            refusedGenerationRequestId: generationRequestId,
+            refusedVendorRequestId: (err as { requestId?: string }).requestId ?? null,
+          }, choice);
+          // Then draw it on the fallback: the handler runs once more on the switched attempt.
+          return (await prepareAndSwitchFallback({ ...attempt, engineFallback: record }, record))
+            ?? imageGenerationHandler.run(payload, _row);
+        }
+        // A styled engine refused: retried as before (plan, Astra round 1, A1).
+      }
+      return retryRender(p.attemptId, falSubmitErrorMessage(err, engine.label));
     }
 
     // Download + persist to object storage.
@@ -484,15 +517,13 @@ export const imageGenerationHandler: JobHandler = {
       });
       storedPath = finished.objectPath;
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      await markAttemptError(p.attemptId, `image store failed: ${msg}`);
-      return { ok: false, error: `image store failed: ${msg}` };
+      return retryRender(p.attemptId, `image store failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     // Mark attempt complete.
     await db
       .update(imagePromptAttemptsTable)
-      .set({ generatedImageObjectPath: storedPath, updatedAt: new Date() })
+      .set({ generatedImageObjectPath: storedPath, error: null, errorCode: null, updatedAt: new Date() })
       .where(eq(imagePromptAttemptsTable.id, p.attemptId));
 
     // Mirror to facts.aiMemeImages + user_ai_images for read compatibility
@@ -513,7 +544,62 @@ export const imageGenerationHandler: JobHandler = {
 
     return { ok: true, result: { attemptId: p.attemptId, generatedImageObjectPath: storedPath } };
   },
+
+  /**
+   * The queue gave up on this render after its retries. Only now is the last
+   * failure written to the attempt, so a render reads "rendering" while it is
+   * still retrying and "failed" once the queue stops (plan PLAN_NB_FALLBACK.md,
+   * Astra round 1, S2). A render that has a picture is left alone.
+   */
+  async onAbandon(row: AsyncJobRow): Promise<void> {
+    const attemptId = (row.payload as Partial<ImagePromptJobPayload> | null)?.attemptId;
+    if (typeof attemptId !== "number") return;
+    const attempt = await loadAttempt(attemptId);
+    if (!attempt || attempt.generatedImageObjectPath) return;
+    await markAttemptError(attemptId, row.lastError ?? "image generation abandoned after its retries");
+  },
 };
+
+/**
+ * A retryable image-job failure. Logged, and returned for the queue to retry;
+ * the attempt is not marked failed while the queue will still retry it
+ * (`onAbandon` writes it when it will not).
+ */
+function retryRender(attemptId: number, error: string): HandlerResult {
+  logger.warn({ attemptId, error }, "[imagePromptJobs] image_generation failed; the queue will retry it");
+  return { ok: false, error };
+}
+
+/**
+ * Steps 2 and 3 of the photoreal fallback (`engineFallback.ts`): recompile
+ * the stored scene with the fallback recipe, run the render-time gates, and
+ * switch the attempt. Returns null once switched, or the terminal result when
+ * the fallback prompt cannot be built; the GPT refusal stays recorded beside
+ * it on `engine_fallback`. A transient error (a database read) throws and is
+ * retried by the queue, and the retry resumes here.
+ */
+async function prepareAndSwitchFallback(
+  attempt: ImagePromptAttempt,
+  record: EngineFallbackRecord,
+): Promise<HandlerResult | null> {
+  const fail = (code: string, why: string) => recordTerminalAttemptFailure(
+    attempt.id,
+    code,
+    `${record.routedEngineId} refused this picture under its content policy (${record.reason}); ${why}`,
+  );
+  const compiled = await recompileStoredAttempt(attempt, await fallbackRecipe(record));
+  if (!compiled) return fail("fallback_compile_failed", `its scene could not be compiled again for ${record.fallbackEngineId}`);
+  const { imagePrompt, prompt } = compiled as { imagePrompt?: string; prompt?: string };
+  if (hasUnresolvedFactTokens(imagePrompt ?? prompt ?? "")) {
+    return fail("moderator_core_scene_unresolved_token", `the prompt compiled for ${record.fallbackEngineId} still contains an unresolved personalization token`);
+  }
+  const overflow = compiled.diagnostics?.requiredBudgetOverflow;
+  if (overflow) {
+    return fail("required_budget_overflow", `the prompt compiled for ${record.fallbackEngineId} exceeds its budget by ${overflow.overBy} characters (${overflow.totalLength}/${overflow.budget})`);
+  }
+  await switchToFallback(attempt, record, compiled);
+  return null;
+}
 
 export function registerImagePromptHandlers(): void {
   // `render` lane: single-item, moderator-watched renders (LLM planner + fal

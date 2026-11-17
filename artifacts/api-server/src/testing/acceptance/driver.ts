@@ -207,8 +207,9 @@ export interface DriveOptions {
   /**
    * Run with `AI_DOUBLE_FAIL=fal.subscribe:openai/gpt-image-2.6/sunburst/edit`: journey 3's
    * male iteration render must end failed — the recorded vendor error carried
-   * through the real render job — and the run stops there. A control, never
-   * an acceptance pass.
+   * through the real render job and the queue's give-up path, with the run
+   * pinned to one picture attempt (`pinOneRenderAttempt` in inner.ts) — and
+   * the run stops there. A control, never an acceptance pass.
    */
   expectRenderFailure?: boolean;
   /** Called with journey 7's object path before journey 4 composes from it (the corrupt-source control). */

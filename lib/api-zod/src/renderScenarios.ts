@@ -157,6 +157,13 @@ export interface RenderScenarioCard {
   imageUrl: string | null;
   /** Present for failed/blocked tiles. */
   message: string | null;
+  /**
+   * Set when the routed engine refused this render on content grounds and the
+   * photoreal fallback drew the picture shown (plan PLAN_NB_FALLBACK.md); null
+   * otherwise, and while that picture has not arrived. Optional so older card
+   * constructors still type-check.
+   */
+  engineFallback?: { refusedEngineId: string; drawnByEngineId: string } | null;
   // Eval harness (Slice 2B): the moderator's opportunistic verdict on the latest
   // attempt, so the Step-2 tile can render the rating control + chips. Null when
   // unrated (or no attempt). Optional so pre-eval card constructors still satisfy

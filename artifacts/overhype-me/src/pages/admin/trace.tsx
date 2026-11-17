@@ -66,6 +66,11 @@ interface TracedRecord {
   generationRequest: GenerationRequest | null;
   source: ProvenanceRecord | null;
   stillExists: { account: boolean | null; meme: boolean | null };
+  /** Set when the routed engine refused this render and the fallback engine drew it. */
+  engineFallback?: {
+    record: { routedEngineId: string; fallbackEngineId: string; reason: string; refusedVendorRequestId: string | null; at: string };
+    refusedRequest: GenerationRequest | null;
+  } | null;
 }
 
 interface TraceResult {
@@ -214,6 +219,23 @@ function RecordCard({ t }: { t: TracedRecord }) {
               {JSON.stringify(req.request, null, 2)}
             </pre>
           </details>
+        </div>
+      )}
+      {t.engineFallback && (
+        <div className="rounded-sm border border-amber-500/40 bg-amber-500/5 p-2 space-y-1" data-testid="trace-engine-fallback">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Drawn by the fallback engine</p>
+          <p className="text-xs text-foreground">
+            <span className="font-mono">{t.engineFallback.record.routedEngineId}</span> refused this picture under its content policy, so{" "}
+            <span className="font-mono">{t.engineFallback.record.fallbackEngineId}</span> drew it.
+          </p>
+          <Row label="Refusal reason">{t.engineFallback.record.reason}</Row>
+          <Row label="Refused">{when(t.engineFallback.record.at)}</Row>
+          {t.engineFallback.refusedRequest && (
+            <Row label="Refused request"><span className="font-mono">{t.engineFallback.refusedRequest.endpointId}</span></Row>
+          )}
+          {t.engineFallback.record.refusedVendorRequestId && (
+            <Row label="Refused vendor request id"><span className="font-mono">{t.engineFallback.record.refusedVendorRequestId}</span></Row>
+          )}
         </div>
       )}
       {!req && r.kind !== "upload" && r.snapshot?.["requestCaptured"] === false && (

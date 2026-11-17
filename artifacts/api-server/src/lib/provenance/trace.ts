@@ -12,10 +12,12 @@ import {
   imagePromptAttemptsTable,
   type ImageProvenance,
   type ImageGenerationRequest,
+  type EngineFallbackRecord,
 } from "@workspace/db";
 import { blindImagePath } from "../comparison/judging";
 import { readStampedId } from "./imageFile";
 import { readWatermark } from "./watermark";
+import { switchedFallbackOf } from "../engineFallback";
 
 /** How a record was found: from a typed id or link, or from a picture itself (its stamp, its exact bytes, its watermark). */
 export type TraceMethod = "id" | "link" | "metadata" | "hash" | "watermark";
@@ -25,6 +27,14 @@ export interface TracedRecord {
   generationRequest: ImageGenerationRequest | null;
   /** The record of the picture this one was made from, one level up. */
   source: ImageProvenance | null;
+  /**
+   * The photoreal fallback this picture came from, read from the record's own
+   * frozen snapshot (never the live attempt, which may be deleted): the routed
+   * engine's refusal and its reason, with the refused request expanded from
+   * its recorded id (plan PLAN_NB_FALLBACK.md, *Tracing*). Null when the
+   * picture was drawn by the engine its render was routed to.
+   */
+  engineFallback: { record: EngineFallbackRecord; refusedRequest: ImageGenerationRequest | null } | null;
   stillExists: { account: boolean | null; meme: boolean | null };
 }
 
@@ -93,9 +103,18 @@ export function preTracingNote(objectPath: string): string | null {
   return null;
 }
 
+/** The fallback recorded in a provenance record's frozen attempt snapshot, when the picture came from one. */
+export function snapshotEngineFallback(record: Pick<ImageProvenance, "snapshot">): EngineFallbackRecord | null {
+  return switchedFallbackOf((record.snapshot as { attempt?: { engineFallback?: unknown } } | null)?.attempt ?? {});
+}
+
 async function expand(records: ImageProvenance[]): Promise<TracedRecord[]> {
   if (records.length === 0) return [];
-  const requestIds = [...new Set(records.map((r) => r.generationRequestId).filter((v): v is number => v != null))];
+  const fallbacks = records.map(snapshotEngineFallback);
+  const requestIds = [...new Set([
+    ...records.map((r) => r.generationRequestId),
+    ...fallbacks.map((f) => f?.refusedGenerationRequestId),
+  ].filter((v): v is number => v != null))];
   const sourceIds = [...new Set(records.map((r) => r.sourceProvenanceId).filter((v): v is number => v != null))];
   const userIds = [...new Set(records.map((r) => r.actorUserId).filter((v): v is string => !!v))];
   const slugs = [...new Set(records.map((r) => r.memeSlug).filter((v): v is string => !!v))];
@@ -109,10 +128,14 @@ async function expand(records: ImageProvenance[]): Promise<TracedRecord[]> {
   const srcById = new Map(sources.map((r) => [r.id, r]));
   const liveUsers = new Set(users.map((u) => u.id));
   const liveMemes = new Set(memes.map((m) => m.slug));
-  return records.map((record) => ({
+  return records.map((record, i) => ({
     record,
     generationRequest: record.generationRequestId != null ? reqById.get(record.generationRequestId) ?? null : null,
     source: record.sourceProvenanceId != null ? srcById.get(record.sourceProvenanceId) ?? null : null,
+    engineFallback: fallbacks[i] ? {
+      record: fallbacks[i]!,
+      refusedRequest: reqById.get(fallbacks[i]!.refusedGenerationRequestId ?? -1) ?? null,
+    } : null,
     stillExists: {
       account: record.actorUserId ? liveUsers.has(record.actorUserId) : null,
       meme: record.memeSlug ? liveMemes.has(record.memeSlug) : null,
