@@ -122,6 +122,24 @@ export function operations(photoSha256: string): Operation[] {
     { key: "enrichment", journey: "3", description: "the fact enrichment classifier", kind: "openai.chat", target: /./, matches: (r) => systemText(r).includes("You are the fact enrichment classifier"), usable: parsesAsObject, min: 1, required: always },
     // The gag writer (PR #936): the locked prompt's opening line.
     { key: "visual-concepts", journey: "3", description: "the gag writer", kind: "openai.chat", target: /./, matches: (r) => systemText(r).includes("You write visual gags for Overhype.me."), usable: parsesAsObject, min: 1, required: always },
+    // Cast extraction (PLAN_GAG_DIRECT_RENDER.md, increment 2): the gag's cast, read before it is saved.
+    {
+      key: "cast",
+      journey: "3",
+      description: "cast extraction (who is in the gag's scene, read before it is saved)",
+      kind: "openai.chat",
+      target: /./,
+      matches: (r) => systemText(r).includes("You read the scene of a picture and list who is in it."),
+      usable: (r) => {
+        try {
+          return Array.isArray(JSON.parse(content(r)).cast);
+        } catch {
+          return false;
+        }
+      },
+      min: 1,
+      required: always,
+    },
     { key: "image-prompts", journey: "3", description: "the image-prompt generator (the gag's male, female and pet renders)", kind: "openai.chat", target: /./, matches: (r) => systemText(r).includes("render-time image-prompt generator"), usable: parsesAsObject, min: 3, required: always },
     {
       key: "image-renders",
