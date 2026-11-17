@@ -100,6 +100,25 @@ describe("ComparisonResults, second edition", () => {
     expect(screen.queryByText("Promote")).toBeNull();
   });
 
+  it("on a planner-vs-direct comparison, names each row's path and reports every case on its own", async () => {
+    window.history.replaceState(null, "", "/admin/eval/results?sets=30");
+    const planned = { ...row("gpt-image-2-6-edit", 1, 2, cats(4, 4, 4, 4)), recipeVersionId: null, recipeLabel: "Baseline", renderPath: "planned" };
+    const direct = { ...row("gpt-image-2-6-edit", 1, 2, cats(4, 3, 4, 4)), recipeVersionId: null, recipeLabel: "Baseline", renderPath: "direct" };
+    const body = {
+      ...JUDGED, kind: "path", rows: { i2i: [planned, direct] }, byLook: {},
+      byCase: { "11|i2i_male_default|501": { i2i: [planned, direct] }, "12|i2i_nonhuman_animal|0": { i2i: [direct, planned] } },
+      pictures: [],
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => body }) as unknown as Response));
+    render(<ComparisonResults />);
+    const main = within(await screen.findByTestId("results-judged-Reference edit"));
+    expect(main.getByTestId("results-row-gpt-image-2-6-edit-planned").textContent).toMatch(/Planned \(today: planner \+ compiler\)/);
+    expect(main.getByTestId("results-row-gpt-image-2-6-edit-direct").textContent).toMatch(/Direct \(from the gag alone\)/);
+    const cases = screen.getByTestId("results-by-case");
+    expect(within(cases).getByTestId("results-judged-Fact #11 · i2i_male_default · gag 501")).toBeTruthy();
+    expect(within(cases).getByTestId("results-judged-Fact #12 · i2i_nonhuman_animal")).toBeTruthy();
+  });
+
   it("explains a refusal to read the two editions together", async () => {
     window.history.replaceState(null, "", "/admin/eval/results?sets=4,9");
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 409, json: async () => ({}) }) as unknown as Response));

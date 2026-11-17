@@ -211,7 +211,7 @@ router.post("/admin/comparison/evaluations", requireAdmin, async (req: Authentic
 });
 
 router.get("/admin/comparison/evaluations", requireAdmin, async (req: Request, res: Response) => {
-  const kind = req.query["kind"] === "prompt" ? "prompt" : "engine";
+  const kind = req.query["kind"] === "prompt" ? "prompt" : req.query["kind"] === "path" ? "path" : "engine";
   res.json({ evaluations: await listEvaluations(kind) });
 });
 

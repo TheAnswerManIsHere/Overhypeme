@@ -60,6 +60,13 @@ beforeEach(() => {
       if (listFails) return respond({}, 503);
       return respond({ evaluations: url.includes("kind=prompt") ? promptEvaluations : evaluations });
     }
+    if (url.endsWith("/facts/11/gags")) {
+      return respond({ gags: [
+        { id: 501, slot: 1, isDefault: true, approvedContent: { coreSceneOverride: "{NAME} bench-presses a mountain.", bubbles: [] }, pendingContent: null },
+        { id: 502, slot: 2, isDefault: false, approvedContent: null, pendingContent: { coreSceneOverride: "{NAME} carries a mountain home; mom gasps.", bubbles: [{ type: "speech", entity: "mom", text: "Put it down!" }] } },
+        { id: 503, slot: 3, isDefault: false, approvedContent: null, pendingContent: null },
+      ] });
+    }
     if (url.endsWith("/look-styles")) return respond([{ id: "anime", label: "Anime" }]);
     if (url.endsWith("/prompt-recipes")) return respond({ families: [] });
     return respond({}, 404);
@@ -110,6 +117,32 @@ describe("the Eval page", () => {
     expect(gen.body.description).toBe("GPT vs Nano");
     expect(typeof gen.body.requestToken).toBe("string");
     expect(gen.body.selection).toEqual(est.body);
+  });
+
+  it("walks the planner-vs-direct wizard: each fact's gags with its default ticked, a second gag added, and two ways counted", async () => {
+    window.history.replaceState(null, "", "/admin/eval?tab=paths");
+    render(<EvalDashboard />);
+    expect(screen.getByTestId("eval-tab-paths").getAttribute("aria-selected")).toBe("true");
+    fireEvent.change(screen.getByTestId("wizard-fact-search"), { target: { value: "mountain" } });
+    fireEvent.click(await screen.findByTestId("wizard-fact-11"));
+    next();
+    fireEvent.click(screen.getByTestId("wizard-engine-gpt-image-2-6"));
+    await waitFor(() => expect((screen.getByTestId("wizard-gag-501") as HTMLInputElement).checked).toBe(true));
+    expect(screen.queryByTestId("wizard-gag-503")).toBeNull(); // a gag with no content cannot be drawn
+    expect(screen.getByTestId("wizard-gags-11").textContent).toMatch(/1 bubble/);
+    fireEvent.click(screen.getByTestId("wizard-gag-502"));
+    fireEvent.click(screen.getByTestId("wizard-gag-501"));
+    fireEvent.click(screen.getByTestId("wizard-gag-502"));
+    expect((screen.getByTestId("wizard-next") as HTMLButtonElement).disabled).toBe(true); // no gag left for fact 11
+    fireEvent.click(screen.getByTestId("wizard-gag-501"));
+    fireEvent.click(screen.getByTestId("wizard-gag-502"));
+    next();
+    next();
+    next();
+    fireEvent.change(screen.getByTestId("wizard-description"), { target: { value: "Planner vs direct" } });
+    expect((await screen.findByTestId("wizard-count")).textContent).toMatch(/2 gags × 1 engine × 2 ways \(planner, direct\) × 1 photo type × 1 look/);
+    const est = posts.find((p) => p.url.endsWith("/estimate"))!;
+    expect(est.body).toEqual({ kind: "path", factIds: [11], engineFamilies: ["gpt-image-2-6"], scenarioKeys: ["i2i_male_default"], lookStyleIds: ["none"], gagIds: [501, 502] });
   });
 
   it("warns above fifty images", async () => {

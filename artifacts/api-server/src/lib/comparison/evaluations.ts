@@ -398,7 +398,7 @@ export interface EvaluationSummary extends EvaluationProgress {
 }
 
 /** Every evaluation of a kind, newest first, with its derived status. */
-export async function listEvaluations(kind: "engine" | "prompt"): Promise<EvaluationSummary[]> {
+export async function listEvaluations(kind: "engine" | "prompt" | "path"): Promise<EvaluationSummary[]> {
   const sets = await db.select().from(comparisonSetsTable).where(eq(comparisonSetsTable.kind, kind)).orderBy(desc(comparisonSetsTable.createdAt));
   if (!sets.length) return [];
   const panels = await db.select().from(comparisonPanelsTable).where(inArray(comparisonPanelsTable.setId, sets.map((s) => s.id))).orderBy(asc(comparisonPanelsTable.id));

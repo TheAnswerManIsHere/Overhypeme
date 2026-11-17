@@ -17,7 +17,7 @@ import {
 import { readError } from "@/components/admin/readError";
 import { RECIPES_CHANGED_EVENT } from "@/components/admin/promoteRecipeVersion";
 
-export type EvaluationKind = "engine" | "prompt";
+export type EvaluationKind = "engine" | "prompt" | "path";
 
 const ENGINE_LABELS: Record<string, string> = {
   "gpt-image-2-6": "GPT Image 2.6",
@@ -32,6 +32,7 @@ interface RecipeFamily { family: string; liveVersionId: number | null; versions:
 
 const STEPS = ["Facts", "Engines", "Photo types", "Looks", "Describe and generate"] as const;
 const PROMPT_STEPS = ["Facts", "Wording", "Photo types", "Look", "Describe and generate"] as const;
+const PATH_STEPS = ["Facts", "Engines and gags", "Photo types", "Looks", "Describe and generate"] as const;
 
 const usd = (n: number | null) => (n == null ? "unknown" : `$${n.toFixed(2)}`);
 const newToken = () => (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -42,13 +43,15 @@ const newToken = () => (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Ma
  * wizard renders nothing.
  */
 export function EvaluationWizard({ kind, active = true, onGenerated }: { kind: EvaluationKind; active?: boolean; onGenerated: (setId: number) => void }) {
-  const steps = kind === "prompt" ? PROMPT_STEPS : STEPS;
+  const steps = kind === "prompt" ? PROMPT_STEPS : kind === "path" ? PATH_STEPS : STEPS;
   const [step, setStep] = useState(0);
   const [facts, setFacts] = useState<FactHit[]>([]);
   const [engines, setEngines] = useState<Set<string>>(new Set());
   const [tuneFamily, setTuneFamily] = useState<string>(EVALUATION_CANDIDATE_FAMILIES[0]);
   /** Chosen versions, "0" being the baseline. */
   const [versions, setVersions] = useState<Set<string>>(new Set());
+  /** A path evaluation's chosen gags, by fact. */
+  const [gagChoice, setGagChoice] = useState<Record<number, number[]>>({});
   const [photoTypes, setPhotoTypes] = useState<Set<string>>(new Set(["i2i_male_default"]));
   const [looks, setLooks] = useState<Set<string>>(new Set(["none"]));
   const [description, setDescription] = useState("");
@@ -100,17 +103,20 @@ export function EvaluationWizard({ kind, active = true, onGenerated }: { kind: E
       };
     }
     if (!engines.size) return null;
+    const gagIds = facts.flatMap((f) => gagChoice[f.id] ?? []);
+    if (kind === "path" && facts.some((f) => !(gagChoice[f.id]?.length))) return null;
     return {
       kind, factIds: facts.map((f) => f.id),
       engineFamilies: EVALUATION_CANDIDATE_FAMILIES.filter((f) => engines.has(f)),
       scenarioKeys: EVALUATION_PHOTO_TYPES.filter((t) => photoTypes.has(t.scenarioKey)).map((t) => t.scenarioKey),
       lookStyleIds: [...looks],
+      ...(kind === "path" ? { gagIds } : {}),
     };
-  }, [kind, facts, engines, tuneFamily, versions, photoTypes, looks]);
+  }, [kind, facts, engines, tuneFamily, versions, photoTypes, looks, gagChoice]);
 
   const stepValid = [
     facts.length > 0,
-    kind === "prompt" ? versions.size >= 2 && versions.size <= 4 : engines.size > 0,
+    kind === "prompt" ? versions.size >= 2 && versions.size <= 4 : engines.size > 0 && (kind !== "path" || facts.every((f) => (gagChoice[f.id]?.length ?? 0) > 0)),
     photoTypes.size > 0,
     kind === "prompt" ? looks.size === 1 : looks.size > 0,
     !!selection && description.trim().length > 0,
@@ -198,7 +204,7 @@ export function EvaluationWizard({ kind, active = true, onGenerated }: { kind: E
 
       {step === 0 && <FactPicker chosen={facts} onChange={setFacts} />}
 
-      {step === 1 && kind === "engine" && (
+      {step === 1 && kind !== "prompt" && (
         <fieldset className="space-y-1" data-testid="wizard-engines">
           <legend className="text-sm font-bold text-foreground">Which engines?</legend>
           {EVALUATION_CANDIDATE_FAMILIES.map((f) => (
@@ -209,6 +215,8 @@ export function EvaluationWizard({ kind, active = true, onGenerated }: { kind: E
           ))}
         </fieldset>
       )}
+
+      {step === 1 && kind === "path" && <GagPicker facts={facts} chosen={gagChoice} onChange={setGagChoice} />}
 
       {step === 1 && kind === "prompt" && (
         <div className="space-y-2" data-testid="wizard-wording">
@@ -269,7 +277,7 @@ export function EvaluationWizard({ kind, active = true, onGenerated }: { kind: E
           </label>
           {selection && (
             <p className="text-sm text-foreground" data-testid="wizard-count">
-              {facts.length} fact{facts.length === 1 ? "" : "s"} × {kind === "prompt" ? `${versions.size} wordings` : `${engines.size} engine${engines.size === 1 ? "" : "s"}`} × {photoTypes.size} photo type{photoTypes.size === 1 ? "" : "s"} × {looks.size} look{looks.size === 1 ? "" : "s"}
+              {kind === "path" ? `${selection.gagIds?.length ?? 0} gag${selection.gagIds?.length === 1 ? "" : "s"}` : `${facts.length} fact${facts.length === 1 ? "" : "s"}`} × {kind === "prompt" ? `${versions.size} wordings` : `${engines.size} engine${engines.size === 1 ? "" : "s"}`}{kind === "path" ? " × 2 ways (planner, direct)" : ""} × {photoTypes.size} photo type{photoTypes.size === 1 ? "" : "s"} × {looks.size} look{looks.size === 1 ? "" : "s"}
               {estimate ? <> = <strong>{estimate.images} images</strong>, <span data-testid="wizard-typical">usually about <strong>{usd(estimate.typicalUsd)}</strong></span>, at most <strong>{usd(estimate.totalBoundUsd)}</strong> (scenes {usd(estimate.preparationBoundUsd)}, pictures {usd(estimate.renderBoundUsd)})</> : <> = <Loader2 className="inline w-3 h-3 animate-spin" /></>}
             </p>
           )}
@@ -354,5 +362,66 @@ function FactPicker({ chosen, onChange }: { chosen: FactHit[]; onChange: (facts:
         ))}
       </ul>
     </div>
+  );
+}
+
+interface GagChoiceRow { id: number; slot: number; scene: string; bubbles: number; isDefault: boolean }
+
+/**
+ * A path evaluation's gags (plan PLAN_GAG_DIRECT_RENDER.md, A): every live gag
+ * of each chosen fact, its default ticked, so one fact's two gags can each be
+ * drawn. A gag is drawn from its approved version, else its saved change.
+ */
+function GagPicker({ facts, chosen, onChange }: { facts: FactHit[]; chosen: Record<number, number[]>; onChange: (next: Record<number, number[]>) => void }) {
+  const [byFact, setByFact] = useState<Record<number, GagChoiceRow[] | "error">>({});
+  const chosenRef = useRef(chosen);
+  chosenRef.current = chosen;
+  useEffect(() => {
+    let cancelled = false;
+    for (const f of facts) {
+      if (byFact[f.id]) continue;
+      void fetch(`/api/admin/facts/${f.id}/gags`, { credentials: "include" }).then(async (r) => {
+        if (cancelled) return;
+        if (!r.ok) { setByFact((m) => ({ ...m, [f.id]: "error" })); return; }
+        const body = (await r.json()) as { gags: Array<{ id: number; slot: number; isDefault: boolean; approvedContent: { coreSceneOverride?: string; bubbles?: unknown[] } | null; pendingContent: { coreSceneOverride?: string; bubbles?: unknown[] } | null }> };
+        const rows = body.gags
+          .map((g) => ({ g, content: g.approvedContent ?? g.pendingContent }))
+          .filter(({ content }) => !!content?.coreSceneOverride?.trim())
+          .map(({ g, content }) => ({ id: g.id, slot: g.slot, scene: content!.coreSceneOverride!.trim(), bubbles: content!.bubbles?.length ?? 0, isDefault: g.isDefault }))
+          .sort((a, b) => a.slot - b.slot);
+        setByFact((m) => ({ ...m, [f.id]: rows }));
+        if (!chosenRef.current[f.id] && rows.length) {
+          const first = rows.find((r) => r.isDefault) ?? rows[0]!;
+          onChange({ ...chosenRef.current, [f.id]: [first.id] });
+        }
+      }).catch(() => { if (!cancelled) setByFact((m) => ({ ...m, [f.id]: "error" })); });
+    }
+    return () => { cancelled = true; };
+  }, [facts, byFact, onChange]);
+  const toggleGag = (factId: number, gagId: number) => {
+    const current = chosen[factId] ?? [];
+    onChange({ ...chosen, [factId]: current.includes(gagId) ? current.filter((id) => id !== gagId) : [...current, gagId] });
+  };
+  return (
+    <fieldset className="space-y-2" data-testid="wizard-gags">
+      <legend className="text-sm font-bold text-foreground">Which gags? (at least one per fact; tick two to compare a fact's gags)</legend>
+      {facts.map((f) => {
+        const rows = byFact[f.id];
+        return (
+          <div key={f.id} className="space-y-1" data-testid={`wizard-gags-${f.id}`}>
+            <p className="text-xs text-muted-foreground">#{f.id} {f.text}</p>
+            {!rows && <p className="text-xs text-muted-foreground"><Loader2 className="inline w-3 h-3 animate-spin" /> Loading gags…</p>}
+            {rows === "error" && <p className="text-xs text-destructive">Could not load this fact's gags.</p>}
+            {Array.isArray(rows) && rows.length === 0 && <p className="text-xs text-destructive">This fact has no gag to draw.</p>}
+            {Array.isArray(rows) && rows.map((g) => (
+              <label key={g.id} className="flex items-start gap-2 text-sm text-foreground">
+                <input type="checkbox" className="mt-1" checked={(chosen[f.id] ?? []).includes(g.id)} onChange={() => toggleGag(f.id, g.id)} data-testid={`wizard-gag-${g.id}`} />
+                <span>Gag {g.slot}{g.isDefault ? " (default)" : ""}: {g.scene}{g.bubbles ? ` · ${g.bubbles} bubble${g.bubbles === 1 ? "" : "s"}` : ""}</span>
+              </label>
+            ))}
+          </div>
+        );
+      })}
+    </fieldset>
   );
 }

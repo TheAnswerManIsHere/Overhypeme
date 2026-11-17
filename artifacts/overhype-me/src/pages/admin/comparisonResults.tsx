@@ -32,6 +32,8 @@ interface JudgedRow {
   recipeVersionId?: number | null;
   recipeLabel?: string;
   recipeNote?: string | null;
+  /** On a planned-versus-direct comparison, "planned" or "direct". */
+  renderPath?: string | null;
   panels: number;
   picked: number;
   pickShare: number | null;
@@ -49,17 +51,19 @@ interface JudgedRow {
 }
 interface JudgedPicture {
   panelId: number; factId: number; scenarioKey: string; lookStyleId: string; imageMode: string;
-  engineId: string; family: string; recipeVersionId: number | null; recipeLabel: string;
+  engineId: string; family: string; recipeVersionId: number | null; recipeLabel: string; renderPath?: string | null; gagId?: number | null;
   promptText: string | null; picked: boolean; broken: boolean; lost: boolean; scores: Partial<Record<JudgingCategoryKey, number>> | null;
 }
 interface JudgedResults {
   edition: 2;
-  kind?: "engine" | "prompt";
+  kind?: "engine" | "prompt" | "path";
   family?: string | null;
   sets: Array<{ id: number; label: string; round: number; imageSize?: string }>;
   panels: { total: number; judged: number; judgeable: number; skipped: number; lost: number };
   rows: Record<string, JudgedRow[]>;
   byLook?: Record<string, Record<string, JudgedRow[]>>;
+  /** Rows within each case: "<factId>|<scenarioKey>|<gagId or 0>". */
+  byCase?: Record<string, Record<string, JudgedRow[]>>;
   pictures?: JudgedPicture[];
 }
 
@@ -225,9 +229,10 @@ function JudgedTable({ label, rows, wording, onPromote }: { label: string; rows:
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={`${row.engineId}|${row.recipeVersionId ?? 0}`} className="border-t border-border" data-testid={`results-row-${row.engineId}${wording ? `-${row.recipeVersionId ?? 0}` : row.recipeVersionId != null ? `-v${row.recipeVersionId}` : ""}`}>
+            <tr key={`${row.engineId}|${row.recipeVersionId ?? 0}|${row.renderPath ?? ""}`} className="border-t border-border" data-testid={`results-row-${row.engineId}${wording ? `-${row.recipeVersionId ?? 0}` : row.recipeVersionId != null ? `-v${row.recipeVersionId}` : ""}${row.renderPath ? `-${row.renderPath}` : ""}`}>
               <td className="py-0.5 font-mono text-foreground">
                 {wording ? (row.recipeLabel ?? "Baseline") : row.family}
+                {row.renderPath && <span className="block text-[11px] font-bold font-sans" data-testid="results-row-path">{PATH_LABEL[row.renderPath] ?? row.renderPath}</span>}
                 {!wording && <span className="block text-[10px] text-muted-foreground font-sans">{row.recipeLabel ?? "Baseline"} wording</span>}
                 {wording && row.recipeNote ? <span className="block text-[10px] text-muted-foreground font-sans">{row.recipeNote}</span> : null}
               </td>
@@ -250,6 +255,15 @@ function JudgedTable({ label, rows, wording, onPromote }: { label: string; rows:
   );
 }
 
+/** What each path of a planned-versus-direct comparison is called once revealed. */
+const PATH_LABEL: Record<string, string> = { planned: "Planned (today: planner + compiler)", direct: "Direct (from the gag alone)" };
+
+/** "<factId>|<scenarioKey>|<gagId>" as a heading. */
+function caseLabel(key: string): string {
+  const [factId, scenarioKey, gagId] = key.split("|");
+  return `Fact #${factId} · ${scenarioKey}${gagId && gagId !== "0" ? ` · gag ${gagId}` : ""}`;
+}
+
 function JudgedResultsView({ data }: { data: JudgedResults }) {
   const [notice, setNotice] = useState("");
   const prompt = data.kind === "prompt" && !!data.family;
@@ -259,6 +273,7 @@ function JudgedResultsView({ data }: { data: JudgedResults }) {
     if (result) setNotice(result.ok ? result.message : `Not promoted: ${result.message}`);
   };
   const looks = Object.keys(data.byLook ?? {}).sort();
+  const cases = Object.keys(data.byCase ?? {}).sort();
   return (
     <div className="space-y-4">
       <p className="text-sm text-foreground" data-testid="results-summary">
@@ -281,6 +296,15 @@ function JudgedResultsView({ data }: { data: JudgedResults }) {
               )))}
             </div>
           )}
+          {data.kind === "path" && cases.length > 0 && (
+            <div className="space-y-2" data-testid="results-by-case">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-muted-foreground">By case: each fact, photo type and gag</h3>
+              <p className="text-[11px] text-muted-foreground">Judge each case on its own: a pooled average can hide one case the direct path draws worse.</p>
+              {cases.map((c) => ["t2i", "i2i"].filter((m) => data.byCase![c]![m]).map((mode) => (
+                <JudgedTable key={`${c}-${mode}`} label={caseLabel(c)} rows={data.byCase![c]![mode]!} wording={false} />
+              )))}
+            </div>
+          )}
           <p className="text-[11px] text-muted-foreground">
             "Picked to send" is the share of judged panels on which this {prompt ? "wording's" : "engine's"} picture was the one you would send; a picture that could not be drawn stays in the count and can never be picked. Each category is averaged over the pictures it was asked on (1 to {COMPARISON_SCORE_MAX}); a picture that could not be drawn counts as a 1 in each. Results rest on the number of panels shown beside the share.
           </p>
@@ -292,6 +316,7 @@ function JudgedResultsView({ data }: { data: JudgedResults }) {
                   <li key={i} className="space-y-0.5">
                     <p className="text-foreground">
                       Fact #{p.factId} · {p.scenarioKey} · {p.lookStyleId} · <span className="font-mono">{p.family}</span> · {p.recipeLabel}
+                      {p.renderPath ? ` · ${PATH_LABEL[p.renderPath] ?? p.renderPath}` : ""}{p.gagId ? ` · gag ${p.gagId}` : ""}
                       {p.picked ? " · picked to send" : ""}{p.broken ? " · broken" : ""}{p.lost ? " · could not be drawn" : ""}
                     </p>
                     {p.promptText && <pre className="whitespace-pre-wrap break-words font-mono text-[11px] text-muted-foreground max-h-40 overflow-auto">{p.promptText}</pre>}

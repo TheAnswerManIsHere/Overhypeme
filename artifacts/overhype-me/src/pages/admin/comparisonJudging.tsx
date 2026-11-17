@@ -65,6 +65,8 @@ interface BlindPanel {
   pick: { ratings: Record<string, number>; faceMismatchTokens: string[]; styleCapturedTokens?: string[]; judgedAt: string } | null;
   /** Second edition: the approved gag, frozen at preparation. */
   gag?: string | null;
+  /** Second edition: the gag's bubbles as the panel expected them, each with its speaker. */
+  bubbles?: Array<{ type: string; speaker: string; text: string }> | null;
   /** Second edition: the categories each picture is scored on. */
   categories?: JudgingCategoryKey[];
   /** Second edition: the saved judgement, by blind token. */
@@ -382,6 +384,16 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
                         <span className="font-bold">The gag: </span>
                         {panel.gag ?? <span className="text-amber-600 dark:text-amber-400">this fact had no approved gag when the panel was prepared, so judge Gag fidelity against the fact.</span>}
                       </p>
+                    )}
+                    {second && panel.bubbles && panel.bubbles.length > 0 && (
+                      <ul className="text-sm text-foreground space-y-0.5" data-testid="judging-bubbles">
+                        <li className="font-bold">The bubbles it should show:</li>
+                        {panel.bubbles.map((b, i) => (
+                          <li key={i} data-testid="judging-bubble">
+                            {b.type === "thought" ? "Thought" : "Speech"} from <span className="font-bold">{b.speaker}</span>: “{b.text}”
+                          </li>
+                        ))}
+                      </ul>
                     )}
                   </div>
                   <div className="flex items-center gap-1">
