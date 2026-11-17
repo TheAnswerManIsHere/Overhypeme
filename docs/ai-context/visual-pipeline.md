@@ -1087,11 +1087,14 @@ pieces, since they are the joins the sentence de-dupe reads.
   reaches fails CI (Codex, PR #926). The render-time overflow refusal stays.
 - **Editor**: Admin → Eval → *Prompt wording* (`PromptRecipes.tsx`;
   `routes/adminPromptRecipes.ts`): per family, every piece editable, save with a
-  note, preview the whole prompt on a fact's latest stored render plan without
-  a planner call (`recompileStoredAttempt`), promote or restore the baseline.
+  note, preview the whole prompt on the gag frozen on a fact's newest compiled
+  render attempt for that photo type, with no model call
+  (`recompileStoredAttempt`; an older planned attempt frozen before casts were
+  read is passed over, never drawn with today's gag), promote or restore the
+  baseline.
   The preview highlights the recipe's wording against the fact's own text
   (`imagePrompt/recipeHighlight.ts`): each piece is wrapped in private-use
-  marker characters, the same plan is compiled a second time with the marked
+  marker characters, the same gag is compiled a second time with the marked
   recipe, and the markers are read back out of each section; a slot's filled
   value stays unmarked. A test requires every captured baseline prompt to read
   back unchanged, and the markers never reach an engine.

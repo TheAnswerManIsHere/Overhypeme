@@ -5,7 +5,7 @@
  *   GET  /api/admin/prompt-recipes                    every piece (its label, when it appears, slots, baseline) and every image engine family with its versions, live version and promotions
  *   POST /api/admin/prompt-recipes/:family/versions   save a new version (never edits one); refused when the wording is malformed or does not fit the prompt budget
  *   POST /api/admin/prompt-recipes/:family/promote    make a version (or, with null, the baseline) live; a changed policy line needs confirmPolicy
- *   POST /api/admin/prompt-recipes/:family/preview    compile a fact's latest stored render plan with candidate wording, without a planner call
+ *   POST /api/admin/prompt-recipes/:family/preview    compile a fact's latest drawn gag (frozen on its render attempt) with candidate wording, with no model call
  *
  * Saving or previewing changes nothing live. A promotion changes the wording
  * renders on that family's engines use from then on, never which engine.
@@ -24,6 +24,9 @@ import { markRecipe, segmentsOf } from "../lib/imagePrompt/recipeHighlight";
 import { recompileStoredAttempt } from "../lib/imagePromptJobs";
 
 const router: IRouter = Router();
+
+/** How many of a fact's newest compiled attempts the preview tries before it refuses. */
+const PREVIEW_CANDIDATES = 20;
 
 const familyParam = (req: Request): string | null => {
   const f = String(req.params["family"] ?? "");
@@ -74,20 +77,31 @@ router.post("/admin/prompt-recipes/:family/preview", requireAdmin, async (req: R
   if (!parsed.success) { res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() }); return; }
   const { pieces, factId, subjectRenderMode } = parsed.data;
   const { draft: recipe } = await draftRecipe(family, parsed.data.basedOnVersionId, pieces);
-  const [attempt] = await db.select().from(imagePromptAttemptsTable)
-    .where(and(eq(imagePromptAttemptsTable.factId, factId), eq(imagePromptAttemptsTable.subjectRenderMode, subjectRenderMode), isNotNull(imagePromptAttemptsTable.visualPlan)))
-    .orderBy(desc(imagePromptAttemptsTable.id)).limit(1);
+  // The newest attempt for this fact and photo type that was compiled (a
+  // direct attempt stores only its compiled prompt; a planned one before the
+  // switch stored both) and whose own frozen gag still compiles directly. An
+  // older planned attempt frozen before casts were read cannot, and is passed
+  // over rather than drawn with today's gag, which would preview a picture
+  // nobody asked for.
+  const candidates = await db.select().from(imagePromptAttemptsTable)
+    .where(and(eq(imagePromptAttemptsTable.factId, factId), eq(imagePromptAttemptsTable.subjectRenderMode, subjectRenderMode), isNotNull(imagePromptAttemptsTable.compiledPrompt)))
+    .orderBy(desc(imagePromptAttemptsTable.id)).limit(PREVIEW_CANDIDATES);
   const problems = [...recipeProblems(pieces), ...recipeBudgetProblems(recipe)];
-  if (!attempt) {
-    res.status(404).json({ error: "no_stored_plan", refusal: "this fact has no stored render plan for that photo type yet; a moderation render or a comparison makes one", problems });
+  if (candidates.length === 0) {
+    res.status(404).json({ error: "no_stored_render", refusal: "this fact has no drawn picture for that photo type yet; a moderation render of one of its gags makes one", problems });
     return;
   }
-  const compiled = await recompileStoredAttempt(attempt, recipe);
-  if (!compiled) {
-    res.status(409).json({ error: "plan_unusable", refusal: "this fact's latest stored render plan can no longer be compiled", problems });
+  let attempt: (typeof candidates)[number] | undefined;
+  let compiled: Awaited<ReturnType<typeof recompileStoredAttempt>> = null;
+  for (const candidate of candidates) {
+    compiled = await recompileStoredAttempt(candidate, recipe);
+    if (compiled) { attempt = candidate; break; }
+  }
+  if (!attempt || !compiled) {
+    res.status(409).json({ error: "render_unusable", refusal: "this fact's recent pictures were drawn before its gags' casts were read, so their gags cannot be compiled again; a moderation render of one of its gags makes one that can", problems });
     return;
   }
-  // The same plan compiled with marked wording, read back into wording and the
+  // The same gag compiled with marked wording, read back into wording and the
   // fact's own text so the editor can highlight what the recipe contributes.
   const marked = await recompileStoredAttempt(attempt, markRecipe(recipe));
   const markedById = new Map((marked?.promptBreakdown ?? []).map((s) => [s.id, s.text]));

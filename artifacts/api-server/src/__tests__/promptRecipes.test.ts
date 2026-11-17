@@ -7,7 +7,8 @@ import { randomUUID } from "node:crypto";
 
 import request from "supertest";
 import { db } from "@workspace/db";
-import { promptRecipePromotionsTable, promptRecipeVersionsTable, usersTable } from "@workspace/db/schema";
+import { factsTable, imagePromptAttemptsTable, promptRecipePromotionsTable, promptRecipeVersionsTable, usersTable } from "@workspace/db/schema";
+import { defaultIdentityPolicyForRenderMode } from "@workspace/api-zod";
 import { eq, inArray } from "drizzle-orm";
 
 import adminPromptRecipesRouter from "../routes/adminPromptRecipes.js";
@@ -19,6 +20,7 @@ import { computeScenarioInputHash } from "../lib/reviewRenderScenarios.js";
 import { VALID_ENRICHMENT } from "./helpers/validEnrichment.js";
 import { testEngineRow } from "./helpers/testEngines.js";
 import { clearTestEngineDefinitions } from "../lib/engineInterpreter.js";
+import { withCast } from "./helpers/gagCast.js";
 
 const P = `t-pr-${randomUUID().slice(0, 6)}`;
 const FAMILY = `${P}-gpt`;
@@ -149,7 +151,7 @@ describe("an attempt records the wording its caller froze (Codex, PR #926 round 
     const { buildAndEnqueueImagePromptAttempt } = await import("../lib/imagePromptAttempts.js");
     const { syntheticAnalysisForReference, defaultScenarioRenderControls } = await import("../lib/reviewRenderScenarios.js");
     const { defaultIdentityPolicyForRenderMode } = await import("@workspace/api-zod");
-    const { factsTable, imagePromptAttemptsTable, asyncJobsTable } = await import("@workspace/db/schema");
+    const { asyncJobsTable } = await import("@workspace/db/schema");
     const [fact] = await db.insert(factsTable).values({ text: `${P} {NAME} lifts a car`, isActive: false, enrichment: VALID_ENRICHMENT as never }).returning({ id: factsTable.id });
     const v = await save({ "identity.person": "Wording B for the person photo." }, "B");
     await promote({ versionId: v.body.version.id });
@@ -173,6 +175,95 @@ describe("an attempt records the wording its caller froze (Codex, PR #926 round 
       await db.delete(imagePromptAttemptsTable).where(inArray(imagePromptAttemptsTable.id, ids.length ? ids : [0]));
       await db.delete(factsTable).where(eq(factsTable.id, fact!.id));
     }
+  });
+});
+
+// The wording preview compiles the gag frozen on the fact's newest compiled
+// attempt (PLAN_GAG_DIRECT_RENDER.md, D: "the prompt-wording preview handles
+// both kinds"). A direct attempt stores only its compiled prompt; a planned
+// one before the switch stored a plan too; one frozen before casts were read
+// cannot be compiled directly and is passed over, never drawn with another gag.
+describe("prompt recipe preview — which stored picture it compiles", () => {
+  const previewFactIds: number[] = [];
+  after(async () => {
+    if (previewFactIds.length === 0) return;
+    await db.delete(imagePromptAttemptsTable).where(inArray(imagePromptAttemptsTable.factId, previewFactIds));
+    await db.delete(factsTable).where(inArray(factsTable.id, previewFactIds));
+  });
+
+  async function seedFact(): Promise<number> {
+    const [fact] = await db.insert(factsTable)
+      .values({ text: "{NAME} doesn't read books.", submittedById: adminId, isActive: false, enrichment: VALID_ENRICHMENT })
+      .returning({ id: factsTable.id });
+    previewFactIds.push(fact!.id);
+    return fact!.id;
+  }
+
+  async function seedAttempt(factId: number, opts: { scene: string; castCurrent: boolean; compiled: boolean; planned?: boolean }): Promise<number> {
+    const gag = withCast({ version: 1, coreSceneOverride: opts.scene, bubbles: [] } as never) as Record<string, unknown>;
+    if (!opts.castCurrent) { delete gag["cast"]; delete gag["castExtraction"]; }
+    const [row] = await db.insert(imagePromptAttemptsTable).values({
+      factId,
+      userId: adminId,
+      renderJobId: randomUUID(),
+      generationMode: "i2i",
+      subjectRenderMode: "human_identity_i2i",
+      targetEngine: "nano_banana_2",
+      sourceImageAnalysis: {
+        subjectKind: "human_face", confidence: "high", hasUsableHumanFace: true, hasUsableSubject: true,
+        subjectCount: 1, warnings: [], suggestedRenderMode: "human_identity_i2i",
+        classificationMethod: "fal_detector", analyzerVersion: "v1",
+      } as never,
+      identityPolicy: defaultIdentityPolicyForRenderMode("human_identity_i2i") as never,
+      renderControls: { aspectRatio: "portrait", contentMode: "sfw", promptIdentity: { version: 1, name: "David", pronouns: "he/him", source: "review_sample" } } as never,
+      factEnrichmentSnapshot: { ...VALID_ENRICHMENT, visualPromptStrategyOverride: gag } as never,
+      renderedFactText: "David doesn't read books.",
+      archetypeStrategyVersion: "v2",
+      visualPlan: opts.planned ? ({ planned: true } as never) : null,
+      compiledPrompt: opts.compiled ? ({ imagePrompt: "stored" } as never) : null,
+    }).returning({ id: imagePromptAttemptsTable.id });
+    return row!.id;
+  }
+
+  const preview = (factId: number) => request(app()).post(`/api/admin/prompt-recipes/${FAMILY}/preview`)
+    .send({ pieces: {}, factId, subjectRenderMode: "human_identity_i2i" });
+
+  it("compiles an attempt drawn the direct way, which stores no plan", async () => {
+    const factId = await seedFact();
+    const id = await seedAttempt(factId, { scene: "{NAME} lifts a city bus.", castCurrent: true, compiled: true });
+    const res = await preview(factId);
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.attemptId, id);
+    assert.match(res.body.prompt, /lifts a city bus/);
+  });
+
+  it("passes over a newer attempt that never compiled, and one frozen before casts were read, for the newest that compiles", async () => {
+    const factId = await seedFact();
+    const usable = await seedAttempt(factId, { scene: "{NAME} juggles three anvils.", castCurrent: true, compiled: true, planned: true });
+    await seedAttempt(factId, { scene: "{NAME} outruns a cheetah.", castCurrent: false, compiled: true, planned: true });
+    await seedAttempt(factId, { scene: "{NAME} wrestles a bear.", castCurrent: true, compiled: false });
+    const res = await preview(factId);
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.attemptId, usable, "the planned attempt whose own frozen gag still compiles");
+    assert.match(res.body.prompt, /juggles three anvils/);
+    assert.doesNotMatch(res.body.prompt, /cheetah|bear/, "no other attempt's gag, and no gag substituted");
+  });
+
+  it("refuses, saying how to make one, when every compiled attempt predates casts", async () => {
+    const factId = await seedFact();
+    await seedAttempt(factId, { scene: "{NAME} outruns a cheetah.", castCurrent: false, compiled: true, planned: true });
+    const res = await preview(factId);
+    assert.equal(res.status, 409, JSON.stringify(res.body));
+    assert.equal(res.body.error, "render_unusable");
+    assert.match(res.body.refusal, /moderation render/);
+  });
+
+  it("refuses with 404 when the fact has no compiled attempt for that photo type", async () => {
+    const factId = await seedFact();
+    await seedAttempt(factId, { scene: "{NAME} wrestles a bear.", castCurrent: true, compiled: false });
+    const res = await preview(factId);
+    assert.equal(res.status, 404, JSON.stringify(res.body));
+    assert.equal(res.body.error, "no_stored_render");
   });
 });
 });

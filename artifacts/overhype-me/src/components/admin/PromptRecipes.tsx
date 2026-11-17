@@ -262,7 +262,7 @@ export function PromptRecipes() {
               {busy === "preview" && <Loader2 className="w-4 h-4 animate-spin" />} Preview the whole prompt
             </button>
           </div>
-          <p className="text-[11px] text-muted-foreground">The preview uses the fact's most recent stored render plan for that kind of photo, compiled with this wording. It makes no AI call and costs nothing.</p>
+          <p className="text-[11px] text-muted-foreground">The preview uses the gag in the fact's most recent picture for that kind of photo, compiled with this wording. It makes no AI call and costs nothing.</p>
 
           {problems.length > 0 && (
             <ul className="text-sm text-destructive space-y-0.5" data-testid="recipes-problems">
