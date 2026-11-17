@@ -21,6 +21,7 @@ import {
   isVisualStrategyRenderedTextPath,
   getVisualStrategyRenderedTextKind,
   normalizeRoleEntity,
+  SCENE_RAW_MAX_CHARS,
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
@@ -38,7 +39,8 @@ const TokenizeEnrichmentBody = z.object({
     .array(
       z.object({
         path: z.string().min(1).max(120),
-        value: z.string().max(2000),
+        // The longest rendered text field is a gag's scene: its cap, so a scene the editor accepts can be prepared.
+        value: z.string().max(SCENE_RAW_MAX_CHARS),
         kind: z.enum(["prose", "entity"]),
       }),
     )

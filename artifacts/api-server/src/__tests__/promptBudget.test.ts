@@ -22,6 +22,7 @@ import {
   naiveBubbleRenderedLowerBound,
   BUBBLE_DIRECTIVES_RENDERED_MAX,
   CORE_SCENE_RAW_MAX,
+  SCENE_AND_ADDITIONS_RENDERED_MAX,
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
   type VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
@@ -51,7 +52,7 @@ describe("measureRequiredPromptBudget — the §21 proof", () => {
 
   it("the moderator Concept rendered reserve is at least its raw cap (a token-free Concept must fit)", () => {
     assert.ok(
-      CORE_SCENE_RENDERED_MAX >= CORE_SCENE_RAW_MAX,
+      SCENE_AND_ADDITIONS_RENDERED_MAX >= CORE_SCENE_RAW_MAX,
       "a raw-max token-free Concept must not be rejected by the rendered cap",
     );
   });
@@ -73,9 +74,9 @@ describe("validateVisualStrategyOverrideForSave (§10.2 / §10.3)", () => {
   });
 
   it("rejects a Concept whose WORST-CASE rendered length blows the cap even under the raw cap", () => {
-    // 110 repeated {NAME} tokens: raw ~770 (well under the raw cap) but each
-    // renders to up to 20 chars → ~2300+ rendered (> the rendered cap).
-    const tokenHeavy = "{NAME} ".repeat(110).trim();
+    // 200 repeated {NAME} tokens: raw ~1400 (well under the raw cap) but each
+    // renders to up to 20 chars → ~4000+ rendered (> the pooled scene cap).
+    const tokenHeavy = "{NAME} ".repeat(200).trim();
     assert.ok(tokenHeavy.length <= CORE_SCENE_RAW_MAX, "sanity: raw length is within the raw cap");
     const r = validateVisualStrategyOverrideForSave({ ...base(), coreSceneOverride: tokenHeavy }, 0, 0);
     assert.equal(r.ok, false);

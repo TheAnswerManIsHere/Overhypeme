@@ -16,7 +16,8 @@ For a moderated render, the **moderator-authored "Visual Concept (Core Scene)" i
 authoritative** when present. It is a [gag](./glossary.md#gag)'s
 `coreSceneOverride`, stored in `fact_gags` since migration 0139 (plan
 `docs/plans/PLAN_THREE_GAGS.md`; the schema is
-`lib/api-zod/src/visualStrategyOverride.ts`), capped at 1500 chars, carries
+`lib/api-zod/src/visualStrategyOverride.ts`), capped at 3000 chars (1500 until
+the fold, which moved the eleven extra fields' budget to the scene), carries
 `{NAME}`/pronoun tokens, and is canonicalized + token-validated on save. It is
 consumed **deterministically** in two places:
 
@@ -467,7 +468,7 @@ true contribution. **Never re-derive a raw-sum estimate for this check** — it
 will silently undercount; see the `naiveAdditionsRenderedLowerBound` doc
 comment for why it's a lower bound only, never the gate.
 
-`CORE_SCENE_RAW_MAX` (1500) matches the frontend editor's
+`CORE_SCENE_RAW_MAX` (3000 since the fold; 1500 before) matches the frontend editor's
 `CORE_SCENE_MAX_CHARS` and the candidate generator's `CANDIDATE_SCENE_MAX_CHARS`
 — a save is never rejected by the budget gate for content the authoring UI
 itself presented as valid.
@@ -734,6 +735,67 @@ A moderator authors a gag directly in the **Gags panel**
 editor), or **uses a candidate** (next section) on a gag, via the same cap and
 token rules.
 
+## A gag's cast, and the fold (PLAN_GAG_DIRECT_RENDER.md, increment 2)
+
+**The cast** is who is in a gag's scene besides the subject: a list of
+`{label, description}` in the gag's content (`cast`), with a marker written
+only when an extraction succeeded (`castExtraction`: prompt version, time, and
+`sourceKey`, the `castSourceKey` of the scene and bubble speakers it was read
+from). Absent marker = never read; `[]` with a marker = read, nobody else
+there. **One producer**: cast extraction (`lib/gags/castExtraction.ts`, the
+utility model, prompt v2), which reads the scene under the stand-in name
+"Alex", binds each bubble speaker under the bubble's exact string, never adds
+a character the scene does not show, and strips "Alex" from any description
+it returns ("the subject" instead).
+
+- **Every save carries one.** The editor reads it on the draft before saving
+  (`POST /api/admin/facts/:factId/gags/cast`, stores nothing): when a bubble is
+  added or edited after the scene changed, and at Save if the scene or a
+  speaker changed since. The server does not extract at save; it checks
+  (`assertGagCast`): a cast is present (`CAST_MISSING`), was read from this
+  content (`CAST_STALE`), and binds every bubble speaker
+  (`SPEAKER_NOT_IN_SCENE`, naming them). A used gag idea is prepared the same
+  way, so the locked gag-writer prompt is unchanged.
+- **The speaker dropdown on a gag card** offers the subject and the draft's
+  cast (`buildCastSpeakerOptions`); a saved speaker the cast lacks is shown as
+  itself, marked "not in this scene", and stops the save.
+- **Before the switch nothing renders from it.** The planned path never reads
+  the cast, so render reuse, the tile's freshness and approval all compare a
+  gag's content without its cast and marker (`renderAffectingEnrichment`;
+  `sameRenderedGag` in `gagStore.ts`): a cast read again, with a new time or
+  a differently worded description, never makes an unchanged picture
+  unapprovable (Codex `4600565971`, Fable's tie-break, PR #1002 round 1).
+  Increment 3 adds the cast entries to both, never the marker, with the
+  generation-version bump. A save still compares the whole content, cast
+  included.
+
+**The fold** (`lib/gags/fold.ts`, job `lib/gags/foldJob.ts`, queue
+`gag_fold`, panel on Taxonomy Health) is the one-off conversion of every gag
+version's eleven extra fields into its scene, plus a cast for every version.
+Deterministic: the moderator's words move, nothing is reworded. Roles become
+"label: role." sentences (the subject's as `{NAME}`), required details "Also in
+the picture: …", composition "Composition: …", extra details as sentences,
+forbidden and do-not-render items "No …" sentences, allow-mode policy guidance
+as sentences, and a depiction description as a sentence under a mode that
+renders it; intent, notes and a depiction description under "use the AI plan"
+(which the compiler ignores) never reached the engine and are kept only in the
+archive. A violence
+override other than allow-at-strong, a supporting-text override of forbid or
+require, a depiction mode with no description to carry it, or a scene that
+would no longer fit the budget is **listed for a moderator** and not
+converted. Every write re-reads the version under the fact and gag locks and
+retries when it changed; a refresh's pending operations and example picks are
+untouched. Originals are kept in `fact_gag_fold_archive` (migration 0147), and
+`revertGagFold` restores one while the version still holds what the fold wrote.
+The report (`GET /api/admin/gag-fold`) is computed from the gags as they are,
+so it is also the dry run; its two lists, versions for a moderator and
+versions with no current cast, must both be empty before increment 3.
+
+**Budget.** The scene's raw cap is 3000 and its rendered cap is pooled with
+the extra fields' (`SCENE_AND_ADDITIONS_RENDERED_MAX`, 3500): a scene may use
+what the additions leave, so the reserves' sum and the compile-time proof are
+unchanged and a gag that fitted before the fold fits after it.
+
 ## Visual Strategy Override authoring (auto-tokenize on Save)
 
 Moderators author `coreSceneOverride` and the rest of `visualPromptStrategyOverride`
@@ -783,8 +845,11 @@ compiler-side gates were converted from `ov?.enabled` to a plain presence check
 parse cleanly — Zod strips the unknown field — so no migration was needed.
 
 **The Visual Concept (core scene) is REQUIRED for every gag.** Each gag's card
-leads with its `VisualConceptCard`, with its bubbles and "More art direction"
-(the `VisualStrategyOverridePanel`) below. A gag with a blank scene can't be
+is its `VisualConceptCard`, who is in the scene (its cast, read-only chips) and
+its bubbles. "More art direction" (the `VisualStrategyOverridePanel`) left the
+card in PLAN_GAG_DIRECT_RENDER.md increment 2 (David, Q1: 1); the component
+stays in the code, mounted nowhere, until increment 3 takes the eleven fields
+out of the schema. A gag with a blank scene can't be
 saved (`fact_gags_*_scene_nonempty`), and a fact can't go live, or stay live,
 without an approved gag (`CONCEPT_MISSING` on first-time production approval;
 `GAG_REQUIRED` on a refresh promotion that would leave none). Rationale: the
@@ -1057,8 +1122,10 @@ single-channel:
   bindings + the planner's effective secondary characters (so a valid
   secondary-speaker bubble doesn't false-warn). The directive still emits —
   moderator authority; the engine may still misresolve, which UAT verifies.
-- **UI**: ONE shared `BubbleEditor` (first-class beside the Visual Concept
-  card on Moderation + embedded in Advanced VSO), one draft, no drift.
+- **UI**: ONE shared `BubbleEditor`. On a gag card its speakers are the
+  subject and the gag's cast (see *A gag's cast, and the fold*); the embedded
+  placement in the old Advanced VSO panel is mounted nowhere since increment 2
+  of PLAN_GAG_DIRECT_RENDER.md.
 
 ## Render policy and readable text
 

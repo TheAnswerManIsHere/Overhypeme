@@ -213,3 +213,15 @@ describe("engine provenance + status derivation", () => {
     assert.equal(deriveScenarioStatus({ ...base, error: "subject_fact_compatibility_poor" } as never), "blocked");
   });
 });
+
+describe("buildScenarioInputHash — a gag's cast (PLAN_GAG_DIRECT_RENDER.md, increment 2)", () => {
+  const gag = { version: 1 as const, coreSceneOverride: "{NAME} lifts a car; mom gasps.", requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [], bubbles: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [] };
+  const withGag = (vso: unknown) => buildScenarioInputHash({ ...baseHashInputs(), enrichment: { ...ENRICHMENT, visualPromptStrategyOverride: vso as FactEnrichment["visualPromptStrategyOverride"] } });
+  it("does NOT change when the cast fill adds a cast (no render reads it before the switch)", () => {
+    const filled = { ...gag, cast: [{ label: "mom", description: "the woman gasping" }], castExtraction: { promptVersion: "v2", extractedAt: "2026-11-17T00:00:00.000Z", sourceKey: "k" } };
+    assert.equal(withGag(gag), withGag(filled));
+  });
+  it("still changes when the scene changes", () => {
+    assert.notEqual(withGag(gag), withGag({ ...gag, coreSceneOverride: "{NAME} lifts a bus." }));
+  });
+});

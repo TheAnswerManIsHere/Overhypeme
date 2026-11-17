@@ -42,10 +42,13 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { visualPromptStrategyOverrideSchema } from "@workspace/api-zod";
+import { withCast } from "./helpers/gagCast.js";
+import { __setDraftCastExtractorForTest } from "../lib/gags/castPreparation.js";
+import { castSourceKey } from "@workspace/api-zod";
 
 const RUN = randomUUID().slice(0, 8);
 const START = new Date();
-const scene = (text: string): VisualPromptStrategyOverride => ({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: text });
+const scene = (text: string): VisualPromptStrategyOverride => withCast({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: text });
 const A = scene("{NAME} lifts the moon (approved).");
 const LISTS = ["requiredVisualDetails", "forbiddenVisualDetails", "roleBindings", "bubbles", "compositionGuidance", "styleAgnosticPromptAdditions", "negativePromptAdditions"] as const;
 
@@ -571,3 +574,121 @@ describe("gag routes: only admins", () => {
   });
 });
 
+
+describe("gag routes: a save carries the cast read from its own scene (plan PLAN_GAG_DIRECT_RENDER.md, C and F)", () => {
+  const bare = (text: string, bubbles: VisualPromptStrategyOverride["bubbles"] = []): VisualPromptStrategyOverride =>
+    ({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: text, bubbles });
+
+  it("refuses a save with no cast, and stores nothing", async () => {
+    const { factId, gagId } = await liveFact();
+    const res = await request(app).put(url(factId, `/${gagId}`)).send({ content: bare("{NAME} juggles planets.") });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, "CAST_MISSING");
+    assert.equal((await gagRow(gagId)).pendingContent, null);
+  });
+
+  it("refuses a cast read from a different scene", async () => {
+    const { factId, gagId } = await liveFact();
+    const stale = { ...withCast(bare("{NAME} juggles planets.")), coreSceneOverride: "{NAME} juggles moons." };
+    const res = await request(app).put(url(factId, `/${gagId}`)).send({ content: stale });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, "CAST_STALE");
+  });
+
+  it("refuses a bubble whose speaker the cast does not bind, naming the speaker", async () => {
+    const { factId, gagId } = await liveFact();
+    const content = withCast(bare("{NAME} juggles planets alone.", [{ type: "speech", entity: "mom", text: "Careful!" }]));
+    const unbound = { ...content, cast: [] };
+    const res = await request(app).put(url(factId, `/${gagId}`)).send({ content: unbound });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, "SPEAKER_NOT_IN_SCENE");
+    assert.deepEqual(res.body.details, { speakers: ["mom"] });
+  });
+
+  it("stores the cast with the change, an empty cast told apart from none", async () => {
+    const { factId, gagId } = await liveFact();
+    const withSpeaker = withCast(bare("{NAME} juggles planets; mom watches.", [{ type: "speech", entity: "mom", text: "Careful!" }]));
+    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: withSpeaker })).status, 200);
+    const stored = normaliseGagContent((await gagRow(gagId)).pendingContent)!;
+    assert.deepEqual(stored.cast, [{ label: "mom", description: "the mom in the scene" }]);
+    const empty = withCast(bare("{NAME} juggles planets alone."));
+    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: empty })).status, 200);
+    const storedEmpty = normaliseGagContent((await gagRow(gagId)).pendingContent)!;
+    assert.deepEqual(storedEmpty.cast, []);
+    assert.ok(storedEmpty.castExtraction, "an empty cast keeps its marker: extracted, nobody else there");
+  });
+
+  it("approves a render whatever cast it froze, or none: the same comparison render reuse makes (Codex 4600565971)", async () => {
+    const { factId, gagId } = await liveFact();
+    const change = scene("{NAME} juggles planets (cast era).");
+    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: change })).status, 200);
+    const { cast: _c, castExtraction: _m, ...beforeCasts } = change;
+    const old = await render(factId, gagId, beforeCasts as VisualPromptStrategyOverride, { kind: "male" });
+    assert.equal((await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: old })).status, 200, "a render from before casts");
+    const otherCast = await render(factId, gagId, { ...change, cast: [{ label: "dog", description: "a dog" }] }, { kind: "female" });
+    assert.equal((await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: otherCast })).status, 200, "a render whose cast was worded differently");
+    const otherScene = await render(factId, gagId, scene("{NAME} juggles moons."), { kind: "pet" });
+    const refused = await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: otherScene });
+    assert.equal(refused.status, 409, "a different picture is still refused");
+    assert.equal(refused.body.code, "CONTENT_CHANGED");
+  });
+
+  it("a scene changed and changed back, its cast read again, keeps its render approvable", async () => {
+    const { factId, gagId } = await liveFact();
+    const a = scene("{NAME} juggles planets, round trip.");
+    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: a })).status, 200);
+    const drawn = await render(factId, gagId, a, { kind: "male" });
+    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: scene("{NAME} juggles moons, briefly.") })).status, 200);
+    const reread = { ...a, cast: [], castExtraction: { ...a.castExtraction!, extractedAt: "2026-11-18T09:00:00.000Z" } };
+    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: reread })).status, 200);
+    assert.equal((await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: drawn })).status, 200);
+  });
+});
+
+describe("gag routes: reading a draft's cast stores nothing (plan PLAN_GAG_DIRECT_RENDER.md, F)", () => {
+  it("returns the cast, its marker and any unbound speaker, passing the fact's labels, and writes no gag", async () => {
+    const { factId, gagId } = await liveFact();
+    const seen: unknown[] = [];
+    const restore = __setDraftCastExtractorForTest(async (input) => {
+      seen.push(input);
+      return {
+        cast: [{ label: "mom", description: "the woman in the passenger seat" }],
+        unboundSpeakers: ["nurse"],
+        extraction: { promptVersion: "v2", extractedAt: "2026-11-17T00:00:00.000Z", sourceKey: castSourceKey(input.scene, input.bubbles) },
+      };
+    });
+    try {
+      const before = await gagRow(gagId);
+      const bubbles = [{ type: "speech" as const, entity: "mom", text: "Slow!" }, { type: "speech" as const, entity: "nurse", text: "Hi" }];
+      const res = await request(app).post(url(factId, "/cast")).send({ scene: "{NAME} drives; mom grips the dash.", bubbles });
+      assert.equal(res.status, 200, JSON.stringify(res.body));
+      assert.deepEqual(res.body.cast, [{ label: "mom", description: "the woman in the passenger seat" }]);
+      assert.deepEqual(res.body.unboundSpeakers, ["nurse"]);
+      assert.equal(res.body.castExtraction.sourceKey, castSourceKey("{NAME} drives; mom grips the dash.", bubbles));
+      assert.equal((seen[0] as { scene: string }).scene, "{NAME} drives; mom grips the dash.");
+      assert.ok(Array.isArray((seen[0] as { factCharacterLabels: unknown }).factCharacterLabels));
+      assert.deepEqual(await gagRow(gagId), before, "nothing stored");
+    } finally {
+      restore();
+    }
+  });
+
+  it("answers a failed reading as a failure, never an empty cast", async () => {
+    const { factId } = await liveFact();
+    const restore = __setDraftCastExtractorForTest(async () => { throw new Error("model down"); });
+    try {
+      const res = await request(app).post(url(factId, "/cast")).send({ scene: "{NAME} drives.", bubbles: [] });
+      assert.equal(res.status, 502);
+      assert.equal(res.body.code, "CAST_FAILED");
+      assert.equal(res.body.cast, undefined);
+    } finally {
+      restore();
+    }
+  });
+
+  it("refuses an empty scene and an unknown fact", async () => {
+    assert.equal((await request(app).post(url(999999999, "/cast")).send({ scene: "x", bubbles: [] })).status, 404);
+    const { factId } = await liveFact();
+    assert.equal((await request(app).post(url(factId, "/cast")).send({ scene: "", bubbles: [] })).status, 400);
+  });
+});

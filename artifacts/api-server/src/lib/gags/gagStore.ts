@@ -36,6 +36,9 @@ import {
   kindForScenario,
   missingKinds,
   overrideValuesEqual,
+  castIsCurrent,
+  unboundSpeakers,
+  withoutCast,
   type GagExampleKind,
   visualPromptStrategyOverrideSchema,
   type VisualPromptStrategyOverride,
@@ -43,6 +46,7 @@ import {
 import { validateVisualStrategyOverridePersistence } from "../imagePrompt/promptBudget";
 import { findInFlightRefreshCandidate } from "../refreshCandidate";
 import type { GagContent } from "./resolver";
+import { CANONICAL_SUBJECT_NAME_FORMS_LC } from "../renderCanonical";
 import { applyPendingSetIfComplete, clearPendingExamples, endGrandfatheringIfComplete, examplesFor, loadExamples, putExample } from "./examples";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -61,7 +65,11 @@ export type GagErrorCode =
   | "CONTENT_CHANGED"
   | "LAST_APPROVED_GAG"
   | "NOTHING_PENDING"
-  | "NOT_MARKED_FOR_REMOVAL";
+  | "NOT_MARKED_FOR_REMOVAL"
+  | "CAST_MISSING"
+  | "CAST_STALE"
+  | "CAST_INVALID"
+  | "SPEAKER_NOT_IN_SCENE";
 
 export class GagError extends Error {
   constructor(public readonly code: GagErrorCode, message: string, public readonly status = 409, public readonly details?: unknown) {
@@ -96,6 +104,55 @@ export function gagContentEqual(a: unknown, b: unknown): boolean {
   return pa.success && pb.success && overrideValuesEqual(pa.data, pb.data);
 }
 
+/**
+ * Whether a render of `drew` shows the gag `target` holds now: the same
+ * comparison render reuse and the tile make (`renderAffectingEnrichment`),
+ * the cast and its marker left out. No render reads a gag's cast before the
+ * switch (increment 3 of PLAN_GAG_DIRECT_RENDER.md), so a cast read again,
+ * with a new time or a differently worded description, never makes an
+ * unchanged picture unapprovable (Codex 4600565971; Fable's tie-break, PR
+ * #1002 round 1). Increment 3 adds the cast entries here and to the render
+ * hash together, with the generation-version bump; never the marker.
+ */
+export function sameRenderedGag(drew: unknown, target: unknown): boolean {
+  const pa = visualPromptStrategyOverrideSchema.safeParse(drew);
+  const pb = visualPromptStrategyOverrideSchema.safeParse(target);
+  return pa.success && pb.success && overrideValuesEqual(withoutCast(pa.data), withoutCast(pb.data));
+}
+
+/**
+ * The cast a save carries (PLAN_GAG_DIRECT_RENDER.md, C and F): read by cast
+ * extraction from this content's own scene and speakers, before the save, and
+ * binding every bubble speaker. The server does not extract here; it checks
+ * that what it is given was extracted for this content, which catches a scene
+ * edited after its cast was read.
+ */
+export function assertGagCast(content: VisualPromptStrategyOverride): void {
+  if (!content.castExtraction || !content.cast) {
+    throw new GagError("CAST_MISSING", "Read who is in the scene before saving: the gag has no cast.", 400);
+  }
+  if (!castIsCurrent(content)) {
+    throw new GagError("CAST_STALE", "The scene or a bubble's speaker changed after its cast was read. Read the scene again before saving.", 400);
+  }
+  const seen = new Set<string>();
+  for (const entry of content.cast) {
+    const key = entry.label.trim().toLowerCase();
+    if (!key || entry.label.includes("{") || key === "subject" || CANONICAL_SUBJECT_NAME_FORMS_LC.has(key) || seen.has(key) || !entry.description.trim()) {
+      throw new GagError("CAST_INVALID", `The cast entry "${entry.label}" is not a usable character label.`, 400);
+    }
+    seen.add(key);
+  }
+  const missing = unboundSpeakers(content.bubbles, content.cast);
+  if (missing.length) {
+    throw new GagError(
+      "SPEAKER_NOT_IN_SCENE",
+      `The scene does not show ${missing.map((m) => `"${m}"`).join(", ")}, who speaks in a bubble. Pick another speaker or say in the scene that they are there.`,
+      400,
+      { speakers: missing },
+    );
+  }
+}
+
 /** Validate and canonicalize a gag's content: the visual-strategy override schema, a non-empty scene, the prompt budget. */
 export function validateGagContent(raw: unknown): GagContent {
   const parsed = visualPromptStrategyOverrideSchema.safeParse(raw);
@@ -106,6 +163,7 @@ export function validateGagContent(raw: unknown): GagContent {
   if (!content.coreSceneOverride?.trim()) {
     throw new GagError("SCENE_REQUIRED", "A gag needs a scene: describe the picture.", 400);
   }
+  assertGagCast(content);
   const budget = validateVisualStrategyOverridePersistence(content);
   if (!budget.ok) {
     throw new GagError("CONTENT_OVER_BUDGET", "This gag is too long for the image prompt.", 400, budget.errors);
@@ -331,7 +389,7 @@ export async function approveGagRender(factId: number, gagId: number, attemptId:
     }
     const target = (gag.pendingContent ?? gag.approvedContent) as GagContent | null;
     const drew = (attempt.factEnrichmentSnapshot as { visualPromptStrategyOverride?: unknown } | null)?.visualPromptStrategyOverride;
-    if (!target || drew == null || !gagContentEqual(drew, target)) {
+    if (!target || drew == null || !sameRenderedGag(drew, target)) {
       throw new GagError("CONTENT_CHANGED", "This render was made from different content than the gag holds now. Run its test renders again.");
     }
     const now = new Date();

@@ -11,7 +11,7 @@
  * outside one, a fact with an open refresh is read-only here.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, Loader2, Plus, Play, RefreshCw, RotateCcw, Save, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, Plus, Play, RefreshCw, RotateCcw, Save, Trash2, Users } from "lucide-react";
 import {
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
   GAG_EXAMPLE_KINDS,
@@ -30,8 +30,7 @@ import {
 import { FactCharactersContext } from "@/components/admin/FactCharactersContext";
 import { VisualConceptCard } from "@/components/admin/VisualConceptCard";
 import { BubbleEditor } from "@/components/admin/BubbleEditor";
-import { VisualStrategyOverridePanel } from "@/components/admin/EnrichmentEditor";
-import { gagApi, tokenizeGag, type GagResult } from "./gagApi";
+import { castIsCurrent, gagApi, prepareGag, readCast, tokenizeGag, type GagResult } from "./gagApi";
 
 const IN_FLIGHT = new Set(["queued", "rendering"]);
 const POLL_MS = 2000;
@@ -243,39 +242,159 @@ function GagsPanelBody({ factId, reviewId, rendersEnabled, rendersExpected = fal
   );
 }
 
-/** The editor shared by an existing gag and a new one: the scene, the bubbles, and the rest of the art direction. */
+/**
+ * The editor shared by an existing gag and a new one (plan
+ * PLAN_GAG_DIRECT_RENDER.md, F): the scene, the bubbles, and who is in the
+ * scene, read from it. The eleven "More art direction" controls are gone
+ * (David, Q1: 1): the scene and its bubbles are everything that shapes the
+ * picture.
+ */
 function GagEditor({
   value,
   onChange,
   disabled,
   fieldErrors,
+  cast,
 }: {
   value: VisualPromptStrategyOverride;
   onChange: (next: VisualPromptStrategyOverride) => void;
   disabled: boolean;
   fieldErrors: Record<string, string>;
+  cast: CastReading;
 }) {
   return (
     <div className="space-y-3">
       <VisualConceptCard value={value} disabled={disabled} tokenizeError={fieldErrors["coreSceneOverride"]} onChange={onChange} />
-      <BubbleEditor firstClass value={value} disabled={disabled} fieldErrors={fieldErrors} onChange={onChange} />
-      <details className="rounded-sm border border-border bg-background px-3 py-2">
-        <summary className="text-xs font-semibold text-muted-foreground cursor-pointer">More art direction</summary>
-        <div className="pt-3">
-          <VisualStrategyOverridePanel
-            value={value}
-            disabled={disabled}
-            fieldErrors={fieldErrors}
-            onChange={(next) => onChange(next ?? EMPTY_VISUAL_STRATEGY_OVERRIDE)}
-          />
-        </div>
-      </details>
+      <CastChips value={value} cast={cast} disabled={disabled} />
+      <BubbleEditor
+        firstClass
+        value={value}
+        disabled={disabled}
+        fieldErrors={fieldErrors}
+        cast={{ entries: value.cast ?? [], read: value.castExtraction != null }}
+        onChange={(next) => { onChange(next); cast.onBubblesEdited(next); }}
+      />
     </div>
   );
 }
 
-/** Tokenize, then run `persist` with the tokenized content; field errors stay on their fields. */
-function useGagSave(subjectNames: string[]) {
+/** Reading a draft's cast: its state, and the trigger the bubble editor pulls. */
+interface CastReading {
+  reading: boolean;
+  error: string | null;
+  /** Read the cast of this content's scene now (the Retry button). */
+  read: (content: VisualPromptStrategyOverride) => void;
+  /** A bubble was added or edited: read the cast if the scene changed since it was last read. */
+  onBubblesEdited: (content: VisualPromptStrategyOverride) => void;
+}
+
+/**
+ * The draft's cast, read in the browser's hands and stored nowhere until the
+ * save (plan PLAN_GAG_DIRECT_RENDER.md, F): when the moderator adds or edits a
+ * bubble after changing the scene, the scene is tokenized and its cast read,
+ * so the speaker dropdown offers who the scene now shows. Save reads it again
+ * if the scene or a speaker changed since (`prepareGag`).
+ */
+function useCastReading(
+  factId: number,
+  subjectNames: string[],
+  draft: VisualPromptStrategyOverride,
+  setDraft: (update: (prev: VisualPromptStrategyOverride) => VisualPromptStrategyOverride) => void,
+): CastReading {
+  const [reading, setReading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // The scene the cast was last read (or tried) for. A failed reading records
+  // its scene too, so further bubble edits do not retry it: Try again does.
+  const readFrom = useRef<string | null>(null);
+  const current = castIsCurrent(draft);
+  const scene = draft.coreSceneOverride ?? "";
+  useEffect(() => {
+    if (current) readFrom.current = scene;
+  }, [current, scene]);
+  const inFlight = useRef(false);
+
+  const read = useCallback((content: VisualPromptStrategyOverride) => {
+    const scene = content.coreSceneOverride ?? "";
+    if (!scene.trim() || factId <= 0 || inFlight.current) return;
+    inFlight.current = true;
+    readFrom.current = scene;
+    setReading(true);
+    setError(null);
+    void (async () => {
+      try {
+        // The scene alone is tokenized here: a bubble mid-edit is left as typed.
+        const t = await tokenizeGag(content, { ...content, coreSceneOverride: undefined }, subjectNames);
+        if (!t.ok) { setError(t.fieldErrors["coreSceneOverride"] ?? t.error ?? "The scene could not be read."); return; }
+        const tokenized = t.content.coreSceneOverride ?? "";
+        const r = await readCast(factId, tokenized, content.bubbles);
+        if (!r.ok) { setError(`Reading who is in the scene failed: ${r.error}`); return; }
+        readFrom.current = tokenized;
+        // Applied only while the scene is still the one sent (an edit since
+        // wins) and the draft has no current cast of its own: a save adopted
+        // meanwhile, or a discard, already carries one, and a late reading
+        // written over it would mark the saved card unsaved again.
+        setDraft((prev) => (prev.coreSceneOverride ?? "") !== scene || castIsCurrent(prev) ? prev : {
+          ...prev,
+          coreSceneOverride: tokenized,
+          cast: r.view.cast,
+          castExtraction: r.view.castExtraction,
+        });
+      } finally {
+        inFlight.current = false;
+        setReading(false);
+      }
+    })();
+  }, [factId, subjectNames, setDraft]);
+
+  const onBubblesEdited = useCallback((content: VisualPromptStrategyOverride) => {
+    if ((content.coreSceneOverride ?? "") !== readFrom.current) read(content);
+  }, [read]);
+
+  return { reading, error, read, onBubblesEdited };
+}
+
+/** "In this scene: mom, the bartender" — read-only; the scene is what changes it. */
+function CastChips({ value, cast, disabled }: { value: VisualPromptStrategyOverride; cast: CastReading; disabled: boolean }) {
+  const read = value.castExtraction != null;
+  const current = castIsCurrent(value);
+  return (
+    <div className="rounded-sm border border-border bg-background px-3 py-2 space-y-1" data-testid="gag-cast">
+      <p className="text-xs text-foreground flex items-center gap-1.5 flex-wrap">
+        <Users className="w-3.5 h-3.5 text-muted-foreground" />
+        <span className="font-semibold">In this scene:</span>
+        {cast.reading ? (
+          <span className="text-muted-foreground inline-flex items-center gap-1" data-testid="gag-cast-reading">
+            <Loader2 className="w-3 h-3 animate-spin" /> Reading who is in the scene…
+          </span>
+        ) : !read ? (
+          <span className="text-muted-foreground" data-testid="gag-cast-unread">not read yet. It is read when you add a bubble or save.</span>
+        ) : (value.cast ?? []).length === 0 ? (
+          <span className="text-muted-foreground" data-testid="gag-cast-empty">nobody but the subject.</span>
+        ) : (
+          (value.cast ?? []).map((c) => (
+            <span key={c.label} title={c.description} data-testid="gag-cast-chip"
+              className={`px-1.5 py-0.5 rounded-sm border text-[11px] ${current ? "border-primary/40 bg-primary/10 text-foreground" : "border-border bg-muted text-muted-foreground"}`}>
+              {c.label}
+            </span>
+          ))
+        )}
+      </p>
+      {read && !current && !cast.reading && (
+        <p className="text-[11px] text-muted-foreground" data-testid="gag-cast-stale">Read from the scene before your edit; it is read again when you add a bubble or save.</p>
+      )}
+      {cast.error && (
+        <p className="text-[11px] text-destructive flex items-center gap-2 flex-wrap" data-testid="gag-cast-error">
+          <span>{cast.error}</span>
+          <button type="button" disabled={disabled || cast.reading} onClick={() => cast.read(value)} data-testid="gag-cast-retry"
+            className="px-2 py-0.5 border border-border rounded-sm hover:bg-muted text-foreground disabled:opacity-40">Try again</button>
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Prepare (tokenize and read the cast), then run `persist` with the prepared content; field errors stay on their fields. */
+function useGagSave(factId: number, subjectNames: string[]) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -287,7 +406,7 @@ function useGagSave(subjectNames: string[]) {
   ): Promise<GagResult | null> => {
     setBusy(true); setError(null);
     try {
-      const t = await tokenizeGag(content, baseline, subjectNames);
+      const t = await prepareGag(factId, content, baseline, subjectNames);
       onTokenized(t.content);
       if (!t.ok) { setFieldErrors(t.fieldErrors); setError(t.error); return null; }
       setFieldErrors({});
@@ -297,7 +416,7 @@ function useGagSave(subjectNames: string[]) {
     } finally {
       setBusy(false);
     }
-  }, [subjectNames]);
+  }, [factId, subjectNames]);
   const act = useCallback(async (fn: () => Promise<GagResult>): Promise<GagResult> => {
     setBusy(true); setError(null);
     try {
@@ -392,7 +511,8 @@ function GagCard({
   // Kept while the edit is unsaved, locked or not: a lock (a refresh, a step
   // change in flight) is not a save (Codex, PR #958 round 2).
   useStoredDraft(storeKey, workingKey, draft, dirty);
-  const s = useGagSave(subjectNames);
+  const s = useGagSave(factId, subjectNames);
+  const castReading = useCastReading(factId, subjectNames, draft, setDraft);
   const unsavedKey = `gag-${gag.id}`;
   useEffect(() => { reportUnsaved(unsavedKey, dirty || s.busy); }, [reportUnsaved, unsavedKey, dirty, s.busy]);
   useEffect(() => () => reportUnsaved(unsavedKey, false), [reportUnsaved, unsavedKey]);
@@ -468,7 +588,7 @@ function GagCard({
         </div>
       )}
 
-      <GagEditor value={draft} onChange={setDraft} disabled={locked} fieldErrors={s.fieldErrors} />
+      <GagEditor value={draft} onChange={setDraft} disabled={locked} fieldErrors={s.fieldErrors} cast={castReading} />
 
       {s.error && (
         <p className="text-xs text-destructive flex items-start gap-1.5 break-words" data-testid="gag-error"><AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" /><span className="min-w-0">{s.error}</span></p>
@@ -629,7 +749,8 @@ function NewGagCard({
 }) {
   const storeKey = `${factId}:new`;
   const [draft, setDraft] = useState<VisualPromptStrategyOverride>(() => readStoredDraft(storeKey, NEW_BASE) ?? EMPTY_VISUAL_STRATEGY_OVERRIDE);
-  const s = useGagSave(subjectNames);
+  const s = useGagSave(factId, subjectNames);
+  const castReading = useCastReading(factId, subjectNames, draft, setDraft);
   const save = async () => {
     const r = await s.run(draft, null, (c) => gagApi.create(factId, c, reviewId), setDraft);
     // Cleared here, before the parent closes this card: an effect would not
@@ -644,7 +765,7 @@ function NewGagCard({
   return (
     <div className="rounded-sm border-2 border-dashed border-primary/40 bg-card p-4 space-y-3" data-testid="gag-new">
       <p className="text-sm font-bold text-foreground">New gag</p>
-      <GagEditor value={draft} onChange={setDraft} disabled={s.busy} fieldErrors={s.fieldErrors} />
+      <GagEditor value={draft} onChange={setDraft} disabled={s.busy} fieldErrors={s.fieldErrors} cast={castReading} />
       {s.error && <p className="text-xs text-destructive flex items-start gap-1.5 break-words" data-testid="gag-error"><AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" /><span className="min-w-0">{s.error}</span></p>}
       <div className="flex gap-2">
         <button type="button" onClick={() => void save()} disabled={s.busy || !hasScene} data-testid="gag-new-save"

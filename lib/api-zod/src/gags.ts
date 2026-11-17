@@ -6,7 +6,16 @@
  * every slot follows the same rules.
  */
 import { z } from "zod";
-import type { VisualPromptStrategyOverride } from "./visualStrategyOverride";
+import {
+  BUBBLE_ENTITY_MAX_CHARS,
+  BUBBLE_TEXT_MAX_CHARS,
+  BUBBLE_TYPE_VALUES,
+  MAX_BUBBLES,
+  SCENE_RAW_MAX_CHARS,
+  type GagCastEntry,
+  type GagCastExtraction,
+  type VisualPromptStrategyOverride,
+} from "./visualStrategyOverride";
 import type { RenderScenarioCard, RenderScenarioKey } from "./renderScenarios";
 
 /**
@@ -75,6 +84,29 @@ export type GagCreateBody = z.infer<typeof gagCreateBodySchema>;
 
 export const gagSaveBodySchema = z.object({ content: z.unknown(), ...reviewScope }).strict();
 export type GagSaveBody = z.infer<typeof gagSaveBodySchema>;
+
+/**
+ * Read who is in a draft's scene (plan PLAN_GAG_DIRECT_RENDER.md, F): the
+ * scene and bubbles as the editor holds them, tokenized, before anything is
+ * stored. The answer is the cast the save then carries.
+ */
+export const gagCastBodySchema = z.object({
+  scene: z.string().min(1).max(SCENE_RAW_MAX_CHARS),
+  bubbles: z.array(z.object({
+    type: z.enum(BUBBLE_TYPE_VALUES).optional(),
+    entity: z.string().max(BUBBLE_ENTITY_MAX_CHARS),
+    text: z.string().max(BUBBLE_TEXT_MAX_CHARS),
+  })).max(MAX_BUBBLES).default([]),
+}).strict();
+export type GagCastBody = z.infer<typeof gagCastBodySchema>;
+
+/** The cast read from a draft, and the speakers its scene does not show. */
+export interface GagCastView {
+  cast: GagCastEntry[];
+  castExtraction: GagCastExtraction;
+  /** Bubble speakers the scene does not show: the draft cannot be saved until each is re-picked or the scene names them. */
+  unboundSpeakers: string[];
+}
 
 export const gagScopeBodySchema = z.object(reviewScope).strict();
 export type GagScopeBody = z.infer<typeof gagScopeBodySchema>;
@@ -157,4 +189,43 @@ export interface FactGagsView {
   frozenOutsideReview: boolean;
   gags: GagView[];
   maxGags: number;
+}
+
+// ─── The fold and cast fill (plan PLAN_GAG_DIRECT_RENDER.md, E) ─────────────
+
+export type GagFoldStage = "approved" | "pending";
+/** nothing to fold · the fold would convert it · listed for a moderator · converted by an earlier run. */
+export type GagFoldState = "nothing" | "would_convert" | "listed" | "already_converted";
+/** extracted for the scene as it is · never read · read from an earlier scene · the reading failed or left a speaker unbound. */
+export type GagCastState = "extracted" | "missing" | "stale" | "failed";
+
+export interface GagFoldVersionReport {
+  gagId: number;
+  factId: number;
+  slot: number;
+  stage: GagFoldStage;
+  fold: GagFoldState;
+  cast: GagCastState;
+  /** Why a moderator must convert it, or why its cast is missing. */
+  reasons: string[];
+  /** The latest job for this version, when one ran or is queued. */
+  job: { status: string; error: string | null } | null;
+}
+
+/** The fold's report, which is also its dry run: computed from the gags as they are now, writing nothing. */
+export interface GagFoldReport {
+  versions: number;
+  fold: Record<GagFoldState, number>;
+  cast: Record<GagCastState, number>;
+  jobs: { queued: number; running: number };
+  /** Versions listed for a moderator: the fold will not convert them. Must be empty before the switch. */
+  forModerator: GagFoldVersionReport[];
+  /** Versions with no current cast. Must be empty before the switch. */
+  castMissing: GagFoldVersionReport[];
+}
+
+export interface GagFoldStartResponse {
+  requested: number;
+  queued: number;
+  deduped: number;
 }

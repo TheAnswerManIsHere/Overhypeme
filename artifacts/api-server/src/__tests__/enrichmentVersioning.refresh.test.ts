@@ -67,6 +67,7 @@ import { loadGags } from "../lib/gags/resolver.js";
 import { __setReferenceFalUploadForTest } from "../lib/defaultReferenceResolver.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
+import { withCast } from "./helpers/gagCast.js";
 
 const USER_PREFIX = "t_refresh_";
 const TEST_FILE_START = new Date();
@@ -301,11 +302,11 @@ async function authorConceptForCycle(reviewId: number, candidateVersionId: numbe
     .set("authorization", `Bearer ${adminSid}`)
     .send({
       reviewId,
-      content: {
+      content: withCast({
         version: 1, coreSceneOverride: "{NAME} lifts the planet overhead in a packed stadium.",
         requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
         bubbles: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
-      },
+      }),
     });
   assert.equal(res.status, 200, `authorConceptForCycle: ${JSON.stringify(res.body)}`);
 }

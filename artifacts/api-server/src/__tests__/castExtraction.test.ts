@@ -10,7 +10,9 @@ import {
   CastExtractionError,
   extractCastWithModel,
   normalizeCast,
+  stripStandIn,
 } from "../lib/gags/castExtraction.js";
+import { castSourceKey } from "@workspace/api-zod";
 
 const reply = (cast: unknown) => async () => JSON.stringify({ cast });
 
@@ -47,7 +49,31 @@ describe("cast extraction", () => {
   it("treats an empty list as a real result, stamped as extracted", async () => {
     const result = await extractCastWithModel({ scene: "{NAME} lifts a car.", bubbles: [] }, reply([]));
     assert.deepEqual(result.cast, []);
-    assert.equal(result.extraction.promptVersion, "v1");
+    assert.equal(result.extraction.promptVersion, "v2");
+    assert.equal(result.extraction.sourceKey, castSourceKey("{NAME} lifts a car.", []));
+  });
+
+  it("removes the stand-in name from a description, possessive kept (build report on Issue #987)", async () => {
+    const result = await extractCastWithModel(
+      { scene: "{NAME} drives; mom grips the dash.", bubbles: [{ entity: "mom", text: "Slow!" }] },
+      reply([
+        { label: "mom", description: "Alex's mother, gripping the dash" },
+        { label: "cop", description: "the officer pulling Alex over" },
+      ]),
+    );
+    assert.deepEqual(result.cast, [
+      { label: "mom", description: "the subject's mother, gripping the dash" },
+      { label: "cop", description: "the officer pulling the subject over" },
+    ]);
+    assert.equal(stripStandIn("Alexander, not alex"), "Alexander, not the subject");
+  });
+
+  it("keys the cast to its scene and speakers, so a later edit to either is caught", () => {
+    const base = castSourceKey("{NAME} drives; mom watches.", [{ entity: "mom", text: "Hi" }]);
+    assert.equal(base, castSourceKey("  {NAME} drives; mom watches. ", [{ entity: "Mom", text: "Different words" }]));
+    assert.notEqual(base, castSourceKey("{NAME} drives; dad watches.", [{ entity: "mom", text: "Hi" }]));
+    assert.notEqual(base, castSourceKey("{NAME} drives; mom watches.", [{ entity: "dad", text: "Hi" }]));
+    assert.notEqual(base, castSourceKey("{NAME} drives; mom watches.", []));
   });
 
   it("throws on unusable output and on an empty scene, never returning an empty cast", async () => {

@@ -26,6 +26,7 @@ import { and, eq } from "drizzle-orm";
 import { db, imagePromptAttemptsTable } from "@workspace/db";
 import {
   gagApproveBodySchema,
+  gagCastBodySchema,
   gagCreateBodySchema,
   gagRendersBodySchema,
   gagSaveBodySchema,
@@ -45,12 +46,16 @@ import {
   saveGagContent,
 } from "../lib/gags/gagStore";
 import { buildFactGagsView } from "../lib/gags/gagView";
+import { CastPreparationError, prepareDraftCast } from "../lib/gags/castPreparation";
+import { createRateLimiter } from "../lib/rateLimit";
 import { drawGagKinds, enqueueGagIterationRender } from "../lib/reviewRenderScenarios";
 import { enqueueLiveVisualConcepts, liveVisualConcepts, LiveDraftRefused } from "../lib/visualConceptJobs";
 import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
+// One model call per request, on a moderator's draft; the same ceiling as the tokenize route's.
+const requireCastRateLimit = createRateLimiter("gag-cast");
 const renderObjectStorage = new ObjectStorageService();
 
 function ids(req: Request): { factId: number; gagId: number } | null {
@@ -105,6 +110,25 @@ router.post("/admin/facts/:factId/gags", requireAdmin, async (req: Authenticated
     const gag = await createGag(p.factId, body.content, { adminId: req.user.id, reviewId: body.reviewId ?? null }, body.slot);
     await enqueueGagIterationRender(p.factId, gag.id, { adminId: req.user.id, reviewId: body.reviewId ?? null });
   });
+});
+
+// Read who is in a draft's scene (plan PLAN_GAG_DIRECT_RENDER.md, F). Stores
+// nothing: the editor shows the cast and the save carries it. One utility-model
+// call, on the moderator's action only.
+router.post("/admin/facts/:factId/gags/cast", requireAdmin, requireCastRateLimit, async (req: Request, res: Response) => {
+  const p = ids(req);
+  if (!p) { res.status(400).json({ error: "Invalid id" }); return; }
+  const body = parse(gagCastBodySchema, req, res);
+  if (!body) return;
+  try {
+    res.json(await prepareDraftCast(p.factId, body));
+  } catch (err) {
+    if (err instanceof CastPreparationError) {
+      res.status(err.status).json({ error: err.message, code: err.code });
+      return;
+    }
+    throw err;
+  }
 });
 
 router.put("/admin/facts/:factId/gags/:gagId", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {

@@ -106,6 +106,77 @@ export function normalizeLiteralBubbleText(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
+// ─── The cast (PLAN_GAG_DIRECT_RENDER.md, C) ────────────────────────────────
+
+/** Most entries a gag's cast holds (the extraction step's own cap). */
+export const MAX_CAST = 10;
+/** A cast description is a speaker binding's role: SPEAKER_BINDING_ROLE_MAX_CHARS (promptBudget.ts). */
+export const CAST_DESCRIPTION_MAX_CHARS = 80;
+/** Scene cap: the 1500 the scene had plus the 1500 the eleven extra fields' additions pool had (plan, E: "the additions budget moves to the scene"). */
+export const SCENE_RAW_MAX_CHARS = 3000;
+
+const castEntrySchema = z.object({
+  /** Same rules as a bubble speaker: a plain label, no tokens. */
+  label: z.string().min(1).max(BUBBLE_ENTITY_MAX_CHARS),
+  description: z.string().max(CAST_DESCRIPTION_MAX_CHARS),
+});
+export type GagCastEntry = z.infer<typeof castEntrySchema>;
+
+/**
+ * Written only when an extraction succeeded. Its presence is what separates a
+ * successful empty cast (nobody else in the scene) from a cast never
+ * extracted; `sourceKey` names the scene and speakers it was read from
+ * (`castSourceKey`), so a cast left behind by a later scene edit is caught.
+ */
+const castExtractionSchema = z.object({
+  promptVersion: z.string().max(40),
+  extractedAt: z.string().max(40),
+  sourceKey: z.string().max(40),
+});
+export type GagCastExtraction = z.infer<typeof castExtractionSchema>;
+
+/**
+ * The key of what a cast was read from: the trimmed scene and the active
+ * bubble speakers, lowercased, in order. FNV-1a over that string, so the
+ * browser and the server compute the same value without a crypto import.
+ */
+export function castSourceKey(
+  scene: string | null | undefined,
+  bubbles: readonly Pick<VisualStrategyBubble, "entity" | "text">[] | null | undefined,
+): string {
+  const source = `${(scene ?? "").trim()}\u0000${activeBubbleSpeakers(bubbles).map((s) => s.toLowerCase()).join("\u0001")}`;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < source.length; i++) {
+    h ^= source.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `v1:${source.length}:${h.toString(16).padStart(8, "0")}`;
+}
+
+/** Whether a version's cast was read from its scene and speakers as they stand now. */
+export function castIsCurrent(c: Pick<VisualPromptStrategyOverride, "cast" | "castExtraction" | "coreSceneOverride" | "bubbles">): boolean {
+  return Boolean(c.cast && c.castExtraction && c.castExtraction.sourceKey === castSourceKey(c.coreSceneOverride, c.bubbles));
+}
+
+/**
+ * The active bubble speakers a cast does not hold, in bubble order. A cast
+ * entry binds a speaker under the speaker's exact string (cast extraction
+ * snaps labels to it), so the match is exact after trimming.
+ */
+export function unboundSpeakers(
+  bubbles: readonly Pick<VisualStrategyBubble, "entity" | "text">[] | null | undefined,
+  cast: readonly { label: string }[] | null | undefined,
+): string[] {
+  const labels = new Set((cast ?? []).map((e) => e.label.trim()));
+  return activeBubbleSpeakers(bubbles).filter((s) => !labels.has(s));
+}
+
+/** Content without its derived cast and marker. */
+export function withoutCast<T extends object>(c: T): Omit<T, "cast" | "castExtraction"> {
+  const { cast: _cast, castExtraction: _marker, ...rest } = c as T & { cast?: unknown; castExtraction?: unknown };
+  return rest;
+}
+
 const subjectRealizationOverrideSchema = z.object({
   mode: z.enum(SUBJECT_REALIZATION_MODE_VALUES),
   description: z.string(),
@@ -135,7 +206,7 @@ const visualPromptStrategyOverrideBase = z.object({
    * Capped: the engine prompt budget is 6000 chars and this section is never
    * compressed — it is a scene brief, not a full prompt.
    */
-  coreSceneOverride: z.string().max(1500).optional(),
+  coreSceneOverride: z.string().max(SCENE_RAW_MAX_CHARS).optional(),
   subjectRealizationOverride: subjectRealizationOverrideSchema.optional(),
   requiredVisualDetails: z.array(z.string()).max(40).default([]),
   forbiddenVisualDetails: z.array(z.string()).max(40).default([]),
@@ -152,6 +223,14 @@ const visualPromptStrategyOverrideBase = z.object({
   negativePromptAdditions: z.array(z.string()).max(20).default([]),
   supportingTextPolicyOverride: supportingTextPolicyOverrideSchema.optional(),
   violencePolicyOverride: violencePolicyOverrideSchema.optional(),
+  /**
+   * Who is in the scene besides the subject, derived by cast extraction from
+   * this version's scene and bubbles, never authored (PLAN_GAG_DIRECT_RENDER.md,
+   * C). Absent with no `castExtraction` = never extracted; `[]` with one = an
+   * extraction found nobody else. Not rendered text: it carries no tokens.
+   */
+  cast: z.array(castEntrySchema).max(MAX_CAST).optional(),
+  castExtraction: castExtractionSchema.optional(),
   notesForModerator: z.string().optional(),
   // Server-owned provenance — stamped by the admin save path, preserved verbatim
   // across re-classification, never generated by the AI. A human-readable actor
@@ -162,6 +241,28 @@ const visualPromptStrategyOverrideBase = z.object({
 });
 
 export type VisualPromptStrategyOverride = z.infer<typeof visualPromptStrategyOverrideBase>;
+
+/**
+ * Whether a gag version still holds anything in the eleven "More art direction"
+ * fields (or the intent and notes that went with them): what the fold moves
+ * into the scene (PLAN_GAG_DIRECT_RENDER.md, E). The direct path reads none of
+ * them, so a comparison marks a gag that has any.
+ */
+export function hasExtraArtDirection(c: VisualPromptStrategyOverride): boolean {
+  return Boolean(
+    c.moderatorIntent?.trim()
+    || c.notesForModerator?.trim()
+    || c.subjectRealizationOverride
+    || (c.requiredVisualDetails ?? []).length
+    || (c.forbiddenVisualDetails ?? []).length
+    || (c.roleBindings ?? []).length
+    || (c.compositionGuidance ?? []).length
+    || (c.styleAgnosticPromptAdditions ?? []).length
+    || (c.negativePromptAdditions ?? []).length
+    || c.supportingTextPolicyOverride
+    || c.violencePolicyOverride,
+  );
+}
 export type VisualStrategyRoleBinding = z.infer<typeof roleBindingSchema>;
 
 // ─── Token handling ─────────────────────────────────────────────────────────

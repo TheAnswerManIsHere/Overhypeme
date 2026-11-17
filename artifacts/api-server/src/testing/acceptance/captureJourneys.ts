@@ -99,6 +99,10 @@ export async function driveCaptures(base: string, opts: { doc: CaptureDoc; out: 
         else if (r.path === "bubbles[0].text") vso.bubbles[0]!.text = r.value;
         else if (r.path === "bubbles[0].entity") vso.bubbles[0]!.entity = r.value;
       }
+      // Read who is in the scene before saving, as the editor does (PLAN_GAG_DIRECT_RENDER.md, F).
+      const castRead = await admin.json<any>("pr229", "POST", `/api/admin/facts/${stagingFactId}/gags/cast`, { scene: vso.coreSceneOverride, bubbles: vso.bubbles });
+      if (castRead.unboundSpeakers?.length) throw new JourneyError("pr229", "read the gag's cast", `the scene does not show ${castRead.unboundSpeakers.join(", ")}`);
+      Object.assign(vso, { cast: castRead.cast, castExtraction: castRead.castExtraction });
       // Saved as the fact's first gag (fact_gags, migration 0139).
       await admin.json("pr229", "POST", `/api/admin/facts/${stagingFactId}/gags`, { content: vso, reviewId });
       Object.assign(pr229, { stagingFactId, savedBubble: vso.bubbles[0], roleBindings: vso.roleBindings ?? [] });

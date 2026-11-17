@@ -20,40 +20,43 @@
  *   result: nobody else is in the scene.
  * - The engine is set in code: the utility model (`UTILITY_LLM_ENGINE_ID`).
  *
- * Increment 1 uses it in comparison preparation only.
+ * Increment 1 used it in comparison preparation only; increment 2 runs it on
+ * every gag draft before save (`/gags/cast`), in the fold job, and where the
+ * server writes a gag itself.
  *
  * @purpose Reads one gag's scene and bubble speakers and returns the characters it shows besides the subject, each with a short identifying description; the one producer of a gag's cast.
  * @subsystem visual-pipeline
  */
 import { z } from "zod";
 import { zodResponseFormat } from "openai/helpers/zod";
-import { BUBBLE_ENTITY_MAX_CHARS, SPEAKER_BINDING_ROLE_MAX_CHARS, activeBubbleSpeakers, type VisualStrategyBubble } from "@workspace/api-zod";
+import {
+  BUBBLE_ENTITY_MAX_CHARS,
+  MAX_CAST,
+  SPEAKER_BINDING_ROLE_MAX_CHARS,
+  activeBubbleSpeakers,
+  castSourceKey,
+  type GagCastEntry,
+  type GagCastExtraction,
+  type VisualStrategyBubble,
+} from "@workspace/api-zod";
 import { callUtilityLLM, resolveLLMSettings } from "../utilityLLM";
 import { chatCallBoundUsd } from "../comparison/admission";
 import { CANONICAL_SUBJECT_NAME_FORMS_LC, renderPersonalized } from "../renderCanonical";
 import { shortSpeakerRole } from "../imagePrompt/compilers/nanoBanana2";
 
-/** Bumped whenever the prompt or the normalization below changes. */
-export const CAST_EXTRACTION_PROMPT_VERSION = "v1";
-export const MAX_CAST = 10;
+/** Bumped whenever the prompt or the normalization below changes. v2: the stand-in name is removed from descriptions. */
+export const CAST_EXTRACTION_PROMPT_VERSION = "v2";
 /** The stand-in name the scene is read with: never a real member's name. */
 const STAND_IN = "Alex";
+/** The stand-in as a whole word, possessive included ("Alex", "Alex's", "Alex’s"). */
+const STAND_IN_WORD = new RegExp(`\\b${STAND_IN}(['’]s)?\\b`, "gi");
 
-export interface CastEntry {
-  label: string;
-  description: string;
-}
-
-export interface CastExtraction {
-  promptVersion: string;
-  extractedAt: string;
-}
 
 export interface CastExtractionResult {
-  cast: CastEntry[];
+  cast: GagCastEntry[];
   /** Bubble speakers (not the subject) the scene does not show; the gag cannot be drawn as it stands. */
   unboundSpeakers: string[];
-  extraction: CastExtraction;
+  extraction: GagCastExtraction;
 }
 
 export class CastExtractionError extends Error {
@@ -107,16 +110,16 @@ export function buildCastUserMessage(input: CastExtractionInput): string {
  * shortens descriptions to the binding's length and clips to the maximum.
  * Never invents an entry.
  */
-export function normalizeCast(raw: unknown, speakers: readonly string[]): CastEntry[] {
+export function normalizeCast(raw: unknown, speakers: readonly string[]): GagCastEntry[] {
   const list = Array.isArray((raw as { cast?: unknown })?.cast) ? (raw as { cast: unknown[] }).cast : [];
   const speakerByKey = new Map(speakers.map((s) => [s.trim().toLowerCase(), s.trim()]));
-  const out: CastEntry[] = [];
+  const out: GagCastEntry[] = [];
   const seen = new Set<string>();
   for (const item of list) {
     if (!item || typeof item !== "object") continue;
     const rec = item as Record<string, unknown>;
     let label = typeof rec.label === "string" ? rec.label.trim().replace(/\s+/g, " ") : "";
-    const description = typeof rec.description === "string" ? shortSpeakerRole(rec.description, SPEAKER_BINDING_ROLE_MAX_CHARS) : "";
+    const description = typeof rec.description === "string" ? shortSpeakerRole(stripStandIn(rec.description), SPEAKER_BINDING_ROLE_MAX_CHARS) : "";
     const key = label.toLowerCase();
     if (!label || !description) continue;
     if (CANONICAL_SUBJECT_NAME_FORMS_LC.has(key) || key === "subject") continue;
@@ -128,6 +131,18 @@ export function normalizeCast(raw: unknown, speakers: readonly string[]): CastEn
     if (out.length >= MAX_CAST) break;
   }
   return out;
+}
+
+/**
+ * The model is told never to use the stand-in's name, and a description that
+ * does anyway would put "Alex" beside a member's real name in a prompt (build
+ * report on Issue #987). It becomes "the subject", possessive kept.
+ */
+export function stripStandIn(description: string): string {
+  return description
+    .replace(STAND_IN_WORD, (_m, poss: string | undefined) => (poss ? "the subject's" : "the subject"))
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /** Parse one model response into a cast and the speakers it leaves unbound. Throws on unusable output. */
@@ -147,7 +162,11 @@ export function parseCastResponse(rawText: string, input: CastExtractionInput, n
   return {
     cast,
     unboundSpeakers: speakers.filter((s) => !bound.has(s.trim())),
-    extraction: { promptVersion: CAST_EXTRACTION_PROMPT_VERSION, extractedAt: now.toISOString() },
+    extraction: {
+      promptVersion: CAST_EXTRACTION_PROMPT_VERSION,
+      extractedAt: now.toISOString(),
+      sourceKey: castSourceKey(input.scene, input.bubbles),
+    },
   };
 }
 
@@ -173,7 +192,7 @@ export async function extractCast(input: CastExtractionInput): Promise<CastExtra
   });
 }
 
-/** A cast call's input never approaches this: a scene of at most 1,500 characters, the speakers and the prompt. */
+/** A cast call's input never approaches this: a scene of at most 3,000 characters, the speakers and the prompt. */
 const CAST_INPUT_TOKEN_BOUND = 3_000;
 
 /**

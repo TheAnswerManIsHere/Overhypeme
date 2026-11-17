@@ -7,9 +7,19 @@
  * and the Facts editor's Draft more gags, so the two offer the same actions.
  */
 import { useCallback, useMemo, useState } from "react";
-import { EMPTY_VISUAL_STRATEGY_OVERRIDE, withCandidateConceptDraft, type FactGagsView } from "@workspace/api-zod";
+import { EMPTY_VISUAL_STRATEGY_OVERRIDE, withCandidateConceptDraft, type FactGagsView, type VisualPromptStrategyOverride } from "@workspace/api-zod";
 import type { ConceptAction } from "../VisualConceptCandidates";
-import { gagApi } from "./gagApi";
+import { ensureCast, gagApi, type GagResult } from "./gagApi";
+
+/**
+ * A used idea goes through the same preparation as an edited gag (plan
+ * PLAN_GAG_DIRECT_RENDER.md, C): its cast is read from its scene before the
+ * save, and a speaker the scene does not show stops it.
+ */
+async function withCastRead(factId: number, content: VisualPromptStrategyOverride, save: (c: VisualPromptStrategyOverride) => Promise<GagResult>): Promise<GagResult> {
+  const r = await ensureCast(factId, content);
+  return r.ok ? save(r.content) : { ok: false, error: `This idea cannot be used as it stands. ${r.error}` };
+}
 
 export function useGagIdeaActions(args: {
   factId: number;
@@ -45,19 +55,19 @@ export function useGagIdeaActions(args: {
     const first = live.find((g) => g.isDefault) ?? live[0];
     const out: ConceptAction[] = [];
     if (!first) {
-      out.push({ key: "first", label: "Use as the first gag", run: (c) => apply(() => gagApi.create(factId, withCandidateConceptDraft(EMPTY_VISUAL_STRATEGY_OVERRIDE, c), reviewId)) });
+      out.push({ key: "first", label: "Use as the first gag", run: (c) => apply(() => withCastRead(factId, withCandidateConceptDraft(EMPTY_VISUAL_STRATEGY_OVERRIDE, c), (p) => gagApi.create(factId, p, reviewId))) });
       return out;
     }
     out.push({
       key: "default",
       label: "Use this instead of the current default gag",
-      run: (c) => apply(() => gagApi.save(factId, first.id, withCandidateConceptDraft(contentOf(first), c), reviewId)),
+      run: (c) => apply(() => withCastRead(factId, withCandidateConceptDraft(contentOf(first), c), (p) => gagApi.save(factId, first.id, p, reviewId))),
     });
     if (gagsView.gags.length < gagsView.maxGags) {
       out.push({
         key: "additional",
         label: "Use as an additional gag",
-        run: (c) => apply(() => gagApi.create(factId, withCandidateConceptDraft(EMPTY_VISUAL_STRATEGY_OVERRIDE, c), reviewId)),
+        run: (c) => apply(() => withCastRead(factId, withCandidateConceptDraft(EMPTY_VISUAL_STRATEGY_OVERRIDE, c), (p) => gagApi.create(factId, p, reviewId))),
       });
     }
     for (const g of live) {
@@ -65,7 +75,7 @@ export function useGagIdeaActions(args: {
       out.push({
         key: `replace-${g.slot}`,
         label: `Replace gag ${g.slot}`,
-        run: (c) => apply(() => gagApi.save(factId, g.id, withCandidateConceptDraft(contentOf(g), c), reviewId)),
+        run: (c) => apply(() => withCastRead(factId, withCandidateConceptDraft(contentOf(g), c), (p) => gagApi.save(factId, g.id, p, reviewId))),
       });
     }
     return out;

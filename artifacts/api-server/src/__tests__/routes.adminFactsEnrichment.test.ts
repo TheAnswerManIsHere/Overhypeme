@@ -45,6 +45,7 @@ import { buildTestApp } from "./helpers/buildTestApp.js";
 import { runEnrichmentForFact } from "../lib/enrichmentJobs.js";
 import { buildFactEnrichmentColumns, EnrichmentError } from "../lib/factEnrichment.js";
 import { compileForSubjectRenderMode } from "../lib/imagePrompt/compilers/nanoBanana2.js";
+import { withCast } from "./helpers/gagCast.js";
 
 const USER_PREFIX = "tfactsenrich-";
 const TEXT_PREFIX = "t_factsenrich ";
@@ -419,7 +420,7 @@ function vso(extra: Partial<Vso> = {}, coreSceneOverride = "{NAME} hoists a barb
 /** Save a fact's slot-1 gag through the gag routes: add it, or save a change to it. */
 async function patchVso(id: number, override: Vso, reviewId?: number) {
   const [existing] = await db.select({ id: factGagsTable.id }).from(factGagsTable).where(eq(factGagsTable.factId, id));
-  const body = { content: override, ...(reviewId != null ? { reviewId } : {}) };
+  const body = { content: withCast(override), ...(reviewId != null ? { reviewId } : {}) };
   return existing
     ? request(gagApp).put(`/api/admin/facts/${id}/gags/${existing.id}`).send(body)
     : request(gagApp).post(`/api/admin/facts/${id}/gags`).send(body);
@@ -482,9 +483,9 @@ async function insertStagingFact(): Promise<{ id: number; reviewId: number }> {
 }
 
 describe("saving a gag — Visual Concept budget", () => {
-  it("400s a Concept of 110 {NAME} tokens (under the raw cap) with a core_scene_rendered_too_long detail", async () => {
+  it("400s a Concept of 200 {NAME} tokens (under the raw cap) with a core_scene_rendered_too_long detail", async () => {
     const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
-    const tokenHeavy = "{NAME} ".repeat(110).trim();
+    const tokenHeavy = "{NAME} ".repeat(200).trim();
     assert.ok(tokenHeavy.length <= CORE_SCENE_RAW_MAX, "sanity: raw length is within the raw cap");
 
     const res = await patchVso(id, vso({}, tokenHeavy));
