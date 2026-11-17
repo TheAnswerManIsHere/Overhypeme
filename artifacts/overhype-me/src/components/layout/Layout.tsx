@@ -3,6 +3,7 @@ import { Navbar } from "./Navbar";
 import { PrimaryNav } from "./PrimaryNav";
 import { AdSlot } from "@/components/AdSlot";
 import { AccessRevocationBanner } from "@/components/AccessRevocationBanner";
+import { LegalLinks } from "@/components/legal/LegalLinks";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Mail, X, CheckCircle, Loader2 } from "lucide-react";
 
@@ -94,14 +95,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <div className="hidden md:block w-full max-w-7xl mx-auto px-4 py-4">
         <AdSlot slot={import.meta.env.VITE_ADSENSE_SLOT_LEADERBOARD ?? "0987654321"} format="horizontal" />
       </div>
-      <footer className="hidden md:block w-full bg-black border-t border-border py-12 mt-auto">
+      {/* Every page and screen size: the legal links must be reachable on a phone
+          (launch Phase 14). pb-24 on mobile clears the fixed tab bar. */}
+      <footer className="w-full bg-black border-t border-border pt-10 pb-24 md:py-12 mt-auto">
         <div className="max-w-7xl mx-auto px-4 text-center">
-          <div className="font-display text-4xl text-border mb-4 uppercase tracking-widest">Overhype.me</div>
-          <p className="text-muted-foreground text-sm max-w-md mx-auto">
+          <div className="hidden md:block font-display text-4xl text-border mb-4 uppercase tracking-widest">Overhype.me</div>
+          <p className="hidden md:block text-muted-foreground text-sm max-w-md mx-auto">
             The world's most personalized facts database. Enter your name. Become legendary.
           </p>
-          <div className="mt-8 text-xs text-border tracking-wider">
-            © {new Date().getFullYear()} Overhype.me. ALL RIGHTS RESERVED.
+          <LegalLinks className="md:mt-8 text-sm text-muted-foreground" />
+          <div className="mt-6 text-xs text-border tracking-wider">
+            © {new Date().getFullYear()} Availeron Consulting, Inc. ALL RIGHTS RESERVED.
           </div>
         </div>
       </footer>

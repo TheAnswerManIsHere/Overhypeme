@@ -1,0 +1,18 @@
+{
+  "terms": {
+    "version": "2026-11-17",
+    "sha256": "c7101240266b368961a715172223b8e5a8fe4880eabf87e365a96566eeb6cb81"
+  },
+  "privacy": {
+    "version": "2026-11-17",
+    "sha256": "7067050f26f496bd4d45653d097aea3012923b23e13d691fd7c3ef4ac3bb645f"
+  },
+  "copyright": {
+    "version": "2026-11-17",
+    "sha256": "36c02db231f5342c80ffcd1ee4e3ccad46bb4c0fe00ad349bd99bcc539bd7469"
+  },
+  "guidelines": {
+    "version": "2026-11-17",
+    "sha256": "c2aa31695ca6c4b08031927bc8da5504ef8a81076802741356f19733b5b68ad6"
+  }
+}

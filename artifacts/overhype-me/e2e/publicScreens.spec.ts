@@ -235,4 +235,33 @@ test.describe("Public described screens", () => {
     await page.goto("/hashtags");
     await expect(page.getByRole("heading", { name: /page not found/i })).toBeVisible();
   });
+
+  // Launch Phase 14, increment 1: the four legal pages are reachable from every
+  // page on a phone, and each shows its version and the counsel note.
+  test("the footer links to the four legal pages on a phone, and each page renders", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await stubPublicFacts(page, { facts: [factDetail({ id: 571, text: "{NAME} read the fine print. It blinked." })] });
+    await page.goto("/");
+    const legal = page.getByRole("navigation", { name: "Legal" });
+    for (const name of ["Terms of Service", "Privacy Policy", "Copyright Policy", "Community Guidelines"]) {
+      await legal.getByRole("link", { name }).scrollIntoViewIfNeeded();
+      await expect(legal.getByRole("link", { name })).toBeVisible();
+    }
+    const pages: Array<[string, string]> = [
+      ["/terms", "Terms of Service"],
+      ["/privacy", "Privacy Policy"],
+      ["/copyright", "Copyright Policy"],
+      ["/guidelines", "Community Guidelines"],
+    ];
+    for (const [path, title] of pages) {
+      await page.goto(path);
+      await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible();
+      await expect(page.getByTestId("legal-version")).toHaveText(/^Version \d{4}-\d{2}-\d{2}/);
+      await expect(page.getByTestId("legal-counsel-note")).toBeVisible();
+      // Readable before anything is asked: no name sheet over a legal page.
+      await expect(page.getByText("What's your name?", { exact: false })).toHaveCount(0);
+    }
+    await page.goto("/terms");
+    await expect(page.getByText("Availeron Consulting, Inc.", { exact: false }).first()).toBeVisible();
+  });
 });

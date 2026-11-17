@@ -11,7 +11,10 @@ import Onboard, { ageFromParts, initialDisplayName, initialPronouns } from "./On
 const setLocation = vi.fn();
 const syncFromProfile = vi.fn();
 let refreshLands = true;
-vi.mock("wouter", () => ({ useLocation: () => ["/onboard", setLocation] }));
+vi.mock("wouter", () => ({
+  useLocation: () => ["/onboard", setLocation],
+  Link: ({ href, children, className }: { href: string; children: React.ReactNode; className?: string }) => <a href={href} className={className}>{children}</a>,
+}));
 vi.mock("@workspace/replit-auth-web", () => ({
   useAuth: () => ({ isAuthenticated: true, isLoading: false, refreshUser: vi.fn(async () => refreshLands) }),
 }));

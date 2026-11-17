@@ -4,6 +4,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
+import { LegalNotice } from "@/components/legal/LegalLinks";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Camera, Upload, Loader2, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -550,6 +551,7 @@ export default function Onboard() {
         <Button onClick={handleSubmit} disabled={!canSubmit} className="w-full">
           {submitting ? "Saving…" : "Finish set-up"}
         </Button>
+        <LegalNotice />
         {!pronouns && (
           <p className="text-xs text-muted-foreground text-center">Choose your pronouns to finish.</p>
         )}
