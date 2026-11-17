@@ -28,10 +28,13 @@ import {
 } from "@workspace/api-zod";
 import {
   buildVisualConceptsUserMessage,
+  CONVERSION_FAILED_MARKER,
   generateVisualConceptsWithModel,
   validateAndSanitizeCandidateConcepts,
+  referenceMeaningLines,
   type GenerateVisualConceptsInput,
 } from "../lib/visualConcepts/generator.js";
+import { armInputs, ideaLines, noteWithMeanings, standInTokenize, writerIdeas } from "../lib/visualConcepts/blindCheck.js";
 
 const ENRICHMENT: FactEnrichment = {
   primaryArchetype: "superhuman_physical_feat",
@@ -181,6 +184,71 @@ describe("buildVisualConceptsUserMessage — the gag-writer request (PLAN_GAG_GE
     }));
     assert.match(msg, /GAGS THIS FACT ALREADY HAS \(2; do not repeat the staging or payoff of any of them\):\nGag 1:\nAlex presses the Earth on a bench\.\nGag 2:\nAlex curls the Moon\.\n- thought bubble, Alex: "Warm-up\."/);
     assert.ok(!msg.includes("GAG THIS FACT ALREADY HAS"), "the single-gag wording is for one gag only");
+  });
+});
+
+describe("the blind check's two requests (PLAN_FACT_LIFECYCLE_REBUILD.md 1A)", () => {
+  it("\"omit\" leaves out the meanings and the mechanism and keeps everything else", () => {
+    const today = buildVisualConceptsUserMessage(input({ humorNote: "He out-lifts the planet." }));
+    const omit = buildVisualConceptsUserMessage(input({ humorNote: "He out-lifts the planet.", classification: "omit" }));
+    assert.match(today, /WHAT THE REFERENCES MEAN:/);
+    assert.match(today, /JOKE MECHANISM:/);
+    assert.ok(!omit.includes("WHAT THE REFERENCES MEAN:"), "no meanings block");
+    assert.ok(!omit.includes("JOKE MECHANISM:"), "no mechanism block");
+    for (const kept of ["FACT (the caption):", "APPROVED HUMOR NOTE", "He out-lifts the planet.", "LIMITS:"]) {
+      assert.ok(omit.includes(kept), `keeps ${kept}`);
+    }
+  });
+
+  it("the default is today's request", () => {
+    assert.equal(buildVisualConceptsUserMessage(input()), buildVisualConceptsUserMessage(input({ classification: "include" })));
+  });
+
+  it("the reduced arm carries every meaning in the note, and only the classification blocks differ", () => {
+    const arms = armInputs("{NAME} bench-presses the Earth.", ENRICHMENT, "He out-lifts the planet.");
+    assert.equal(arms.today.humorNote, "He out-lifts the planet.");
+    assert.equal(arms.reduced.classification, "omit");
+    for (const line of referenceMeaningLines(ENRICHMENT)) assert.ok(arms.reduced.humorNote!.includes(line), `note carries ${line}`);
+    assert.deepEqual({ ...arms.today, humorNote: null, classification: null }, { ...arms.reduced, humorNote: null, classification: null });
+  });
+
+  it("a fact with no meanings gets its note unchanged", () => {
+    const bare = { ...ENRICHMENT, culturalReferences: [], semanticEntities: [] } as FactEnrichment;
+    assert.equal(noteWithMeanings("  Just the note. ", bare), "Just the note.");
+  });
+
+  it("the sheet shows every idea in the writer's own words, with no second model and no placeholder", async () => {
+    const idea = (scene: string, bubbles: unknown[] = []) => ({ title: "T", whyItWorks: "W", sceneDescription: scene, bubbles });
+    const reply = JSON.stringify({ jokeRead: "R", concepts: [
+      idea("Alex's push-up presses the Earth down; the Earth winces.", [{ type: "speech", entity: "Earth", text: "Easy, Alex!" }]),
+      idea("Alex does a push-up on a mountain top."),
+      idea("A crowd watches the planet dip."), // the writer's own miss: no subject named
+    ] });
+    let calls = 0;
+    const out = await generateVisualConceptsWithModel(input(), async () => { calls++; return reply; }, standInTokenize);
+    assert.equal(calls, 1, "no corrective call: the plain swap cannot fail a named scene");
+    assert.equal(out.candidates.filter(isCandidateConceptPickable).length, 2, "the product's own validation still runs");
+    const ideas = writerIdeas(reply)!;
+    const lines = ideas.flatMap((x, i) => ideaLines(x, i + 1)).join("\n");
+    assert.match(lines, /\*\*Idea 1\.\*\* Alex's push-up presses the Earth down; the Earth winces\./);
+    assert.match(lines, /- speech bubble, Earth: "Easy, Alex!"/);
+    assert.match(lines, /\*\*Idea 3\.\*\* A crowd watches the planet dip\./);
+    assert.ok(!lines.includes(CONVERSION_FAILED_MARKER) && !/\{[A-Z_]+\}/.test(lines), "no token reaches the judge");
+  });
+
+  it("a reply that cannot be read back gives no ideas, never a guess", () => {
+    assert.equal(writerIdeas(null), null);
+    assert.equal(writerIdeas("not json"), null);
+    assert.equal(writerIdeas(JSON.stringify({ concepts: "nope" })), null);
+  });
+
+  it("a fact with no note: today sends none, the reduced arm sends the meanings alone", () => {
+    const arms = armInputs("{NAME} bench-presses the Earth.", ENRICHMENT, "   ");
+    assert.equal(arms.today.humorNote, null);
+    assert.match(arms.reduced.humorNote!, /^What the references mean:\n- "Shark Week"/);
+    const bare = { ...ENRICHMENT, culturalReferences: [], semanticEntities: [] } as FactEnrichment;
+    assert.equal(armInputs("{NAME} lifts.", bare, "").reduced.humorNote, null);
+    assert.ok(!buildVisualConceptsUserMessage(arms.today).includes("APPROVED HUMOR NOTE"), "no empty note block");
   });
 });
 

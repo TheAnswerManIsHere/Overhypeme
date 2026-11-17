@@ -27,7 +27,7 @@ export const GENERATION_PRODUCERS = [
 ] as const;
 export type GenerationProducer = (typeof GENERATION_PRODUCERS)[number];
 
-/** What we last learned about a vendor request (migration 0149, plan PLAN_JOB_RESUME.md §C/§D). */
+/** What we last learned about a vendor request (migration 0150, plan PLAN_JOB_RESUME.md §C/§D). */
 export const VENDOR_REQUEST_STATUSES = ["IN_QUEUE", "IN_PROGRESS", "COMPLETED", "FAILED", "LOST"] as const;
 export type VendorRequestStatus = (typeof VENDOR_REQUEST_STATUSES)[number];
 
@@ -47,7 +47,7 @@ export const imageGenerationRequestsTable = pgTable("image_generation_requests",
   request: jsonb("request").notNull(),
   vendorRequestId: text("vendor_request_id"),
   /**
-   * What we last learned about the vendor request (migration 0149, Issue #1000):
+   * What we last learned about the vendor request (migration 0150, Issue #1000):
    * fal's IN_QUEUE / IN_PROGRESS / COMPLETED, or FAILED (a known failure, never
    * collected again) or LOST (receipt lost, not matched; the step was re-run).
    */

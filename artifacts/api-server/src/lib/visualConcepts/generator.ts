@@ -97,6 +97,16 @@ export interface GenerateVisualConceptsInput {
   existingGags: ContextGag[];
   /** The moderator's unsaved working draft (Regenerate). */
   draft: ContextGag | null;
+  /**
+   * Whether the request carries the classification's reference meanings and
+   * joke-mechanism line ("include", the default and today's request) or leaves
+   * both out ("omit"). "omit" exists for the blind check of plan
+   * PLAN_FACT_LIFECYCLE_REBUILD.md (1A), where the meanings travel in the
+   * humor note instead; nothing in the product sends it yet. Temporary: that
+   * plan's stage cutover (1.2) either removes these blocks for good or keeps
+   * them, and this option and blindCheck.ts go with the outcome.
+   */
+  classification?: "include" | "omit";
 }
 
 export interface VisualConceptsGenerationResult {
@@ -197,6 +207,22 @@ function gagLines(label: string, gag: ContextGag): string[] {
 }
 
 /**
+ * What the classification says the fact's references and ambiguous terms
+ * mean, one line each, as the gag writer is told them.
+ */
+export function referenceMeaningLines(e: FactEnrichment): string[] {
+  const meanings: string[] = [];
+  for (const r of e.culturalReferences ?? []) {
+    const status = isMaterialCulturalReference(r) ? "" : " (tentative)";
+    meanings.push(`- "${r.sourcePhrase}" refers to ${r.canonicalReference}${status}: ${r.explanation}${r.visualImplication ? ` Visually: ${r.visualImplication}` : ""}`);
+  }
+  for (const s of stripSubjectNameSemanticEntities(e.semanticEntities ?? []).filter((x) => x.materiallyAffectsVisualPrompt)) {
+    meanings.push(`- "${s.surfaceText}" means ${s.visualReferent}${s.requiresAdminReview ? " (tentative)" : ""}.`);
+  }
+  return meanings;
+}
+
+/**
  * The per-request message: only what a gag writer needs, absent blocks
  * omitted, no second copy of the output rules (those are in the system prompt).
  */
@@ -210,21 +236,16 @@ export function buildVisualConceptsUserMessage(input: GenerateVisualConceptsInpu
     blocks.push(["APPROVED HUMOR NOTE (written or confirmed by a moderator; the correct reading of this joke):", input.humorNote.trim()]);
   }
 
-  const meanings: string[] = [];
-  for (const r of e.culturalReferences ?? []) {
-    const status = isMaterialCulturalReference(r) ? "" : " (tentative)";
-    meanings.push(`- "${r.sourcePhrase}" refers to ${r.canonicalReference}${status}: ${r.explanation}${r.visualImplication ? ` Visually: ${r.visualImplication}` : ""}`);
-  }
-  for (const s of stripSubjectNameSemanticEntities(e.semanticEntities ?? []).filter((x) => x.materiallyAffectsVisualPrompt)) {
-    meanings.push(`- "${s.surfaceText}" means ${s.visualReferent}${s.requiresAdminReview ? " (tentative)" : ""}.`);
-  }
-  if (meanings.length) blocks.push(["WHAT THE REFERENCES MEAN:", ...meanings]);
+  if (input.classification !== "omit") {
+    const meanings = referenceMeaningLines(e);
+    if (meanings.length) blocks.push(["WHAT THE REFERENCES MEAN:", ...meanings]);
 
-  const guide = getSubtypeGuidance(e.primaryArchetype, e.subtype as FactSubtype);
-  blocks.push([
-    "JOKE MECHANISM:",
-    `${plain(e.primaryArchetype)}, ${plain(e.subtype)}${guide?.principle ? `. ${guide.principle}` : ""}`,
-  ]);
+    const guide = getSubtypeGuidance(e.primaryArchetype, e.subtype as FactSubtype);
+    blocks.push([
+      "JOKE MECHANISM:",
+      `${plain(e.primaryArchetype)}, ${plain(e.subtype)}${guide?.principle ? `. ${guide.principle}` : ""}`,
+    ]);
+  }
 
   const v = input.renderPolicy.violence;
   const violence = v.mode === "suppress"
@@ -401,7 +422,16 @@ export async function generateVisualConceptsWithModel(
   return { jokeRead: result.jokeRead, candidates: result.candidates };
 }
 
-function makeOpenAIConceptsCaller(settings: VisualConceptsLLMSettings): (userMessages: UserMessage[]) => Promise<string> {
+/** Token counts of one gag-writer call, for a caller that reports cost. */
+export interface VisualConceptsUsage {
+  promptTokens: number;
+  completionTokens: number;
+}
+
+export function makeOpenAIConceptsCaller(
+  settings: VisualConceptsLLMSettings,
+  onUsage?: (usage: VisualConceptsUsage) => void,
+): (userMessages: UserMessage[]) => Promise<string> {
   return async (userMessages: UserMessage[]): Promise<string> => {
     const systemPrompt = await getVisualConceptsSystem();
     const response = await callUtilityLLM({
@@ -412,6 +442,9 @@ function makeOpenAIConceptsCaller(settings: VisualConceptsLLMSettings): (userMes
       responseFormat: zodResponseFormat(candidateConceptsWireSchema, "visual_concepts"),
       messages: [{ role: "system", content: systemPrompt }, ...userMessages],
     });
+    if (onUsage && response.usage) {
+      onUsage({ promptTokens: response.usage.prompt_tokens, completionTokens: response.usage.completion_tokens });
+    }
     return response.choices[0]?.message?.content ?? "{}";
   };
 }

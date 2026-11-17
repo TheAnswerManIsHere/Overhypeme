@@ -26,6 +26,7 @@ import { eq, sql } from "drizzle-orm";
 import { db, factsTable, pendingReviewsTable } from "@workspace/db";
 import { canEditWording, canWithdraw, SUBMISSION_TEXT_MAX_CHARS, SUBMISSION_TEXT_MIN_CHARS, type ReviewWorkflowStage } from "@workspace/api-zod";
 import { normalizeFactTemplateForPendingReview } from "./normalizeFactTemplateForStorage";
+import { runDetector, storedDuplicateColumns, type DuplicateDetector } from "./duplicateVerdict";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -40,11 +41,6 @@ export class WordingError extends Error {
   }
 }
 
-/** The duplicate match for the new wording, as the submission form computes it. */
-export interface WordingDuplicate {
-  matchingFactId: number | null;
-  matchingSimilarity: number;
-}
 
 /** Lock a review row; the same lock acceptance (provisional approval) takes first. */
 export async function lockReview(tx: Tx, reviewId: number) {
@@ -75,15 +71,15 @@ function assertAtTriage(review: { status: string; workflowStage: string; staging
 }
 
 /**
- * Edit a submission's wording at triage. `duplicate` is the match for the new
- * wording, computed by the caller before this runs (it may be a paid call, so
+ * Edit a submission's wording at triage. `duplicate` is the duplicate check of
+ * the new wording (a throw is recorded as "unavailable"), computed before this runs (it may be a paid call, so
  * it runs outside the transaction); the review is re-checked under its lock.
  */
 export async function editTriageWording(
   reviewId: number,
   rawText: string,
   adminId: string,
-  duplicate: (text: string) => Promise<WordingDuplicate>,
+  duplicate: DuplicateDetector,
 ): Promise<typeof pendingReviewsTable.$inferSelect> {
   const text = normaliseWording(rawText);
   // A cheap pre-check, so a locked review spends nothing on the duplicate match.
@@ -91,7 +87,7 @@ export async function editTriageWording(
   if (!current) throw new WordingError("REVIEW_NOT_FOUND", "Review not found.", 404);
   assertAtTriage(current);
   if (text === current.submittedText) return current;
-  const match = await duplicate(text);
+  const match = await runDetector(duplicate, text, reviewId);
 
   return db.transaction(async (tx) => {
     const review = await lockReview(tx, reviewId);
@@ -103,8 +99,8 @@ export async function editTriageWording(
       submittedTextOriginal: review.submittedTextOriginal ?? review.submittedText,
       wordingEditedBy: adminId,
       wordingEditedAt: new Date(),
-      matchingFactId: match.matchingFactId,
-      matchingSimilarity: match.matchingSimilarity,
+      // The new wording's duplicate verdict, replaced with the wording.
+      ...storedDuplicateColumns(match),
     }).where(eq(pendingReviewsTable.id, reviewId)).returning();
     return updated!;
   });

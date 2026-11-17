@@ -190,10 +190,16 @@ because an exact match leaves nothing to judge.
 
 ### Duplicate detection
 
-Near-duplicate flagging via a 384-dim OpenAI embedding on `facts.embedding`
-(`pgvector`); a candidate match + similarity is recorded on the review and the
-moderator decides. **Advisory, never a gate** — and best-effort: submitting
-before the check resolves reaches the server with no flag at all.
+Two stages: an exact match (case, whitespace and punctuation ignored, template
+tokens kept) against active facts and other pending reviews, then a 384-dim
+OpenAI embedding search on `facts.embedding` (`pgvector`, top five) whose
+candidates at or above 0.65 similarity go to one AI judgement, "same fact or
+joke?". The result is a **verdict** — duplicate, distinct, or unavailable when
+the check could not run — never a similarity percentage. The server checks a
+review's saved wording itself, after submission, on a triage wording edit, and
+when triage opens a review with no usable verdict, and stores it on the review
+(`pending_reviews.duplicate_outcome`); the submit page shows a preview of the
+same verdict. **Advisory, never a gate.**
 → [architecture-map](./architecture-map.md)
 
 ### Ingestion funnel

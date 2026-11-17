@@ -22,6 +22,7 @@ export * from "./bulkImportFactsParams";
 export * from "./bulkImportFactsResponse";
 export * from "./bulkImportFactsValidationError";
 export * from "./checkDuplicate200";
+export * from "./checkDuplicate200Outcome";
 export * from "./checkDuplicateBody";
 export * from "./comment";
 export * from "./commentListResponse";

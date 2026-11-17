@@ -231,7 +231,7 @@ deliberately excludes them and points here instead.
   The image job submits with one POST (`renderFalTransport.ts`, never the
   SDK's retrying submit) and stores fal's request id on its
   `image_generation_requests` row at once; it then polls, writing fal's
-  status to `vendor_status` (migration 0149). A resumed run reads the
+  status to `vendor_status` (migration 0150). A resumed run reads the
   attempt's latest request first: an id on record is collected (completed or
   still drawing); a known failure is marked `FAILED` and never collected
   again; a lost receipt is searched for in fal's request history once the row

@@ -20,7 +20,7 @@ import { sql } from "drizzle-orm";
 import { db, pool } from "@workspace/db";
 import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
-import { variantRetirementLosses } from "../lib/retirementLosses.js";
+import { isRetiredSettingValue, mergeLosses, retiredSettingLosses, variantRetirementLosses } from "../lib/retirementLosses.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATION_SQL = readFileSync(path.resolve(__dirname, "../../../../lib/db/migrations/0142_retire_variants.sql"), "utf8");
@@ -161,5 +161,29 @@ describe("variantRetirementLosses: the rehearsal's expectation for 0142", () => 
     const found = mismatches(beforeCounts, afterCounts, expected);
     assert.equal(found.length, 1, found.join("; "));
     assert.match(found[0]!, /^reactions: /);
+  });
+});
+
+describe("a retired setting is an intended deletion (0149)", () => {
+  const KEY = "review_duplicate_threshold";
+  it("counts the retired row when present, nothing when absent, and names only retired values", async () => {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `INSERT INTO admin_config (key, value, data_type, label) VALUES ($1, '80', 'integer', 'x') ON CONFLICT (key) DO NOTHING`,
+        [KEY],
+      );
+      assert.deepEqual([...await retiredSettingLosses(client)], [["admin_config", 1]]);
+      await client.query(`DELETE FROM admin_config WHERE key = $1`, [KEY]);
+      assert.deepEqual([...await retiredSettingLosses(client)], []);
+      await client.query("ROLLBACK");
+    } finally {
+      client.release();
+    }
+    assert.equal(isRetiredSettingValue(`admin_config/${KEY}/value`), true);
+    assert.equal(isRetiredSettingValue("admin_config/review_duplicate_threshold_other/value"), false);
+    assert.equal(isRetiredSettingValue("admin_config/email_max_attempts/value"), false);
+    assert.deepEqual([...mergeLosses(new Map([["facts", 2]]), new Map([["facts", 1], ["admin_config", 1]]))], [["facts", 3], ["admin_config", 1]]);
   });
 });

@@ -36,9 +36,10 @@ const EMAIL_KEYS = new Set([
   "email_outbox_retention_days",
 ]);
 
-const MODERATION_KEYS = new Set([
-  "review_duplicate_threshold",
-]);
+// The duplicate flag threshold was retired (migration 0149, plan
+// PLAN_DUPLICATE_VERDICT.md): triage shows the duplicate verdict instead. The
+// section shows again if a moderation setting is added here.
+const MODERATION_KEYS = new Set<string>([]);
 
 // Keys that belong elsewhere (Billing tab) or are removed from this page
 const BILLING_ONLY_KEYS = new Set([

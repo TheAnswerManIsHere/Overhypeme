@@ -16,7 +16,10 @@
  *     the rows it will delete are counted per table from the restored snapshot
  *     before the boot (src/lib/retirementLosses.ts), each such table must
  *     then hold exactly that many fewer, and the report lists them under
- *     `intendedDeletions`, apart from `failures`;
+ *     `intendedDeletions`, apart from `failures`. Migration 0149's deletion of
+ *     the retired review_duplicate_threshold setting is declared the same way
+ *     (RETIRED_ADMIN_CONFIG_KEYS): its row is expected gone and every other
+ *     setting is still compared;
  *   - relationships resolve: no foreign key has an orphan row;
  *   - sequences are usable: every sequence-backed column's next value is above
  *     the column's largest value, so the next insert cannot collide;
@@ -48,7 +51,7 @@ import pg from "pg";
 import { TABLE_CLASSIFICATION } from "@workspace/db/table-classification";
 import { adminValues, exhaustedSequences, orphans, rowCounts } from "../src/lib/databaseChecks.js";
 import { pgCommandConnection } from "../src/lib/pgCommandLine.js";
-import { variantRetirementLosses } from "../src/lib/retirementLosses.js";
+import { isRetiredSettingValue, mergeLosses, retiredSettingLosses, variantRetirementLosses } from "../src/lib/retirementLosses.js";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -109,8 +112,9 @@ async function main(): Promise<void> {
     db.on("error", () => {}); // the scratch database's drop ends it; the drop is ours
     await db.connect();
     const before = await rowCounts(db);
-    // Migration 0142's intended deletions, counted before it runs.
-    const intended = await variantRetirementLosses(db);
+    // Intended deletions, counted before they run: migration 0142's retired
+    // variants, and the admin_config rows of settings a migration retires (0149).
+    const intended = mergeLosses(await variantRetirementLosses(db), await retiredSettingLosses(db));
     const settingsBefore = await adminValues(db);
     const ledgerBefore = Number((await db.query("SELECT count(*) AS n FROM drizzle.__drizzle_migrations")).rows[0].n);
     await db.end();
@@ -143,11 +147,16 @@ async function main(): Promise<void> {
       const deleted = intended.get(table) ?? 0;
       const expected = n - deleted;
       if (mayGrow ? now < expected : now !== expected) {
-        failures.push(`lost: ${table} had ${n} rows, now ${now}${deleted ? ` (0142 deletes ${deleted}, so ${expected} expected)` : ""}`);
+        failures.push(`lost: ${table} had ${n} rows, now ${now}${deleted ? ` (${deleted} intended deletions, so ${expected} expected)` : ""}`);
       }
       if (entry?.class === "excluded") heldBack[entry.excluded] = (heldBack[entry.excluded] ?? 0) + now;
     }
     for (const [key, value] of settingsBefore) {
+      // A retired setting is expected gone; it is listed under intendedDeletions.
+      if (isRetiredSettingValue(key)) {
+        if (settingsAfter.has(key)) failures.push(`setting: ${key} was retired but is still present`);
+        continue;
+      }
       if (settingsAfter.get(key) !== value) failures.push(`setting: ${key} was ${value}, now ${settingsAfter.get(key) ?? "absent"}`);
     }
     failures.push(...(await orphans(after)).map((o) => `relationship: ${o}`));

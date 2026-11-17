@@ -78,12 +78,27 @@ user's submission and an admin/API-key bulk import both insert a
 directly. `facts.is_active` defaults to `false`, so a fact is never born active
 or already enriched.
 
-**A near-duplicate has two outcomes at Triage.** When the duplicate check found
-any positive-confidence match (`matchingFactId` — a lower bar than the
-threshold that warns the submitter, so Triage sees candidates the submitter
-never saw flagged), the moderator either rejects the submission as a
-`duplicate` or accepts it as a fact of its own. Nothing links one fact to
-another ([`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md#every-fact-stands-alone)).
+**Triage shows a duplicate verdict, never a percentage** (plan
+`docs/plans/PLAN_DUPLICATE_VERDICT.md`, David 2026-11-17). The server checks a
+review's saved wording itself (`artifacts/api-server/src/lib/duplicateVerdict.ts`)
+and stores the result on the review: `duplicate_outcome` (`duplicate` |
+`distinct` | `unavailable`; null is "not checked"), the matched or nearest fact
+(`matching_fact_id`), or the other pending review an exact match found
+(`matching_review_id`). It runs after a submission commits (the submitter never
+waits, and browser-sent match fields are discarded), inside a triage wording
+edit (the verdict is replaced with the wording, under the review lock), and
+when triage opens a review with no usable verdict (`POST
+/admin/reviews/:id/duplicate-check`; David's Q1: a review from before this, or
+a bulk import, is checked on first open). A result is written only while the
+wording it checked is still the wording and the review is still at triage. A
+stored duplicate whose target no longer supports it (the pending review was
+edited or resolved, the fact deleted or deactivated) reads "not checked yet"
+and is checked again. "Couldn't check" shows the closest fact straight away;
+"Not a duplicate" keeps it behind a click.
+
+**A near-duplicate has two outcomes at Triage:** the moderator either rejects
+the submission as a `duplicate` or accepts it as a fact of its own. Nothing
+links one fact to another ([`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md#every-fact-stands-alone)).
 
 ## The activation chokepoint — one exit
 
