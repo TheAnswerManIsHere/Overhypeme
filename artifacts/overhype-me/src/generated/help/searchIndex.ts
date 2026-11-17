@@ -320,7 +320,7 @@ export const HELP_SEARCH_INDEX: HelpSearchEntry[] = [
     "doc": "5-visual-pipeline",
     "section": "render-modes-what-the-engine-is-asked-to-preserve",
     "sectionTitle": "Render modes: what the engine is asked to preserve",
-    "text": "Render modes: what the engine is asked to preserve Not every fact renders the same way. Depending on what image material is available for whoever the fact is personalized for, the pipeline asks the engine to preserve a real uploaded likeness, preserve a pet (a picture's subject is a person or a pet, never a car or other object) from a reference image , or render from description alone with no reference at all. Which mode applies is inferred automatically from the available image material, with room for a human override when the automatic read is wrong."
+    "text": "Render modes: what the engine is asked to preserve Not every fact renders the same way. Depending on what image material is available for whoever the fact is personalized for, the pipeline asks the engine to preserve a real uploaded likeness, preserve a pet (a picture's subject is a person or a pet, never a car or other object; the rule ) from a reference image , or render from description alone with no reference at all. Which mode applies is inferred automatically from the available image material, with room for a human override when the automatic read is wrong."
   },
   {
     "doc": "5-visual-pipeline",

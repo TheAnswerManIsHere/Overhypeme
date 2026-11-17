@@ -508,7 +508,8 @@ still lists three values, because stored attempts carry all three:
 - `human_identity_i2i` — preserve a recognizable human face (reference image).
 - `nonhuman_subject_i2i` — preserve an uploaded pet. A subject is a person or a
   pet: classification treats a photo whose only subject is a vehicle, object or
-  mascot as having no usable subject (`tier2Heuristics.ts`, analyzer v2).
+  mascot as having no usable subject (`tier2Heuristics.ts`, analyzer v2;
+  [the rule](./decisions.md#2026-11-15--a-pictures-subject-is-a-person-or-a-pet-vehicles-objects-and-mascots-are-not-subjects)).
 - `t2i_fallback` — **retired**: no reference. Refused when an attempt is
   queued (`NoPhotoRenderRefusedError`, `no_photo_render_retired`) and again in
   the worker; the compiler's dispatch throws on it. Old attempts keep the
@@ -521,10 +522,11 @@ for a better photo, never drawn as an invented person. The planner's brief
 and its output contract name the two photo modes only, and are engine-neutral:
 the engine is chosen after planning, by look. Moderation's required renders
 are David's photo (`i2i_male_default`) and his wife's (`i2i_female_default`,
-rendered as Raena Franklin, she/her); the animal (the cat) and object
-scenarios stay conditional. `generic_t2i` is retired: never offered, run or
+rendered as Raena Franklin, she/her); the pet scenario (the cat) is the
+third kind a gag's examples are drawn from, and there is no object scenario
+(a subject is a person or a pet, [the rule](./decisions.md#2026-11-15--a-pictures-subject-is-a-person-or-a-pet-vehicles-objects-and-mascots-are-not-subjects)). `generic_t2i` is retired: never offered, run or
 required, and a render it already made stays on the grid outside the tally.
-The comparison's round 1 draws photo panels only (12 panels, 72 cells). The
+The comparison's round 1 draws photo panels only (9 panels, 54 cells). The
 legacy AI-background generator (`fact_ai_meme_backfill`) is retired: its
 route answers 410, its button and script are gone, and its queue's handler
 ends a leftover job without generating.
@@ -626,7 +628,7 @@ classification joined with one gag's content (`gagRenderInput`,
   kinds are the scenarios `i2i_male_default`, `i2i_female_default` and
   `i2i_nonhuman_animal` (`SCENARIO_FOR_KIND`); generic text-to-image is no
   longer drawn, and the object/vehicle scenario is removed (a subject is a
-  person or a pet, migration 0144). `image_prompt_attempts.gag_id` names the
+  person or a pet, [the rule](./decisions.md#2026-11-15--a-pictures-subject-is-a-person-or-a-pet-vehicles-objects-and-mascots-are-not-subjects); migration 0144). `image_prompt_attempts.gag_id` names the
   gag each render drew, and a render is **reused** when its attempt's
   `fact_enrichment_snapshot` matches the gag's current render input in what
   shapes the picture: the gag's content and the classification fields the

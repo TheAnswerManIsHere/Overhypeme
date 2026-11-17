@@ -238,7 +238,7 @@ All taxonomy/enrichment knobs stay exposed. The moderator:
 The review-wide render grid, its scenario checkboxes, the render waiver, the
 Generic (text-to-image) and object/vehicle renders, and the "How the AI read
 this fact" panel are gone (2026-11-15); a subject is a person or a pet, so no
-vehicle or object render exists anywhere (migration 0144).
+vehicle or object render exists anywhere ([the rule](./decisions.md#2026-11-15--a-pictures-subject-is-a-person-or-a-pet-vehicles-objects-and-mascots-are-not-subjects); migration 0144).
 
 ## Test renders, the hero gate, and Pexels
 
