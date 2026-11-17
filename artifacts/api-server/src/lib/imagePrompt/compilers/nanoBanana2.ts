@@ -81,25 +81,6 @@ function normalizeSentence(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ").replace(/[.!?]+$/, "");
 }
 
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/**
- * Boundary-aware containment check. Short phrases (<8 chars, e.g. "earth")
- * must match on word boundaries so "earth" is not considered present inside
- * "earthquake"; longer phrases use substring matching.
- */
-function containsMeaningfulPhrase(haystack: string, phrase: string): boolean {
-  const h = haystack.toLowerCase();
-  const p = phrase.trim().toLowerCase();
-  if (!p) return true;
-  if (p.length < 8) {
-    return new RegExp(`\\b${escapeRegExp(p)}\\b`).test(h);
-  }
-  return h.includes(p);
-}
-
 /** Drop sentences from `text` already present (normalized) in `assembled`. */
 function dedupeSentences(text: string, assembled: string): string {
   const present = new Set(splitSentences(assembled).map(normalizeSentence));
@@ -168,11 +149,6 @@ export function composeBubbleDirective(
   return fillPiece(r, bubble.type === "speech" ? "bubbles.speech" : "bubbles.thought", { who, text: literal });
 }
 
-/** Trailing carveout emitted once after the directives: makes the precedence
- *  over the overlay-caption exclusion and any forbid-mode text policy explicit
- *  IN the compiled language (a balloon is in-scene graphic text, not an
- *  overlay caption). */
-
 /** Shorten a visual role to an identifying tag of at most `max` chars, cut at a word boundary. */
 export function shortSpeakerRole(visualRole: string, max: number = SPEAKER_BINDING_ROLE_MAX_CHARS): string {
   const role = visualRole.trim().replace(/[.!?]+$/, "").replace(/\s+/g, " ");
@@ -183,35 +159,27 @@ export function shortSpeakerRole(visualRole: string, max: number = SPEAKER_BINDI
 }
 
 /**
- * Speaker bindings (PLAN_BUBBLE_SPEAKERS.md, F): for every non-subject bubble
- * speaker that has a source, a short line tying its exact label to a visible
- * character, so the engine knows who "mom" is even when the scene describes
- * her without naming her (ROLE DETAILS drops an entry whose role the scene
- * already covers, and its cap can cut one).
- *
- * Always emitted — never skipped because the label happens to appear in some
- * other role text, which proves nothing about which person it means (Codex,
- * PR #973 round 1). Source per speaker: the effective (post-precedence)
- * character with that label — a moderator's Scene Role Assignment wins — else
- * the planner's own character with that label, so a speaker the gag's roles
- * leave out is still supplemented from the plan. Lines are bounded (label ≤ 60
- * by schema, role ≤ SPEAKER_BINDING_ROLE_MAX_CHARS), so they fit
- * SPEAKER_BINDINGS_RENDERED_MAX.
+ * Speaker bindings (PLAN_BUBBLE_SPEAKERS.md, F; PLAN_GAG_DIRECT_RENDER.md, C):
+ * for every non-subject bubble speaker, the gag's cast entry with that exact
+ * label as a short line ("mom: the woman in the passenger seat."), so the
+ * engine knows who "mom" is even when the scene describes her without naming
+ * her. Always emitted — never skipped because the label happens to appear in
+ * other text, which proves nothing about which person it means (Codex, PR
+ * #973 round 1). Lines are bounded (label ≤ 60 by schema, role ≤
+ * SPEAKER_BINDING_ROLE_MAX_CHARS), so they fit SPEAKER_BINDINGS_RENDERED_MAX.
  */
 export function composeSpeakerBindings(opts: {
   speakers: readonly string[];
-  effective: ReadonlyArray<{ label: string; visualRole: string }>;
-  planned: ReadonlyArray<{ label: string; visualRole: string }>;
+  cast: ReadonlyArray<{ label: string; visualRole: string }>;
 }): { text: string; boundLabels: string[] } {
   const lines: string[] = [];
   const boundLabels: string[] = [];
-  const find = (list: ReadonlyArray<{ label: string; visualRole: string }>, key: string) =>
-    list.find((c) => c.label.trim().toLowerCase() === key && c.visualRole.trim());
+  const find = (key: string) => opts.cast.find((c) => c.label.trim().toLowerCase() === key && c.visualRole.trim());
   for (const speaker of opts.speakers) {
     const label = speaker.trim();
     const key = label.toLowerCase();
     if (!key) continue;
-    const source = find(opts.effective, key) ?? find(opts.planned, key);
+    const source = find(key);
     if (!source) continue; // unbound — the bubble diagnostics warn
     const role = shortSpeakerRole(source.visualRole);
     if (!role) continue;
@@ -274,7 +242,7 @@ export function composeBubbleDirectives(opts: {
         warnings.push({
           code: "bubble_entity_unresolved",
           severity: "warning",
-          message: `Bubble ${i + 1} is attributed to "${entity}", which matches no character in the scene (subject, role bindings, or planned secondary characters). The directive still renders; the model may introduce, ignore, or misattribute that character — confirm the render.`,
+          message: `Bubble ${i + 1} is attributed to "${entity}", which matches no character in the scene (the subject or the gag's cast). The directive still renders; the model may introduce, ignore, or misattribute that character — confirm the render.`,
           context: { bubbleIndex: i, entity },
         });
       } else if (matches > 1) {
@@ -293,51 +261,10 @@ export function composeBubbleDirectives(opts: {
   return { text: `${directives.join(" ")} ${fillPiece(r, "bubbles.carveout")}`, warnings };
 }
 
-/**
- * Semantic entities (capitalization-aware referents, e.g. "Earth" → the planet
- * vs "earth" → ground) are an INPUT that informs the planner how to read the
- * fact — they are NOT emitted to the engine as an "Interpret X means Y" meta
- * line. The planner resolves the ambiguity into the concrete scene; the resolved
- * `visualReferentUsed` reaches the engine as a CONCRETE visible element via
- * `composeKeyElementsDirective` (de-duped), and the echo-back stays on the visual
- * plan for the validator + admin debug.
- */
-
-/**
- * Cultural references are an INPUT that informs the planner (OpenAI) how to
- * interpret the fact — they are NOT emitted to the image engine. The planner
- * bakes the reference's visual implication into the concrete fields (CORE SCENE /
- * SUBJECT DETAILS / ENVIRONMENT / keyVisualElements); re-emitting the canonical
- * reference + explanation here just leaks meta-instruction (and brand names like
- * "Discovery Channel") into the prompt. The `culturalReferencesUsed` echo-back is
- * kept on the visual plan for the validator + admin debug, but never compiled in.
- */
-
-
-type BindingMode = "human_i2i" | "nonhuman_i2i" | "t2i";
-
-function bindingModeFromRenderMode(mode: SubjectRenderMode): BindingMode {
-  switch (mode) {
-    case "human_identity_i2i": return "human_i2i";
-    case "nonhuman_subject_i2i": return "nonhuman_i2i";
-    case "t2i_fallback": return "t2i";
-    default: {
-      const exhaustive: never = mode;
-      throw new Error(`Unknown subjectRenderMode: ${exhaustive}`);
-    }
-  }
+/** The noun a balloon's tail points to for the subject: the rendered name, else the photo's subject. */
+function subjectNoun(name: string, mode: SubjectRenderMode): string {
+  return name || (mode === "human_identity_i2i" ? "the reference person" : "the uploaded subject");
 }
-
-/** The subject noun used throughout the binding copy for this mode. */
-function bindingSubjectNoun(name: string, mode: BindingMode): string {
-  if (name) return name;
-  switch (mode) {
-    case "human_i2i": return "the reference person";
-    case "nonhuman_i2i": return "the uploaded subject";
-    case "t2i": return "the subject";
-  }
-}
-
 
 // ─── Labeled-section formatting ─────────────────────────────────────────────
 
@@ -473,8 +400,7 @@ type LabelKey = "coreScene" | "identityReference" | "additionalDetails" | "bubbl
 /**
  * The moderator scene is verbatim (warn, never strip): compiler-owned
  * language in it, and a balloon it describes itself while structured bubbles
- * are configured (which would double-render), are reported here. One copy
- * for the planned and the direct paths.
+ * are configured (which would double-render), are reported here.
  */
 function moderatorSceneWarnings(scene: string, hasBubbles: boolean): PromptWarning[] {
   const warnings: PromptWarning[] = [];
@@ -503,8 +429,8 @@ function moderatorSceneWarnings(scene: string, hasBubbles: boolean): PromptWarni
 // drawn from ONE selected gag's content and wording that is the same for every
 // fact, with no planner call. The input is explicit and holds no
 // classification: nothing a fact's enrichment says can reach this prompt, by
-// the shape of the arguments. Increment 1 runs it inside the planned-vs-direct
-// comparison only; nothing else calls it yet.
+// the shape of the arguments. Since the switch (plan, D) it is the only
+// compile: every surface that draws calls it.
 
 /** One cast entry: a character in the gag's scene other than the subject. */
 export interface DirectCastEntry {
@@ -544,7 +470,6 @@ export function compileDirect(args: DirectCompileArgs): CompiledImagePrompt {
   const notes: string[] = [];
   const mode = args.subjectRenderMode;
   if (mode === "t2i_fallback") throw new Error("no-photo renders are retired: every picture starts from a photo");
-  const bindingMode = bindingModeFromRenderMode(mode);
   const subjectName = args.renderedSubject?.name?.trim() ?? "";
   const render = (t: string) => renderIdentityTokens(t, args.renderedSubject);
 
@@ -556,15 +481,14 @@ export function compileDirect(args: DirectCompileArgs): CompiledImagePrompt {
   const identity = [fillPiece(r, mode === "human_identity_i2i" ? "identity.person" : "identity.pet"), mode === "nonhuman_subject_i2i" ? DIRECT_PET_INSTRUCTION : ""]
     .filter(Boolean).join(" ");
 
-  // Speaker bindings come from the gag's own cast: the cast is the effective
-  // character list, and no planned list exists.
+  // Speaker bindings come from the gag's own cast.
   const castCharacters = args.cast
     .map((c) => ({ label: c.label.trim(), visualRole: c.description.trim() }))
     .filter((c) => c.label && c.visualRole);
-  const speakerBindings = composeSpeakerBindings({ speakers: activeBubbleSpeakers(activeBubbles), effective: castCharacters, planned: [] });
+  const speakerBindings = composeSpeakerBindings({ speakers: activeBubbleSpeakers(activeBubbles), cast: castCharacters });
   const bubbleResult = composeBubbleDirectives({
     bubbles: activeBubbles,
-    subjectNoun: bindingSubjectNoun(subjectName, bindingMode),
+    subjectNoun: subjectNoun(subjectName, mode),
     effectiveCharacterLabels: castCharacters.map((c) => c.label),
     boundLabels: speakerBindings.boundLabels,
     renderText: render,
@@ -621,5 +545,3 @@ export function compileDirect(args: DirectCompileArgs): CompiledImagePrompt {
   if (args.referenceImageUrl) out.referenceImageUrl = args.referenceImageUrl;
   return out;
 }
-
-// ─── Per-mode entry points ─────────────────────────────────────────────────

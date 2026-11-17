@@ -3,20 +3,16 @@
  */
 
 import type {
-  VisualPlan,
-  CompiledPrompt,
   ImagePromptGenerationInput,
   ImagePromptTargetEngine,
   GenerationMode,
 } from "@workspace/api-zod";
 
 /**
- * Which LLM engine actually planned a render attempt. Originates at the
- * generation layer (resolveImagePromptLLMSettings) so both successful plans
- * AND prompt-generation failures are attributable to the dedicated
- * visual-planner engine vs. the default-LLM fallback. Copied into
- * CompiledPromptDiagnostics on success; attached to ImagePromptError on
- * failure.
+ * Which LLM engine planned a render attempt, as attempts made before the
+ * render planner was removed (plan PLAN_GAG_DIRECT_RENDER.md, D) recorded it
+ * in their compiled prompt's diagnostics. Kept so those stored rows read; a
+ * direct attempt carries none.
  */
 export interface PlannerProvenance {
   configuredEngineId: string;
@@ -26,17 +22,6 @@ export interface PlannerProvenance {
   timeoutMs: number;
   /** Null when the dedicated engine was used; otherwise why it fell back. */
   fallbackReason: string | null;
-}
-
-export interface ImagePromptGenerationOutput {
-  visualPlan: VisualPlan;
-  compiledPrompt: CompiledPrompt;
-  promptVersion: string;            // IMAGE_PROMPT_GENERATION_VERSION
-  archetypeStrategyVersion: string; // VISUAL_STRATEGY_VERSION
-  generatedAt: string;              // ISO timestamp
-  generatedBy: "openai";
-  /** Set by generateImagePromptPlan (absent in callModel-injected test paths). */
-  plannerProvenance?: PlannerProvenance;
 }
 
 export type PromptSectionPriority = "required" | "high" | "medium";

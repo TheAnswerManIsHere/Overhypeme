@@ -249,19 +249,7 @@ export type VisualPromptStrategyOverride = z.infer<typeof visualPromptStrategyOv
  * them, so a comparison marks a gag that has any.
  */
 export function hasExtraArtDirection(c: VisualPromptStrategyOverride): boolean {
-  return Boolean(
-    c.moderatorIntent?.trim()
-    || c.notesForModerator?.trim()
-    || c.subjectRealizationOverride
-    || (c.requiredVisualDetails ?? []).length
-    || (c.forbiddenVisualDetails ?? []).length
-    || (c.roleBindings ?? []).length
-    || (c.compositionGuidance ?? []).length
-    || (c.styleAgnosticPromptAdditions ?? []).length
-    || (c.negativePromptAdditions ?? []).length
-    || c.supportingTextPolicyOverride
-    || c.violencePolicyOverride,
-  );
+  return retiredArtDirectionFields(c).length > 0;
 }
 
 /**

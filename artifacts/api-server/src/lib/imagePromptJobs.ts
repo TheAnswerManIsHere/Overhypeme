@@ -146,18 +146,20 @@ export const imagePromptGenerationHandler: JobHandler = {
     // The one selected gag, frozen on the attempt when it was queued, is the
     // whole fact-specific input (plan PLAN_GAG_DIRECT_RENDER.md, D; Q11: 1).
     // No planner call: the classification frozen beside it is never read.
+    // With it, the wording chosen when the attempt was queued (none is the
+    // baseline of the family of the engine recorded on the attempt), read
+    // alongside, outside the compile's try, so a database error stays retryable.
     let args: DirectCompileArgs;
+    let recipe: ResolvedRecipe;
     try {
-      args = await directArgsForAttempt(attempt, enrichment, renderedSubject);
+      [args, recipe] = await Promise.all([
+        directArgsForAttempt(attempt, enrichment, renderedSubject),
+        recipeById(attempt.recipeVersionId, engineFamilyOf(attemptImageEngineId(attempt))),
+      ]);
     } catch (err) {
       if (err instanceof DirectGagInputError) return recordTerminalAttemptFailure(p.attemptId, err.code, err.message);
       throw err;
     }
-
-    // The wording chosen when the attempt was queued; none is the baseline of
-    // the family of the engine recorded on the attempt. Read outside the
-    // compile's try, so a database error stays retryable.
-    const recipe = await recipeById(attempt.recipeVersionId, engineFamilyOf(attemptImageEngineId(attempt)));
     let compiled: CompiledImagePrompt;
     try {
       compiled = compileDirect({ ...args, recipe });
