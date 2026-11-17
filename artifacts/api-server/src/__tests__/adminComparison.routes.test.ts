@@ -11,12 +11,11 @@ import request from "supertest";
 import { db } from "@workspace/db";
 import { comparisonSetsTable, factsTable, lookStylesTable, usersTable } from "@workspace/db/schema";
 import { inArray, like } from "drizzle-orm";
+import { PATH_COMPARISON_RETIRED_MESSAGE } from "@workspace/api-zod";
 
 import adminComparisonRouter from "../routes/adminComparison.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import { ALL_ENGINES } from "../lib/engines/index.js";
-import { panelPreparationBoundUsd } from "../lib/comparison/admission.js";
-import { DEFAULT_IMAGE_PROMPT_ENGINE_ID } from "../lib/imagePromptConfig.js";
 import { clearTestEngineDefinitions } from "../lib/engineInterpreter.js";
 import { testEngineRow } from "./helpers/testEngines.js";
 
@@ -96,7 +95,8 @@ describe("admin comparison routes", () => {
       assert.equal(mode, "i2i", `${scenario}: every picture starts from a photo`);
       assert.deepEqual(cells, FAMILIES.map((f) => `${f}-${mode}`).sort());
     }
-    assert.ok(Math.abs(detail.body.estimate.preparationBoundUsd - 4 * panelPreparationBoundUsd({ model: "gpt-5.5", maxTokens: 2800, temperature: 0.4 })) < 1e-3);
+    // Preparation compiles each panel's gag directly: no paid call, nothing reserved (PLAN_GAG_DIRECT_RENDER.md, D).
+    assert.equal(detail.body.estimate.preparationBoundUsd, 0);
 
     const list = await request(app).get("/api/admin/comparison/sets");
     assert.ok(list.body.sets.some((s: { id: number; cells: number }) => s.id === created.body.setId && s.cells === 8));
@@ -109,6 +109,7 @@ describe("admin comparison routes", () => {
     assert.equal(ok.status, 200);
     assert.equal(ok.body.admitted, true);
     assert.equal(ok.body.items.length, 4);
+    assert.equal(ok.body.boundUsd, 0, "preparing a panel makes no paid call");
 
     const budgeted = await request(app).post(`/api/admin/comparison/sets/${created.body.setId}/plan`).send({ kind: "prepare", weekRemainingUsd: 1 });
     assert.equal(budgeted.status, 400, "the budget fields are gone (David, 2026-11-07)");
@@ -117,25 +118,6 @@ describe("admin comparison routes", () => {
     const render = await request(app).post(`/api/admin/comparison/sets/${created.body.setId}/plan`).send({ kind: "render" });
     assert.equal(render.body.admitted, false);
     assert.equal(render.body.refusal, "nothing left to do");
-  });
-
-  it("refuses preparation when the planner engine is inactive", async () => {
-    const app = buildTestApp({ kind: "authenticated", userId: adminId }, adminComparisonRouter);
-    const created = await request(app).post("/api/admin/comparison/sets").send(body({ label: `${P} planner` }));
-    // Engines live only in code (decisions.md 2026-11-14), so the test flips the catalogue definition itself and restores it.
-    const planner = ALL_ENGINES.find((e) => e.id === DEFAULT_IMAGE_PROMPT_ENGINE_ID)!;
-    const original = planner.isActive;
-    try {
-      const before = await request(app).get(`/api/admin/comparison/sets/${created.body.setId}`);
-      assert.equal(before.status, 200);
-
-      planner.isActive = false;
-      const refused = await request(app).post(`/api/admin/comparison/sets/${created.body.setId}/plan`).send({ kind: "prepare" });
-      assert.equal(refused.status, 400);
-      assert.ok(refused.body.reasons.some((r: string) => r.includes(`"${DEFAULT_IMAGE_PROMPT_ENGINE_ID}" cannot be used (engine_inactive)`)), JSON.stringify(refused.body));
-    } finally {
-      planner.isActive = original;
-    }
   });
 
   it("refuses an allowance field, and a set naming an unknown family or fact", async () => {
@@ -150,6 +132,10 @@ describe("admin comparison routes", () => {
 
     const noPhoto = await request(app).post("/api/admin/comparison/sets").send(body({ label: `${P} bad`, scenarioKeys: ["generic_t2i"] }));
     assert.equal(noPhoto.status, 400);
+
+    const path = await request(app).post("/api/admin/comparison/sets").send(body({ label: `${P} path`, kind: "path" }));
+    assert.equal(path.status, 400, "a path comparison is refused at creation: there is one render path (PLAN_GAG_DIRECT_RENDER.md, D)");
+    assert.ok(JSON.stringify(path.body).includes(PATH_COMPARISON_RETIRED_MESSAGE), JSON.stringify(path.body));
 
     const badFact = await request(app).post("/api/admin/comparison/sets").send(body({ label: `${P} bad`, factIds: [2_000_000_000] }));
     assert.equal(badFact.status, 400);

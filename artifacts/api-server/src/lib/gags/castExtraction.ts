@@ -40,7 +40,6 @@ import {
   type VisualStrategyBubble,
 } from "@workspace/api-zod";
 import { callUtilityLLM, resolveLLMSettings } from "../utilityLLM";
-import { chatCallBoundUsd } from "../comparison/admission";
 import { CANONICAL_SUBJECT_NAME_FORMS_LC, renderPersonalized } from "../renderCanonical";
 import { shortSpeakerRole } from "../imagePrompt/compilers/nanoBanana2";
 
@@ -192,14 +191,4 @@ export async function extractCast(input: CastExtractionInput): Promise<CastExtra
   });
 }
 
-/** A cast call's input never approaches this: a scene of at most 3,000 characters, the speakers and the prompt. */
-const CAST_INPUT_TOKEN_BOUND = 3_000;
 
-/**
- * The most one cast call can cost, at the utility model's real completion
- * ceiling: the record a comparison's preparation reserves for it. Throws when
- * the model has no price, since no run can bound an unpriced call.
- */
-export async function castCallBoundUsd(): Promise<number> {
-  return chatCallBoundUsd(await resolveLLMSettings(), CAST_INPUT_TOKEN_BOUND, "cast extraction");
-}

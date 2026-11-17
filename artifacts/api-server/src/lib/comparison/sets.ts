@@ -26,17 +26,15 @@ import { asc, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   COMPARISON_CELL_STATES,
   COMPARISON_PANEL_STATES,
-  COMPARISON_RENDER_PATHS,
+  PATH_COMPARISON_RETIRED_MESSAGE,
   type ComparisonRunPlanRequest,
   type ComparisonSetCreate,
 } from "@workspace/api-zod";
-import { resolveImagePromptLLMSettings } from "../imagePrompt/generator";
 import { liveRecipeVersionIds } from "../imagePrompt/recipeStore";
 import { ComparisonLayoutError, deriveComparisonLayout } from "./layout";
-import { cellBoundUsd, preparationBoundUsd, planRun, round4, type PlannerRequestSettings, type RunPlan, type WorkItem } from "./admission";
+import { cellBoundUsd, planRun, round4, type RunPlan, type WorkItem } from "./admission";
 import { engineById, imageEngines } from "../engineInterpreter";
 import { loadGagsForFacts } from "../gags/resolver";
-import { castCallBoundUsd } from "../gags/castExtraction";
 
 export { ComparisonLayoutError };
 
@@ -68,22 +66,23 @@ export async function createComparisonSet(input: ComparisonSetCreate, adminUserI
   }
   if (reasons.length) throw new ComparisonLayoutError(reasons);
 
-  // A path set draws one named gag per panel, resolved now so every panel
-  // records the gag it drew.
+  // Chosen gags: one panel per gag, resolved now so every panel records the
+  // gag it drew (plan PLAN_GAG_DIRECT_RENDER.md, Q11: 1). With none chosen, a
+  // panel draws its fact's default gag. A "path" set is refused by the
+  // request schema: the planner it compared against is gone.
   const kind = input.kind ?? "engine";
-  let gagsByFact = new Map<number, number[]>();
-  if (kind === "path") {
-    const resolved = await resolvePathGags(input.factIds, input.gagIds);
+  if (kind === "path") throw new ComparisonLayoutError([PATH_COMPARISON_RETIRED_MESSAGE]);
+  let gagsByFact: Map<number, number[]> | null = null;
+  if (input.gagIds) {
+    const resolved = await resolveChosenGags(input.factIds, input.gagIds);
     if (resolved.reasons.length) throw new ComparisonLayoutError(resolved.reasons);
     gagsByFact = resolved.gagsByFact;
   }
-  const panelGags = (factId: number): Array<number | null> => (kind === "path" ? gagsByFact.get(factId)! : [null]);
-  const paths: Array<string | null> = kind === "path" ? [...COMPARISON_RENDER_PATHS] : [null];
+  const panelGags = (factId: number): Array<number | null> => gagsByFact?.get(factId) ?? [null];
 
   // The wording each cell draws with. An engine set uses each family's live
   // version, frozen now so a later promotion never changes a set already
-  // made; a prompt set draws each of its versions on its one family; a path
-  // set draws both paths with each family's live version.
+  // made; a prompt set draws each of its versions on its one family.
   let versionsFor: (engineId: string) => Array<number | null>;
   if (kind === "prompt") {
     const family = input.engineFamilies[0]!;
@@ -116,7 +115,7 @@ export async function createComparisonSet(input: ComparisonSetCreate, adminUserI
       imageSize: input.imageSize ?? "comparison",
       kind,
       recipeVersionIds: kind === "prompt" ? (input.recipeVersionIds ?? []).map((id) => id ?? 0) : null,
-      gagIds: kind === "path" ? [...gagsByFact.values()].flat() : null,
+      gagIds: gagsByFact ? [...gagsByFact.values()].flat() : null,
       createdBy: adminUserId,
       requestToken: opts.requestToken ?? null,
     }).returning({ id: comparisonSetsTable.id });
@@ -132,20 +131,20 @@ export async function createComparisonSet(input: ComparisonSetCreate, adminUserI
       shuffleSeed: randomInt(0, 2 ** 31 - 1),
     }))).returning({ id: comparisonPanelsTable.id });
     const cells = drawn.flatMap((p, i) => p.engineIds.flatMap((engineId) =>
-      versionsFor(engineId).flatMap((recipeVersionId) => paths.map((renderPath) => ({ panelId: panels[i]!.id, engineId, recipeVersionId, renderPath })))));
+      versionsFor(engineId).map((recipeVersionId) => ({ panelId: panels[i]!.id, engineId, recipeVersionId }))));
     await tx.insert(comparisonCellsTable).values(cells);
     return { setId: set!.id, panels: panels.length, cells: cells.length };
   });
 }
 
 /**
- * The gags a path set draws, by fact: each chosen gag on its own fact's
+ * The gags a comparison draws, by fact: each chosen gag on its own fact's
  * panels, and a fact with none chosen its default gag (its lowest live slot
  * with content). One resolution for set creation and the wizard's estimate,
  * so what is priced is what is drawn. `reasons` names each gag or fact that
  * cannot be drawn.
  */
-export async function resolvePathGags(factIds: number[], gagIds: number[] = []): Promise<{ gagsByFact: Map<number, number[]>; reasons: string[] }> {
+export async function resolveChosenGags(factIds: number[], gagIds: number[] = []): Promise<{ gagsByFact: Map<number, number[]>; reasons: string[] }> {
   const reasons: string[] = [];
   const live = new Map<number, number>();
   const defaults = new Map<number, number>();
@@ -233,21 +232,6 @@ export interface SetRows {
   prices: Map<string, unknown>;
 }
 
-/**
- * The planner's request settings, from the one resolution its call uses
- * (`resolveImagePromptLLMSettings`). A fallback of any kind refuses: a bound
- * for a planner other than the configured one would price a different
- * experiment, and a guess is no bound.
- */
-export async function plannerSettings(opts: { withCast?: boolean } = {}): Promise<PlannerRequestSettings> {
-  const resolved = await resolveImagePromptLLMSettings();
-  const { fallbackReason, configuredEngineId } = resolved.plannerProvenance;
-  if (fallbackReason || !resolved.model) {
-    throw new ComparisonLayoutError([`the planner engine "${configuredEngineId}" cannot be used (${fallbackReason ?? "no model"}), so no preparation can be bounded`]);
-  }
-  return { model: resolved.model, maxTokens: resolved.maxTokens, temperature: resolved.temperature, reasoningEffort: resolved.reasoningEffort, ...(opts.withCast ? { castBoundUsd: await castCallBoundUsd() } : {}) };
-}
-
 export async function loadSetRows(setId: number, exec: Executor = db): Promise<SetRows | null> {
   const [setRow, panels] = await Promise.all([
     exec.select().from(comparisonSetsTable).where(eq(comparisonSetsTable.id, setId)),
@@ -264,15 +248,16 @@ export async function loadSetRows(setId: number, exec: Executor = db): Promise<S
 }
 
 /**
- * Panels still to prepare, each priced at two planner calls at the planner's
- * real ceiling, plus, on a path set, the one cast call its direct side makes.
+ * Panels still to prepare. Preparation compiles the panel's gag directly and
+ * makes no paid call since the planner was removed (plan
+ * PLAN_GAG_DIRECT_RENDER.md, D), so each is priced at nothing; it stays a
+ * work item so a run prepares a panel before drawing its pictures.
  */
-export function prepareItems(rows: SetRows, planner: PlannerRequestSettings): WorkItem[] {
-  const bound = preparationBoundUsd(planner, rows.set.kind);
+export function prepareItems(rows: SetRows): WorkItem[] {
   return rows.panels.filter((p) => p.state === "pending").map((p) => ({
     ref: `panel:${p.id}`,
     label: `preparing panel ${p.id} (fact ${p.factId}, ${p.scenarioKey}, ${p.lookStyleId})`,
-    boundUsd: bound,
+    boundUsd: 0,
   }));
 }
 
@@ -301,9 +286,9 @@ function cellItem(rows: SetRows, c: ComparisonCell): WorkItem {
  * expected cell whose panel is pending or prepared. A cell of a pending panel
  * is reserved now and queued when its panel is prepared.
  */
-export function fullItems(rows: SetRows, planner: PlannerRequestSettings | null, scope?: RunScope): WorkItem[] {
+export function fullItems(rows: SetRows, scope?: RunScope): WorkItem[] {
   const live = new Set(rows.panels.filter((p) => p.state === "pending" || p.state === "prepared").map((p) => p.id));
-  const prepare = planner ? prepareItems(rows, planner) : [];
+  const prepare = prepareItems(rows);
   const items = [...prepare, ...rows.cells.filter((c) => c.state === "expected" && live.has(c.panelId)).map((c) => cellItem(rows, c))];
   if (!scope) return items;
   // A retry starts only its own work (plan PLAN_EVAL_PAGE.md: "Retry scene /
@@ -343,18 +328,8 @@ export async function getComparisonSet(setId: number): Promise<ComparisonSetDeta
   const rows = await loadSetRows(setId);
   if (!rows) return null;
   const cellsByPanel = groupCellsByPanel(rows.cells);
-  // An unusable planner withholds only the preparation figure; the grid, the
-  // render estimate and the runs stay readable.
-  let prepare: WorkItem[] = [];
-  let preparationRefusal: string | null = null;
-  if (rows.panels.some((p) => p.state === "pending")) {
-    try {
-      prepare = prepareItems(rows, await plannerSettings({ withCast: rows.set.kind === "path" }));
-    } catch (err) {
-      if (!(err instanceof ComparisonLayoutError)) throw err;
-      preparationRefusal = err.reasons.join("; ");
-    }
-  }
+  const prepare = prepareItems(rows);
+  const preparationRefusal: string | null = null;
   const estimate = estimateOf(prepare, renderItems(rows, { preparedOnly: false }));
   const runs = await db.select().from(comparisonRunsTable).where(eq(comparisonRunsTable.setId, setId)).orderBy(desc(comparisonRunsTable.createdAt));
   return {
@@ -369,14 +344,10 @@ export async function getComparisonSet(setId: number): Promise<ComparisonSetDeta
   };
 }
 
-/** The work a run of `kind` would take; the planner is resolved only for preparation. */
+/** The work a run of `kind` would take. */
 export async function runItems(kind: "prepare" | "render" | "full", rows: SetRows, scope?: RunScope): Promise<WorkItem[]> {
-  const withCast = rows.set.kind === "path";
-  if (kind === "prepare") return prepareItems(rows, await plannerSettings({ withCast }));
-  if (kind === "full") {
-    const needsPlanner = rows.panels.some((p) => p.state === "pending" && (!scope || ("panelId" in scope && p.id === scope.panelId)));
-    return fullItems(rows, needsPlanner ? await plannerSettings({ withCast }) : null, scope);
-  }
+  if (kind === "prepare") return prepareItems(rows);
+  if (kind === "full") return fullItems(rows, scope);
   return renderItems(rows, { preparedOnly: true });
 }
 

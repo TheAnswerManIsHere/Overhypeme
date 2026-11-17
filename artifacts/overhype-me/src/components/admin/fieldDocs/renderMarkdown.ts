@@ -24,8 +24,8 @@ const SECTIONS: readonly { title: string; docs: readonly FieldDoc[] }[] = [
 ];
 
 const EFFECT_TEXT: Record<FieldEffectClass, string> = {
-  "render-affecting": "Render-affecting — feeds the prompt pipeline",
-  "advisory-only": "Advisory only — AI-planner context, no fixed compiler directive",
+  "render-affecting": "Render-affecting — reaches the picture prompt (the gag's scene and bubbles)",
+  "advisory-only": "Advisory only — read by the gag writer, never by the picture prompt",
   "gating-only": "Gating only — approval/health gate, never compiled into the prompt",
   "product-metadata": "Product metadata — ships with the fact, no render effect",
   "human-only": "Human-only — never leaves the admin UI",

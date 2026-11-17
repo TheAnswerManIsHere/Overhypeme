@@ -28,10 +28,8 @@ import {
   resolveFactEnrichmentSystemPrompt,
 } from "../lib/factEnrichmentConfig.js";
 import {
-  FACT_IMAGE_PROMPT_SYSTEM_DEFAULT,
   FACT_SOURCE_CLASSIFIER_SYSTEM_DEFAULT,
   getFactSourceClassifierSystem,
-  getImagePromptSystem,
   seedImagePromptConfig,
 } from "../lib/imagePromptConfig.js";
 import { REFERENCE_RESEARCH_SYSTEM_DEFAULT, getReferenceResearchSystem } from "../lib/referenceResearchConfig.js";
@@ -43,7 +41,6 @@ import {
 const md5 = (s: string) => createHash("md5").update(s).digest("hex");
 const READERS: Array<[string, () => Promise<string>, string]> = [
   ["fact_enrichment_system", getFactEnrichmentSystem, FACT_ENRICHMENT_SYSTEM_DEFAULT],
-  ["fact_image_prompt_system", getImagePromptSystem, FACT_IMAGE_PROMPT_SYSTEM_DEFAULT],
   ["fact_source_classifier_system", getFactSourceClassifierSystem, FACT_SOURCE_CLASSIFIER_SYSTEM_DEFAULT],
   ["fact_visual_concepts_system", getVisualConceptsSystem, FACT_VISUAL_CONCEPTS_SYSTEM_DEFAULT],
   ["reference_research_system", getReferenceResearchSystem, REFERENCE_RESEARCH_SYSTEM_DEFAULT],
@@ -76,10 +73,14 @@ describe("AI settings are set in code and have no admin surface", () => {
     bustConfigCache();
   });
 
-  it("covers exactly the six prompt keys, and every AI setting with the nine retired engine-setting keys", () => {
+  it("covers exactly the four prompt keys, and every AI setting with the ten retired keys", () => {
     for (const key of KEYS) assert.ok(isCodeOwnedPromptKey(key), key);
     assert.equal(isCodeOwnedPromptKey("fact_enrichment_engine_id"), false);
-    assert.equal(ENGINE_KEYS.length, 9);
+    // The render planner's system prompt retired with the planner
+    // (PLAN_GAG_DIRECT_RENDER.md, D): no longer a prompt, still refused and hidden.
+    assert.equal(isCodeOwnedPromptKey("fact_image_prompt_system"), false);
+    assert.ok(ENGINE_KEYS.includes("fact_image_prompt_system"));
+    assert.equal(ENGINE_KEYS.length, 10);
     for (const key of ALL_AI_KEYS) assert.ok(isCodeOwnedAiConfigKey(key), key);
     assert.equal(isCodeOwnedAiConfigKey("review_duplicate_threshold"), false);
   });
@@ -94,7 +95,7 @@ describe("AI settings are set in code and have no admin surface", () => {
     assert.equal(resolution.matchesCodeDefault, true);
   });
 
-  it("boot seeding writes none of the six prompt rows or the nine retired engine-setting rows", async () => {
+  it("boot seeding writes none of the four prompt rows or the ten retired rows", async () => {
     await db.delete(adminConfigTable).where(inArray(adminConfigTable.key, ALL_AI_KEYS));
     await seedImagePromptConfig();
     const rows = await db.select().from(adminConfigTable).where(inArray(adminConfigTable.key, ALL_AI_KEYS));

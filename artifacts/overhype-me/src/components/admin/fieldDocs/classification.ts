@@ -3,8 +3,14 @@
  * enum value-docs (literalness, complexity, fit, adult suitability).
  *
  * Pure data. Meanings are extracted from the classifier system prompt
- * (FACT_ENRICHMENT_SYSTEM_DEFAULT) and render behavior from the traced prompt
- * pipeline — see sourceRefs on each record.
+ * (FACT_ENRICHMENT_SYSTEM_DEFAULT) — see sourceRefs on each record.
+ *
+ * WHAT CLASSIFICATION DOES NOW: pictures are drawn straight from the approved
+ * gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md), so no classification field
+ * reaches a picture prompt. The gag writer reads the archetype and subtype
+ * (the JOKE MECHANISM block) and the cultural references / semantic entities;
+ * its candidate ideas also go out of date when any writer-hashed field
+ * changes (`writerAffectingEnrichment`). Nothing here marks a render stale.
  */
 
 import {
@@ -30,15 +36,20 @@ const CLASSIFIER_PROMPT: FieldDocSourceRef = {
   symbol: "FACT_ENRICHMENT_SYSTEM_DEFAULT",
   note: "The classifier system prompt — the authoritative definition of what the AI is told this field means.",
 };
-const PLANNER_TAXONOMY_BLOCK: FieldDocSourceRef = {
-  path: "artifacts/api-server/src/lib/imagePrompt/generator.ts",
-  symbol: "buildImagePromptUserMessage",
-  note: "Where the enrichment is injected into the image-prompt planner message (the TAXONOMY block is marked FIXED — DO NOT reclassify).",
+const WRITER_MESSAGE: FieldDocSourceRef = {
+  path: "artifacts/api-server/src/lib/visualConcepts/generator.ts",
+  symbol: "buildVisualConceptsUserMessage",
+  note: "Where the gag writer's message gets the archetype and subtype (the JOKE MECHANISM block) and the reference/entity meanings. Modifiers, literalness and complexity are not put in the message.",
 };
-const STALE_HASH: FieldDocSourceRef = {
+const WRITER_HASH: FieldDocSourceRef = {
+  path: "artifacts/api-server/src/lib/visualConcepts/inputHash.ts",
+  symbol: "writerAffectingEnrichment",
+  note: "The gag writer's freshness projection: editing a field listed here marks the stored gag ideas out of date. It is not a render hash.",
+};
+const RENDER_HASH: FieldDocSourceRef = {
   path: "artifacts/api-server/src/lib/factRenderScenarios.ts",
   symbol: "renderAffectingEnrichment",
-  note: "The render-input hash projection — fields listed here flip render-scenario tiles stale when edited.",
+  note: "The render-input hash projection: it hashes only the gag's scene, bubbles and cast entries, so no classification field flips a render stale.",
 };
 
 // ─── Small enum value-docs ───────────────────────────────────────────────────
@@ -48,7 +59,7 @@ export const VISUAL_LITERALNESS_DOCS = {
     meaning:
       "The fact should be depicted directly, as if it literally happened — the scene shows the impossible thing itself, dramatized cinematically.",
     renderImpact:
-      "The planner writes a scene that stages the fact as a real event. Most physical-feat and reversal facts land here.",
+      "Not read by the gag writer or the picture; it is a label. In practice this is the rating most physical-feat and reversal facts get: the fact is staged as a real event.",
     example:
       '"{NAME} bench-presses a bus" → a scene of the subject actually lifting a bus, full cinematic staging.',
     sourceRefs: [CLASSIFIER_PROMPT],
@@ -57,7 +68,7 @@ export const VISUAL_LITERALNESS_DOCS = {
     meaning:
       "The fact is too conceptual to show literally and needs symbolic visual language — the image represents the idea, not the event.",
     renderImpact:
-      "The planner leans on symbols, scale metaphors, and abstract staging instead of a literal event. Common for logic/infinity facts.",
+      "Not read by the gag writer or the picture; it is a label. Common for logic/infinity facts, which need symbols or scale metaphors rather than a literal event.",
     example:
       '"{NAME} counted to infinity. Twice." → an endless number-scape receding past the horizon rather than a person counting.',
     sourceRefs: [CLASSIFIER_PROMPT],
@@ -66,7 +77,7 @@ export const VISUAL_LITERALNESS_DOCS = {
     meaning:
       "The fact should become a concrete visual metaphor — a phrase or concept made physically true in the image.",
     renderImpact:
-      "The planner picks one clear metaphor and renders it as a real object/scene (a 'metaphor made physical').",
+      "Not read by the gag writer or the picture; it is a label for facts that become one clear metaphor made physical.",
     example:
       '"{NAME}\'s handshake seals deals" → a literal wax-seal stamp pressed by a handshake onto a giant contract.',
     sourceRefs: [CLASSIFIER_PROMPT],
@@ -75,7 +86,7 @@ export const VISUAL_LITERALNESS_DOCS = {
     meaning:
       "The fact should be staged as a realistic human/social scene — the comedy comes from people behaving impossibly, not from physics.",
     renderImpact:
-      "The planner keeps the scene physically plausible and puts the impossibility in the social roles and reactions (e.g. authority reversals).",
+      "Not read by the gag writer or the picture; it is a label for facts whose impossibility lives in the social roles and reactions (e.g. authority reversals).",
     example:
       '"A baby drove {NAME}\'s mother home" → a realistic car interior; the impossibility is who\'s driving, not the physics.',
     sourceRefs: [CLASSIFIER_PROMPT],
@@ -83,7 +94,7 @@ export const VISUAL_LITERALNESS_DOCS = {
   mixed: {
     meaning: "The fact needs both literal and symbolic elements to land.",
     renderImpact:
-      "The planner combines a literal core event with symbolic supporting elements; expect a busier scene.",
+      "Not read by the gag writer or the picture; it is a label for facts that need a literal core event plus symbolic supporting elements.",
     example:
       '"{NAME} argued with gravity and won" → a literal courtroom (roleplay) with gravity personified as a defeated force (symbolic).',
     sourceRefs: [CLASSIFIER_PROMPT],
@@ -93,13 +104,13 @@ export const VISUAL_LITERALNESS_DOCS = {
 export const VISUAL_COMPLEXITY_DOCS = {
   low: {
     meaning: "Straightforward visual representation — the fact translates to an image with no interpretation needed.",
-    renderImpact: "No special handling; the planner stages it directly.",
+    renderImpact: "No effect on the picture or the gag writer's message; editing it only marks stored gag ideas out of date.",
     example: '"{NAME} lifts a car" → one subject, one car, one action.',
     sourceRefs: [CLASSIFIER_PROMPT],
   },
   medium: {
     meaning: "Needs interpretation but has clear visual anchors — the AI has to make a staging choice, but the ingredients are obvious.",
-    renderImpact: "The planner picks an interpretation; the test renders are worth a quick sanity check.",
+    renderImpact: "No effect on the picture or the gag writer's message; editing it only marks stored gag ideas out of date. Worth a quick look at the gag's test renders.",
     example: '"Sharks have a {NAME} Week" → needs the \'sharks as audience\' inversion, but sharks + TV are clear anchors.',
     sourceRefs: [CLASSIFIER_PROMPT],
   },
@@ -107,7 +118,7 @@ export const VISUAL_COMPLEXITY_DOCS = {
     meaning:
       "Abstract, wordplay-heavy, ambiguous, or hard to make visually clear. The admin UI surfaces a 'Hard to visualize' warning for these.",
     renderImpact:
-      "Advisory to the planner only — but treat it as a signal to review the test renders closely and consider a Visual Strategy Override if the AI's interpretation misses.",
+      "No effect on the picture or the gag writer's message — but treat it as a signal to review the gag's test renders closely and to tighten the gag's scene if the picture misses.",
     example: '"{NAME} divided by zero and survived" → no natural image; expect symbolic staging and check it actually reads.',
     sourceRefs: [CLASSIFIER_PROMPT],
   },
@@ -176,16 +187,15 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
     hint: "The joke's MECHANISM — the single most important classification on this form.",
     whatItIs: [
       "The primary archetype classifies HOW the fact's joke works (its mechanism), not what it is superficially about. The classifier's own rule: \"Classify by the joke mechanism, not by superficial topic\" — a moon fact caused by a sneeze is a superhuman physical feat with an astronomical-consequence modifier, not a cosmic category.",
-      "There are 11 archetypes, each with its own hand-authored visual strategy. Getting this wrong sends the renderer down the wrong strategy entirely, so it is the first thing to check when a test render misses the joke.",
+      "There are 11 archetypes. The gag writer is told the archetype and subtype as the JOKE MECHANISM when it drafts gag ideas, so getting this wrong skews the ideas it proposes. It does not reach the picture itself: a picture is drawn from the approved gag.",
     ],
     howDerived: [
       "The enrichment classifier reads the fact rendered to the canonical subject (\"Alex\", they/them) and picks exactly one archetype using per-archetype \"use when…\" rules, plus explicit disambiguation guidance (e.g. the redundant-mechanism rule: \"threw a grenade and killed 50 people, then it exploded\" is a superhuman physical feat, NOT temporal inversion — the explosion is a redundant normal mechanism).",
       "A deterministic repair guard also runs after classification: a low-confidence temporal_causality_inversion on a thrown-weapon/redundant-mechanism pattern is auto-repaired to superhuman_physical_feat with the normal_function_rendered_unnecessary modifier.",
     ],
     renderImpact: [
-      "Selects the authored visual strategy template: the archetype's strategyBlock, core visual goal, i2i/t2i defaults, locked rules, and visualization examples are injected verbatim into the image-prompt planner under \"AUTHORED VISUAL STRATEGY (apply this — do not improvise)\".",
-      "Also echoed into the planner's TAXONOMY block marked \"FIXED — DO NOT reclassify\", and the plan validator requires the plan to keep this archetype.",
-      "Editing it flips existing test renders stale — rerun them to see the new strategy.",
+      "Read by the gag writer when it drafts gag ideas: it is the first half of the JOKE MECHANISM block in the writer's message. It does not reach the picture prompt, which is drawn only from the approved gag. The render-time planner that used to inject the archetype's strategy template was removed when pictures started being drawn straight from the gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md).",
+      "Editing it marks the stored gag ideas out of date (the writer's freshness check) so they can be redrafted. It never marks a render out of date.",
     ],
     values: valuesFrom(PRIMARY_ARCHETYPES, PRIMARY_ARCHETYPE_DOCS),
     workedExamples: [
@@ -193,7 +203,7 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
         scenario: '"{NAME} once threw a grenade and killed 50 people, then it exploded."',
         input: "primaryArchetype: superhuman_physical_feat (NOT temporal_causality_inversion)",
         outcome:
-          "The superhuman-feat strategy stages the throw as the overwhelming force with the explosion redundant — the canonical redundant-mechanism example from the classifier prompt.",
+          "The gag writer is told the mechanism is a superhuman physical feat, so its ideas stage the throw as the overwhelming force with the explosion redundant — the canonical redundant-mechanism example from the classifier prompt.",
       },
       {
         scenario: '"{NAME} sneezed and the moon left orbit."',
@@ -203,27 +213,23 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
       {
         scenario: '"A baby drove {NAME}\'s mother home."',
         input: "primaryArchetype: authority_threat_reversal, subtype social_role_reversal",
-        outcome: "The reversal strategy stages grounded human comedy — the wrong person holding the role — rather than physics.",
+        outcome: "The gag writer is told the mechanism is a social role reversal, so its ideas stage grounded human comedy — the wrong person holding the role — rather than physics.",
       },
     ],
-    effect: "render-affecting",
-    staleBehavior: "marks-render-stale",
+    effect: "advisory-only",
+    staleBehavior: "does-not-mark-render-stale",
     sourceRefs: [
       CLASSIFIER_PROMPT,
-      PLANNER_TAXONOMY_BLOCK,
-      {
-        path: "lib/api-zod/src/visualPromptStrategies.ts",
-        symbol: "getVisualPromptStrategy",
-        note: "The 11 authored per-archetype strategy templates the archetype selects between.",
-      },
-      STALE_HASH,
+      WRITER_MESSAGE,
+      WRITER_HASH,
+      RENDER_HASH,
     ],
     authoredStatus: "code-derived",
   },
   {
     key: "subtype",
     label: "Mechanism Subtype",
-    hint: "The archetype's refinement — picks the one-sentence visual principle the planner must apply.",
+    hint: "The archetype's refinement — picks the one-sentence visual principle the gag writer is shown.",
     whatItIs: [
       "Each archetype has 3–7 subtypes that pin down the joke's specific flavor (e.g. superhuman_physical_feat splits into force/strength/speed/endurance/precision/sensory scaling and ordinary-action-extreme-consequence). The subtype dropdown only offers subtypes valid for the selected archetype, and validation rejects a mismatched pair.",
     ],
@@ -231,8 +237,8 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
       "The classifier picks the subtype from the allowed list for its chosen archetype, using the per-archetype subtype rules in its system prompt. If it emits an invalid pair, one corrective retry re-asks with the allowed list.",
     ],
     renderImpact: [
-      "Injects the subtype's authored one-sentence visual principle into the planner as \"Subtype guidance for {subtype}: …\" — e.g. strength_scaled_action → \"Show the subject physically controlling an impossibly massive object while looking confident and in control.\"",
-      "Echoed in the planner's FIXED taxonomy block; editing flips test renders stale.",
+      "Read by the gag writer: the subtype's authored one-sentence visual principle (from getSubtypeGuidance) follows the archetype in the JOKE MECHANISM block of its message — e.g. strength_scaled_action → \"Show the subject physically controlling an impossibly massive object while looking confident and in control.\" It does not reach the picture prompt, which is drawn only from the approved gag.",
+      "Editing it marks the stored gag ideas out of date. It never marks a render out of date.",
     ],
     values: valuesFrom(ALL_SUBTYPES, SUBTYPE_DOCS),
     workedExamples: [
@@ -240,24 +246,26 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
         scenario: '"{NAME} bench-presses the Earth." (superhuman_physical_feat)',
         input: "subtype: strength_scaled_action",
         outcome:
-          "Planner receives: \"Show the subject physically controlling an impossibly massive object while looking confident and in control.\"",
+          "The gag writer's JOKE MECHANISM block carries: \"Show the subject physically controlling an impossibly massive object while looking confident and in control.\"",
       },
       {
         scenario: '"{NAME} rolled a seven on a six-sided die." (logic_formal_impossibility)',
         input: "subtype: probability_impossibility",
-        outcome: "Planner shows the impossible outcome with enough context that the broken probability rule is obvious.",
+        outcome: "The gag writer is told to show the impossible outcome with enough context that the broken probability rule is obvious.",
       },
     ],
-    effect: "render-affecting",
-    staleBehavior: "marks-render-stale",
+    effect: "advisory-only",
+    staleBehavior: "does-not-mark-render-stale",
     sourceRefs: [
       CLASSIFIER_PROMPT,
       {
         path: "lib/api-zod/src/visualPromptStrategies.ts",
         symbol: "getSubtypeGuidance",
-        note: "The per-subtype principle sentences injected into the planner.",
+        note: "The per-subtype principle sentences the gag writer is shown.",
       },
-      STALE_HASH,
+      WRITER_MESSAGE,
+      WRITER_HASH,
+      RENDER_HASH,
     ],
     authoredStatus: "code-derived",
   },
@@ -272,25 +280,24 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
       "The classifier judges whether the fact CAN be shown literally (most physical feats) or needs symbolic/metaphorical treatment (logic, infinity, wordplay), per the definitions in its system prompt.",
     ],
     renderImpact: [
-      "Advisory to the planner: it is echoed in the TAXONOMY block so the scene-writing AI weighs it, but no deterministic compiler directive keys off it — the authored archetype strategy and modifiers do the hard steering.",
-      "Despite being advisory, it IS part of the render-input hash — editing it flips test renders stale so you can rerun and compare.",
+      "Not read by the picture, and not put in the gag writer's message — it is a recorded label. It is only part of the gag writer's freshness check, so editing it marks the stored gag ideas out of date. It never marks a render out of date.",
     ],
     values: valuesFrom(VISUAL_LITERALNESS_VALUES, VISUAL_LITERALNESS_DOCS),
     workedExamples: [
       {
         scenario: '"{NAME} counted to infinity. Twice."',
         input: "visualLiteralness: symbolic_abstraction",
-        outcome: "The planner reaches for symbolic visual language (endless recursion imagery) instead of a person mouthing numbers.",
+        outcome: "Recorded as a label only; the gag the moderator approves decides whether the picture is symbolic (endless recursion imagery) or a person mouthing numbers.",
       },
       {
         scenario: '"A baby drove {NAME}\'s mother home."',
         input: "visualLiteralness: grounded_roleplay",
-        outcome: "The planner keeps physics realistic and puts the impossibility in the social roles.",
+        outcome: "Recorded as a label only; the approved gag decides the staging.",
       },
     ],
     effect: "advisory-only",
-    staleBehavior: "marks-render-stale",
-    sourceRefs: [CLASSIFIER_PROMPT, PLANNER_TAXONOMY_BLOCK, STALE_HASH],
+    staleBehavior: "does-not-mark-render-stale",
+    sourceRefs: [CLASSIFIER_PROMPT, WRITER_HASH, RENDER_HASH],
     authoredStatus: "code-derived",
   },
   {
@@ -302,8 +309,8 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
     ],
     howDerived: ["The classifier rates difficulty per its prompt definitions: low = straightforward, medium = needs interpretation but has clear anchors, high = abstract/wordplay/ambiguous."],
     renderImpact: [
-      "Advisory to the planner only — no compiler directive branches on it. Treat 'high' as a cue to inspect test renders closely and reach for a Visual Strategy Override when the AI's interpretation misses.",
-      "In the render-input hash: editing it flips test renders stale.",
+      "Not read by the picture, and not put in the gag writer's message. Treat 'high' as a cue to inspect the gag's test renders closely and tighten its scene when the picture misses.",
+      "Only part of the gag writer's freshness check: editing it marks the stored gag ideas out of date, never a render.",
     ],
     values: valuesFrom(VISUAL_COMPLEXITY_VALUES, VISUAL_COMPLEXITY_DOCS),
     workedExamples: [
@@ -314,8 +321,8 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
       },
     ],
     effect: "advisory-only",
-    staleBehavior: "marks-render-stale",
-    sourceRefs: [CLASSIFIER_PROMPT, PLANNER_TAXONOMY_BLOCK, STALE_HASH],
+    staleBehavior: "does-not-mark-render-stale",
+    sourceRefs: [CLASSIFIER_PROMPT, WRITER_HASH, RENDER_HASH],
     authoredStatus: "code-derived",
   },
   {
@@ -328,7 +335,7 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
     howDerived: ["The classifier applies the core product rule from its system prompt: strong = clearly positive; questionable = funny but possibly confusing/negative/gross/non-visual/weakly overhyped; reject = doesn't fit without a rewrite."],
     renderImpact: [
       "NOT compiled into the prompt — this is a quality/approval gate. Taxonomy Health raises a warning for 'questionable' and an error for 'reject' (both mark the fact needs_admin_review), and the value is a filterable projected column in the admin fact list.",
-      "It is NOT in the render-input hash, so editing it does not flip test renders stale (the compiled prompt doesn't depend on it).",
+      "It is NOT in the render-input hash, so editing it does not flip test renders stale (the prompt doesn't depend on it).",
     ],
     values: valuesFrom(OVERHYPE_FIT_VALUES, OVERHYPE_FIT_DOCS),
     workedExamples: [
@@ -344,7 +351,7 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
       CLASSIFIER_PROMPT,
       {
         path: "artifacts/api-server/src/lib/taxonomyHealth/index.ts",
-        symbol: "computeTaxonomyHealth",
+        symbol: "evaluateFactTaxonomyHealth",
         note: "The questionable/reject health flags and needs_admin_review gating.",
       },
     ],
@@ -385,7 +392,7 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
     ],
     howDerived: ["Written by the classifier alongside the rating; empty when there is nothing to explain."],
     renderImpact: [
-      "None — human-only. Never enters the planner message or the compiled prompt, and it is explicitly EXCLUDED from the render-input hash, so editing it does not flip test renders stale.",
+      "None — human-only. Never enters the gag writer's message or the compiled prompt, and it is explicitly EXCLUDED from the render-input hash, so editing it does not flip test renders stale.",
     ],
     workedExamples: [
       {
@@ -396,25 +403,23 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
     ],
     effect: "human-only",
     staleBehavior: "does-not-mark-render-stale",
-    sourceRefs: [CLASSIFIER_PROMPT, STALE_HASH],
+    sourceRefs: [CLASSIFIER_PROMPT, RENDER_HASH],
     authoredStatus: "code-derived",
   },
   {
     key: "modifiers",
     label: "Render Modifiers",
-    hint: "Flags that steer the image — most as planner context, a few as structural compiler signals.",
+    hint: "Flags the classifier records about the fact. They do not steer the picture: it is drawn from the approved gag.",
     whatItIs: [
-      "A list of flags from a known catalog (custom values allowed) that mark rendering, identity, setting, and safety constraints. They work in two tiers: MOST are serialized into the planner's TAXONOMY block as context (the frontier planner reads them and they can shape the plan, but nothing guarantees the effect); a SMALL set have a deterministic compiler effect (see renderImpact).",
-      "Unknown (custom) modifiers render as amber chips. They carry no fixed directive — the prompt planner sees them as raw context only, so their effect depends on the AI's interpretation.",
+      "A list of flags from a known catalog (custom values allowed) that mark rendering, identity, setting, and safety constraints. They are a record of what the classifier saw. They do not reach any picture prompt: until pictures started being drawn straight from the gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md) a few of them acted as structural compiler signals (subject binding, no-clones, violence relevance, failure-mode guards); that effect was removed.",
+      "Unknown (custom) modifiers render as amber chips. Like the known ones they carry no directive anywhere.",
     ],
     howDerived: [
       "The classifier prefers known modifiers from its catalog and may add a custom one only when no known modifier captures an important rendering, discovery, identity, setting, or safety constraint. Admins freely add/remove them here.",
     ],
     renderImpact: [
-      "Most modifiers are planner-context only: they inform the frontier planner (which, steered by the moderator's Visual concept, owns the scene) but there is no fixed directive guaranteeing the effect. See the per-value docs below.",
-      "Structural signals (guaranteed compiler effect): age/life-stage modifiers (baby_child_version, older_self_version, age_transform, …) drive the SUBJECT BINDING section so the subject IS the transformed person (never a separate generic baby/elder beside them); avoid_duplicate_subject drives the single-instance binding; crowd_reaction / clear_causal_relationship / subject_object_reversal drive conservative failure-mode guards.",
-      "Three modifiers (cinematic_aftermath, projectile_impact_power, action_comedy) also mark the fact violence-relevant, which permits the default violence-allow line in the prompt.",
-      "Editing modifiers flips test renders stale (except the inert legacy text/logo names, which are filtered out of the render hash).",
+      "None on the picture. A picture's prompt is built only from the approved gag's scene, bubbles and cast plus fixed wording that is the same for every fact, so no modifier changes it. Age changes and \"one subject, no clones\" are now the gag writer's job, stated in the gag's scene.",
+      "The gag writer's message does not list modifiers either. They are part of its freshness check only: editing them marks the stored gag ideas out of date (the inert legacy text/logo names are filtered out of that check). They never mark a render out of date.",
     ],
     values: valuesFrom(KNOWN_FACT_MODIFIERS, KNOWN_MODIFIER_DOCS),
     workedExamples: [
@@ -422,30 +427,26 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
         scenario: '"{NAME} as a baby negotiated their own bedtime." — render shows an adult plus a random baby.',
         input: 'Add modifier: "baby_child_version"',
         outcome:
-          "The compiler emits a SUBJECT BINDING section fusing the subject with the transformed life stage as ONE entity (\"the same person de-aged… no separate generic baby, no adult version left in frame\"), plus anti-split strict constraints. The modifier also reaches the planner as context.",
+          "Nothing in the picture changes: the modifier is not read by the compiler any more. Fix the render by writing the de-aging into the gag's scene (\"{NAME}, de-aged into a baby — the same person, not a second one\"); the scene reaches the prompt verbatim.",
       },
       {
         scenario: "A render keeps drawing readable gibberish signage, but the scene has NO text that should appear.",
-        input: "In the Visual Strategy Override, set Supporting-text policy → forbid.",
+        input: "Say in the gag's scene that there are no signs or lettering.",
         outcome:
-          'STRICT CONSTRAINTS emits "Avoid readable in-scene text unless required by a higher-priority instruction." (Incidental background gibberish is already steered clean by an always-on guard; a full ban is this moderator override — the old no_readable_text modifier was retired.)',
+          "Every picture already carries fixed wording excluding overlay text and steering incidental background text non-readable; anything stronger goes in the scene. (The supporting-text override and the old no_readable_text modifier are both retired.)",
       },
       {
         scenario: 'You add a custom modifier "sepia_flashback".',
         input: 'modifiers: [..., "sepia_flashback"] (amber chip)',
-        outcome: "No fixed directive exists — the planner sees the token as context and may or may not honor it. Check the test render.",
+        outcome: "Nothing reads it for the picture; it is recorded on the fact and takes part in the gag writer's freshness check only.",
       },
     ],
-    effect: "render-affecting",
-    staleBehavior: "marks-render-stale",
+    effect: "advisory-only",
+    staleBehavior: "does-not-mark-render-stale",
     sourceRefs: [
-      {
-        path: "artifacts/api-server/src/lib/imagePrompt/generator.ts",
-        symbol: "buildImagePromptContextBlocks",
-        note: "Where modifiers are serialized into the planner's TAXONOMY context block.",
-      },
       CLASSIFIER_PROMPT,
-      STALE_HASH,
+      WRITER_HASH,
+      RENDER_HASH,
     ],
     authoredStatus: "code-derived",
   },
@@ -521,7 +522,7 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
     ],
     effect: "product-metadata",
     staleBehavior: "does-not-mark-render-stale",
-    sourceRefs: [CLASSIFIER_PROMPT, STALE_HASH],
+    sourceRefs: [CLASSIFIER_PROMPT, RENDER_HASH],
     authoredStatus: "code-derived",
   },
   {
@@ -534,7 +535,7 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
     ],
     howDerived: ["Emitted by the classifier with each classification; the deterministic redundant-mechanism repair caps it at 0.49 when it rewrites a misclassification, keeping the fact flagged for review."],
     renderImpact: [
-      "Advisory only: echoed to the planner as context, never compiled, and explicitly excluded from the render-input hash.",
+      "Advisory only: a record of the classifier's own confidence; it reaches no prompt, and it is excluded from the render-input hash.",
     ],
     workedExamples: [
       {
@@ -565,7 +566,7 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
     ],
     howDerived: ["Written by admins (and appended to by the repair guard). The classifier itself starts it empty."],
     renderImpact: [
-      "None — human-only. Never enters the planner or compiled prompt; excluded from the render-input hash, so editing it never flips renders stale.",
+      "None — human-only. Never enters the gag writer's message or the compiled prompt; excluded from the render-input hash, so editing it never flips renders stale.",
     ],
     workedExamples: [
       {
@@ -576,7 +577,7 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
     ],
     effect: "human-only",
     staleBehavior: "does-not-mark-render-stale",
-    sourceRefs: [STALE_HASH],
+    sourceRefs: [RENDER_HASH],
     authoredStatus: "code-derived",
   },
 ];

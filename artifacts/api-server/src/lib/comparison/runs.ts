@@ -54,12 +54,10 @@ import { defaultScenarioRenderControls, syntheticAnalysisForReference } from "..
 import { ReferenceAssetUnavailableError, resolveDefaultReferenceUrl } from "../defaultReferenceResolver";
 import { resolveRenderReviewInput } from "../imagePrompt/resolveRenderReviewInput";
 import { assembleImagePromptForPreview } from "../imagePrompt/preview";
-import { withoutLlmRetries } from "../utilityLLM";
 import { renderPersonalized } from "../renderCanonical";
-import { compileDirect, compileForSubjectRenderMode, type DirectCompileArgs } from "../imagePrompt/compilers/nanoBanana2";
-import { extractCast, type CastExtractionResult } from "../gags/castExtraction";
+import { compileDirect, type DirectCompileArgs } from "../imagePrompt/compilers/nanoBanana2";
+import { DirectGagInputError } from "../imagePrompt/directInput";
 import { engineFamilyOf, recipeById } from "../imagePrompt/recipeStore";
-import type { CompiledPrompt, IdentityPolicy, ImagePromptGenerationInput, VisualPlan } from "@workspace/api-zod";
 import { imageEngineRefusal } from "../imageEngineRouting";
 import { buildImageRequestSettings } from "../imageRequestBuilder";
 import { buildEngineInput, engineById } from "../engineInterpreter";
@@ -92,12 +90,6 @@ export function promptTextOf(compiledPrompt: unknown): string | null {
 }
 
 export const COMPARISON_RENDER_QUEUE = "comparison_render";
-
-let castExtractor: typeof extractCast = extractCast;
-/** Test seam: replace the cast call a path set's preparation makes. */
-export function __setCastExtractorForTest(fn: typeof extractCast | null): void {
-  castExtractor = fn ?? extractCast;
-}
 
 /** The comparison's reference images are sent at most this size on the long edge (plan, D2). */
 const COMPARISON_REFERENCE_MAX_EDGE_PX = 1024;
@@ -261,13 +253,14 @@ async function failPanel(panelId: number, state: "failed" | "skipped", reason: s
 }
 
 /**
- * Prepare one panel through the same planner-and-compiler path the Runtime
- * Compiled Prompt preview uses, and freeze its output for every cell.
+ * Prepare one panel through the same direct compile the Runtime Compiled
+ * Prompt preview uses, and freeze its input for every cell.
  */
 export async function preparePanel(p: PreparePayload): Promise<HandlerResult> {
   const [panel] = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.id, p.panelId));
   if (panel?.state === "planning") {
-    // A restart after the planner call began: it may have been billed, so no second call.
+    // A panel left mid-planner-call by a restart before the planner was
+    // removed: that call may have been billed, so it is not prepared again.
     await failPanel(panel.id, "failed", "interrupted during the planner call: it may have been billed, so it was not repeated");
     await finishRunIfDone(p.runId);
     return terminalFailure("comparison_dispatch_ambiguous", "planner call outcome unknown");
@@ -281,10 +274,7 @@ export async function preparePanel(p: PreparePayload): Promise<HandlerResult> {
 }
 
 async function preparePanelInFlight(panel: ComparisonPanel, p: PreparePayload): Promise<HandlerResult> {
-  // Everything before the planner call can refuse for free.
   const [fact] = await db.select({ text: factsTable.text, enrichment: factsTable.enrichment }).from(factsTable).where(eq(factsTable.id, panel.factId));
-  // Only a path set's panels name a gag (createComparisonSet).
-  const isPath = panel.gagId != null;
   // The render input: the fact's classification with the panel's one gag —
   // the gag the panel names (a path set; plan PLAN_GAG_DIRECT_RENDER.md, A),
   // else the fact's primary gag (the lowest-slot gag's approved version;
@@ -332,69 +322,39 @@ async function preparePanelInFlight(panel: ComparisonPanel, p: PreparePayload): 
     return terminalFailure("comparison_input_failed", msg);
   }
 
-  // The paid call: from here a failure keeps the reservation. The marker is
-  // committed first, so a restart mid-call never calls again.
-  const [marked] = await fencedTransaction(db, (tx) => tx.update(comparisonPanelsTable).set({ state: "planning", updatedAt: new Date() })
-    .where(and(eq(comparisonPanelsTable.id, panel.id), eq(comparisonPanelsTable.state, "preparing")))
-    .returning({ id: comparisonPanelsTable.id }));
-  if (!marked) return { ok: true, result: "not in flight" };
-  // A path set's direct side: the gag's cast, read once and frozen. Under the
-  // same marker as the planner call, so a restart never repeats it either.
-  let castResult: CastExtractionResult | null = null;
-  if (isPath) {
-    try {
-      castResult = await withoutLlmRetries(() => castExtractor({
-        scene: gag?.coreSceneOverride ?? "",
-        bubbles: gag?.bubbles ?? [],
-        factCharacterLabels: (enrichment.data.characters ?? []).map((c) => c.label),
-      }));
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      await failPanel(panel.id, "failed", `reading the gag's cast failed: ${msg}`);
-      return terminalFailure("comparison_cast_failed", msg);
-    }
-    if (castResult.unboundSpeakers.length) {
-      // The gag could not be saved under the new rules: a bubble's speaker is not in its scene.
-      await failPanel(panel.id, "skipped", `the gag's scene does not show bubble speaker ${castResult.unboundSpeakers.map((s) => `"${s}"`).join(", ")}; edit the gag or choose another`);
-      await settleAtBound(p.reservationId);
-      return { ok: true, result: "skipped" };
-    }
-  }
+  // The panel's one gag, compiled directly: no model call, so preparation
+  // costs nothing and needs no marker against a repeated call (plan
+  // PLAN_GAG_DIRECT_RENDER.md, D). Each cell compiles the frozen input again
+  // with its own wording.
   let assembled;
   try {
-    // One submission per permitted call: the SDK's own retries are off.
-    assembled = await withoutLlmRetries(() => assembleImagePromptForPreview({
-      renderedFactText: resolved.renderedFactText,
-      enrichment: enrichment.data,
-      sourceImageAnalysis: resolved.analysis,
+    assembled = assembleImagePromptForPreview({
+      gag,
       subjectRenderMode: resolved.subjectRenderMode,
-      userSelectedSubjectRenderMode: resolved.userSelectedSubjectRenderMode,
-      identityPolicy: resolved.identityPolicy as IdentityPolicy,
       renderControls: resolved.renderControls,
       stylePrompt: resolved.stylePrompt,
       referenceImageUrl: reference?.url ?? null,
       renderedSubject: resolved.renderedSubject,
-      requestId: `comparison:${p.runId}:panel:${panel.id}:${randomUUID()}`,
-    }));
+    });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    await failPanel(panel.id, "failed", `planner failed: ${msg}`);
-    return terminalFailure("comparison_planner_failed", msg);
+    // Every compile refusal ends the panel here, with its reservation
+    // released: a preparation job runs once (maxAttempts 1), so a throw that
+    // escaped would leave the panel in flight and the evaluation unfinishable.
+    if (err instanceof DirectGagInputError) {
+      await failPanel(panel.id, "skipped", `the gag cannot be drawn as it stands: ${err.message}`);
+    } else {
+      await failPanel(panel.id, "failed", `the prompt could not be compiled: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    await release(p.reservationId);
+    return { ok: true, result: err instanceof DirectGagInputError ? "skipped" : "failed" };
   }
-  await settleAtBound(p.reservationId);
-  const provenance = assembled.output.plannerProvenance;
-  if (provenance?.fallbackReason) {
-    // The planner fell back to another model: this is not the experiment the set describes.
-    await failPanel(panel.id, "failed", `the planner fell back (${provenance.fallbackReason}) to ${provenance.model ?? "another model"}`);
-    return { ok: true, result: "planner fell back" };
-  }
+  await release(p.reservationId);
   // Recording the panel prepared and queueing its waiting cells is one
   // transaction: a restart between the two can neither strand a cell nor
   // queue it twice (each cell leaves "waiting" exactly once).
   await fencedTransaction(db, async (tx) => {
   await tx.update(comparisonPanelsTable).set({
     state: "prepared",
-    visualPlan: assembled.output.visualPlan,
     compiledPrompt: assembled.compiled,
     referenceIdentityType: desc.referenceIdentityType ?? null,
     referenceAssetVersion: reference?.version ?? null,
@@ -403,26 +363,10 @@ async function preparePanelInFlight(panel: ComparisonPanel, p: PreparePayload): 
     renderControls: resolved.renderControls,
     ...frozenJudgingReference(resolved.renderedFactText, enrichment.data, resolved.renderedSubject),
     frozenBubbles: frozenBubblesOf(gag, resolved.renderedSubject),
-    gagCast: castResult,
-    // The scene, frozen once and shared: each cell compiles it with its own
-    // wording; a path set's direct cells compile the gag alone.
-    compileArgs: {
-      visualPlan: assembled.output.visualPlan,
-      plannerPrompt: assembled.output.compiledPrompt,
-      input: assembled.input,
-      renderedSubject: resolved.renderedSubject,
-      ...(castResult && gag ? {
-        direct: {
-          gag: { scene: gag.coreSceneOverride ?? "", bubbles: gag.bubbles ?? [] },
-          cast: castResult.cast,
-          subjectRenderMode: resolved.subjectRenderMode,
-          stylePrompt: resolved.stylePrompt,
-          renderControls: resolved.renderControls,
-          referenceImageUrl: reference?.url ?? null,
-          renderedSubject: resolved.renderedSubject,
-        },
-      } : {}),
-    } satisfies PanelCompileArgs,
+    // The gag's stored cast, as it reached the prompt.
+    gagCast: { cast: assembled.args.cast },
+    // The gag, frozen once and shared: each cell compiles it with its own wording.
+    compileArgs: { direct: assembled.args } satisfies PanelCompileArgs,
     error: null,
     updatedAt: new Date(),
   }).where(eq(comparisonPanelsTable.id, panel.id));
@@ -452,14 +396,11 @@ export function frozenJudgingReference(
 }
 
 /**
- * What preparation freezes on a panel so each cell can compile the same scene
- * with its own wording; on a path set, also the direct side's whole input.
+ * What preparation freezes on a panel so each cell can compile the same gag
+ * with its own wording. A panel prepared before the planner was removed froze
+ * a plan and, on a path set, also `direct`; only `direct` can still be drawn.
  */
 interface PanelCompileArgs {
-  visualPlan: VisualPlan;
-  plannerPrompt: CompiledPrompt;
-  input: ImagePromptGenerationInput;
-  renderedSubject: { name: string; pronouns: string | null };
   direct?: Omit<DirectCompileArgs, "recipe">;
 }
 
@@ -492,19 +433,14 @@ export function frozenBubblesOf(
 export async function cellPromptText(panel: ComparisonPanel, cell: Pick<ComparisonCell, "recipeVersionId" | "engineId" | "renderPath">): Promise<string | null> {
   const args = panel.compileArgs as PanelCompileArgs | null;
   if (!args) return promptTextOf(panel.compiledPrompt);
-  const recipe = await recipeById(cell.recipeVersionId, engineFamilyOf(cell.engineId));
-  if (cell.renderPath === "direct") {
-    if (!args.direct) throw new Error("the panel froze no direct-path input");
-    return compileDirect({ ...args.direct, recipe }).prompt || null;
+  // A planned cell, or a panel that froze only a plan, was drawn through the
+  // render planner, which is gone (plan PLAN_GAG_DIRECT_RENDER.md, D): it can
+  // no longer be drawn, and drawing it directly would mislabel the result.
+  if (cell.renderPath === "planned" || !args.direct) {
+    throw new Error("this cell was prepared for the render planner, which has been removed; it can no longer be drawn");
   }
-  const compiled = compileForSubjectRenderMode({
-    visualPlan: args.visualPlan,
-    compiledPrompt: args.plannerPrompt,
-    input: args.input,
-    renderedSubject: args.renderedSubject,
-    recipe,
-  });
-  return compiled.prompt || null;
+  const recipe = await recipeById(cell.recipeVersionId, engineFamilyOf(cell.engineId));
+  return compileDirect({ ...args.direct, recipe }).prompt || null;
 }
 
 // ─── Rendering ────────────────────────────────────────────────────────────────
@@ -624,27 +560,37 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
     await release(p.reservationId);
     return { ok: true, result: "refused before dispatch" };
   }
-  const promptText = await cellPromptText(panel!, cell);
   const aspectRatio = (panel!.renderControls as { aspectRatio?: string } | null)?.aspectRatio;
-  let input: Record<string, unknown>;
-  let requestSettings;
-  try {
-    if (!promptText) throw new Error("the panel's compiled prompt has no text");
-    if (panel!.imageMode === "i2i" && !panel!.referenceImageUrl) throw new Error("the panel has no reference image");
-    // A set drawn at member size asks for a member's picture (David, 2026-11-11: accurate pricing).
-    const [set] = await db.select({ imageSize: comparisonSetsTable.imageSize }).from(comparisonSetsTable).where(eq(comparisonSetsTable.id, panel!.setId));
-    requestSettings = buildImageRequestSettings(engine!, set?.imageSize === "final" ? "final" : "comparison", aspectRatio);
-    input = buildEngineInput(engine!, imageEngineParams(requestSettings, {
-      generationMode: panel!.imageMode as GenerationMode,
-      promptText,
-      aspectRatio,
-      referenceImageUrl: panel!.referenceImageUrl,
-    }));
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    await failCell(cell.id, `not rendered: ${msg}`);
-    await release(p.reservationId);
-    return terminalFailure("comparison_request_invalid", msg);
+  let promptText = "";
+  let input: Record<string, unknown> = {};
+  let requestSettings: ReturnType<typeof buildImageRequestSettings> | undefined;
+  // A cell already submitted builds no request: it polls the one it made, so
+  // it is never compiled again and no refusal here can release a reservation
+  // a submission holds.
+  if (!cell.falRequestId) {
+    try {
+      // Inside the refusal handling: a cell that can no longer be drawn (one
+      // prepared for the retired render planner) fails here, its reservation
+      // released, rather than throwing out of a job that runs once and leaving
+      // the evaluation in flight.
+      promptText = (await cellPromptText(panel!, cell)) ?? "";
+      if (!promptText) throw new Error("the panel's compiled prompt has no text");
+      if (panel!.imageMode === "i2i" && !panel!.referenceImageUrl) throw new Error("the panel has no reference image");
+      // A set drawn at member size asks for a member's picture (David, 2026-11-11: accurate pricing).
+      const [set] = await db.select({ imageSize: comparisonSetsTable.imageSize }).from(comparisonSetsTable).where(eq(comparisonSetsTable.id, panel!.setId));
+      requestSettings = buildImageRequestSettings(engine!, set?.imageSize === "final" ? "final" : "comparison", aspectRatio);
+      input = buildEngineInput(engine!, imageEngineParams(requestSettings, {
+        generationMode: panel!.imageMode as GenerationMode,
+        promptText,
+        aspectRatio,
+        referenceImageUrl: panel!.referenceImageUrl,
+      }));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await failCell(cell.id, `not rendered: ${msg}`);
+      await release(p.reservationId);
+      return terminalFailure("comparison_request_invalid", msg);
+    }
   }
 
   // One submission. The request settings are the marker that one may have

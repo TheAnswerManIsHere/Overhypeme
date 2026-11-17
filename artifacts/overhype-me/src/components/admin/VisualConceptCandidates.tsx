@@ -297,7 +297,7 @@ export function VisualConceptCandidates({
       {status == null && (
         <div className="space-y-2" data-testid="visual-concepts-idle">
           <p className="text-xs text-muted-foreground">
-            The planner can draft three distinct concepts to start from — use one on a gag, edit it there, or
+            The gag writer can draft three distinct concepts to start from — use one on a gag, edit it there, or
             ignore them and write your own.
           </p>
           <GenerateButton label="Generate visual ideas" />

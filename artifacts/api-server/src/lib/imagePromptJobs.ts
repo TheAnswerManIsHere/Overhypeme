@@ -6,17 +6,15 @@
  *   image_prompt_generation
  *     Payload: { attemptId }.
  *     1. Loads the pre-inserted image_prompt_attempts row.
- *     2. Loads fact text + enrichment, resolves stylePrompt from look_styles.
- *     3. Builds ImagePromptGenerationInput.
- *     4. Calls generateImagePromptPlan() → visualPlan + compiledPrompt + compatibility.
- *     5. Compiles via the matching Nano Banana 2 compiler.
- *     6. Updates the attempt row with the results. subjectFactCompatibility is
- *        advisory only — it never blocks rendering (facts are manually curated).
- *     7. Always enqueues `image_generation` for the same attemptId.
+ *     2. Reads the gag frozen on the attempt (scene, bubbles, cast) and
+ *        resolves the look's stylePrompt from look_styles.
+ *     3. Compiles the prompt directly from that gag (`compileDirect`): no
+ *        planner call (plan PLAN_GAG_DIRECT_RENDER.md, D).
+ *     4. Stores the compiled prompt and enqueues `image_generation`.
  *
  *   image_generation
  *     Payload: { attemptId }.
- *     1. Loads the attempt row (visual_plan + compiled_prompt populated).
+ *     1. Loads the attempt row (compiled_prompt populated).
  *     2. Resolves the engine recorded on the attempt (imageEngineRouting.ts), sizes the call (imageRequestBuilder.ts), then buildEngineInput.
  *     3. Submits to fal, downloads the result, uploads to object storage.
  *     4. Updates attempt row with generated_image_object_path.
@@ -39,34 +37,29 @@ import {
 } from "@workspace/db";
 import type { AsyncJobRow } from "@workspace/db/schema";
 import {
-  resolveRenderPolicy,
   validateEnrichment,
-  defaultIdentityPolicyForRenderMode,
-  type ImagePromptGenerationInput,
   type SubjectRenderMode,
-  type IdentityPolicy,
   type RenderControls,
   type SourceImageAnalysis,
   type GenerationMode,
   type FactEnrichment,
-  type VisualPlan,
 } from "@workspace/api-zod";
 import { registerJobHandler, enqueueJob, terminalFailure, type JobHandler, type HandlerResult } from "./asyncJobs";
 import { assertJobOwnership, fencedTransaction, rethrowIfOwnershipLost } from "./jobFence";
 import { drawOrCollect } from "./renderRequestRecovery";
-import { generateImagePromptPlan, ImagePromptError } from "./imagePrompt/generator";
 import { finishAndStore, recordGenerationRequest } from "./provenance/records";
 import { vendorContext } from "./provenance/vendorContext";
 import { attemptProvenanceContext } from "./provenance/attemptActor";
 import { attemptImageEngineId, ImageEngineRoutingError, resolveImageEngine } from "./imageEngineRouting";
-import { NoPhotoRenderRefusedError } from "./imagePromptAttempts";
+import { ENGINE_REFUSED_ERROR_CODE, NoPhotoRenderRefusedError } from "./imagePromptAttempts";
 import { buildImageRequestSettings, type ImageRequestPurpose, type ImageRequestSettings } from "./imageRequestBuilder";
-import { compileForSubjectRenderMode } from "./imagePrompt/compilers/nanoBanana2";
+import { compileDirect, type DirectCompileArgs } from "./imagePrompt/compilers/nanoBanana2";
+import { directGagInput, DirectGagInputError } from "./imagePrompt/directInput";
 import { engineFamilyOf, recipeById } from "./imagePrompt/recipeStore";
 import type { ResolvedRecipe } from "./imagePrompt/recipe";
 import type { CompiledImagePrompt } from "./imagePrompt/types";
 import { generationModeFromSubjectRenderMode } from "./sourceImageAnalysis";
-import { renderPersonalized, hasUnresolvedFactTokens } from "./renderCanonical";
+import { hasUnresolvedFactTokens } from "./renderCanonical";
 import { isValidPromptIdentitySnapshot } from "./imagePrompt/promptIdentity";
 import { resolveRenderStyle, isValidRenderStyleSnapshot } from "./imagePrompt/styleResolution";
 import { buildEngineInput } from "./engineInterpreter";
@@ -89,8 +82,9 @@ export const IMAGE_GENERATION_QUEUE = "image_generation";
 
 /**
  * The recovery protocol the render queues implement (plan PLAN_JOB_RESUME.md
- * §A): version 1 is increment 2's — the planner reuses a saved plan, and the
- * image job collects a submitted picture instead of paying again. A row taken
+ * §A): version 1 is increment 2's — the prompt stage reuses a saved compiled
+ * prompt (a saved plan, before the planner was removed), and the image job
+ * collects a submitted picture instead of paying again. A row taken
  * back from a stopped holder is claimable only by a worker declaring at least
  * this, so a worker from before increment 2 never runs it.
  */
@@ -132,12 +126,14 @@ export const imagePromptGenerationHandler: JobHandler = {
       return { ok: false, error: `image_prompt_generation: attempt ${p.attemptId} not found` };
     }
 
-    // Checkpoint (plan PLAN_JOB_RESUME.md §F): the plan for this attempt is
-    // already saved — an earlier run stopped after saving it and before its
-    // job finished. Reuse it: no second planner call. Its image job was
-    // enqueued in the same transaction; it is created again here only if the
-    // render is still open (deduped against one in flight).
-    if (attempt.visualPlan && attempt.compiledPrompt) {
+    // Checkpoint (plan PLAN_JOB_RESUME.md §F): the compiled prompt for this
+    // attempt is already saved — an earlier run stopped after saving it and
+    // before its job finished. Reuse it: never compile again. Its image job
+    // was enqueued in the same transaction; it is created again here only if
+    // the render is still open (deduped against one in flight). Since the
+    // switch a saved prompt stands alone (plan PLAN_GAG_DIRECT_RENDER.md, D),
+    // so the compiled prompt is the checkpoint, not a stored plan.
+    if (attempt.compiledPrompt) {
       if (!attempt.generatedImageObjectPath && !attempt.error) {
         await fencedTransaction(db, (tx) => enqueueJob({
           queue: IMAGE_GENERATION_QUEUE,
@@ -145,8 +141,8 @@ export const imagePromptGenerationHandler: JobHandler = {
           dedupeKey: `image_generation:attempt:${p.attemptId}`,
         }, tx));
       }
-      logger.info({ attemptId: p.attemptId }, "[imagePromptJobs] plan already saved for this attempt; reusing it, no planner call");
-      return { ok: true, result: { attemptId: p.attemptId, reusedSavedPlan: true } };
+      logger.info({ attemptId: p.attemptId }, "[imagePromptJobs] compiled prompt already saved for this attempt; reusing it");
+      return { ok: true, result: { attemptId: p.attemptId, reusedSavedPrompt: true } };
     }
 
     // Reproducible inputs: validate the enrichment SNAPSHOT frozen on the
@@ -172,68 +168,33 @@ export const imagePromptGenerationHandler: JobHandler = {
       return recordTerminalAttemptFailure(p.attemptId, refused.code, refused.message);
     }
 
-    // The identity (name + pronouns) used to render this attempt. Drives both
-    // the legacy fact-text render and the compiler's final token gate, so a
+    // The identity (name + pronouns) used to render this attempt: the
+    // compiler's final token gate renders the gag's tokens with it, so a
     // template token can never leak into the engine prompt.
     const renderedSubject = await resolveAttemptIdentity(attempt);
 
-    // RENDERED fact text (subject/pronouns resolved). Frozen on the attempt
-    // since migration 0070; legacy rows are rendered on the fly. Either way the
-    // generator must never see an unresolved {NAME}/{SUBJ} token.
-    let factText: string;
+    // The one selected gag, frozen on the attempt when it was queued, is the
+    // whole fact-specific input (plan PLAN_GAG_DIRECT_RENDER.md, D; Q11: 1).
+    // No planner call: the classification frozen beside it is never read.
+    // With it, the wording chosen when the attempt was queued (none is the
+    // baseline of the family of the engine recorded on the attempt), read
+    // alongside, outside the compile's try, so a database error stays retryable.
+    let args: DirectCompileArgs;
+    let recipe: ResolvedRecipe;
     try {
-      factText = await resolveRenderedFactText(attempt, renderedSubject);
+      [args, recipe] = await Promise.all([
+        directArgsForAttempt(attempt, enrichment, renderedSubject),
+        recipeById(attempt.recipeVersionId, engineFamilyOf(attemptImageEngineId(attempt))),
+      ]);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      // Frozen fact text still carries unresolved tokens, or a legacy attempt's
-      // fact/template can't be resolved — deterministic, so terminal (§12).
-      return recordTerminalAttemptFailure(p.attemptId, "rendered_fact_unresolved_token", msg);
+      if (err instanceof DirectGagInputError) return recordTerminalAttemptFailure(p.attemptId, err.code, err.message);
+      throw err;
     }
-
-    const input = await buildGenerationInput(attempt, enrichment, factText, renderedSubject);
-
-    // The planner call is paid: check this run still owns its job first, so a
-    // run that lost its claim never pays (plan PLAN_JOB_RESUME.md §A).
-    await assertJobOwnership();
-    let output;
+    let compiled: CompiledImagePrompt;
     try {
-      output = await generateImagePromptPlan(input);
+      compiled = compileDirect({ ...args, recipe });
     } catch (err) {
-      rethrowIfOwnershipLost(err); // a run that lost its job records nothing (Issue #1010)
-      const msg = err instanceof ImagePromptError ? err.message : err instanceof Error ? err.message : String(err);
-      // Attribute the failure to the planner engine vs. fallback — a gpt-5.5
-      // timeout and a fallback-path failure are different diagnoses.
-      const prov = err instanceof ImagePromptError ? err.plannerProvenance : undefined;
-      const provNote = prov
-        ? ` [planner: ${prov.fallbackReason ? `fallback (${prov.fallbackReason})` : `${prov.model ?? "?"} via ${prov.resolvedEngineId ?? "?"}`}]`
-        : "";
-      const fullMsg = `prompt-gen failed: ${msg}${provNote}`;
-      // Validation-exhaustion (planner output invalid after the corrective
-      // retry) is deterministic → terminal. Provider/timeout/transport failures
-      // (or any legacy/unclassified error) stay retryable (§12).
-      if (err instanceof ImagePromptError && err.cause === "validation_exhausted") {
-        return recordTerminalAttemptFailure(p.attemptId, "planner_output_invalid_after_retry", fullMsg);
-      }
-      await markAttemptError(p.attemptId, fullMsg);
-      return { ok: false, error: fullMsg };
-    }
-
-    // The wording chosen when the attempt was queued; none is the baseline of
-    // the family of the engine recorded on the attempt. Read outside the
-    // compile's try, so a database error stays retryable.
-    const recipe = await recipeById(attempt.recipeVersionId, engineFamilyOf(attemptImageEngineId(attempt)));
-    let compiled;
-    try {
-      compiled = compileForSubjectRenderMode({
-        visualPlan: output.visualPlan,
-        compiledPrompt: output.compiledPrompt,
-        input,
-        renderedSubject,
-        recipe,
-      });
-    } catch (err) {
-      // A compiler throw (e.g. an unhandled subjectRenderMode) is deterministic
-      // given the frozen inputs → terminal; never retry the paid planner for it.
+      // A compiler throw is deterministic given the frozen inputs → terminal.
       const msg = err instanceof Error ? err.message : String(err);
       return recordTerminalAttemptFailure(p.attemptId, "compile_failed", `compile failed: ${msg}`);
     }
@@ -242,19 +203,15 @@ export const imagePromptGenerationHandler: JobHandler = {
     // {NAME}/{SUBJ}/… token. The compiler flags this as a warning (shared with
     // the admin preview), but at RENDER time a leaked token is terminal — we
     // refuse to ship it to the engine and never enqueue image_generation.
-    const finalPromptText =
-      (compiled as { imagePrompt?: string; prompt?: string }).imagePrompt ??
-      (compiled as { prompt?: string }).prompt ??
-      "";
-    if (hasUnresolvedFactTokens(finalPromptText)) {
+    if (hasUnresolvedFactTokens(compiled.imagePrompt ?? compiled.prompt ?? "")) {
       return recordTerminalAttemptFailure(
         p.attemptId,
         "moderator_core_scene_unresolved_token",
-        "compiled prompt still contains an unresolved personalization token (check the moderator Concept/override)",
+        "compiled prompt still contains an unresolved personalization token (check the gag's scene and bubbles)",
       );
     }
 
-    // §10.5 fail-loud budget gate: the compiler no longer silently truncates
+    // §10.5 fail-loud budget gate: the compiler never silently truncates
     // required content, so if required content alone overflowed the engine
     // budget (only reachable by legacy over-budget content — save validation
     // prevents it for new saves), fail terminal instead of shipping a prompt
@@ -264,64 +221,35 @@ export const imagePromptGenerationHandler: JobHandler = {
       return recordTerminalAttemptFailure(
         p.attemptId,
         "required_budget_overflow",
-        `compiled prompt exceeds the engine budget by ${overflow.overBy} characters (${overflow.totalLength}/${overflow.budget}); shorten the moderator Concept/additions`,
+        `compiled prompt exceeds the engine budget by ${overflow.overBy} characters (${overflow.totalLength}/${overflow.budget}); shorten the gag's scene`,
       );
     }
 
-    // Persist which planner engine produced this plan alongside the compiled
-    // prompt so attempts (and the admin preview) can attribute render quality.
-    if (output.plannerProvenance && compiled.diagnostics) {
-      compiled.diagnostics.plannerProvenance = output.plannerProvenance;
-    }
-
-    // subjectFactCompatibility is an ADVISORY signal only — persisted for admin
-    // visibility (and to drive the legacy "blocked" display for historical rows
-    // that predate this change), but it never gates whether image_generation is
-    // enqueued. David: facts are manually curated, so a "poor" rating renders
-    // (possibly imperfectly) rather than leaving the user with nothing.
-    await persistImagePromptPlanAndEnqueueGeneration({
+    await persistCompiledPromptAndEnqueueGeneration({
       attemptId: p.attemptId,
-      visualPlan: output.visualPlan,
       compiledPrompt: compiled as unknown as Record<string, unknown>,
-      subjectFactCompatibility: output.visualPlan.subjectFactCompatibility,
-      archetypeStrategyVersion: output.archetypeStrategyVersion,
     });
 
-    return {
-      ok: true,
-      result: {
-        attemptId: p.attemptId,
-        visualPlan: output.visualPlan,
-        compiledPrompt: compiled,
-      },
-    };
+    return { ok: true, result: { attemptId: p.attemptId, compiledPrompt: compiled } };
   },
 };
 
 /**
- * Narrow, worker-local success-path helper (extracted as a deterministic test
- * seam — this is NOT a general job-persistence abstraction). Persists the
- * planner/compiler results on the attempt row and always chains
- * `image_generation`, regardless of `subjectFactCompatibility.rating`. The
- * rating is advisory only; it never gates enqueue.
+ * Narrow, worker-local success-path helper (a deterministic test seam, not a
+ * general job-persistence abstraction): stores the compiled prompt on the
+ * attempt and chains `image_generation`. A direct attempt stores no plan.
  */
-export async function persistImagePromptPlanAndEnqueueGeneration(args: {
+export async function persistCompiledPromptAndEnqueueGeneration(args: {
   attemptId: number;
-  visualPlan: unknown;
-  compiledPrompt: unknown;
-  subjectFactCompatibility: unknown;
-  archetypeStrategyVersion: string;
+  compiledPrompt: Record<string, unknown>;
 }): Promise<void> {
-  // One fenced transaction (Issue #1000): the plan and its image job land
+  // One fenced transaction (Issue #1000): the prompt and its image job land
   // together, and only while this run still owns its job.
   await fencedTransaction(db, async (tx) => {
     await tx
       .update(imagePromptAttemptsTable)
       .set({
-        visualPlan: args.visualPlan,
-        compiledPrompt: args.compiledPrompt as Record<string, unknown>,
-        subjectFactCompatibility: args.subjectFactCompatibility,
-        archetypeStrategyVersion: args.archetypeStrategyVersion,
+        compiledPrompt: args.compiledPrompt,
         error: null,
         errorCode: null,
         updatedAt: new Date(),
@@ -480,7 +408,7 @@ export const imageGenerationHandler: JobHandler = {
         if (priorFallback?.state === "switched") {
           return recordTerminalAttemptFailure(
             p.attemptId,
-            "vendor_content_refused",
+            ENGINE_REFUSED_ERROR_CODE,
             bothRefusedMessage(priorFallback, engine.label, refusal),
           );
         }
@@ -503,7 +431,7 @@ export const imageGenerationHandler: JobHandler = {
         // engine for hours behind a "Drawing…" tile (David, Q17 option 1).
         return recordTerminalAttemptFailure(
           p.attemptId,
-          "vendor_content_refused",
+          ENGINE_REFUSED_ERROR_CODE,
           falSubmitErrorMessage(err, engine.label),
         );
       }
@@ -634,14 +562,16 @@ async function prepareAndSwitchFallback(
 }
 
 export function registerImagePromptHandlers(): void {
-  // `render` lane: single-item, moderator-watched renders (LLM planner + fal
+  // `render` lane: single-item, moderator-watched renders (prompt compile + fal
   // image gen). Isolated so a "test render" never waits behind a bulk backfill.
-  // Execution limit (Issue #1000): two planner calls, each up to 3 tries of 180 s (about 18 min), plus margin.
-  // Recovery (plan PLAN_JOB_RESUME.md §A, §F): a resumed run reuses a saved
-  // plan, so a reclaimed row is safe to run again at once (fast reclaim).
+  // Execution limit (Issue #1000): the prompt stage makes no AI call since the
+  // planner was removed (plan PLAN_GAG_DIRECT_RENDER.md, D); five minutes is
+  // margin for its database reads. Recovery (plan PLAN_JOB_RESUME.md §A, §F):
+  // a resumed run reuses a saved compiled prompt, so a reclaimed row is safe
+  // to run again at once (fast reclaim).
   registerJobHandler(IMAGE_PROMPT_QUEUE, imagePromptGenerationHandler, {
     lane: "render",
-    executionLimitMs: 25 * 60_000,
+    executionLimitMs: 5 * 60_000,
     recoveryProtocol: RENDER_RECOVERY_PROTOCOL,
     fastReclaim: true,
   });
@@ -712,41 +642,6 @@ async function resolveAttemptIdentity(
     pronouns = u?.pronouns ?? null;
   }
   return { name, pronouns };
-}
-
-/**
- * Resolve the RENDERED (token-free) fact text for an attempt.
- *
- * Preferred path: the `renderedFactText` frozen on the row at insert time
- * (migration 0070+). Legacy rows (pre-0070) have a null column — render the
- * fact template on the fly using the supplied attempt identity. In both cases
- * we refuse to proceed if unresolved {NAME}/{SUBJ} tokens remain, so a template
- * can never leak into a production image prompt.
- */
-async function resolveRenderedFactText(
-  attempt: ImagePromptAttempt,
-  identity: { name: string; pronouns: string | null },
-): Promise<string> {
-  if (attempt.renderedFactText && attempt.renderedFactText.trim()) {
-    if (hasUnresolvedFactTokens(attempt.renderedFactText)) {
-      throw new Error(`renderedFactText on attempt ${attempt.id} still contains unresolved tokens`);
-    }
-    return attempt.renderedFactText;
-  }
-  // Legacy fallback: render from the fact template + the attempt's identity.
-  const [factRow] = await db
-    .select({ text: factsTable.text })
-    .from(factsTable)
-    .where(eq(factsTable.id, attempt.factId))
-    .limit(1);
-  if (!factRow) {
-    throw new Error(`legacy_attempt_missing_rendered_text: fact ${attempt.factId} not found`);
-  }
-  const rendered = renderPersonalized(factRow.text, identity.name, identity.pronouns);
-  if (hasUnresolvedFactTokens(rendered)) {
-    throw new Error(`legacy_attempt_missing_rendered_text: render left unresolved tokens on attempt ${attempt.id}`);
-  }
-  return rendered;
 }
 
 async function markAttemptError(attemptId: number, error: string): Promise<void> {
@@ -898,67 +793,48 @@ export async function mirrorToLegacyStorage(attempt: ImagePromptAttempt, storedP
 type MirrorTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /**
- * The planner and compiler input a stored attempt renders from: its frozen
- * enrichment, fact text, photo, controls and style, with the effective render
- * policy. Shared by the render worker and the prompt tuner's preview, so a
- * preview compiles exactly what a render would.
+ * The direct compile's input for a stored attempt: the gag frozen on it, its
+ * photo's mode, look, controls, reference and identity. Shared by the render
+ * worker, the photoreal fallback and the prompt tuner's preview, so a preview
+ * compiles exactly what a render would. Throws `DirectGagInputError` when the
+ * frozen gag cannot be drawn.
  */
-async function buildGenerationInput(
+async function directArgsForAttempt(
   attempt: ImagePromptAttempt,
   enrichment: FactEnrichment,
-  factText: string,
   renderedSubject: { name: string; pronouns: string | null },
-): Promise<ImagePromptGenerationInput> {
-  const generationMode = generationModeFromSubjectRenderMode(attempt.subjectRenderMode as SubjectRenderMode);
+): Promise<DirectCompileArgs> {
+  const subjectRenderMode = attempt.subjectRenderMode as SubjectRenderMode;
   const renderControls = attempt.renderControls as RenderControls;
-  const stylePrompt = await resolveStylePrompt(renderControls, generationMode);
   return {
-    factText,
-    enrichment,
-    sourceImageAnalysis: attempt.sourceImageAnalysis as SourceImageAnalysis,
-    subjectRenderMode: attempt.subjectRenderMode as SubjectRenderMode,
-    userSelectedSubjectRenderMode: (attempt.userSelectedSubjectRenderMode as SubjectRenderMode | null) ?? null,
-    identityPolicy: attempt.identityPolicy as IdentityPolicy,
+    ...directGagInput(enrichment.visualPromptStrategyOverride),
+    subjectRenderMode,
+    stylePrompt: await resolveStylePrompt(renderControls, generationModeFromSubjectRenderMode(subjectRenderMode)),
     renderControls,
-    // Effective render policy = Phase-1 default ← moderator override (Phase 2).
-    renderPolicy: resolveRenderPolicy(enrichment),
-    stylePrompt,
     referenceImageUrl: extractReferenceImageUrl(attempt),
-    targetEngine: "nano_banana_2",
-    requestId: attempt.requestId ?? undefined,
-    // Token-renders moderator-authored override text (visual concept) before
-    // the planner sees it — the planner never receives raw {NAME} tokens.
     renderedSubject,
   };
 }
 
 /**
- * Compile a stored attempt's own scene plan again with another prompt recipe,
- * without a planner call (the prompt tuner's preview). Null when the attempt
- * stored no plan or its frozen inputs no longer resolve.
+ * Compile a stored attempt's frozen gag again with another prompt recipe (the
+ * prompt tuner's preview and the photoreal fallback). An attempt the planner
+ * planned before the switch compiles the same way: its frozen gag is what it
+ * drew, and its stored plan stays readable but is never compiled again. Null
+ * when its frozen inputs no longer resolve.
  */
 export async function recompileStoredAttempt(
   attempt: ImagePromptAttempt,
   recipe: ResolvedRecipe,
 ): Promise<CompiledImagePrompt | null> {
-  if (!attempt.visualPlan) return null;
   const enrichment = validateEnrichment(attempt.factEnrichmentSnapshot);
   if (!enrichment.ok) return null;
   const renderedSubject = await resolveAttemptIdentity(attempt);
-  let factText: string;
   try {
-    factText = await resolveRenderedFactText(attempt, renderedSubject);
-  } catch {
-    return null;
+    return compileDirect({ ...(await directArgsForAttempt(attempt, enrichment.data, renderedSubject)), recipe });
+  } catch (err) {
+    if (err instanceof DirectGagInputError) return null;
+    throw err;
   }
-  const input = await buildGenerationInput(attempt, enrichment.data, factText, renderedSubject);
-  return compileForSubjectRenderMode({
-    visualPlan: attempt.visualPlan as VisualPlan,
-    // The planner's own prose is not stored; it is read only when a plan has no core scene.
-    compiledPrompt: { prompt: "", negativePrompt: "", engineNotes: "" },
-    input,
-    renderedSubject,
-    recipe,
-  });
 }
 

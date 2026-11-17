@@ -28,7 +28,7 @@ export interface ControlVerdict {
 
 const OUTBOUND = /^detector: \d+ outbound attempt\(s\) recorded after the self-test$/;
 
-/** The journeys an `operation …` red line names, e.g. "operation image-prompts (journey 3, 6): …" → [3, 6]. */
+/** The journeys an `operation …` red line names, e.g. "operation image-renders (journey 3, 6): …" → [3, 6]. */
 function operationJourneys(line: string): number[] | null {
   const m = /^operation \S+ \(journey ([\d, ]+)\)/.exec(line);
   return m ? m[1]!.split(",").map((n) => Number(n.trim())) : null;

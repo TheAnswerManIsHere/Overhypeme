@@ -60,6 +60,7 @@ import {
 import {
   buildAndEnqueueImagePromptAttempt,
   buildRenderStatusPayload,
+  ENGINE_REFUSED_ERROR_CODE,
   type RenderControlsWithRefs,
 } from "./imagePromptAttempts";
 import { defaultPreviewSubjectForReference, resolveRenderReviewInput } from "./imagePrompt/resolveRenderReviewInput";
@@ -534,6 +535,7 @@ function cardFor(
       : status === "failed" ? attempt.error
       : status === "blocked" ? buildRenderStatusPayload(attempt).blockReason
       : null,
+    engineRefused: status === "failed" && attempt?.errorCode === ENGINE_REFUSED_ERROR_CODE,
     engineFallback: fallbackLineFor(attempt, status),
     moderatorRating: attempt?.moderatorRating ?? null,
     failureTag: attempt?.failureTag ?? null,

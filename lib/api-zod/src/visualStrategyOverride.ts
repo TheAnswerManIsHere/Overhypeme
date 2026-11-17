@@ -249,20 +249,34 @@ export type VisualPromptStrategyOverride = z.infer<typeof visualPromptStrategyOv
  * them, so a comparison marks a gag that has any.
  */
 export function hasExtraArtDirection(c: VisualPromptStrategyOverride): boolean {
-  return Boolean(
-    c.moderatorIntent?.trim()
-    || c.notesForModerator?.trim()
-    || c.subjectRealizationOverride
-    || (c.requiredVisualDetails ?? []).length
-    || (c.forbiddenVisualDetails ?? []).length
-    || (c.roleBindings ?? []).length
-    || (c.compositionGuidance ?? []).length
-    || (c.styleAgnosticPromptAdditions ?? []).length
-    || (c.negativePromptAdditions ?? []).length
-    || c.supportingTextPolicyOverride
-    || c.violencePolicyOverride,
-  );
+  return retiredArtDirectionFields(c).length > 0;
 }
+
+/**
+ * The retired "More art direction" fields a gag version holds a value in,
+ * by name. Since the switch (PLAN_GAG_DIRECT_RENDER.md, D; Q1: 1) they leave
+ * the accepted input: a save carrying a value in any of them is refused
+ * (`validateGagContent`). Stored content keeps parsing with them, and no
+ * reader acts on them; the fold moved every live value into its scene first.
+ * Moderator intent and notes, which never reached a prompt, go with them.
+ */
+export function retiredArtDirectionFields(c: VisualPromptStrategyOverride): string[] {
+  const out: string[] = [];
+  const has = (name: string, v: boolean) => { if (v) out.push(name); };
+  has("moderatorIntent", Boolean(c.moderatorIntent?.trim()));
+  has("subjectRealizationOverride", Boolean(c.subjectRealizationOverride));
+  has("requiredVisualDetails", (c.requiredVisualDetails ?? []).length > 0);
+  has("forbiddenVisualDetails", (c.forbiddenVisualDetails ?? []).length > 0);
+  has("roleBindings", (c.roleBindings ?? []).length > 0);
+  has("compositionGuidance", (c.compositionGuidance ?? []).length > 0);
+  has("styleAgnosticPromptAdditions", (c.styleAgnosticPromptAdditions ?? []).length > 0);
+  has("negativePromptAdditions", (c.negativePromptAdditions ?? []).length > 0);
+  has("supportingTextPolicyOverride", Boolean(c.supportingTextPolicyOverride));
+  has("violencePolicyOverride", Boolean(c.violencePolicyOverride));
+  has("notesForModerator", Boolean(c.notesForModerator?.trim()));
+  return out;
+}
+
 export type VisualStrategyRoleBinding = z.infer<typeof roleBindingSchema>;
 
 // ─── Token handling ─────────────────────────────────────────────────────────

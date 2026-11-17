@@ -97,7 +97,6 @@ import { checkDuplicateInternal } from "./ai";
 // signal comes entirely from the Step-2 required-render gate — so this exists
 // only to let a regression test assert the visual planner is NOT invoked on the
 // approve path.
-export { __setPlanGeneratorForTest } from "../lib/imagePrompt/preview";
 
 const requireFactSubmitRateLimit = createFactSubmitRateLimiter();
 // Each on-demand duplicate check may spend an embedding and an AI call.

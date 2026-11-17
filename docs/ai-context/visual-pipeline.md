@@ -12,35 +12,41 @@
 
 ## Current source of truth
 
-For a moderated render, the **moderator-authored "Visual Concept (Core Scene)" is
-authoritative** when present. It is a [gag](./glossary.md#gag)'s
-`coreSceneOverride`, stored in `fact_gags` since migration 0139 (plan
-`docs/plans/PLAN_THREE_GAGS.md`; the schema is
-`lib/api-zod/src/visualStrategyOverride.ts`), capped at 3000 chars (1500 until
-the fold, which moved the eleven extra fields' budget to the scene), carries
-`{NAME}`/pronoun tokens, and is canonicalized + token-validated on save. It is
-consumed **deterministically** in two places:
+**A picture is drawn from one selected [gag](./glossary.md#gag) and wording
+that is the same for every fact, and nothing else fact-specific** (plan
+`docs/plans/PLAN_GAG_DIRECT_RENDER.md`, increment 3, the switch; Issue #982).
+The gag's content — its scene (`coreSceneOverride`), its bubbles and its cast
+— is stored in `fact_gags` since migration 0139 (plan
+`docs/plans/PLAN_THREE_GAGS.md`; schema `lib/api-zod/src/visualStrategyOverride.ts`).
+The scene is capped at 3000 chars, carries `{NAME}`/pronoun tokens, and is
+canonicalized and token-validated on save. The compiler (`compileDirect`)
+emits it **verbatim** as CORE SCENE (token-rendered, otherwise unmodified;
+compiler-owned language in it is warned about, never stripped).
 
-1. As a **planner directive** — `generator.ts` emits it under "MODERATOR-AUTHORED
-   CORE SCENE (AUTHORITATIVE — hard directive)".
-2. As the **compiler CORE SCENE section** — `nanoBanana2.ts` uses the moderator
-   core over the AI plan's `coreScene`, marked `moderatorAuthored / required /
-   non-compressible`. Since PR #222 it is **VERBATIM**: token-rendered but
-   otherwise unmodified — NOT run through `sanitizePlannerProse` /
-   `scrubIntentLanguage` (those apply only to the AI-scene path). Compiler-owned
-   language is **detected and warned** (`moderator_core_scene_owned_language`,
-   non-mutating), never stripped, and a non-empty Concept **never** falls back to
-   the AI scene. (Only an empty/whitespace Concept uses the AI scene.)
-
-**The render-time plan + compiler are the single source of truth for what the
-model receives.** Enrichment is an input, not the prompt (see
-[`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md)).
+There is **no render planner** since the switch: no AI call per picture, and
+no classification field (archetype, modifiers, references, characters…)
+reaches a prompt. Enrichment is the gag writer's input, not the picture's (see
+[`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md)). The planner's
+useful jobs were re-homed: a pet's photo gets a fixed instruction
+(`DIRECT_PET_INSTRUCTION`), bubble speakers are bound from the gag's cast, and
+detail the gag leaves unstated is left to the engine under one fixed line
+(`DIRECT_FILL_INSTRUCTION`). Violence is one sentence on every picture
+(`VIOLENCE_RULE`, `imagePrompt/violenceRule.ts`), sent word for word to the
+gag writer too.
 
 ## End-to-end render flow
 
 1. **Source-image analysis** (`sourceImageAnalysis/`) picks a `subjectRenderMode`.
-2. **Frontier planner** (`generateImagePromptPlan()`) → `visualPlan` +
-   `subjectFactCompatibility` via OpenAI Structured Outputs. `subjectFactCompatibility`
+2. **The selected gag**, frozen on the attempt when it was queued (`gagId` and
+   its content in `factEnrichmentSnapshot.visualPromptStrategyOverride`,
+   built by `gagRenderInput`), is read by `directGagInput`
+   (`imagePrompt/directInput.ts`): a gag with no scene, or whose cast was not
+   read from its scene as it stands, ends the render terminal
+   (`gag_scene_missing`, `gag_cast_not_current`). *Until the switch this step
+   was the frontier planner (`generateImagePromptPlan()`) → `visualPlan` +
+   `subjectFactCompatibility` via OpenAI Structured Outputs; attempts it made
+   keep their stored plan, readable but never compiled again. The rest of this
+   item is that history.* `subjectFactCompatibility`
    is **advisory only — it never blocks rendering**. Facts are manually curated, so a
    "poor" rating still renders (possibly imperfectly) rather than leaving the user
    with nothing; the rating is persisted for admin visibility only. (A legacy job-level
@@ -58,8 +64,12 @@ model receives.** Enrichment is an input, not the prompt (see
    rule that AI call settings live in code ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)). (Before that, the rows were seeded
    `ON CONFLICT DO NOTHING` and a constant edit needed a DML migration too, which is
    why `0082` and `0084` exist.)
-3. **Compiler** (`compileForSubjectRenderMode()`) → the `compiledPrompt`, in
-   the wording and shape of the routed engine's family (*Prompt recipes*).
+3. **Compiler** (`compileDirect()`) → the `compiledPrompt`, in the wording and
+   shape of the routed engine's family (*Prompt recipes*). The worker, the
+   admin preview (`assembleImagePromptForPreview`), the prompt-wording
+   preview and the photoreal fallback (`recompileStoredAttempt`) and
+   comparison preparation all compile the same way, so a preview is the
+   prompt a render sends.
 4. **Production** (`imagePromptJobs.ts`) renders via fal.ai through the engine
    recorded on the attempt, at the size the request builder chose, and persists
    the result (`imagePromptAttempts.ts`). See *Which engine draws a render*.
@@ -770,15 +780,18 @@ it returns ("the subject" instead).
 - **The speaker dropdown on a gag card** offers the subject and the draft's
   cast (`buildCastSpeakerOptions`); a saved speaker the cast lacks is shown as
   itself, marked "not in this scene", and stops the save.
-- **Before the switch nothing renders from it.** The planned path never reads
-  the cast, so render reuse, the tile's freshness and approval all compare a
-  gag's content without its cast and marker (`renderAffectingEnrichment`;
-  `sameRenderedGag` in `gagStore.ts`): a cast read again, with a new time or
-  a differently worded description, never makes an unchanged picture
-  unapprovable (Codex `4600565971`, Fable's tie-break, PR #1002 round 1).
-  Increment 3 adds the cast entries to both, never the marker, with the
-  generation-version bump. A save still compares the whole content, cast
-  included.
+- **Since the switch every picture reads it** (the speaker bindings). Render
+  freshness, render reuse, the tile and approval all compare one projection
+  of a gag (`renderedGagProjection`, `imagePrompt/directInput.ts`): its scene,
+  complete bubbles and cast entries — never the extraction marker, so a cast
+  read again with the same entries at a new time changes nothing, while a
+  cast whose entries changed is a different picture. (Until increment 3 the
+  cast was left out of all three, since no prompt read it; it went in with the
+  `IMAGE_PROMPT_GENERATION_VERSION` bump to v11.) A save still compares the
+  whole content, cast included.
+- **The eleven "More art direction" fields left the accepted input** at the
+  switch (`retiredArtDirectionFields`; a save carrying a value is refused,
+  `RETIRED_FIELD`). Stored legacy keys still parse and nothing reads them.
 
 **The fold** (`lib/gags/fold.ts`, job `lib/gags/foldJob.ts`, queue
 `gag_fold`, panel on Taxonomy Health) is the one-off conversion of every gag
@@ -800,7 +813,9 @@ untouched. Originals are kept in `fact_gag_fold_archive` (migration 0147), and
 `revertGagFold` restores one while the version still holds what the fold wrote.
 The report (`GET /api/admin/gag-fold`) is computed from the gags as they are,
 so it is also the dry run; its two lists, versions for a moderator and
-versions with no current cast, must both be empty before increment 3.
+versions with no current cast, must both be empty before increment 3 is
+published on a database (both were empty on the Repl; the live site's run is
+in increment 3's post-merge verification).
 
 **Budget.** The scene's raw cap is 3000 and its rendered cap is pooled with
 the extra fields' (`SCENE_AND_ADDITIONS_RENDERED_MAX`, 3500): a scene may use
@@ -975,48 +990,35 @@ was read from an `admin_config` row that a boot seed never overwrote. The prompt
 has been read from code since Launch Phase 3's amendment 1, and migration 0138
 deleted the row; see the planner item's note on code-owned prompts, above.)
 
-## Frontier visual planner
+## Frontier visual planner (removed)
 
-`generateImagePromptPlan()` (`imagePrompt/generator.ts`) calls OpenAI with strict
-Structured Outputs. The engine is set in code ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)):
-**`openai-visual-planner`** (`engines/openai-visual-planner.ts`,
-`endpointId: "gpt-5.5"`, `kind: llm`, `tierRequirement: legendary`, high reasoning
-effort, 180 s timeout).
-Resolution **never throws** — it falls back to the default utility LLM with a
-recorded `fallbackReason`. (Introduced by PR #157.)
+Removed at the switch (plan `PLAN_GAG_DIRECT_RENDER.md`, D; David,
+2026-11-17): `imagePrompt/generator.ts`, its engine
+`engines/openai-visual-planner.ts`, its system prompt
+(`fact_image_prompt_system`, now a retired key in `codeOwnedPrompts.ts`), and
+the compiler code that read the classification (age transform, no-clones,
+modifier guards, sole-agent and active-action lines, the keyword violence
+check). Keeping it as a fallback was ruled out.
 
 ## Prompt compiler
 
-`compileForSubjectRenderMode()` in `compilers/nanoBanana2.ts` — the
-**deterministic compiler**, one for every engine (the file keeps its first
-engine's name). It dispatches by render mode and assembles a sectioned
-contract, worded and shaped by the routed engine family's recipe, where
-**the Visual Concept (CORE SCENE) LEADS**:
-CORE SCENE · IDENTITY & REFERENCE (i2i) / RENDER TASK (t2i) · SUBJECT BINDING ·
-SUBJECT REALIZATION · ROLE DETAILS · SUBJECT DETAILS · REQUIRED VISUAL DETAILS ·
-ENVIRONMENT · ADDITIONAL DETAILS · COMPOSITION · LIGHTING · RENDER STYLE · STRICT
-CONSTRAINTS. **Style is single-channel (PR #222):** `LIGHTING` carries physical
-light/mood/palette only, and the selected visual style is emitted as its own
-required **RENDER STYLE** section (the resolved `stylePrompt`, or a medium-only
-photorealistic default when none) — never folded into lighting. Supporting-text
-elements carry a `kind` (`literal_text` → quoted glyphs; `visual_graphic` →
-unquoted "depict as visuals, not written words"), so a description is never baked
-in as literal text. Every section after CORE SCENE is either **operational** (identity/
-reference, binding, style, policy) or **strictly additive** — it earns its place
-only by contributing a concrete detail the Concept omitted; restatements are
-de-duped out (content-word contiguity against emitted text). The old REFERENCE
-INTERPRETATION section is gone: role info now flows through the additive **ROLE
-DETAILS** section (`composeAdditiveRoleDetails`), which never doubles a name
-("Alex is Alex leans…" — the retired bug). **The compiler OWNS** the identity/
-reference/binding/STRICT-CONSTRAINTS/text-policy language; planner prose that
-duplicates these is stripped (`RemovedProseReason`). The de-dupe haystack is
-seeded ONLY from emitted text (never the non-emitted visualGoal/visualApproach).
-Dropped role/key-element candidates are recorded in
-`diagnostics.droppedCandidates`. None of the routed engines takes a
-negative-prompt parameter — exclusions are scene language. When the
-moderator's gag leads, the tone and density warnings that judge the planner's
-own fields (subject details, environment, frame, staging approach) are not
-run; an incomplete role binding is still flagged.
+`compileDirect()` in `compilers/nanoBanana2.ts` — the **deterministic
+compiler**, one for every engine (the file keeps its first engine's name). Its
+input is explicit and holds no classification (`DirectCompileArgs`: the gag's
+scene and bubbles, its cast, the photo's mode, the look, render controls, the
+reference and the identity). Sections, in order, worded and shaped by the
+routed engine family's recipe: CORE SCENE (the gag, verbatim) · IDENTITY &
+REFERENCE (person or pet wording, plus `DIRECT_PET_INSTRUCTION` for a pet) ·
+ADDITIONAL DETAILS (`DIRECT_FILL_INSTRUCTION`) · SPEECH & THOUGHT BUBBLES (a
+speaker binding per non-subject speaker from the cast, then one directive per
+balloon) · COMPOSITION (caption space, when asked) · ENGINE NOTES · RENDER
+STYLE · STRICT CONSTRAINTS (overlay-text exclusion, incidental-text guard,
+`VIOLENCE_RULE`). It is pinned by a captured corpus
+(`__tests__/fixtures/directCompileBaseline.json`, cases in
+`directCompileCases.ts`). None of the routed engines takes a negative-prompt
+parameter — exclusions are scene language. *Before the switch this section
+described the planned compile and its SUBJECT BINDING, ROLE DETAILS, SUBJECT
+DETAILS, ENVIRONMENT and LIGHTING sections; see git history.*
 
 ### Prompt recipes: the compiler's global wording, versioned per engine
 
@@ -1096,11 +1098,14 @@ pieces, since they are the joins the sentence de-dupe reads.
   reaches fails CI (Codex, PR #926). The render-time overflow refusal stays.
 - **Editor**: Admin → Eval → *Prompt wording* (`PromptRecipes.tsx`;
   `routes/adminPromptRecipes.ts`): per family, every piece editable, save with a
-  note, preview the whole prompt on a fact's latest stored render plan without
-  a planner call (`recompileStoredAttempt`), promote or restore the baseline.
+  note, preview the whole prompt on the gag frozen on a fact's newest compiled
+  render attempt for that photo type, with no model call
+  (`recompileStoredAttempt`; an older planned attempt frozen before casts were
+  read is passed over, never drawn with today's gag), promote or restore the
+  baseline.
   The preview highlights the recipe's wording against the fact's own text
   (`imagePrompt/recipeHighlight.ts`): each piece is wrapped in private-use
-  marker characters, the same plan is compiled a second time with the marked
+  marker characters, the same gag is compiled a second time with the marked
   recipe, and the markers are read back out of each section; a slot's filled
   value stays unmarked. A test requires every captured baseline prompt to read
   back unchanged, and the markers never reach an engine.

@@ -10,10 +10,11 @@
  * candidate text are deliberately EXCLUDED (generating new candidates for the
  * same inputs must not stale them).
  *
- * Reuses the render-scenario projection so "what stales candidates" tracks "what
- * stales renders". That projection includes the ENTIRE visualPromptStrategyOverride
- * — so saved bubble edits conservatively stale candidate ideas exactly as saved
- * core-scene edits do (deliberate, Option A of the bubble plan §E6). Since
+ * The classification fields it hashes are the writer's own list
+ * (`writerAffectingEnrichment`): since the switch a render reads none of them
+ * (plan PLAN_GAG_DIRECT_RENDER.md, D), so the two freshness checks no longer
+ * share a projection. Saved bubble edits stale candidate ideas exactly as
+ * saved core-scene edits do (deliberate, Option A of the bubble plan §E6). Since
  * migration 0139 a fact's gags live in fact_gags, not the enrichment, so the
  * hash carries them itself: every gag the request lists (prompt v4). The
  * approved humor note is kept out of this hash on purpose
@@ -24,10 +25,12 @@ import { createHash } from "node:crypto";
 import {
   VISUAL_CONCEPTS_PROMPT_VERSION,
   VISUAL_STRATEGY_VERSION,
+  isRetiredTextModifier,
+  withoutCast,
   type FactEnrichment,
   type VisualConceptSource,
 } from "@workspace/api-zod";
-import { renderAffectingEnrichment, stableStringify } from "../factRenderScenarios";
+import { stableStringify } from "../factRenderScenarios";
 
 export function hashText(value: string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -62,13 +65,30 @@ export interface VisualConceptHashInputs {
 }
 
 /**
- * The render projection minus what the Visual Idea writer never reads: the
- * fact character list reaches only the render planner (PLAN_BUBBLE_SPEAKERS.md,
- * F), so filling or correcting it must not mark Visual Ideas out of date.
+ * The classification fields whose edit marks the gag writer's ideas out of
+ * date. The writer's request reads the archetype and subtype (its subtype
+ * guidance), the cultural references and the semantic entities
+ * (`buildVisualConceptsUserMessage`), and the fact's gag content (its
+ * derived cast left out: the writer is shown scenes and bubbles). The
+ * modifiers (retired text/logo modifiers left out), literalness and
+ * complexity are NOT read by the writer; they stay in this hash only because
+ * it was the render projection minus the character list until the switch,
+ * and keeping its values unchanged means no stored idea goes out of date by
+ * the split. The fact character list is not read by the writer
+ * (PLAN_BUBBLE_SPEAKERS.md, F) and stays out.
  */
-function visualIdeaAffectingEnrichment(e: FactEnrichment): Record<string, unknown> {
-  const { characters: _notRead, ...rest } = renderAffectingEnrichment(e);
-  return rest;
+function writerAffectingEnrichment(e: FactEnrichment): Record<string, unknown> {
+  const ov = e.visualPromptStrategyOverride ?? null;
+  return {
+    primaryArchetype: e.primaryArchetype,
+    subtype: e.subtype,
+    modifiers: e.modifiers.filter((m) => !isRetiredTextModifier(m)).sort(),
+    visualLiteralness: e.visualLiteralness,
+    visualComplexity: e.visualComplexity,
+    culturalReferences: e.culturalReferences,
+    semanticEntities: e.semanticEntities,
+    visualPromptStrategyOverride: ov ? withoutCast(ov) : null,
+  };
 }
 
 export function buildVisualConceptInputHash(inputs: VisualConceptHashInputs): string {
@@ -79,7 +99,7 @@ export function buildVisualConceptInputHash(inputs: VisualConceptHashInputs): st
     candidateVersionId: inputs.candidateVersionId,
     source: inputs.source,
     factText: inputs.factText,
-    enrichment: visualIdeaAffectingEnrichment(inputs.enrichment),
+    enrichment: writerAffectingEnrichment(inputs.enrichment),
     systemPromptHash: inputs.systemPromptHash,
     engineId: inputs.engineId,
     model: inputs.model,

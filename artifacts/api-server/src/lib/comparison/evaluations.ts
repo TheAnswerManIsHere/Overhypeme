@@ -27,10 +27,10 @@ import {
   validateEnrichment,
   type EvaluationCreate,
   type EvaluationSelection,
-  type EvaluationStatus, COMPARISON_RENDER_PATHS, type ComparisonSetKind } from "@workspace/api-zod";
+  type EvaluationStatus, PATH_COMPARISON_RETIRED_MESSAGE, type ComparisonSetKind } from "@workspace/api-zod";
 import { ComparisonLayoutError, deriveComparisonLayout } from "./layout";
-import { cellBoundUsd, preparationBoundUsd as preparationBound, panelPreparationBoundUsd, panelPreparationTypicalUsd, round4 } from "./admission";
-import { createComparisonSet, groupCellsByPanel, planComparisonRun, plannerSettings, resolvePathGags, type RunScope } from "./sets";
+import { cellBoundUsd, round4 } from "./admission";
+import { createComparisonSet, groupCellsByPanel, planComparisonRun, resolveChosenGags, type RunScope } from "./sets";
 import { ComparisonRunRefused, startComparisonRun } from "./runs";
 import { cellLost, isJudgeable, panelWait } from "./judging";
 import { allEngines, imageEngines } from "../engineInterpreter";
@@ -108,7 +108,7 @@ async function typicalPictureUsd(engineIds: string[]): Promise<Map<string, numbe
  * amount before it is pressed (PR #931's build report). Built once per read.
  */
 export interface ActionPricing {
-  /** One scene's preparation at its bound; null when the planner cannot be priced. */
+  /** One scene's preparation at its bound: nothing, since preparation makes no paid call (plan PLAN_GAG_DIRECT_RENDER.md, D). */
   prepUsd: number | null;
   cellUsd: (engineId: string) => number | null;
 }
@@ -116,14 +116,8 @@ export interface ActionPricing {
 export async function actionPricing(): Promise<ActionPricing> {
   const engines = allEngines();
   const price = new Map(engines.map((e) => [e.id, e.priceModel]));
-  let prepUsd: number | null = null;
-  try {
-    prepUsd = panelPreparationBoundUsd(await plannerSettings());
-  } catch {
-    prepUsd = null;
-  }
   return {
-    prepUsd,
+    prepUsd: 0,
     cellUsd: (id) => {
       try { return cellBoundUsd(price.get(id)); } catch { return null; }
     },
@@ -137,26 +131,19 @@ export async function actionPricing(): Promise<ActionPricing> {
 export async function estimateEvaluation(sel: EvaluationSelection): Promise<EvaluationEstimate> {
   const engines = imageEngines();
   const base = deriveComparisonLayout({ factIds: sel.factIds, scenarioKeys: sel.scenarioKeys, lookStyleIds: sel.lookStyleIds, engineFamilies: sel.engineFamilies }, engines);
-  // A path evaluation draws one panel per gag, resolved as set creation
-  // resolves it, each picture once per path.
-  const path = sel.kind === "path" ? await resolvePathGags(sel.factIds, sel.gagIds) : null;
-  const layout = base.flatMap((p) => Array.from({ length: path?.gagsByFact.get(p.factId)?.length ?? 1 }, () => p));
+  // Chosen gags draw one panel each, resolved as set creation resolves them.
+  const chosen = sel.gagIds ? await resolveChosenGags(sel.factIds, sel.gagIds) : null;
+  const layout = base.flatMap((p) => Array.from({ length: chosen?.gagsByFact.get(p.factId)?.length ?? 1 }, () => p));
   const price = new Map(engines.map((e) => [e.id, e.priceModel]));
-  const perCell = sel.kind === "prompt" ? (sel.recipeVersionIds?.length ?? 0) : sel.kind === "path" ? COMPARISON_RENDER_PATHS.length : 1;
+  const perCell = sel.kind === "prompt" ? (sel.recipeVersionIds?.length ?? 0) : 1;
   const renderBoundUsd = round4(layout.reduce((s, p) => s + p.engineIds.reduce((t, id) => t + cellBoundUsd(price.get(id)) * perCell, 0), 0));
   const images = layout.reduce((s, p) => s + p.engineIds.length * perCell, 0);
-  let preparationBoundUsd: number | null = null;
-  let preparationTypicalUsd: number | null = null;
-  let refusal: string | null = path?.reasons.length ? path.reasons.join("; ") : null;
-  try {
-    const settings = await plannerSettings({ withCast: sel.kind === "path" });
-    const cast = preparationBound(settings, sel.kind) - panelPreparationBoundUsd(settings);
-    preparationBoundUsd = round4(layout.length * preparationBound(settings, sel.kind));
-    preparationTypicalUsd = layout.length * (panelPreparationTypicalUsd(settings) + cast);
-  } catch (err) {
-    if (!(err instanceof ComparisonLayoutError)) throw err;
-    refusal = err.reasons.join("; ");
-  }
+  // Preparation compiles each panel's gag directly: no paid call.
+  const preparationBoundUsd = 0;
+  const preparationTypicalUsd = 0;
+  const refusal: string | null = sel.kind === "path"
+    ? PATH_COMPARISON_RETIRED_MESSAGE
+    : chosen?.reasons.length ? chosen.reasons.join("; ") : null;
   const billed = await typicalPictureUsd([...new Set(layout.flatMap((p) => p.engineIds))]);
   const renderTypicalUsd = layout.reduce((s, p) => s + p.engineIds.reduce((t, id) => t + (billed.get(id) ?? cellBoundUsd(price.get(id))) * perCell, 0), 0);
   return {
@@ -246,7 +233,7 @@ export async function createEvaluation(req: EvaluationCreate, adminUserId: strin
       imageSize: "comparison",
       kind: sel.kind,
       ...(sel.kind === "prompt" ? { recipeVersionIds: sel.recipeVersionIds } : {}),
-      ...(sel.kind === "path" && sel.gagIds ? { gagIds: sel.gagIds } : {}),
+      ...(sel.gagIds ? { gagIds: sel.gagIds } : {}),
     }, adminUserId, { requestToken: req.requestToken }));
   } catch (err) {
     // Two requests with one token racing: the loser reads the winner's set

@@ -213,6 +213,14 @@ export async function buildAndEnqueueImagePromptAttempt(
   });
 }
 
+/**
+ * The typed terminal code a render ends with when the picture engine refused
+ * it under its content policy (and its photoreal fallback, where there is one,
+ * refused too): never retried, and shown on the test-render tile with the
+ * engine's reason (plan PLAN_GAG_DIRECT_RENDER.md, B; Issue #980).
+ */
+export const ENGINE_REFUSED_ERROR_CODE = "vendor_content_refused";
+
 export type RenderStatus = "pending" | "prompt_ready" | "image_ready" | "failed" | "blocked";
 
 /**
@@ -252,7 +260,9 @@ export function buildRenderStatusPayload(attempt: ImagePromptAttempt): {
   if (blockedPoor) status = "blocked";
   else if (attempt.error) status = "failed";
   else if (attempt.generatedImageObjectPath) status = "image_ready";
-  else if (attempt.visualPlan) status = "prompt_ready";
+  // The compiled prompt marks a prompt ready: a direct attempt stores no plan
+  // (plan PLAN_GAG_DIRECT_RENDER.md, D), and a planned one stored both.
+  else if (attempt.compiledPrompt) status = "prompt_ready";
   else status = "pending";
 
   return {

@@ -32,7 +32,8 @@ import {
 import { and, eq, gte, like, sql, count, inArray } from "drizzle-orm";
 import type { FactEnrichment } from "@workspace/api-zod";
 
-import reviewsRouter, { __setPlanGeneratorForTest, __settleSubmitDuplicateChecksForTest } from "../routes/reviews.js";
+import reviewsRouter, { __settleSubmitDuplicateChecksForTest } from "../routes/reviews.js";
+import { __setUtilityLLMClientForTest } from "../lib/utilityLLM.js";
 import { materializeEnrichment } from "../lib/factEnrichment.js";
 import { FACT_SUBMIT_PENDING_CAP, FACT_SUBMIT_MAX } from "../lib/rateLimit.js";
 import { runEnrichmentForFact } from "../lib/enrichmentJobs.js";
@@ -143,9 +144,9 @@ after(() => __settleSubmitDuplicateChecksForTest());
 before(cleanup);
 after(cleanup);
 
-// Every test must restore the live plan generator so a stub can't leak across
+// Every test must restore the live model client so a stub can't leak across
 // tests.
-afterEach(() => __setPlanGeneratorForTest(null));
+afterEach(() => __setUtilityLLMClientForTest(null));
 
 // Delete any admin-notify outbox rows queued by this test file so the email
 // worker doesn't deliver them to real inboxes. Filtered by kind and start
@@ -719,7 +720,7 @@ describe("POST /admin/reviews/:id/approve-variant — retired with variants", ()
 
 // ── Approval renderability gating (no synchronous preflight) ──────────────
 //
-// Approval makes NO planner/compiler call of its own: renderability is shown
+// Approval makes NO model or compiler call of its own: renderability is shown
 // by each gag's approved male, female and pet examples (plan
 // PLAN_GAG_EXAMPLES.md, section D), which replaced the review-wide render
 // check and its waiver. These tests pin that contract.
@@ -756,19 +757,18 @@ describe("approval renderability gating", () => {
     return { reviewId: review.id, stagingFactId: staging.id };
   }
 
-  it("approves WITHOUT invoking the visual planner", async () => {
+  it("approves WITHOUT any model call (no planner exists since PLAN_GAG_DIRECT_RENDER.md, D)", async () => {
     const { reviewId } = await seedPendingReview();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
 
-    // Guard the core of this change: the approve path must make NO planner call.
+    // Guard the core of this change: the approve path must make NO model call.
     // If it does, the seam throws and the request fails — so a green 200 proves
     // renderability came from the gag's examples, not a re-check.
-    let plannerCalled = false;
-    __setPlanGeneratorForTest(async () => {
-      plannerCalled = true;
-      throw new Error("visual planner must not be invoked on approval");
-    });
+    let modelCalled = false;
+    __setUtilityLLMClientForTest({
+      chat: { completions: { create: async () => { modelCalled = true; throw new Error("no model call on approval"); } } },
+    } as never);
 
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/approve-for-production`)
@@ -777,7 +777,7 @@ describe("approval renderability gating", () => {
 
     assert.equal(res.status, 200, JSON.stringify(res.body));
     assert.equal(res.body.success, true);
-    assert.equal(plannerCalled, false, "approval must not run the visual planner");
+    assert.equal(modelCalled, false, "approval makes no model call");
 
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
     assert.equal(r.status, "approved");

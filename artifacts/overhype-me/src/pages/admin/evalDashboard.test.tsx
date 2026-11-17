@@ -78,6 +78,11 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 const next = () => fireEvent.click(screen.getByTestId("wizard-next"));
+/** Add fact 11 and wait for its default gag to be ticked: every evaluation draws the gags it is given (plan PLAN_GAG_DIRECT_RENDER.md, Q11: 1). */
+const addFact11 = async () => {
+  fireEvent.click(await screen.findByTestId("wizard-fact-11"));
+  await waitFor(() => expect((screen.getByTestId("wizard-gag-501") as HTMLInputElement).checked).toBe(true));
+};
 
 describe("the Eval page", () => {
   it("shows two tabs, kept in the URL, with the wording editor only under Evaluate Prompts", async () => {
@@ -97,7 +102,7 @@ describe("the Eval page", () => {
     render(<EvalDashboard />);
     expect((screen.getByTestId("wizard-next") as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(screen.getByTestId("wizard-fact-search"), { target: { value: "mountain" } });
-    fireEvent.click(await screen.findByTestId("wizard-fact-11"));
+    await addFact11();
     expect(screen.getByTestId("wizard-chosen-facts").textContent).toMatch(/#11/);
     expect(screen.getByTestId("wizard-fact-total").textContent).toMatch(/2 facts are ready/);
     next();
@@ -111,9 +116,9 @@ describe("the Eval page", () => {
     fireEvent.click(await screen.findByTestId("wizard-look-anime"));
     next();
     fireEvent.change(screen.getByTestId("wizard-description"), { target: { value: "GPT vs Nano" } });
-    expect((await screen.findByTestId("wizard-count")).textContent).toMatch(/1 fact × 2 engines × 1 photo type × 2 looks = 4 images, usually about \$0\.41, at most \$1\.23/);
+    expect((await screen.findByTestId("wizard-count")).textContent).toMatch(/1 gag × 2 engines × 1 photo type × 2 looks = 4 images, usually about \$0\.41, at most \$1\.23/);
     const est = posts.find((p) => p.url.endsWith("/estimate"))!;
-    expect(est.body).toEqual({ kind: "engine", factIds: [11], engineFamilies: ["gpt-image-2-6", "nano-banana-2-1"], scenarioKeys: ["i2i_male_default"], lookStyleIds: ["none", "anime"] });
+    expect(est.body).toEqual({ kind: "engine", factIds: [11], engineFamilies: ["gpt-image-2-6", "nano-banana-2-1"], scenarioKeys: ["i2i_male_default"], lookStyleIds: ["none", "anime"], gagIds: [501] });
     fireEvent.click(screen.getByTestId("wizard-generate"));
     await waitFor(() => expect(posts.some((p) => p.url.endsWith("/comparison/evaluations"))).toBe(true));
     const gen = posts.find((p) => p.url.endsWith("/comparison/evaluations"))!;
@@ -122,45 +127,42 @@ describe("the Eval page", () => {
     expect(gen.body.selection).toEqual(est.body);
   });
 
-  it("walks the planner-vs-direct wizard: each fact's gags with its default ticked, a second gag added, and two ways counted", async () => {
-    window.history.replaceState(null, "", "/admin/eval?tab=paths");
+  it("lets a models evaluation choose each fact's gags: the default ticked, a gag with no content left out, a second gag counted", async () => {
     render(<EvalDashboard />);
-    expect(screen.getByTestId("eval-tab-paths").getAttribute("aria-selected")).toBe("true");
-    fireEvent.change(screen.getByTestId("wizard-fact-search"), { target: { value: "mountain" } });
-    fireEvent.click(await screen.findByTestId("wizard-fact-11"));
-    next();
-    fireEvent.click(screen.getByTestId("wizard-engine-gpt-image-2-6"));
-    await waitFor(() => expect((screen.getByTestId("wizard-gag-501") as HTMLInputElement).checked).toBe(true));
+    await addFact11();
     expect(screen.queryByTestId("wizard-gag-503")).toBeNull(); // a gag with no content cannot be drawn
     expect(screen.getByTestId("wizard-gags-11").textContent).toMatch(/1 bubble/);
-    // Marked: an unapproved draft, and a gag the direct path would draw without its extra art direction (build report on Issue #987).
     expect(screen.getByTestId("wizard-gag-unapproved-502")).toBeTruthy();
     expect(screen.queryByTestId("wizard-gag-unapproved-501")).toBeNull();
-    expect(screen.getByTestId("wizard-gag-extras-501")).toBeTruthy();
-    expect(screen.queryByTestId("wizard-gag-extras-502")).toBeNull();
-    fireEvent.click(screen.getByTestId("wizard-gag-502"));
+    expect(screen.queryByTestId("wizard-gag-extras-501")).toBeNull(); // the retired extra-art-direction marker is gone
     fireEvent.click(screen.getByTestId("wizard-gag-501"));
-    fireEvent.click(screen.getByTestId("wizard-gag-502"));
     expect((screen.getByTestId("wizard-next") as HTMLButtonElement).disabled).toBe(true); // no gag left for fact 11
     fireEvent.click(screen.getByTestId("wizard-gag-501"));
     fireEvent.click(screen.getByTestId("wizard-gag-502"));
     next();
-    next();
-    next();
-    fireEvent.change(screen.getByTestId("wizard-description"), { target: { value: "Planner vs direct" } });
-    expect((await screen.findByTestId("wizard-count")).textContent).toMatch(/2 gags × 1 engine × 2 ways \(planner, direct\) × 1 photo type × 1 look/);
+    fireEvent.click(screen.getByTestId("wizard-engine-gpt-image-2-6"));
+    next(); next(); next();
+    fireEvent.change(screen.getByTestId("wizard-description"), { target: { value: "Two gags" } });
+    expect((await screen.findByTestId("wizard-count")).textContent).toMatch(/2 gags × 1 engine × 1 photo type × 1 look/);
     const est = posts.find((p) => p.url.endsWith("/estimate"))!;
-    expect(est.body).toEqual({ kind: "path", factIds: [11], engineFamilies: ["gpt-image-2-6"], scenarioKeys: ["i2i_male_default"], lookStyleIds: ["none"], gagIds: [501, 502] });
+    expect(est.body).toEqual({ kind: "engine", factIds: [11], engineFamilies: ["gpt-image-2-6"], scenarioKeys: ["i2i_male_default"], lookStyleIds: ["none"], gagIds: [501, 502] });
+  });
+
+  it("lists the finished planner-vs-direct comparisons and offers no way to make one (the planner was removed)", async () => {
+    window.history.replaceState(null, "", "/admin/eval?tab=paths");
+    render(<EvalDashboard />);
+    expect(screen.getByTestId("eval-tab-paths").getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByTestId("eval-panel-paths").textContent).toMatch(/No new ones are made/);
+    expect(screen.queryByTestId("wizard-fact-search")).toBeNull(); // no wizard on this tab; the others render nothing while hidden
+    fireEvent.click(screen.getByTestId("eval-tab-models"));
+    expect(screen.getByTestId("wizard-fact-search")).toBeTruthy();
   });
 
   it("keeps every fact's default gag when several facts' gags arrive together, and a fact the admin changed keeps that choice", async () => {
-    window.history.replaceState(null, "", "/admin/eval?tab=paths");
     render(<EvalDashboard />);
     fireEvent.change(screen.getByTestId("wizard-fact-search"), { target: { value: "{NAME}" } });
     fireEvent.click(await screen.findByTestId("wizard-fact-11"));
     fireEvent.click(screen.getByTestId("wizard-fact-12"));
-    next();
-    fireEvent.click(screen.getByTestId("wizard-engine-gpt-image-2-6"));
     await waitFor(() => {
       expect((screen.getByTestId("wizard-gag-501") as HTMLInputElement).checked).toBe(true);
       expect((screen.getByTestId("wizard-gag-601") as HTMLInputElement).checked).toBe(true);
@@ -175,7 +177,7 @@ describe("the Eval page", () => {
   it("warns above fifty images", async () => {
     estimate = { ...estimate, images: 120, warning: true };
     render(<EvalDashboard />);
-    fireEvent.click(await screen.findByTestId("wizard-fact-11"));
+    await addFact11();
     next();
     fireEvent.click(screen.getByTestId("wizard-engine-muse-image"));
     next(); next(); next();
@@ -207,7 +209,7 @@ describe("the Eval page", () => {
     evaluations = [EVAL({ id: 7, description: "A models evaluation" })];
     promptEvaluations = [EVAL({ id: 20, description: "A wording evaluation", engineFamilies: ["gpt-image-2-6"] })];
     render(<EvalDashboard />);
-    fireEvent.click(await screen.findByTestId("wizard-fact-11"));
+    await addFact11();
     next();
     expect(screen.getByTestId("wizard-engines")).toBeTruthy();
     expect(await screen.findByTestId("evaluation-7")).toBeTruthy();
@@ -248,7 +250,7 @@ describe("the Eval page", () => {
       return base(url, init);
     }));
     render(<EvalDashboard />);
-    fireEvent.click(await screen.findByTestId("wizard-fact-11"));
+    await addFact11();
     next();
     fireEvent.click(screen.getByTestId("wizard-engine-gpt-image-2-6"));
     next(); next(); next();
@@ -277,7 +279,7 @@ describe("the Eval page", () => {
       return base(url, init);
     }));
     render(<EvalDashboard />);
-    fireEvent.click(await screen.findByTestId("wizard-fact-11"));
+    await addFact11();
     next();
     fireEvent.click(screen.getByTestId("wizard-engine-gpt-image-2-6"));
     next(); next(); next();
@@ -308,7 +310,7 @@ describe("the Eval page", () => {
     }));
     render(<EvalDashboard />);
     // Generate Images refreshes the list; that later load lands first.
-    fireEvent.click(await screen.findByTestId("wizard-fact-11"));
+    await addFact11();
     next();
     fireEvent.click(screen.getByTestId("wizard-engine-gpt-image-2-6"));
     next(); next(); next();

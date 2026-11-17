@@ -22,7 +22,8 @@ import { usersTable, factsTable, factGagsTable, pendingReviewsTable, imagePrompt
 import { and, eq, gte, inArray, like } from "drizzle-orm";
 import { type FactEnrichment } from "@workspace/api-zod";
 
-import reviewsRouter, { __setPlanGeneratorForTest } from "../routes/reviews.js";
+import reviewsRouter from "../routes/reviews.js";
+import { withCast } from "./helpers/gagCast.js";
 import adminRouter from "../routes/admin.js";
 import { drawGagKinds } from "../lib/reviewRenderScenarios.js";
 import { __setReferenceFalUploadForTest } from "../lib/defaultReferenceResolver.js";
@@ -50,12 +51,12 @@ const ENRICHMENT: FactEnrichment = {
 };
 
 // A fact reaching production_review has an approved gag (fact_gags, migration 0139).
-const GAG = {
-  version: 1,
+const GAG = withCast({
+  version: 1 as const,
   coreSceneOverride: "{NAME} bench-presses the Earth overhead in a stadium.",
   requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
   bubbles: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
-};
+});
 
 function makeApp(): Express {
   const app = express();
@@ -135,7 +136,6 @@ before(async () => {
 
 after(async () => {
   __setReferenceFalUploadForTest(null);
-  __setPlanGeneratorForTest(null);
   await cleanup();
   await db.delete(asyncJobsTable).where(and(
     inArray(asyncJobsTable.queue, ["image_prompt_generation", "review_render_scenarios_prepare"]),
@@ -144,7 +144,7 @@ after(async () => {
 });
 
 describe("moderation enrichment edits via fact override endpoints", () => {
-  it("a per-field override PUT persists to the staging fact and flips prior renders stale", async () => {
+  it("a per-field override PUT persists to the staging fact and leaves prior renders current (the picture is drawn from the gag alone)", async () => {
     const reviewId = await seedReview(plainId);
     const [{ stagingFactId }] = await db
       .select({ stagingFactId: pendingReviewsTable.stagingFactId })
@@ -183,10 +183,11 @@ describe("moderation enrichment edits via fact override endpoints", () => {
     assert.equal(ov.value, "high");
     assert.equal(ov.overriddenFrom, "medium");
 
-    // The earlier render no longer matches the input: drawing now makes a new one.
+    // A classification edit shapes no picture since the switch
+    // (PLAN_GAG_DIRECT_RENDER.md, D): the earlier render still matches and is reused.
     const after = await drawGagKinds(gagId, ["male"], { adminUserId: adminId });
     assert.ok(!("error" in after));
-    assert.equal(after.enqueued.length, 1, "the pre-override render is not reused after the enrichment edit");
+    assert.equal(after.enqueued.length, 0, "the pre-override render is reused after a classification edit");
   });
 
   it("rejects non-admins (403) on the staging-fact override PUT", async () => {

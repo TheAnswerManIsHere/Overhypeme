@@ -22,39 +22,10 @@ import {
 } from "../lib/asyncJobs.js";
 import { renderProgressByAttempt, renderProgressOf, type RenderJobState } from "../lib/renderProgress.js";
 import { __setUtilityLLMClientForTest, callUtilityLLM } from "../lib/utilityLLM.js";
-import { generateImagePromptPlan } from "../lib/imagePrompt/generator.js";
 import { aiBackend } from "../lib/aiClients.js";
 import { renderFal } from "../lib/renderFalTransport.js";
-import type { ImagePromptGenerationInput } from "@workspace/api-zod";
 
 const QUEUE_PREFIX = "test_render_resume_";
-
-/** A planner input that reaches the model (the shape imagePromptUserMessage.test.ts uses). */
-function plannerInput(): ImagePromptGenerationInput {
-  return {
-    factText: "David focuses moonlight through a magnifying glass to set an ant on fire. At night.",
-    enrichment: {
-      primaryArchetype: "object_logic_impossibility", subtype: "medium_contradiction", modifiers: ["face_prominent"],
-      visualLiteralness: "literal", visualComplexity: "moderate", overhypeFit: "high", adultSuitability: "sfw",
-      taxonomyConfidence: 0.9, culturalReferences: [], semanticEntities: [],
-    },
-    sourceImageAnalysis: {
-      subjectKind: "human_face", confidence: "high", hasUsableHumanFace: true, hasUsableSubject: true, subjectCount: 1,
-      warnings: [], suggestedRenderMode: "human_identity_i2i", classificationMethod: "fal_detector", analyzerVersion: "v1",
-    },
-    subjectRenderMode: "human_identity_i2i",
-    userSelectedSubjectRenderMode: null,
-    identityPolicy: {
-      subjectRenderMode: "human_identity_i2i", preserveHumanFace: true, preserveNonhumanSubjectIdentity: false,
-      preservePhysique: false, allowBodyExaggeration: true, allowCostumeTransformation: true,
-      allowAnthropomorphicTransformation: false, ageAndLifeStagePolicy: "follow_fact",
-    },
-    renderControls: { aspectRatio: "portrait", contentMode: "sfw" },
-    stylePrompt: "cinematic",
-    referenceImageUrl: null,
-    targetEngine: "nano_banana_2",
-  } as unknown as ImagePromptGenerationInput;
-}
 
 describe("the tile's progress (plan §D): one mapping from the job, its lease and fal's progress", () => {
   const job = (over: Partial<RenderJobState>): RenderJobState => ({
@@ -157,35 +128,6 @@ describe("Issue #1010: the shared AI dispatch point checks ownership; the refusa
       JobOwnershipLostError,
     );
     assert.equal(calls, 0);
-  });
-
-  it("the planner's corrective re-ask is refused once its run lost the claim mid-call; the refusal passes through as itself", async () => {
-    // The first answer fails validation; while it was in flight the run lost its
-    // claim. The planner would re-ask: that second, paid call must not go out.
-    const queue = `${QUEUE_PREFIX}${randomUUID().slice(0, 8)}`;
-    let jobId = 0;
-    let calls = 0;
-    __setUtilityLLMClientForTest({ chat: { completions: { create: async () => {
-      calls++;
-      if (calls === 1) {
-        await db.execute(sql`UPDATE async_jobs SET lease_expires_at = now() - interval '1 second', claimed_at = now() - make_interval(mins => ${RECOVER_STUCK_CUTOFF_MIN + 1}) WHERE id = ${jobId}`);
-        await recoverStuckProcessing(db);
-      }
-      return { choices: [{ message: { content: "not the plan" } }] };
-    } } } } as never);
-    let caught: unknown = null;
-    let runs = 0;
-    registerJobHandler(queue, {
-      async run() {
-        if (++runs > 1) return { ok: true }; // the reclaimed row's next run owns it
-        try { await generateImagePromptPlan(plannerInput()); } catch (err) { caught = err; }
-        return { ok: true };
-      },
-    });
-    ({ jobId } = await enqueueJob({ queue, payload: {}, maxAttempts: 1 }));
-    await asyncJobsTick(db, new Date(), { queues: [queue] });
-    assert.equal(calls, 1, "the corrective call never went out");
-    assert.ok(caught instanceof JobOwnershipLostError, `a refusal, not a provider failure: ${String(caught)}`);
   });
 
   it("outside a job the dispatch is unchanged", async () => {

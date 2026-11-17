@@ -168,12 +168,12 @@ describe("buildRenderStatusPayload", () => {
   it("pending when nothing produced yet", () => {
     assert.equal(buildRenderStatusPayload(base).status, "pending");
   });
-  it("prompt_ready once a visual plan exists", () => {
-    assert.equal(buildRenderStatusPayload({ ...(base as object), visualPlan: { a: 1 } } as never).status, "prompt_ready");
+  it("prompt_ready once a compiled prompt exists (the direct compile stores no plan)", () => {
+    assert.equal(buildRenderStatusPayload({ ...(base as object), compiledPrompt: { a: 1 } } as never).status, "prompt_ready");
   });
   it("image_ready once an image path exists", () => {
     assert.equal(
-      buildRenderStatusPayload({ ...(base as object), visualPlan: { a: 1 }, generatedImageObjectPath: "/objects/x.png" } as never).status,
+      buildRenderStatusPayload({ ...(base as object), compiledPrompt: { a: 1 }, generatedImageObjectPath: "/objects/x.png" } as never).status,
       "image_ready",
     );
   });
@@ -318,7 +318,7 @@ describe("GET /admin/reviews/:id/renders/:renderJobId", () => {
       factEnrichmentSnapshot: VALID_ENRICHMENT as never,
       renderedFactText: "Casey bench-presses the Earth.",
       archetypeStrategyVersion: "v2",
-      visualPlan: { a: 1 } as never,
+      compiledPrompt: { a: 1 } as never,
     });
     return renderJobId;
   }
@@ -353,7 +353,7 @@ describe("GET /admin/reviews/:id/renders/:renderJobId", () => {
   it("image route: 403 non-admin; 404 cross-review; 404 when image not ready", async () => {
     const { reviewId, stagingFactId } = await seedReview({ submittedById: plainId });
     const other = await seedReview({ submittedById: plainId });
-    const renderJobId = await seedAttempt(reviewId, stagingFactId!); // visualPlan only, no image yet
+    const renderJobId = await seedAttempt(reviewId, stagingFactId!); // compiled prompt only, no image yet
 
     const nonAdmin = await request(makeApp()).get(`/admin/reviews/${reviewId}/renders/${renderJobId}/image`).set("authorization", `Bearer ${plainSid}`);
     assert.equal(nonAdmin.status, 403);
@@ -388,7 +388,7 @@ describe("public /memes/ai/renders/:renderJobId is gone (review attempts stay ad
       targetEngine: "nano_banana_2", sourceImageAnalysis: {} as never, identityPolicy: {} as never,
       renderControls: { aspectRatio: "portrait", reviewAudit: { reviewId, adminUserId: adminId } } as never,
       factEnrichmentSnapshot: VALID_ENRICHMENT as never, renderedFactText: "x.", archetypeStrategyVersion: "v2",
-      visualPlan: { a: 1 } as never,
+      compiledPrompt: { a: 1 } as never,
     });
     return renderJobId;
   }
@@ -398,7 +398,7 @@ describe("public /memes/ai/renders/:renderJobId is gone (review attempts stay ad
     const renderJobId = await seedReviewAttempt(reviewId, stagingFactId!);
     const anon = await request(memesApp()).get(`/memes/ai/renders/${renderJobId}`);
     assert.equal(anon.status, 404);
-    assert.equal(anon.body.visualPlan, undefined, "no attempt data may leak through the public path");
+    assert.equal(anon.body.compiledPrompt, undefined, "no attempt data may leak through the public path");
     const asAdmin = await request(memesApp()).get(`/memes/ai/renders/${renderJobId}`).set("Authorization", `Bearer ${adminSid}`);
     assert.equal(asAdmin.status, 404);
   });

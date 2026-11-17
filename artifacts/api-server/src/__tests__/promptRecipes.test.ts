@@ -7,7 +7,8 @@ import { randomUUID } from "node:crypto";
 
 import request from "supertest";
 import { db } from "@workspace/db";
-import { promptRecipePromotionsTable, promptRecipeVersionsTable, usersTable } from "@workspace/db/schema";
+import { factsTable, imagePromptAttemptsTable, promptRecipePromotionsTable, promptRecipeVersionsTable, usersTable } from "@workspace/db/schema";
+import { defaultIdentityPolicyForRenderMode } from "@workspace/api-zod";
 import { eq, inArray } from "drizzle-orm";
 
 import adminPromptRecipesRouter from "../routes/adminPromptRecipes.js";
@@ -16,9 +17,10 @@ import { ALL_ENGINES } from "../lib/engines/index.js";
 import { liveRecipeVersionIdsForEngines, liveRecipeVersionIds } from "../lib/imagePrompt/recipeStore.js";
 import { BASELINE_PIECES } from "../lib/imagePrompt/recipe.js";
 import { computeScenarioInputHash } from "../lib/reviewRenderScenarios.js";
-import { VALID_ENRICHMENT } from "./helpers/stubPlanner.js";
+import { VALID_ENRICHMENT } from "./helpers/validEnrichment.js";
 import { testEngineRow } from "./helpers/testEngines.js";
 import { clearTestEngineDefinitions } from "../lib/engineInterpreter.js";
+import { withCast } from "./helpers/gagCast.js";
 
 const P = `t-pr-${randomUUID().slice(0, 6)}`;
 const FAMILY = `${P}-gpt`;
@@ -58,7 +60,9 @@ describe("prompt recipe versions", () => {
     assert.equal(res.status, 200);
     const identity = res.body.pieces.find((p: { key: string }) => p.key === "identity.person");
     assert.equal(identity.baseline, BASELINE_PIECES["identity.person"]);
-    assert.ok(res.body.pieces.find((p: { key: string; policy: boolean }) => p.key === "violence.allow").policy);
+    assert.ok(res.body.pieces.find((p: { key: string; policy: boolean }) => p.key === "text.overlay").policy);
+    // The violence rule is no recipe piece: no version may reword or drop it (PLAN_GAG_DIRECT_RENDER.md, B).
+    assert.equal(res.body.pieces.find((p: { key: string }) => p.key === "violence.allow"), undefined);
     const fam = res.body.families.find((f: { family: string }) => f.family === FAMILY);
     assert.equal(fam.liveVersionId, null);
     assert.equal(fam.engines.length, 2);
@@ -73,15 +77,15 @@ describe("prompt recipe versions", () => {
   });
 
   it("saves numbered versions, never editing one, and refuses malformed, over-budget or unchanged wording", async () => {
-    const bad = await save({ "constraints.duplicate": "Never clone them." });
+    const bad = await save({ "composition.captionSpace": "Leave room for the caption." });
     assert.equal(bad.status, 409);
-    assert.ok(bad.body.problems.some((p: string) => /must contain \{subject\}/.test(p)));
+    assert.ok(bad.body.problems.some((p: string) => /must contain \{side\}/.test(p)));
 
-    const long = await save({ "identity.person": "x".repeat(1400), "constraints.crowd": `{subject} ${"x".repeat(1400)}`, "constraints.causal": "x".repeat(1400) });
+    const long = await save({ "identity.person": "x".repeat(1400), "style.photoreal": "x".repeat(1400), "text.incidental": "x".repeat(1400), "text.overlay": `${"x".repeat(1400)} {forbidden}` });
     assert.equal(long.status, 409, "a recipe that cannot leave room for every valid moderator scene is refused");
     assert.ok(long.body.problems.some((p: string) => /too long for the prompt/.test(p)), JSON.stringify(long.body));
 
-    const balloons = await save({ "bubbles.speech": `${"y".repeat(1000)} {who} {text}` });
+    const balloons = await save({ "bubbles.speech": `${"y".repeat(1400)} {who} {text}` });
     assert.equal(balloons.status, 409, "balloon wording is counted once per balloon, at the most balloons a fact may have");
 
     const v1 = await save({ "identity.person": "Use the photo as the person's face." }, "shorter identity");
@@ -108,11 +112,11 @@ describe("promotion", () => {
     assert.equal((await liveRecipeVersionIds([FAMILY, OTHER])).get(OTHER), null, "another family is untouched");
     assert.equal((await liveRecipeVersionIdsForEngines([`${FAMILY}-i2i`])).get(`${FAMILY}-i2i`), v.body.version.id, "every engine of the family");
 
-    const policy = await save({ "violence.allow": "Show the action, no gore." }, "policy");
+    const policy = await save({ "text.incidental": "Keep background text unreadable." }, "policy");
     const unconfirmed = await promote({ versionId: policy.body.version.id });
     assert.equal(unconfirmed.status, 409);
     assert.equal(unconfirmed.body.needsPolicyConfirmation, true);
-    assert.deepEqual(unconfirmed.body.changedPolicy, ["violence.allow"]);
+    assert.deepEqual(unconfirmed.body.changedPolicy, ["text.incidental"]);
     assert.equal((await liveRecipeVersionIds([FAMILY])).get(FAMILY), v.body.version.id, "a refused promotion writes nothing");
     const confirmed = await promote({ versionId: policy.body.version.id, confirmPolicy: true });
     assert.equal(confirmed.status, 200);
@@ -147,7 +151,7 @@ describe("an attempt records the wording its caller froze (Codex, PR #926 round 
     const { buildAndEnqueueImagePromptAttempt } = await import("../lib/imagePromptAttempts.js");
     const { syntheticAnalysisForReference, defaultScenarioRenderControls } = await import("../lib/reviewRenderScenarios.js");
     const { defaultIdentityPolicyForRenderMode } = await import("@workspace/api-zod");
-    const { factsTable, imagePromptAttemptsTable, asyncJobsTable } = await import("@workspace/db/schema");
+    const { asyncJobsTable } = await import("@workspace/db/schema");
     const [fact] = await db.insert(factsTable).values({ text: `${P} {NAME} lifts a car`, isActive: false, enrichment: VALID_ENRICHMENT as never }).returning({ id: factsTable.id });
     const v = await save({ "identity.person": "Wording B for the person photo." }, "B");
     await promote({ versionId: v.body.version.id });
@@ -171,6 +175,95 @@ describe("an attempt records the wording its caller froze (Codex, PR #926 round 
       await db.delete(imagePromptAttemptsTable).where(inArray(imagePromptAttemptsTable.id, ids.length ? ids : [0]));
       await db.delete(factsTable).where(eq(factsTable.id, fact!.id));
     }
+  });
+});
+
+// The wording preview compiles the gag frozen on the fact's newest compiled
+// attempt (PLAN_GAG_DIRECT_RENDER.md, D: "the prompt-wording preview handles
+// both kinds"). A direct attempt stores only its compiled prompt; a planned
+// one before the switch stored a plan too; one frozen before casts were read
+// cannot be compiled directly and is passed over, never drawn with another gag.
+describe("prompt recipe preview — which stored picture it compiles", () => {
+  const previewFactIds: number[] = [];
+  after(async () => {
+    if (previewFactIds.length === 0) return;
+    await db.delete(imagePromptAttemptsTable).where(inArray(imagePromptAttemptsTable.factId, previewFactIds));
+    await db.delete(factsTable).where(inArray(factsTable.id, previewFactIds));
+  });
+
+  async function seedFact(): Promise<number> {
+    const [fact] = await db.insert(factsTable)
+      .values({ text: "{NAME} doesn't read books.", submittedById: adminId, isActive: false, enrichment: VALID_ENRICHMENT })
+      .returning({ id: factsTable.id });
+    previewFactIds.push(fact!.id);
+    return fact!.id;
+  }
+
+  async function seedAttempt(factId: number, opts: { scene: string; castCurrent: boolean; compiled: boolean; planned?: boolean }): Promise<number> {
+    const gag = withCast({ version: 1, coreSceneOverride: opts.scene, bubbles: [] } as never) as Record<string, unknown>;
+    if (!opts.castCurrent) { delete gag["cast"]; delete gag["castExtraction"]; }
+    const [row] = await db.insert(imagePromptAttemptsTable).values({
+      factId,
+      userId: adminId,
+      renderJobId: randomUUID(),
+      generationMode: "i2i",
+      subjectRenderMode: "human_identity_i2i",
+      targetEngine: "nano_banana_2",
+      sourceImageAnalysis: {
+        subjectKind: "human_face", confidence: "high", hasUsableHumanFace: true, hasUsableSubject: true,
+        subjectCount: 1, warnings: [], suggestedRenderMode: "human_identity_i2i",
+        classificationMethod: "fal_detector", analyzerVersion: "v1",
+      } as never,
+      identityPolicy: defaultIdentityPolicyForRenderMode("human_identity_i2i") as never,
+      renderControls: { aspectRatio: "portrait", contentMode: "sfw", promptIdentity: { version: 1, name: "David", pronouns: "he/him", source: "review_sample" } } as never,
+      factEnrichmentSnapshot: { ...VALID_ENRICHMENT, visualPromptStrategyOverride: gag } as never,
+      renderedFactText: "David doesn't read books.",
+      archetypeStrategyVersion: "v2",
+      visualPlan: opts.planned ? ({ planned: true } as never) : null,
+      compiledPrompt: opts.compiled ? ({ imagePrompt: "stored" } as never) : null,
+    }).returning({ id: imagePromptAttemptsTable.id });
+    return row!.id;
+  }
+
+  const preview = (factId: number) => request(app()).post(`/api/admin/prompt-recipes/${FAMILY}/preview`)
+    .send({ pieces: {}, factId, subjectRenderMode: "human_identity_i2i" });
+
+  it("compiles an attempt drawn the direct way, which stores no plan", async () => {
+    const factId = await seedFact();
+    const id = await seedAttempt(factId, { scene: "{NAME} lifts a city bus.", castCurrent: true, compiled: true });
+    const res = await preview(factId);
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.attemptId, id);
+    assert.match(res.body.prompt, /lifts a city bus/);
+  });
+
+  it("passes over a newer attempt that never compiled, and one frozen before casts were read, for the newest that compiles", async () => {
+    const factId = await seedFact();
+    const usable = await seedAttempt(factId, { scene: "{NAME} juggles three anvils.", castCurrent: true, compiled: true, planned: true });
+    await seedAttempt(factId, { scene: "{NAME} outruns a cheetah.", castCurrent: false, compiled: true, planned: true });
+    await seedAttempt(factId, { scene: "{NAME} wrestles a bear.", castCurrent: true, compiled: false });
+    const res = await preview(factId);
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.attemptId, usable, "the planned attempt whose own frozen gag still compiles");
+    assert.match(res.body.prompt, /juggles three anvils/);
+    assert.doesNotMatch(res.body.prompt, /cheetah|bear/, "no other attempt's gag, and no gag substituted");
+  });
+
+  it("refuses, saying how to make one, when every compiled attempt predates casts", async () => {
+    const factId = await seedFact();
+    await seedAttempt(factId, { scene: "{NAME} outruns a cheetah.", castCurrent: false, compiled: true, planned: true });
+    const res = await preview(factId);
+    assert.equal(res.status, 409, JSON.stringify(res.body));
+    assert.equal(res.body.error, "render_unusable");
+    assert.match(res.body.refusal, /moderation render/);
+  });
+
+  it("refuses with 404 when the fact has no compiled attempt for that photo type", async () => {
+    const factId = await seedFact();
+    await seedAttempt(factId, { scene: "{NAME} wrestles a bear.", castCurrent: true, compiled: false });
+    const res = await preview(factId);
+    assert.equal(res.status, 404, JSON.stringify(res.body));
+    assert.equal(res.body.error, "no_stored_render");
   });
 });
 });

@@ -636,15 +636,19 @@ describe("gag routes: a save carries the cast read from its own scene (plan PLAN
     assert.ok(storedEmpty.castExtraction, "an empty cast keeps its marker: extracted, nobody else there");
   });
 
-  it("approves a render whatever cast it froze, or none: the same comparison render reuse makes (Codex 4600565971)", async () => {
+  it("approves a render that drew the same scene, bubbles and cast entries, whatever extraction marker it froze; a different cast is a different picture (Codex 4600565971; PLAN_GAG_DIRECT_RENDER.md, D)", async () => {
     const { factId, gagId } = await liveFact();
     const change = scene("{NAME} juggles planets (cast era).");
     assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: change })).status, 200);
     const { cast: _c, castExtraction: _m, ...beforeCasts } = change;
     const old = await render(factId, gagId, beforeCasts as VisualPromptStrategyOverride, { kind: "male" });
-    assert.equal((await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: old })).status, 200, "a render from before casts");
+    assert.equal((await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: old })).status, 200, "a render from before casts, of a gag whose cast is empty");
+    const otherMarker = await render(factId, gagId, { ...change, castExtraction: { ...change.castExtraction!, promptVersion: "older", extractedAt: "2026-11-01T00:00:00.000Z" } }, { kind: "female" });
+    assert.equal((await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: otherMarker })).status, 200, "the same cast read at another time");
     const otherCast = await render(factId, gagId, { ...change, cast: [{ label: "dog", description: "a dog" }] }, { kind: "female" });
-    assert.equal((await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: otherCast })).status, 200, "a render whose cast was worded differently");
+    const castRefused = await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: otherCast });
+    assert.equal(castRefused.status, 409, "a render that drew a different cast is refused: the cast reaches the picture");
+    assert.equal(castRefused.body.code, "CONTENT_CHANGED");
     const otherScene = await render(factId, gagId, scene("{NAME} juggles moons."), { kind: "pet" });
     const refused = await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: otherScene });
     assert.equal(refused.status, 409, "a different picture is still refused");

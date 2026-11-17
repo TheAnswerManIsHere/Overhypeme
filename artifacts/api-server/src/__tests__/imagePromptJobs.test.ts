@@ -1,14 +1,9 @@
 /**
- * Regression lock for the subject_fact_compatibility_poor block removal.
- *
- * The invariant under test: subjectFactCompatibility is advisory only and NEVER
- * gates whether image_generation is enqueued — a "poor" (or "risky") rating must
- * still persist the advisory rating, leave `error` NULL, and chain the SAME
- * image_generation job (queue + dedupe key) as any other successful attempt.
- *
- * This is deterministic proof of the removed gate: a live Replit render can't
- * prove it because the planner runs at nonzero temperature and may not redraw
- * "poor" on a rerun.
+ * The render worker (image_prompt_generation) and the image job
+ * (image_generation). Since the render planner was removed (plan
+ * docs/plans/PLAN_GAG_DIRECT_RENDER.md, D), the worker compiles the gag frozen
+ * on the attempt directly, makes no model call, and stores only the compiled
+ * prompt; a frozen gag that cannot be drawn ends the render terminally.
  */
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -23,7 +18,7 @@ import { eq, inArray } from "drizzle-orm";
 import type { FactEnrichment } from "@workspace/api-zod";
 
 import {
-  persistImagePromptPlanAndEnqueueGeneration,
+  persistCompiledPromptAndEnqueueGeneration,
   imagePromptGenerationHandler,
   IMAGE_GENERATION_QUEUE,
   imageGenerationHandler,
@@ -38,6 +33,7 @@ import { __setUtilityLLMClientForTest } from "../lib/utilityLLM.js";
 import { __setRenderFalForTest, type FalHistoryEntry, type RenderFal } from "../lib/renderFalTransport.js";
 import { __setRecoveryClockForTest, recoverLostReceipt } from "../lib/renderRequestRecovery.js";
 import { defaultIdentityPolicyForRenderMode } from "@workspace/api-zod";
+import { withCast } from "./helpers/gagCast.js";
 
 const USER_PREFIX = "t_ipj_";
 
@@ -130,100 +126,41 @@ after(async () => {
   await db.delete(usersTable).where(eq(usersTable.id, userId));
 });
 
-describe("persistImagePromptPlanAndEnqueueGeneration — compatibility rating never blocks", () => {
-  for (const rating of ["poor", "risky"] as const) {
-    it(`${rating}: persists the advisory rating, leaves error NULL, and enqueues image_generation`, async () => {
-      const attemptId = await seedAttempt();
-      const compatibility = { rating, reason: "test", recommendedFallback: "none" };
+describe("persistCompiledPromptAndEnqueueGeneration — stores the prompt and chains image_generation", () => {
+  it("stores the compiled prompt and no plan, leaves error NULL, and enqueues image_generation", async () => {
+    const attemptId = await seedAttempt();
 
-      await persistImagePromptPlanAndEnqueueGeneration({
-        attemptId,
-        visualPlan: { coreScene: "test scene" } as never,
-        compiledPrompt: { prompt: "test prompt", imagePrompt: "test prompt" } as never,
-        subjectFactCompatibility: compatibility,
-        archetypeStrategyVersion: "v2",
-      });
-
-      const [row] = await db
-        .select()
-        .from(imagePromptAttemptsTable)
-        .where(eq(imagePromptAttemptsTable.id, attemptId));
-      assert.equal(row!.error, null);
-      assert.deepEqual(row!.subjectFactCompatibility, compatibility);
-
-      const [job] = await db
-        .select()
-        .from(asyncJobsTable)
-        .where(eq(asyncJobsTable.dedupeKey, `image_generation:attempt:${attemptId}`));
-      assert.ok(job, "expected an image_generation job to be enqueued");
-      assert.equal(job!.queue, IMAGE_GENERATION_QUEUE);
-      assert.equal((job!.payload as { attemptId: number }).attemptId, attemptId);
-      assert.equal(job!.status, "pending");
+    await persistCompiledPromptAndEnqueueGeneration({
+      attemptId,
+      compiledPrompt: { prompt: "test prompt", imagePrompt: "test prompt" },
     });
-  }
+
+    const [row] = await db
+      .select()
+      .from(imagePromptAttemptsTable)
+      .where(eq(imagePromptAttemptsTable.id, attemptId));
+    assert.equal(row!.error, null);
+    assert.deepEqual(row!.compiledPrompt, { prompt: "test prompt", imagePrompt: "test prompt" });
+    assert.equal(row!.visualPlan, null, "a direct attempt stores no plan");
+    assert.equal(row!.subjectFactCompatibility, null, "nor a planner's compatibility rating");
+    assert.equal(buildRenderStatusPayload(row!).status, "prompt_ready", "prompt_ready derives from the compiled prompt");
+
+    const [job] = await db
+      .select()
+      .from(asyncJobsTable)
+      .where(eq(asyncJobsTable.dedupeKey, `image_generation:attempt:${attemptId}`));
+    assert.ok(job, "expected an image_generation job to be enqueued");
+    assert.equal(job!.queue, IMAGE_GENERATION_QUEUE);
+    assert.equal((job!.payload as { attemptId: number }).attemptId, attemptId);
+    assert.equal(job!.status, "pending");
+  });
 });
 
 // ── image_prompt_generation handler: Concept warnings + deterministic terminal failures ──
 //
-// Drives the real handler on a seeded attempt. The only double is the OpenAI
-// client behind callUtilityLLM (via its test seam), returning a valid planner
-// plan; the real planner validation and Nano Banana 2 compiler still run.
-
-const PLAN = {
-  visualPlan: {
-    sceneConcept: "David stares at books until they surrender their knowledge",
-    visualGoal: "Convey awe-inspiring presence",
-    visualApproach: "Cinematic close-up",
-    archetypeApplication: {
-      primaryArchetype: "presence_induced_reaction_aura",
-      subtype: "awe_deference",
-      selectedFrame: "direct_action",
-      strategyRationale: "Presence causes objects to react.",
-    },
-    coreScene: "David stands in a library, books glowing around him as he stares them down.",
-    subjectDetails: ["intense focused gaze", "calm commanding posture"],
-    environment: ["library shelves towering overhead", "soft glow from books"],
-    lightingAndStyle: "dramatic chiaroscuro lighting",
-    keyVisualElements: ["David central", "glowing books", "library setting", "dramatic lighting", "subtle shimmer"],
-    subjectTreatment: {
-      roleInScene: "Legendary protagonist",
-      subjectRenderMode: "human_identity_i2i",
-      identityPreservation: "human_face",
-      nonhumanSubjectTreatment: {
-        applicable: false, subjectKind: "not_applicable", preserveTraits: [],
-        anthropomorphicTreatment: "none", doNotTransformIntoHuman: false,
-      },
-      fallbackSubjectGender: "not_applicable",
-      expressionAndPose: "Confident, intense, unfazed",
-      ageLifeStageTransform: { applies: false, targetState: "" },
-    },
-    subjectFactCompatibility: { rating: "strong", reason: "Human protagonist works well.", recommendedFallback: "none" },
-    composition: {
-      subjectFraming: "Medium close-up", negativeSpace: "top", cameraStyle: "Cinematic 35mm",
-      sceneReadability: "Glowing books and intense gaze readable at a glance",
-    },
-    supportingTextPolicy: {
-      allowSupportingText: false, supportingTextElements: [],
-      forbiddenTextTypes: [
-        "full meme captions", "full fact text", "hashtags", "watermarks", "real logos", "brand marks",
-        "long explanatory paragraphs",
-      ],
-    },
-    secondaryCharacters: [],
-    semanticEntitiesUsed: [],
-    culturalReferencesUsed: [],
-    contentNotes: "SFW",
-    debugNotes: "",
-    targetEngine: "nano_banana_2",
-    generationMode: "i2i",
-  },
-  compiledPrompt: {
-    prompt:
-      "Image-to-image edit using the reference image as the person's facial identity source. Preserve the reference person's recognizable face. David stands in a library surrounded by glowing books, staring them down with an intense gaze.",
-    negativePrompt: "",
-    engineNotes: "",
-  },
-};
+// Drives the real handler on a seeded attempt. The OpenAI client behind
+// callUtilityLLM is replaced by a counter (via its test seam) that fails the
+// test's expectations if anything calls it: the render makes no model call.
 
 const FACT_TEXT_RENDERED = "David doesn't read books. He stares them down until he gets the information he wants.";
 
@@ -245,27 +182,31 @@ function handlerEnrichment(override?: Record<string, unknown>): FactEnrichment {
     characters: [],
     ...(override
       ? {
-          visualPromptStrategyOverride: {
+          // The gag frozen on the attempt carries a cast read from its own
+          // scene (PLAN_GAG_DIRECT_RENDER.md, C); a test that wants a stale or
+          // missing cast overrides it after.
+          visualPromptStrategyOverride: withCast({
             version: 1,
             requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
             compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
             bubbles: [],
             ...override,
-          },
+          } as never),
         }
       : {}),
   } as unknown as FactEnrichment;
 }
 
 let llmCalls = 0;
-function installPlannerDouble(): void {
+/** Counts any model call; the render worker should make none. */
+function installLlmCounter(): void {
   llmCalls = 0;
   __setUtilityLLMClientForTest({
     chat: {
       completions: {
         create: async () => {
           llmCalls++;
-          return { choices: [{ message: { content: JSON.stringify(PLAN) } }] };
+          throw new Error("the render worker makes no model call");
         },
       },
     },
@@ -330,7 +271,7 @@ async function generationJob(attemptId: number) {
 
 describe("image_prompt_generation handler — Concept with compiler-owned language", () => {
   it("enqueues image_generation (does not fail) and persists the owned-language warning", async () => {
-    installPlannerDouble();
+    installLlmCounter();
     const attemptId = await seedHandlerAttempt({
       snapshot: handlerEnrichment({
         coreSceneOverride: "{NAME} rides a T-Rex through the office. Ensure {NAME}'s recognizable face is preserved.",
@@ -339,10 +280,12 @@ describe("image_prompt_generation handler — Concept with compiler-owned langua
 
     const res = await runHandler(attemptId);
     assert.equal(res.ok, true, JSON.stringify(res));
+    assert.equal(llmCalls, 0, "no model call: the gag is compiled directly");
 
     const row = await attemptRow(attemptId);
     assert.equal(row.error, null);
     assert.equal(row.errorCode, null);
+    assert.equal(row.visualPlan, null, "no plan is stored");
     const compiled = row.compiledPrompt as {
       imagePrompt: string;
       diagnostics?: { warnings?: Array<{ code: string }> };
@@ -362,7 +305,7 @@ describe("image_prompt_generation handler — Concept with compiler-owned langua
 
 describe("image_prompt_generation handler — stored bubble token", () => {
   it("compiles a {NAME} bubble with the attempt's identity into the rendered name, no raw token", async () => {
-    installPlannerDouble();
+    installLlmCounter();
     const attemptId = await seedHandlerAttempt({
       snapshot: handlerEnrichment({
         coreSceneOverride: "{NAME} stands in a library surrounded by glowing books.",
@@ -381,8 +324,8 @@ describe("image_prompt_generation handler — stored bubble token", () => {
 });
 
 describe("image_prompt_generation handler — the prompt recipe it was queued with (the prompt tuner)", () => {
-  it("compiles with the attempt's recipe version, and recompiling its stored plan with other wording needs no planner call", async () => {
-    installPlannerDouble();
+  it("compiles with the attempt's recipe version, and recompiling its frozen gag with other wording needs no model call", async () => {
+    installLlmCounter();
     const family = `t-ipj-${randomUUID().slice(0, 6)}`;
     const [version] = await db.insert(promptRecipeVersionsTable).values({
       engineFamily: family, number: 1, note: "test", pieces: { "identity.person": "Use the photo as the person's face, exactly." },
@@ -404,7 +347,7 @@ describe("image_prompt_generation handler — the prompt recipe it was queued wi
       assert.ok(again);
       assert.match(again!.prompt, /IDENTITY & REFERENCE: Another wording\./);
       assert.match(again!.prompt, /lifts a library/, "the same stored scene");
-      assert.equal(llmCalls, calls, "no planner call");
+      assert.equal(llmCalls, calls, "no model call");
 
       // The preview's highlighting reads the same stored scene, marked: the
       // wording comes back as its piece and the text is otherwise unchanged.
@@ -416,7 +359,7 @@ describe("image_prompt_generation handler — the prompt recipe it was queued wi
       }
       const all = (marked!.promptBreakdown ?? []).flatMap((sec) => segmentsOf(sec.text));
       assert.ok(all.some((g) => g.piece === "identity.person" && g.text === "Another wording."), "the edited piece is marked as itself");
-      assert.equal(llmCalls, calls, "still no planner call");
+      assert.equal(llmCalls, calls, "still no model call");
     } finally {
       await db.update(imagePromptAttemptsTable).set({ recipeVersionId: null }).where(eq(imagePromptAttemptsTable.recipeVersionId, version!.id));
       await db.delete(promptRecipeVersionsTable).where(eq(promptRecipeVersionsTable.id, version!.id));
@@ -436,26 +379,50 @@ describe("image_prompt_generation handler — deterministic failures are termina
     assert.equal(await generationJob(attemptId), undefined, "no image_generation job enqueued");
   }
 
-  it("a corrupt frozen enrichment → invalid_persisted_enrichment, before any planner call", async () => {
-    installPlannerDouble();
+  it("a corrupt frozen enrichment → invalid_persisted_enrichment", async () => {
+    installLlmCounter();
     const attemptId = await seedHandlerAttempt({ snapshot: { primaryArchetype: "nope" } });
     await assertTerminal(attemptId, "invalid_persisted_enrichment");
-    assert.equal(llmCalls, 0, "planner never called");
+    assert.equal(llmCalls, 0);
   });
 
-  it("a leaked {NAME} token in the frozen fact text → rendered_fact_unresolved_token, before any planner call", async () => {
-    installPlannerDouble();
+  it("a frozen gag with no scene → gag_scene_missing", async () => {
+    installLlmCounter();
+    const attemptId = await seedHandlerAttempt({ snapshot: handlerEnrichment() });
+    await assertTerminal(attemptId, "gag_scene_missing");
+  });
+
+  it("a frozen gag whose cast was not read from its scene as it stands → gag_cast_not_current", async () => {
+    installLlmCounter();
+    const stale = handlerEnrichment({ coreSceneOverride: "{NAME} stands in a library." }) as unknown as { visualPromptStrategyOverride: Record<string, unknown> };
+    stale.visualPromptStrategyOverride.coreSceneOverride = "{NAME} stands in a different library.";
+    const staleId = await seedHandlerAttempt({ snapshot: stale });
+    await assertTerminal(staleId, "gag_cast_not_current");
+
+    const noCast = handlerEnrichment({ coreSceneOverride: "{NAME} stands in a library." }) as unknown as { visualPromptStrategyOverride: Record<string, unknown> };
+    delete noCast.visualPromptStrategyOverride.cast;
+    delete noCast.visualPromptStrategyOverride.castExtraction;
+    const noCastId = await seedHandlerAttempt({ snapshot: noCast });
+    await assertTerminal(noCastId, "gag_cast_not_current");
+  });
+
+  it("the frozen fact text is not an input: a leaked {NAME} token in it does not stop the render", async () => {
+    installLlmCounter();
     const attemptId = await seedHandlerAttempt({
-      snapshot: handlerEnrichment(),
+      snapshot: handlerEnrichment({ coreSceneOverride: "{NAME} stands in a library surrounded by glowing books." }),
       renderedFactText: "{NAME} doesn't read books.",
     });
-    await assertTerminal(attemptId, "rendered_fact_unresolved_token");
-    assert.equal(llmCalls, 0, "planner never called");
+    const res = await runHandler(attemptId);
+    assert.equal(res.ok, true, JSON.stringify(res));
+    const compiled = (await attemptRow(attemptId)).compiledPrompt as { imagePrompt: string };
+    assert.doesNotMatch(compiled.imagePrompt, /\{NAME\}/);
+    assert.ok(await generationJob(attemptId), "image_generation enqueued");
   });
 
-  it("required content over the engine budget → required_budget_overflow", async () => {
-    installPlannerDouble();
-    // 40 (the schema maximum) very long required details cannot fit the prompt budget.
+  it("the retired art-direction fields frozen on an older gag reach no prompt and cannot overflow it", async () => {
+    installLlmCounter();
+    // 40 (the schema maximum) very long required details: while the planner
+    // path compiled them this overflowed the budget (required_budget_overflow).
     const hugeRequired = Array.from(
       { length: 40 },
       (_, i) => `mandatory prop number ${i} ` + `rendered in painstaking detail${i} `.repeat(8),
@@ -466,7 +433,10 @@ describe("image_prompt_generation handler — deterministic failures are termina
         requiredVisualDetails: hugeRequired,
       }),
     });
-    await assertTerminal(attemptId, "required_budget_overflow");
+    const res = await runHandler(attemptId);
+    assert.equal(res.ok, true, JSON.stringify(res));
+    const compiled = (await attemptRow(attemptId)).compiledPrompt as { imagePrompt: string };
+    assert.doesNotMatch(compiled.imagePrompt, /mandatory prop number/);
   });
 });
 
@@ -497,12 +467,12 @@ describe("image_generation — the photoreal fallback: GPT Image refuses, Nano B
   }
 
   /**
-   * A planned photoreal attempt routed to GPT Image, with its fallback frozen as
+   * A prepared photoreal attempt routed to GPT Image, with its fallback frozen as
    * at queue time. `moderation` marks it an ephemeral moderation render; without
    * it the attempt is member-shaped (the `final` purpose, mirrored to legacy storage).
    */
   async function plannedAttempt(opts: { moderation?: boolean; engine?: string; frozen?: boolean } = {}): Promise<number> {
-    installPlannerDouble();
+    installLlmCounter();
     const attemptId = await seedHandlerAttempt({ snapshot: handlerEnrichment({ coreSceneOverride: "{NAME} lifts a library." }) });
     const row = await attemptRow(attemptId);
     factIdsHere.push(row.factId);
@@ -571,11 +541,11 @@ describe("image_generation — the photoreal fallback: GPT Image refuses, Nano B
   it("a member-shaped render: GPT refuses once, Nano Banana draws the same scene, and every trace of the picture names Nano Banana", async () => {
     const attemptId = await plannedAttempt();
     const before = await attemptRow(attemptId);
-    const plannerCalls = llmCalls;
+    const modelCalls = llmCalls;
     const { out, calls } = await draw(attemptId, (e) => (e === GPT ? refusal() : picture()));
     assert.equal(out.ok, true, JSON.stringify(out));
     assert.deepEqual(calls.map((c) => c.endpoint), [GPT, NB], "GPT once, no retry on it, then Nano Banana once");
-    assert.equal(llmCalls, plannerCalls, "the planner was not called again");
+    assert.equal(llmCalls, modelCalls, "no model call: the frozen gag is compiled again");
 
     const after = await attemptRow(attemptId);
     assert.equal(after.actualImageEngineId, "nano-banana-2-1-edit", "the attempt names the engine that drew it");
@@ -591,7 +561,7 @@ describe("image_generation — the photoreal fallback: GPT Image refuses, Nano B
     assert.ok(fb.refusedGenerationRequestId, "the refused request is linked");
 
     // Preserved: the frozen inputs. Changed: only the recipe, prompt and engine.
-    for (const k of ["visualPlan", "renderControls", "sourceImageAnalysis", "identityPolicy", "factEnrichmentSnapshot", "renderedFactText", "generationMode", "subjectRenderMode"] as const) {
+    for (const k of ["renderControls", "sourceImageAnalysis", "identityPolicy", "factEnrichmentSnapshot", "renderedFactText", "generationMode", "subjectRenderMode"] as const) {
       assert.deepEqual(after[k], before[k], `${k} is unchanged`);
     }
     const prompt = (after.compiledPrompt as { imagePrompt: string; referenceImageUrl?: string }).imagePrompt;
@@ -679,8 +649,9 @@ describe("image_generation — the photoreal fallback: GPT Image refuses, Nano B
 
   it("a fallback prompt that cannot be built ends the render with its own code, keeping GPT's refusal", async () => {
     const attemptId = await plannedAttempt({ moderation: true });
-    // No stored scene plan: the fallback cannot be compiled.
-    await db.update(imagePromptAttemptsTable).set({ visualPlan: null }).where(eq(imagePromptAttemptsTable.id, attemptId));
+    // Its frozen gag can no longer be drawn (a cast not read from its scene): the fallback cannot be compiled.
+    const frozen = (await attemptRow(attemptId)).factEnrichmentSnapshot as { visualPromptStrategyOverride: Record<string, unknown> };
+    await db.update(imagePromptAttemptsTable).set({ factEnrichmentSnapshot: { ...frozen, visualPromptStrategyOverride: { ...frozen.visualPromptStrategyOverride, coreSceneOverride: "{NAME} lifts a different library." } } as never }).where(eq(imagePromptAttemptsTable.id, attemptId));
     const { out, calls } = await draw(attemptId, (e) => (e === GPT ? refusal() : picture()));
     assert.equal((out as { retryable?: boolean }).retryable, false);
     assert.deepEqual(calls.map((c) => c.endpoint), [GPT], "no Nano Banana call");
@@ -779,9 +750,9 @@ describe("image_generation — a resumed render collects what was already paid f
 
   const pictureData = () => ({ images: [{ url: `data:image/png;base64,${png.toString("base64")}` }] });
 
-  /** A planned attempt on the styled engine (no fallback), as a moderation render. */
+  /** A compiled attempt on the styled engine (no fallback), as a moderation render. */
   async function planned(): Promise<{ attemptId: number; factId: number }> {
-    installPlannerDouble();
+    installLlmCounter();
     const attemptId = await seedHandlerAttempt({ snapshot: handlerEnrichment({ coreSceneOverride: "{NAME} lifts a library." }) });
     const row = await attemptRow(attemptId);
     factIdsHere.push(row.factId);
@@ -1082,21 +1053,24 @@ describe("image_generation — a resumed render collects what was already paid f
   });
 });
 
-describe("image_prompt_generation — a resumed planner reuses the plan it saved (plan PLAN_JOB_RESUME.md §F)", () => {
-  it("no second planner call; the missing image job is created, and only once", async () => {
-    installPlannerDouble();
+describe("image_prompt_generation — a resumed run reuses the prompt it saved (plan PLAN_JOB_RESUME.md §F)", () => {
+  it("never compiles again; the missing image job is created, and only once", async () => {
+    installLlmCounter();
     const attemptId = await seedHandlerAttempt({ snapshot: handlerEnrichment({ coreSceneOverride: "{NAME} lifts a library." }) });
-    assert.equal((await runHandler(attemptId)).ok, true);
-    assert.equal(llmCalls, 1);
-    // The run stopped after the plan was saved; its image job is gone.
+    const first = await runHandler(attemptId);
+    assert.equal(first.ok, true, JSON.stringify(first));
+    const saved = (await attemptRow(attemptId)).compiledPrompt;
+    // The run stopped after the prompt was saved; its image job is gone.
     await db.delete(asyncJobsTable).where(eq(asyncJobsTable.dedupeKey, `image_generation:attempt:${attemptId}`));
     const again = await runHandler(attemptId);
     assert.equal(again.ok, true, JSON.stringify(again));
-    assert.equal(llmCalls, 1, "the saved plan was reused");
+    assert.deepEqual(again.ok && again.result, { attemptId, reusedSavedPrompt: true }, "the saved prompt was reused");
+    assert.deepEqual((await attemptRow(attemptId)).compiledPrompt, saved, "the saved prompt is unchanged");
     assert.ok(await generationJob(attemptId), "the missing image job was created");
     assert.equal((await runHandler(attemptId)).ok, true);
     const jobs = await db.select().from(asyncJobsTable).where(eq(asyncJobsTable.dedupeKey, `image_generation:attempt:${attemptId}`));
     assert.equal(jobs.length, 1, "deduped against the one in flight");
+    assert.equal(llmCalls, 0, "no model call at any step");
     await db.delete(asyncJobsTable).where(eq(asyncJobsTable.dedupeKey, `image_generation:attempt:${attemptId}`));
   });
 });

@@ -22,7 +22,7 @@ import {
 } from "@workspace/api-zod";
 import { requireAdmin } from "./admin";
 import { analyzeSourceImage } from "../lib/sourceImageAnalysis";
-import { ImagePromptError } from "../lib/imagePrompt/generator";
+import { DirectGagInputError } from "../lib/imagePrompt/directInput";
 import { assembleImagePromptForPreview } from "../lib/imagePrompt/preview";
 import { liveRecipeForEngine } from "../lib/imagePrompt/recipeStore";
 import { resolveReviewCycleEnrichment } from "../lib/moderationStaging";
@@ -33,7 +33,6 @@ import { NoUsablePhotoError, resolveRenderReviewInput } from "../lib/imagePrompt
 
 // Re-export the plan-generator test seam (now owned by the shared preview helper)
 // so existing tests importing it from this route keep working.
-export { __setPlanGeneratorForTest } from "../lib/imagePrompt/preview";
 
 const router: IRouter = Router();
 
@@ -228,31 +227,27 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
   // shows what a render sends.
   const routedEngineId = (await currentImageEngineIds(lookClass))[generationMode];
   const { versionId: recipeVersionId, recipe } = await liveRecipeForEngine(routedEngineId);
-  let output;
+  // The one selected gag, compiled directly: no model call, so this is the
+  // prompt a render of it sends (plan PLAN_GAG_DIRECT_RENDER.md, D).
   let compiled;
   try {
-    const assembled = await assembleImagePromptForPreview({
-      renderedFactText,
-      enrichment,
-      sourceImageAnalysis: analysis,
+    compiled = assembleImagePromptForPreview({
+      gag: enrichment.visualPromptStrategyOverride,
       subjectRenderMode,
-      userSelectedSubjectRenderMode: body.userSelectedSubjectRenderMode ?? null,
-      identityPolicy: identityPolicy as IdentityPolicy,
       renderControls,
       stylePrompt,
       referenceImageUrl: body.referenceImageUrl ?? null,
-      // Resolve any residual identity tokens with the same sample subject used to
-      // render the fact text, so {NAME} never reaches the engine prompt.
+      // The same sample subject the fact text renders with, so {NAME} never
+      // reaches the engine prompt.
       renderedSubject: { name: previewName, pronouns: previewPronouns },
-      requestId,
       recipe,
-    });
-    output = assembled.output;
-    compiled = assembled.compiled;
+    }).compiled;
   } catch (err) {
-    const msg = err instanceof ImagePromptError ? err.message : err instanceof Error ? err.message : String(err);
-    res.status(502).json({ error: "prompt_generation_failed", details: msg });
-    return;
+    if (err instanceof DirectGagInputError) {
+      res.status(400).json({ error: err.code, message: err.message });
+      return;
+    }
+    throw err;
   }
 
   let attemptId: number | undefined;
@@ -278,10 +273,9 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
         renderControls,
         factEnrichmentSnapshot: enrichment,
         renderedFactText,
-        archetypeStrategyVersion: output.archetypeStrategyVersion,
-        visualPlan: output.visualPlan,
+        // The constant every attempt insert writes; no archetype strategy shapes a direct prompt.
+        archetypeStrategyVersion: "v2",
         compiledPrompt: compiled,
-        subjectFactCompatibility: output.visualPlan.subjectFactCompatibility,
       })
       .returning({ id: imagePromptAttemptsTable.id });
     attemptId = inserted?.id;
@@ -302,26 +296,7 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
       aspectRatio: renderControls.aspectRatio,
       negativeSpacePreference: renderControls.negativeSpacePreference ?? null,
     },
-    visualPlan: output.visualPlan,
     compiledPrompt: compiled,
-    subjectFactCompatibility: output.visualPlan.subjectFactCompatibility,
-    promptVersion: output.promptVersion,
-    archetypeStrategyVersion: output.archetypeStrategyVersion,
-    debug: {
-      primaryArchetype: output.visualPlan.archetypeApplication.primaryArchetype,
-      subtype: output.visualPlan.archetypeApplication.subtype,
-      // `provided` = what the generator was given (authoritative); `used` = what
-      // the plan echoed back as material and folded into the scene.
-      culturalReferencesProvided: enrichment.culturalReferences ?? [],
-      culturalReferencesUsed: output.visualPlan.culturalReferencesUsed ?? [],
-      semanticEntitiesUsed: output.visualPlan.semanticEntitiesUsed ?? [],
-      supportingTextPolicy: output.visualPlan.supportingTextPolicy,
-      subjectFactCompatibility: output.visualPlan.subjectFactCompatibility,
-      promptVersion: output.promptVersion,
-      visualStrategyVersion: output.archetypeStrategyVersion,
-      generatedAt: output.generatedAt,
-      generatedBy: output.generatedBy,
-    },
     attemptId,
   });
 });

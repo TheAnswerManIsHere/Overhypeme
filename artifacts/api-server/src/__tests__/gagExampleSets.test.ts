@@ -193,7 +193,7 @@ describe("renders, counted per action", () => {
     assert.equal(drawn(await drawGagKinds(gagId, ["male"], { adminUserId: adminId, redraw: true })).length, 1, "an explicit redraw draws a new one");
   });
 
-  it("a classification edit that does not shape the picture keeps the render; one that does draws anew (Codex, PR #972 round 2)", async () => {
+  it("a classification edit keeps the render: the picture is drawn from the gag alone (Codex, PR #972 round 2; PLAN_GAG_DIRECT_RENDER.md, D)", async () => {
     const { factId, gagId } = await liveFact();
     const first = drawn(await drawGagKinds(gagId, ["male"], { adminUserId: adminId }));
     assert.equal(first.length, 1);
@@ -202,9 +202,9 @@ describe("renders, counted per action", () => {
     await db.update(factsTable).set({ enrichment: { ...base, adminReviewNotes: "a note written after seeing the render", adultSuitability: base.adultSuitability === "safe" ? "compatible" : "safe" } as never }).where(eq(factsTable.id, factId));
     assert.equal(drawn(await drawGagKinds(gagId, ["male"], { adminUserId: adminId })).length, 0, "the render is reused");
     assert.equal((await buildGagKindCards(gagId)).male!.latestAttemptId, first[0]!.attemptId, "the tile still shows it");
-    // A picture-shaping field: the old render no longer matches.
+    // A field the planner used to read: since the switch it shapes no picture either.
     await db.update(factsTable).set({ enrichment: { ...base, visualComplexity: base.visualComplexity === "high" ? "low" : "high" } as never }).where(eq(factsTable.id, factId));
-    assert.equal(drawn(await drawGagKinds(gagId, ["male"], { adminUserId: adminId })).length, 1, "a new render is drawn");
+    assert.equal(drawn(await drawGagKinds(gagId, ["male"], { adminUserId: adminId })).length, 0, "the render is still reused");
   });
 
   it("overlapping requests for the same content draw one render", async () => {

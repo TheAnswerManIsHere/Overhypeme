@@ -25,9 +25,9 @@ import { eq, inArray, like } from "drizzle-orm";
 
 import adminComparisonRouter from "../routes/adminComparison.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
-import { makeStubPlan, VALID_ENRICHMENT } from "./helpers/stubPlanner.js";
+import { VALID_ENRICHMENT } from "./helpers/validEnrichment.js";
+import { withCast } from "./helpers/gagCast.js";
 import { ALL_ENGINES } from "../lib/engines/index.js";
-import { __setPlanGeneratorForTest } from "../lib/imagePrompt/preview.js";
 import { __setReferenceFalUploadForTest } from "../lib/defaultReferenceResolver.js";
 import { __setComparisonFalForTest, type ComparisonFal } from "../lib/comparison/transport.js";
 import {
@@ -40,8 +40,6 @@ import {
   renderCell,
 } from "../lib/comparison/runs.js";
 import { createEvaluation, estimateEvaluation, finishEvaluation, listEvaluations, progressOf, searchEligibleFacts } from "../lib/comparison/evaluations.js";
-import { panelPreparationTypicalUsd } from "../lib/comparison/admission.js";
-import { plannerSettings } from "../lib/comparison/sets.js";
 import type { EvaluationCreate } from "@workspace/api-zod";
 import { testEngineRow } from "./helpers/testEngines.js";
 import { clearTestEngineDefinitions } from "../lib/engineInterpreter.js";
@@ -59,14 +57,15 @@ let inactiveFact = 0;
 let brokenFact = 0;
 
 let submissions: Array<{ endpointId: string; input: Record<string, unknown> }> = [];
-let failPlanner = false;
+/** When set, the reference upload fails: the one way a scene's preparation still fails since the planner was removed. */
+let failReference = false;
 const fakeFal: ComparisonFal = {
   async submit(endpointId, input) { submissions.push({ endpointId, input }); return `req-${submissions.length}`; },
   async status() { return "COMPLETED"; },
   async result(_e, requestId) { return { images: [{ url: `https://vendor.test/${requestId}.png` }] }; },
 };
 
-const ACTIVE_GAG = { version: 1, coreSceneOverride: "{NAME} lifts a whole mountain overhead." };
+const ACTIVE_GAG = withCast({ version: 1 as const, coreSceneOverride: "{NAME} lifts a whole mountain overhead." });
 
 // One wrapper scopes the file-level hooks to this file: with test isolation off,
 // a root-level beforeEach would install this file's fakes for every other file
@@ -96,7 +95,6 @@ after(async () => {
   __setComparisonFalForTest(null);
   __setReferenceFalUploadForTest(null);
   __setComparisonImageStoreForTest(null);
-  __setPlanGeneratorForTest(null);
   CELL_POLL.intervalMs = 3_000;
   await db.delete(asyncJobsTable).where(inArray(asyncJobsTable.queue, [COMPARISON_PREPARE_QUEUE, COMPARISON_RENDER_QUEUE]));
   await db.delete(comparisonSetsTable).where(like(comparisonSetsTable.label, `${P}%`));
@@ -107,15 +105,14 @@ after(async () => {
 
 beforeEach(() => {
   submissions = [];
-  failPlanner = false;
+  failReference = false;
   __allowComparisonDispatchInCiForTest(true);
   __setComparisonFalForTest(fakeFal);
-  __setReferenceFalUploadForTest(async () => "https://fal.test/ref.jpg");
-  __setComparisonImageStoreForTest(async (cell) => `/objects/comparison/cell-${cell.id}.png`);
-  __setPlanGeneratorForTest(async (input) => {
-    if (failPlanner) throw new Error("planner down");
-    void input; return makeStubPlan("human_identity_i2i", "A protagonist lifts a mountain.") as never;
+  __setReferenceFalUploadForTest(async () => {
+    if (failReference) throw new Error("upload down");
+    return "https://fal.test/ref.jpg";
   });
+  __setComparisonImageStoreForTest(async (cell) => `/objects/comparison/cell-${cell.id}.png`);
   CELL_POLL.intervalMs = 0;
 });
 
@@ -191,7 +188,8 @@ describe("Generate Images", () => {
     assert.ok(afterRows.cells.every((c) => c.state === "rendered"), JSON.stringify(afterRows.cells.map((c) => c.state)));
     assert.equal(submissions.length, afterRows.cells.length, "one submission per picture");
     const settled = await db.select().from(comparisonReservationsTable).where(eq(comparisonReservationsTable.runId, runs[0]!.id));
-    assert.ok(settled.every((r) => r.state === "settled"), "every reservation settled at its bound");
+    assert.ok(settled.filter((r) => r.kind === "image").every((r) => r.state === "settled"), "every picture's reservation settled at its bound");
+    assert.ok(settled.filter((r) => r.kind === "planner").every((r) => r.state === "released" && Number(r.boundUsd) === 0), "a scene's preparation makes no paid call: $0, released");
     const [run] = await db.select().from(comparisonRunsTable).where(eq(comparisonRunsTable.id, runs[0]!.id));
     assert.equal(run!.state, "done");
     assert.equal((await summary(out.setId)).status, "ready");
@@ -225,7 +223,7 @@ describe("Generate Images", () => {
   });
 
   it("a failed scene releases its pictures' reservations, shows Needs action, and Retry scene starts it and its pictures", async () => {
-    failPlanner = true;
+    failReference = true;
     const out = await createEvaluation(generate("retry"), adminId);
     await drainAll();
     let r = await rows(out.setId);
@@ -238,7 +236,7 @@ describe("Generate Images", () => {
     assert.equal(s.needsAction.length, r.panels.length);
     await assert.rejects(finishEvaluation(out.setId), /can still be started or retried/);
 
-    failPlanner = false;
+    failReference = false;
     const panel = r.panels[0]!;
     const res = await request(app()).post(`/api/admin/comparison/panels/${panel.id}/reprepare`).send({});
     assert.equal(res.status, 200, JSON.stringify(res.body));
@@ -309,8 +307,8 @@ describe("statuses and Finish", () => {
     const est = await estimateEvaluation(generate("typical-estimate").selection);
     assert.ok(est.typicalUsd != null && est.totalBoundUsd != null);
     assert.ok(est.typicalUsd! < est.totalBoundUsd!, `typical ${est.typicalUsd} is below the ceiling ${est.totalBoundUsd}`);
-    const prepTypical = est.panels * panelPreparationTypicalUsd(await plannerSettings());
-    assert.equal(est.typicalUsd, Math.round((prepTypical + est.images * 0.01) * 10_000) / 10_000, "pictures are priced at the billed average");
+    assert.equal(est.preparationBoundUsd, 0, "preparing a scene makes no paid call (PLAN_GAG_DIRECT_RENDER.md, D)");
+    assert.equal(est.typicalUsd, Math.round(est.images * 0.01 * 10_000) / 10_000, "pictures are priced at the billed average; preparation adds nothing");
   });
 
   it("Resume starts an interrupted evaluation's work once and spends no retry allowance", async () => {
@@ -341,7 +339,7 @@ describe("statuses and Finish", () => {
   });
 
   it("a retry starts only its own work, within the figure its button showed; Resume still holds the rest (PR #932 round 1)", async () => {
-    failPlanner = true;
+    failReference = true;
     const out = await createEvaluation(generate("retry-scope"), adminId);
     await drainAll();
     let r = await rows(out.setId);
@@ -349,7 +347,7 @@ describe("statuses and Finish", () => {
     assert.ok(failed && other && r.panels.every((p) => p.state === "failed"));
     // The other scene becomes work no run holds: pending, its pictures expected.
     await db.update(comparisonPanelsTable).set({ state: "pending", error: null }).where(eq(comparisonPanelsTable.id, other.id));
-    failPlanner = false;
+    failReference = false;
 
     let s = await summary(out.setId);
     const retry = s.needsAction.find((a) => a.action === "retry_scene" && a.panelId === failed.id)!;

@@ -1,34 +1,29 @@
 // The compiler review, Phase 1 (plan docs/plans/PLAN_COMPILER_REVIEW.md): the
 // one compiler is engine-aware through the recipe it is handed. Each chosen
-// engine family has its own baseline wording and shape; Nano Banana 2's stays
-// byte for byte (promptRecipeBaseline.test.ts holds that). These tests hold
-// that each new baseline compiles every captured input within the prompt
+// engine family has its own baseline wording and shape; the direct compile's
+// pin (promptRecipeBaseline.test.ts) holds each byte for byte. These tests
+// hold that each family's baseline compiles every pin case within the prompt
 // budget with every required section present, keeps the gag verbatim, reads
 // back unchanged through the preview's highlighting, and is shaped as its
 // vendor's guidance describes.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 
-import { compileForSubjectRenderMode } from "../lib/imagePrompt/compilers/nanoBanana2.js";
+import { compileDirect, type DirectCompileArgs } from "../lib/imagePrompt/compilers/nanoBanana2.js";
 import { BASELINE_RECIPE, baselineRecipeFor, recipeFrom, recipeProblems, type ResolvedRecipe } from "../lib/imagePrompt/recipe.js";
 import { recipeBudgetProblems } from "../lib/imagePrompt/promptBudget.js";
 import { markRecipe, segmentsOf } from "../lib/imagePrompt/recipeHighlight.js";
+import { DIRECT_COMPILE_CASES } from "./fixtures/directCompileCases.js";
 
-type Case = { args: Parameters<typeof compileForSubjectRenderMode>[0]; prompt: string; engineNotes: string | null };
-// The corpus was captured with three modes; no-photo renders are retired
-// (compiler review, Phase 2), so its no-photo cases are kept as the record and
-// not compiled.
-const captured = JSON.parse(readFileSync(fileURLToPath(new URL("./fixtures/compilerBaseline.json", import.meta.url)), "utf8")) as { cases: Case[] };
-const corpus = { cases: captured.cases.filter((c) => c.args.input.subjectRenderMode !== "t2i_fallback") };
+type Case = (typeof DIRECT_COMPILE_CASES)[number];
+const corpus = { cases: DIRECT_COMPILE_CASES };
 
 const GPT = "gpt-image-2-6";
 const NB21 = "nano-banana-2-1";
 const MAX_PROMPT_CHARS = 10150;
 
-const compile = (c: Case, recipe: ResolvedRecipe) => compileForSubjectRenderMode({ ...structuredClone(c.args), recipe });
-const gagOf = (c: Case) => c.args.input.enrichment.visualPromptStrategyOverride?.coreSceneOverride?.trim() ?? "";
+const compile = (c: Case, recipe: ResolvedRecipe) => compileDirect({ ...structuredClone(c.args) as Omit<DirectCompileArgs, "recipe">, recipe });
+const gagOf = (c: Case) => c.args.gag.scene.trim();
 
 describe("each chosen engine family's baseline", () => {
   for (const family of [GPT, NB21]) {
@@ -67,7 +62,7 @@ describe("each chosen engine family's baseline", () => {
     it(`${family}: reads back unchanged through the preview's highlighting`, () => {
       for (const [i, c] of corpus.cases.entries()) {
         const plain = compile(c, r).prompt;
-        const marked = compileForSubjectRenderMode({ ...structuredClone(c.args), recipe: markRecipe(r) }).prompt;
+        const marked = compile(c, markRecipe(r)).prompt;
         assert.equal(segmentsOf(marked).map((s) => s.text).join(""), plain, `case ${i}`);
       }
     });
@@ -75,7 +70,7 @@ describe("each chosen engine family's baseline", () => {
 
   it("GPT Image 2.6: labeled sections, one per paragraph, naming the reference as image 1", () => {
     const r = baselineRecipeFor(GPT);
-    const c = corpus.cases.find((x) => x.args.input.subjectRenderMode === "human_identity_i2i" && gagOf(x))!;
+    const c = corpus.cases.find((x) => x.args.subjectRenderMode === "human_identity_i2i" && gagOf(x))!;
     const out = compile(c, r).prompt;
     const paragraphs = out.split("\n\n");
     assert.ok(paragraphs.length >= 4);
@@ -86,7 +81,7 @@ describe("each chosen engine family's baseline", () => {
 
   it("Nano Banana 2.1: unlabeled paragraphs, and its do-nots written as what the picture is", () => {
     const r = baselineRecipeFor(NB21);
-    const c = corpus.cases.find((x) => x.args.input.subjectRenderMode === "human_identity_i2i" && gagOf(x))!;
+    const c = corpus.cases.find((x) => x.args.subjectRenderMode === "human_identity_i2i" && gagOf(x))!;
     const out = compile(c, r).prompt;
     assert.ok(!/(^|\n)(CORE SCENE|IDENTITY & REFERENCE|STRICT CONSTRAINTS|RENDER STYLE): /.test(out), "no section labels");
     assert.ok(out.includes("provided photo"));
@@ -116,26 +111,5 @@ describe("the shape pieces", () => {
     assert.match(recipeProblems({ "shape.section": "{body} {body}" }).join(" "), /\{body\} may appear once/);
     assert.deepEqual(recipeProblems({ "shape.section": "{body}" }), [], "the label is optional");
     assert.deepEqual(recipeProblems({ "shape.section": "[{label}] {body}" }), []);
-  });
-});
-
-describe("warnings when an approved gag leads (the compiler review's small defects)", () => {
-  it("do not judge the planner's subject details, environment, frame or tone", () => {
-    const c = corpus.cases.find((x) => gagOf(x))!;
-    const args = structuredClone(c.args);
-    args.visualPlan = { ...args.visualPlan, subjectDetails: [], environment: [] };
-    const codes = (compileForSubjectRenderMode(args).diagnostics?.warnings ?? []).map((w) => w.code);
-    for (const code of ["thin-subject-details", "thin-environment", "abstract-subject-role", "core-scene-missing-action", "thin-core-scene", "possible-tone-split-between-approach-and-prose"]) {
-      assert.ok(!codes.includes(code), `${code} fired on a gag-led render`);
-    }
-  });
-
-  it("still flag a thin scene the planner wrote", () => {
-    const c = corpus.cases.find((x) => !gagOf(x))!;
-    const args = structuredClone(c.args);
-    args.visualPlan = { ...args.visualPlan, subjectDetails: [], environment: [] };
-    const codes = (compileForSubjectRenderMode(args).diagnostics?.warnings ?? []).map((w) => w.code);
-    assert.ok(codes.includes("thin-subject-details"));
-    assert.ok(codes.includes("thin-environment"));
   });
 });

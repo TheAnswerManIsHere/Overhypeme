@@ -1,47 +1,27 @@
 /**
- * Pure assembly of a render-time image prompt for SYNC preview/test surfaces.
+ * Pure assembly of a render-time image prompt for SYNC preview surfaces: the
+ * admin "Runtime Compiled Prompt" preview (`POST /admin/image-prompt/preview`)
+ * and comparison preparation.
  *
- * Used by the Phase-2C admin preview route (`POST /admin/image-prompt/preview`).
- * Builds the `ImagePromptGenerationInput`, calls the planner, and runs the
- * deterministic Nano Banana 2 compiler — and NOTHING else. It never touches the
- * database or persists an attempt; persistence stays in the caller that needs it
- * (the preview route's `persist` path), so merely assembling a test prompt has no
- * side effects.
+ * It compiles ONE selected gag directly (plan PLAN_GAG_DIRECT_RENDER.md, D):
+ * no model call, so the prompt it shows is the prompt a render of the same
+ * gag, photo, look, controls and wording sends. It never touches the database
+ * or persists an attempt; persistence stays in the caller that needs it.
  */
 import type { ResolvedRecipe } from "./recipe";
 import type { ResolvedRenderStyleSnapshot } from "./styleResolution";
-import type {
-  FactEnrichment,
-  IdentityPolicy,
-  ImagePromptGenerationInput,
-  RenderControls,
-  SourceImageAnalysis,
-  SubjectRenderMode,
-  GenerationMode,
-} from "@workspace/api-zod";
-import { resolveRenderPolicy } from "@workspace/api-zod";
-import { generateImagePromptPlan } from "./generator";
-import { compileForSubjectRenderMode } from "./compilers/nanoBanana2";
-import type { ImagePromptGenerationOutput, CompiledImagePrompt } from "./types";
+import type { RenderControls, SubjectRenderMode, GenerationMode, VisualPromptStrategyOverride } from "@workspace/api-zod";
+import { compileDirect, type DirectCompileArgs } from "./compilers/nanoBanana2";
+import { directGagInput } from "./directInput";
+import type { CompiledImagePrompt } from "./types";
 import { generationModeFromSubjectRenderMode } from "../sourceImageAnalysis";
-
-// Test seam: route the live (OpenAI-backed) generator through a swappable binding
-// so tests can stub it without hitting OpenAI. The real Nano Banana compiler
-// still runs on the stubbed plan.
-type PlanGenerator = typeof generateImagePromptPlan;
-let planGenerator: PlanGenerator = generateImagePromptPlan;
-export function __setPlanGeneratorForTest(fn: PlanGenerator | null): void {
-  planGenerator = fn ?? generateImagePromptPlan;
-}
 
 /**
  * Canonical test identity shared by EVERY sync preview/test surface — the
  * Phase-2C admin "Runtime Compiled Prompt Preview" (`adminImagePrompt`); the
  * t2i/i2i engine workbench that shared it went with the Engines page on
  * 2026-11-14. It renders fact templates ({NAME}/{SUBJ}/…) down to this single
- * brand protagonist before calling the planner. With this unified, the only remaining difference between the two
- * previews is the planner's own temperature (IMAGE_PROMPT_TEMPERATURE = 0.4) —
- * never a harness mismatch.
+ * brand protagonist.
  */
 export const RUNTIME_PREVIEW_DEFAULT_NAME = "David Franklin";
 export const RUNTIME_PREVIEW_DEFAULT_PRONOUNS = "he/him";
@@ -55,66 +35,35 @@ export type RenderControlsWithRefs = RenderControls & {
 };
 
 export interface AssembleImagePromptArgs {
-  /** Already token-resolved fact text — the generator never sees a {NAME} template. */
-  renderedFactText: string;
-  enrichment: FactEnrichment;
-  sourceImageAnalysis: SourceImageAnalysis;
+  /** The one selected gag's content: its scene, bubbles and cast. */
+  gag: Pick<VisualPromptStrategyOverride, "coreSceneOverride" | "bubbles" | "cast" | "castExtraction"> | null | undefined;
   subjectRenderMode: SubjectRenderMode;
-  userSelectedSubjectRenderMode?: SubjectRenderMode | null;
-  identityPolicy: IdentityPolicy;
   renderControls: RenderControlsWithRefs;
   stylePrompt: string;
   referenceImageUrl?: string | null;
-  /** Identity used to resolve any residual token in the compiled prompt. */
+  /** Identity the gag's tokens render with. */
   renderedSubject: { name: string; pronouns: string | null };
-  requestId?: string;
   /** The prompt recipe to compile with (the prompt tuner); omitted means the baseline. */
   recipe?: ResolvedRecipe;
 }
 
 export interface AssembleImagePromptResult {
-  input: ImagePromptGenerationInput;
-  output: ImagePromptGenerationOutput;
+  /** What was compiled, without the recipe: a comparison freezes it so each cell compiles it with its own wording. */
+  args: Omit<DirectCompileArgs, "recipe">;
   compiled: CompiledImagePrompt;
   generationMode: GenerationMode;
 }
 
-export async function assembleImagePromptForPreview(
-  args: AssembleImagePromptArgs,
-): Promise<AssembleImagePromptResult> {
-  const generationMode = generationModeFromSubjectRenderMode(args.subjectRenderMode);
-  const input: ImagePromptGenerationInput = {
-    factText: args.renderedFactText,
-    enrichment: args.enrichment,
-    sourceImageAnalysis: args.sourceImageAnalysis,
+/** Throws `DirectGagInputError` when the gag cannot be drawn as it stands. */
+export function assembleImagePromptForPreview(args: AssembleImagePromptArgs): AssembleImagePromptResult {
+  const direct: Omit<DirectCompileArgs, "recipe"> = {
+    ...directGagInput(args.gag),
     subjectRenderMode: args.subjectRenderMode,
-    userSelectedSubjectRenderMode: args.userSelectedSubjectRenderMode ?? null,
-    identityPolicy: args.identityPolicy,
-    renderControls: args.renderControls,
-    // Effective render policy = Phase-1 default ← moderator override (Phase 2).
-    renderPolicy: resolveRenderPolicy(args.enrichment),
     stylePrompt: args.stylePrompt,
+    renderControls: args.renderControls,
     referenceImageUrl: args.referenceImageUrl ?? null,
-    targetEngine: "nano_banana_2",
-    requestId: args.requestId,
-    // Token-renders moderator-authored override text (visual concept) before
-    // the planner sees it — the planner never receives raw {NAME} tokens.
     renderedSubject: args.renderedSubject,
   };
-
-  const output = await planGenerator(input);
-  const compiled = compileForSubjectRenderMode({
-    visualPlan: output.visualPlan,
-    compiledPrompt: output.compiledPrompt,
-    input,
-    renderedSubject: args.renderedSubject,
-    ...(args.recipe ? { recipe: args.recipe } : {}),
-  });
-  // Surface which planner engine produced this plan (or that fallback fired)
-  // in the preview diagnostics.
-  if (output.plannerProvenance && compiled.diagnostics) {
-    compiled.diagnostics.plannerProvenance = output.plannerProvenance;
-  }
-
-  return { input, output, compiled, generationMode };
+  const compiled = compileDirect({ ...direct, ...(args.recipe ? { recipe: args.recipe } : {}) });
+  return { args: direct, compiled, generationMode: generationModeFromSubjectRenderMode(args.subjectRenderMode) };
 }

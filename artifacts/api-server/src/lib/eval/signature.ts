@@ -23,7 +23,6 @@ import {
   SCENARIO_CONFIG_VERSION,
   DEFAULT_REFERENCE_ASSET_VERSION,
 } from "../factRenderScenarios";
-import { resolveImagePromptLLMSettings } from "../imagePrompt/generator";
 import { attemptImageEngineId } from "../imageEngineRouting";
 
 const UNKNOWN = "unknown";
@@ -38,6 +37,9 @@ function lookStyleIdOf(attempt: ImagePromptAttempt): string {
   const id = (rc?.lookStyleId ?? rc?.styleId);
   return typeof id === "string" && id.trim() ? id.trim() : "none";
 }
+
+/** The planner fields of a direct attempt, which no planner made. */
+const NO_PLANNER = "none";
 
 /**
  * Per-attempt signature. Reference identity/version come from the stored review
@@ -75,22 +77,22 @@ export function deriveAttemptSignature(attempt: ImagePromptAttempt): AttemptSign
     referenceIdentityType: referenceIdentityType ?? "none",
     referenceAssetVersion,
     lookStyleId: lookStyleIdOf(attempt),
-    plannerModel: prov?.model ?? UNKNOWN,
-    plannerReasoningEffort: prov?.reasoningEffort ?? UNKNOWN,
+    // A direct attempt (plan PLAN_GAG_DIRECT_RENDER.md, D) had no planner;
+    // only a planned one without its provenance is unknown.
+    plannerModel: prov?.model ?? (attempt.visualPlan ? UNKNOWN : NO_PLANNER),
+    plannerReasoningEffort: prov?.reasoningEffort ?? (attempt.visualPlan ? UNKNOWN : NO_PLANNER),
   };
 }
 
 /**
- * Broad pipeline profile, captured ONCE at run creation. Pure resolution (no LLM
- * call) — `resolveImagePromptLLMSettings` reads the configured planner engine.
+ * Broad pipeline profile, captured ONCE at run creation. No planner runs since
+ * the switch (plan PLAN_GAG_DIRECT_RENDER.md, D), so its three fields are null.
  */
 export async function captureRunProfile(): Promise<EvalRunProfile> {
-  const settings = await resolveImagePromptLLMSettings();
-  const p = settings.plannerProvenance;
   return {
-    plannerEngineId: p.resolvedEngineId ?? p.configuredEngineId ?? null,
-    plannerModel: p.model ?? null,
-    plannerReasoningEffort: p.reasoningEffort ?? null,
+    plannerEngineId: null,
+    plannerModel: null,
+    plannerReasoningEffort: null,
     imagePromptGenerationVersion: String(IMAGE_PROMPT_GENERATION_VERSION),
     scenarioConfigVersion: String(SCENARIO_CONFIG_VERSION),
     archetypeStrategyVersion: String(VISUAL_STRATEGY_VERSION),

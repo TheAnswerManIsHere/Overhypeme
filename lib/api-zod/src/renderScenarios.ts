@@ -162,6 +162,14 @@ export interface RenderScenarioCard {
   /** Present for failed/blocked tiles. */
   message: string | null;
   /**
+   * True when the render ended because the picture engine refused it under its
+   * content policy (`vendor_content_refused`): a typed, terminal outcome that
+   * is never retried (plan PLAN_GAG_DIRECT_RENDER.md, B). `message` then
+   * carries the engine's reason. Optional so older card constructors still
+   * type-check.
+   */
+  engineRefused?: boolean;
+  /**
    * Where an in-flight render really is (plan PLAN_JOB_RESUME.md §D): read from
    * its job, its lease and the image service's own progress. Null when no job
    * is in flight. Optional so older card constructors still type-check.

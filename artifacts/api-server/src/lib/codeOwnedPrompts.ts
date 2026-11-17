@@ -42,6 +42,9 @@ export const RETIRED_AI_ENGINE_CONFIG_KEYS: ReadonlySet<string> = new Set([
   "nsfw_classifier_endpoint",
   "fact_visual_concepts_engine_id_before_0137",
   "fal_safety_tolerance_pulid",
+  // The render planner's system prompt, retired with the planner (plan
+  // PLAN_GAG_DIRECT_RENDER.md, D); a row a database still holds is never read.
+  "fact_image_prompt_system",
 ]);
 
 export const CODE_OWNED_AI_SETTING_REFUSAL = "This AI setting is set in code; change it through a reviewed pull request.";
