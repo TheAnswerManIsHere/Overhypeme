@@ -44,7 +44,7 @@ import { fileURLToPath } from "node:url";
 import { visualPromptStrategyOverrideSchema } from "@workspace/api-zod";
 import { withCast } from "./helpers/gagCast.js";
 import { __setDraftCastExtractorForTest } from "../lib/gags/castPreparation.js";
-import { castSourceKey } from "@workspace/api-zod";
+import { castSourceKey, PLACEHOLDER_CORE_SCENE_OVERRIDE } from "@workspace/api-zod";
 
 const RUN = randomUUID().slice(0, 8);
 const START = new Date();
@@ -240,6 +240,24 @@ describe("the default gag: approved first, across every slot", () => {
       { factId: fact!.id, slot: 1, pendingContent: scene("{NAME} pending one.") as never },
     ]);
     assert.equal((await primaryGag(fact!.id))!.content.coreSceneOverride, "{NAME} pending one.");
+  });
+
+  it("the stand-in scene a migration stamped is not a gag to draw: its pending change wins, then a real approved gag (bug: the comparison judged \"stands there confidently\")", async () => {
+    const [fact] = await db.insert(factsTable).values({ text: `{NAME} stand-in ${RUN} ${randomUUID().slice(0, 6)}`, isActive: false, enrichment: buildPlaceholderFactEnrichment() as never }).returning({ id: factsTable.id });
+    factIds.push(fact!.id);
+    const standIn = scene(PLACEHOLDER_CORE_SCENE_OVERRIDE);
+    // Fact 41's shape: the only gag's approved version is the stand-in, the real scene is pending.
+    // Approved before examples existed, as the backfilled stand-ins were (the examples trigger allows that).
+    const carried = { approvedCarriedOver: true, approvedBeforeExampleSets: true } as const;
+    await db.insert(factGagsTable).values({ factId: fact!.id, slot: 1, approvedContent: standIn as never, ...carried, pendingContent: scene("{NAME} drives mom home.") as never });
+    assert.equal((await primaryGag(fact!.id))!.content.coreSceneOverride, "{NAME} drives mom home.", "the pending real scene, not the stand-in");
+    // A real approved gag in a later slot beats both.
+    await db.insert(factGagsTable).values({ factId: fact!.id, slot: 2, approvedContent: scene("{NAME} real approved.") as never, ...carried });
+    assert.equal((await primaryGag(fact!.id))!.content.coreSceneOverride, "{NAME} real approved.");
+    // With nothing else, the stand-in is still returned, as before.
+    await db.delete(factGagsTable).where(eq(factGagsTable.factId, fact!.id));
+    await db.insert(factGagsTable).values({ factId: fact!.id, slot: 1, approvedContent: standIn as never, ...carried });
+    assert.equal((await primaryGag(fact!.id))!.content.coreSceneOverride, PLACEHOLDER_CORE_SCENE_OVERRIDE);
   });
 });
 
