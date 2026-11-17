@@ -63,18 +63,20 @@ Scope agreed with David 2026-11-17 in conversation (answers "q2 1", "q3 1", "q4 
 - **The first step of increment 1 proves the route on the real accounts before anything is built on it.** Preferred shape: a Sentry alert's webhook action posting to Pushover's JSON webhook receiver (both documented; Sentry's listed Pushover integration goes through a third vendor and is not used). The proof covers three cases: an error event, an uptime incident, and a second occurrence of the same failure after the rule's throttle interval, since "new issue" and "event seen again" are different Sentry triggers. If the route needs a relay or a third vendor, that comes back to David before anything else is built.
 - Accepted trade-off: if Sentry is down, nothing rings. One detector is the proportionate choice for a site this size.
 
-**Detector kind 1 — state, polled from outside.** Sentry uptime monitors call health endpoints on the deployed site. A non-200, a timeout or a refused connection is the alert. This is the only kind that survives the process or the database being gone.
+**Detector kind 1 — state, polled from outside.** A Sentry uptime check calls the deployed site. A non-200, a timeout or a refused connection is the alert. This is the only kind that survives the process or the database being gone.
 
-- **Site down:** the site's root and `/api/healthz`.
-- **Jobs stopped or wedged:** `/api/health/queues`, extended so it answers 503 when any of these holds: a lane stalled fleet-wide (today's rule); a recurring task whose last *completed* run is older than its cadence plus a grace; a due job nobody has claimed, or a claimed job held, far beyond what its queue allows.
+- **One uptime check, not one per source** (amendment 1, David, 2026-11-17, Q13: 2: *"Once we go live and we have revenue we can upgrade. Otherwise I need to purchase a plan now."*). Sentry's current plan allows one active uptime check; each further one needs a paid budget. The one check calls a combined health address, `/api/health/alerts`, which answers 503 when any polled source below is unhealthy, and also fails when the site or the API is down. The push then reads "Downtime detected for …/api/health/alerts" for every polled source, and the Operations page says which part failed. Splitting it into one check per source, so each push names its source, is *next*: after launch revenue, a budget change in Sentry plus one monitor per endpoint, no code change. Until increment 2 ships the combined address, the one check watches the home page.
+
+- **Site down:** the combined address fails outright when the deployment or the API is down.
+- **Jobs stopped or wedged:** the jobs half of the combined address (the existing `/api/health/queues` logic, extended) answers 503 when any of these holds: a lane stalled fleet-wide (today's rule); a recurring task whose last *completed* run is older than its cadence plus a grace; a due job nobody has claimed, or a claimed job held, far beyond what its queue allows.
   - Every recurring task is inventoried in one table in code. Each records **completed work**, a successful no-op included, separately from being scheduled, so a timer that fires while its work hangs still reads as overdue. Cadence comes from the scheduler's effective configuration. A task's first expected run after a start is stated, and its record survives a normal restart: these rows are kept on a task-aware rule, not the 15-minute lane pruning, whose behaviour for lanes is unchanged.
   - The class is "every timer that does recurring work". Its oracle is `git grep -n "setInterval\|setTimeout" -- artifacts/api-server/src`, read against the table and recorded in the PR. A CI test holds the table against the timers it knows: *checked*, not impossible to miss.
-- **Payment webhooks not arriving or not processed:** a payments health endpoint answers 503 when Stripe holds an *expected* event the product has not processed.
+- **Payment webhooks not arriving or not processed:** the payments half of the combined address answers 503 when Stripe holds an *expected* event the product has not processed.
   - Expected means: in the monitored account and the active mode, of the event types this endpoint is registered for (`stripeInit.ts`), created after monitoring began and older than a threshold, within a bounded, paginated lookback. It is not filtered by local customers, because a first purchase whose webhook never arrived has no local record.
   - A comparison that could not be completed reads unhealthy, never healthy.
   - The Stripe reads go through the existing `StripeApi` contract and its fake.
 - **A health check that cannot be evaluated answers 503.** A failure to judge is itself the alert. The endpoints stay unauthenticated and return counts only, as today.
-- **The monitors assume production stays up while idle** (David, 2026-11-17). Increment 1 confirms it on the live site before the jobs monitor is switched on: a server that slept would read as "jobs stopped".
+- **The monitors assume production stays up while idle** (David, 2026-11-17). Increment 2 confirms it on the live site before the check moves to the combined address: a server that slept would read as "jobs stopped".
 
 **Detector kind 2 — events, pushed from inside.** At the moment a failure happens, the API reports it to Sentry with a stable fingerprint per source, and a Sentry rule turns it into a push. No database write is on that path. A report that itself fails never throws and never delays the work it is reporting on.
 
@@ -168,8 +170,8 @@ No fault endpoint ships. The drill job spends nothing and grants nothing; it occ
 
 The oracle's six increments are seven pull requests: alerts ships as two, so the route is proven before the silent sources are built on it.
 
-1. **The alert route and the two loud sources.** Route proven; the error rules rerouted; uptime monitors on the site; the Operations page with live state, recent incidents and the test-alert button. Tier `sensitive`.
-2. **The three silent sources.** Recurring-task completion records and the extended jobs check; the payments check and the webhook catch report; the unrecorded-spend report at comparison settlement; the job-failure and interruption reports; the drill job. Tier `sensitive`.
+1. **The alert route and the two loud sources.** Route proven; the error rules rerouted; the one uptime check on the site; the Operations page with live state, recent incidents and the test-alert button. Tier `sensitive`.
+2. **The three silent sources.** The combined health address, and the one uptime check moved onto it; recurring-task completion records and the extended jobs check; the payments check and the webhook catch report; the unrecorded-spend report at comparison settlement; the job-failure and interruption reports; the drill job. Tier `sensitive`.
 3. **Analytics**, and Sentry replay removed.
 4. **Read-only mode.** Tier `sensitive` (it sits in front of auth and payment routes).
 5. **Support.**
