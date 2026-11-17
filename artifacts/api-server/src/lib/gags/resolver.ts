@@ -23,6 +23,7 @@ import {
 } from "@workspace/db";
 import {
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
+  PLACEHOLDER_CORE_SCENE_OVERRIDE,
   visualPromptStrategyOverrideSchema,
   type FactEnrichment,
   mapKinds,
@@ -180,16 +181,32 @@ export async function resolveOfferedGag(factId: number, gagId: number | null, ex
  * no specific one (comparison runs, the prompt preview, the gag writer's
  * context): the default gag, the lowest-slot APPROVED one, as `availableGags`
  * puts first. Only a fact with nothing approved (first-time moderation) falls
- * back to its lowest-slot pending content. Approved-first across the whole set,
+ * back to its lowest-slot pending content; an approved stand-in scene counts
+ * as nothing approved while any real version exists (`isStandIn`). Approved-first across the whole set,
  * never per slot: a pending-only gag in a lower slot must not displace an
  * approved one above it (Codex, PR #956 round 1).
  */
 export async function primaryGag(factId: number, executor: Executor = db): Promise<{ gag: FactGag; content: GagContent } | null> {
   const gags = await loadGags(factId, executor);
-  const approved = gags.find((g) => g.approvedContent != null);
+  const approved = gags.find((g) => g.approvedContent != null && !isStandIn(g.approvedContent));
   if (approved) return { gag: approved, content: approved.approvedContent as GagContent };
   const pending = gags.find((g) => g.pendingContent != null);
-  return pending ? { gag: pending, content: pending.pendingContent as GagContent } : null;
+  if (pending) return { gag: pending, content: pending.pendingContent as GagContent };
+  // Only the stand-in exists: it is still the fact's gag, as before.
+  const standIn = gags.find((g) => g.approvedContent != null);
+  return standIn ? { gag: standIn, content: standIn.approvedContent as GagContent } : null;
+}
+
+/**
+ * The stand-in scene a backfill stamped on a fact with none (migration 0092,
+ * `PLACEHOLDER_CORE_SCENE_OVERRIDE`) is approved content nobody wrote. A
+ * surface choosing "the fact's gag" passes over it while a real version
+ * exists (a pending change, or another approved gag): a comparison judged
+ * the stand-in on fact 41 while its real scene waited as a pending change.
+ */
+function isStandIn(content: unknown): boolean {
+  const scene = (content as { coreSceneOverride?: unknown } | null)?.coreSceneOverride;
+  return typeof scene === "string" && scene.trim() === PLACEHOLDER_CORE_SCENE_OVERRIDE;
 }
 
 /**
