@@ -8,11 +8,11 @@ export interface EnrichmentVersionInfo {
     enrichmentStatus: string | null;
     hasOverrides: boolean;
   };
-  inFlight: { candidateVersionId: number; reviewId: number | null } | null;
   versions: Array<{
     id: number;
     versionNo: number;
-    status: "candidate" | "promoted" | "superseded" | "rejected";
+    /** Only history remains: open and declined refresh candidates were deleted with refresh reviews (migration 0151). */
+    status: "promoted" | "superseded";
     source: string;
     sourceReviewId: number | null;
     note: string | null;
@@ -33,14 +33,8 @@ function fmtDate(iso: string | null): string {
 /** Human label per version row — never the raw version_no. */
 function versionLabel(v: EnrichmentVersionInfo["versions"][number]): string {
   switch (v.status) {
-    case "candidate":
-      return v.enrichmentReady
-        ? `In review — refresh from ${fmtDate(v.createdAt)}`
-        : `In review — refresh from ${fmtDate(v.createdAt)} (classifying…)`;
     case "promoted":
       return `Promoted refresh from ${fmtDate(v.promotedAt ?? v.createdAt)}`;
-    case "rejected":
-      return `Rejected refresh from ${fmtDate(v.rejectedAt ?? v.createdAt)}`;
     case "superseded":
       return `Previous active (archived ${fmtDate(v.supersededAt ?? v.createdAt)})`;
   }
@@ -52,16 +46,14 @@ function actorLabel(v: EnrichmentVersionInfo["versions"][number]): string | null
 }
 
 const STATUS_TONE: Record<string, string> = {
-  candidate: "text-blue-600 dark:text-blue-400",
   promoted: "text-green-600 dark:text-green-400",
-  rejected: "text-muted-foreground",
   superseded: "text-muted-foreground",
 };
 
 /**
- * Read-only enrichment version history (stale-fact refresh). Shows the current
- * active state (from facts.* — the version table never holds an active row) and
- * the archived refresh cycles, newest first. Visibility only — no rollback.
+ * Read-only enrichment version history. Shows the current active state (from
+ * facts.* — the version table never holds an active row) and the archived
+ * classifications, newest first. Visibility only — no rollback.
  */
 export function FactEnrichmentVersionHistory({
   info,
@@ -114,16 +106,11 @@ export function FactEnrichmentVersionHistory({
                 )}
               </div>
               {info.versions.length === 0 && (
-                <p className="text-xs text-muted-foreground">No refresh history — this fact has never been sent back to review.</p>
+                <p className="text-xs text-muted-foreground">No earlier classifications.</p>
               )}
               {info.versions.map((v) => (
                 <div key={v.id} className="flex items-center gap-2 text-sm" data-testid={`version-row-${v.status}`}>
                   <span className={STATUS_TONE[v.status] ?? "text-muted-foreground"}>{versionLabel(v)}</span>
-                  {v.status === "candidate" && v.sourceReviewId != null && (
-                    <a href="/admin/moderation" className="text-xs text-primary underline hover:opacity-80">
-                      Review #{v.sourceReviewId}
-                    </a>
-                  )}
                   {actorLabel(v) && <span className="text-xs text-muted-foreground">by {actorLabel(v)}</span>}
                 </div>
               ))}

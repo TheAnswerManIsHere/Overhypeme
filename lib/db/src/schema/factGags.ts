@@ -4,7 +4,6 @@ import {
 } from "drizzle-orm/pg-core";
 import { factsTable } from "./facts";
 import { usersTable } from "./auth";
-import { pendingReviewsTable } from "./reviews";
 import { imagePromptAttemptsTable } from "./imagePromptAttempts";
 
 /**
@@ -14,8 +13,8 @@ import { imagePromptAttemptsTable } from "./imagePromptAttempts";
  * object (`VisualPromptStrategyOverride` from @workspace/api-zod). A fact has
  * one to three, in slots 1–3, and every slot follows the same rules.
  *
- * This table is the ONLY home of a gag's content. `facts.enrichment` and the
- * refresh candidate rows no longer carry one; the render input is assembled
+ * This table is the ONLY home of a gag's content. `facts.enrichment` no
+ * longer carries one; the render input is assembled
  * from a fact's classification and one gag version at the moment a render is
  * built (artifacts/api-server/src/lib/gags/resolver.ts).
  *
@@ -26,9 +25,11 @@ import { imagePromptAttemptsTable } from "./imagePromptAttempts";
  *     grandfathered (`approved_before_example_sets`) and stays offered with
  *     fewer (David, 2026-11-15, Q11).
  *   - pending: content saved and not yet approved, with its example picks as
- *     pending rows in `fact_gag_examples`. Inside a refresh review it also
- *     carries that review's removal; picks and removals apply only when the
- *     refresh is promoted (`pending_review_id` names the review).
+ *     pending rows in `fact_gag_examples`.
+ *
+ * `pending_review_id` and `pending_remove` held a refresh review's operations;
+ * refresh reviews were removed (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1H), the
+ * code no longer declares them, and the next increment's migration drops them.
  *
  * `approved_example_attempt_id` and `pending_example_attempt_id` are recovery
  * snapshots of the selections 0143 copied: nothing reads or writes them, and a
@@ -61,13 +62,9 @@ export const factGagsTable = pgTable("fact_gags", {
 
   /** A saved change not yet approved; null when there is none. */
   pendingContent: jsonb("pending_content"),
-  /** The refresh review that owns the pending operations below; null outside a refresh. */
-  pendingReviewId: integer("pending_review_id").references(() => pendingReviewsTable.id, { onDelete: "set null" }),
   /** Recovery snapshot only (migration 0143): neither read nor written. */
   pendingExampleAttemptId: bigint("pending_example_attempt_id", { mode: "number" })
     .references((): AnyPgColumn => imagePromptAttemptsTable.id),
-  /** Inside a refresh: removal requested, applied at promotion. */
-  pendingRemove: boolean("pending_remove").notNull().default(false),
   pendingBy: varchar("pending_by").references(() => usersTable.id, { onDelete: "set null" }),
   pendingAt: timestamp("pending_at", { withTimezone: true }),
 
@@ -92,10 +89,6 @@ export const factGagsTable = pgTable("fact_gags", {
   check(
     "fact_gags_pending_scene_nonempty",
     sql`${t.pendingContent} IS NULL OR COALESCE(jsonb_typeof(${t.pendingContent} -> 'coreSceneOverride') = 'string' AND (${t.pendingContent} ->> 'coreSceneOverride') ~ '\\S', false)`,
-  ),
-  check(
-    "fact_gags_pending_ops_owned",
-    sql`NOT ${t.pendingRemove} OR ${t.pendingReviewId} IS NOT NULL`,
   ),
 ]);
 

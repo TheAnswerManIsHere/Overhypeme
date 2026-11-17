@@ -44,9 +44,8 @@ interface PreviewBody {
   /**
    * Moderation-modal context: the review whose Step-2 cycle this preview
    * belongs to (the modal passes factId = stagingFactId AND this). Makes the
-   * preview read enrichment through the review-cycle resolver, so a REFRESH
-   * cycle previews its CANDIDATE version — the same enrichment the scenario
-   * grid renders — instead of the fact's active blob.
+   * preview read enrichment through the review-cycle resolver — the same
+   * enrichment the scenario grid renders.
    */
   reviewIdForRender?: number;
   subjectRenderMode?: SubjectRenderMode;
@@ -98,9 +97,8 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
 
   if (Number.isFinite(reviewId) || Number.isFinite(reviewIdForRender)) {
     // Review-context path: resolve text + enrichment through the review-cycle
-    // resolver so THIS preview and the review's renders/grid can never drift —
-    // a refresh cycle previews its CANDIDATE version, a first-time cycle its
-    // staging fact's stored blob. Legacy reviews with no staging fact fall back
+    // resolver so THIS preview and the review's renders/grid can never drift
+    // (the staging fact's stored blob). Legacy reviews with no staging fact fall back
     // to the review-blob columns (pre-two-gate rows).
     const targetReviewId = Number.isFinite(reviewId) ? reviewId : reviewIdForRender;
     const [reviewRow] = await db
@@ -108,7 +106,6 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
         submittedText: pendingReviewsTable.submittedText,
         enrichment: pendingReviewsTable.enrichment,
         stagingFactId: pendingReviewsTable.stagingFactId,
-        candidateVersionId: pendingReviewsTable.candidateVersionId,
       })
       .from(pendingReviewsTable)
       .where(eq(pendingReviewsTable.id, targetReviewId))

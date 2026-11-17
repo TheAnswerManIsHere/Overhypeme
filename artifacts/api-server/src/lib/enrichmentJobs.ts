@@ -15,12 +15,11 @@
  * handler outcome.
  */
 
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
   pendingReviewsTable,
   factsTable,
-  factEnrichmentVersionsTable,
   type AsyncJobRow,
 } from "@workspace/db/schema";
 import {
@@ -31,9 +30,7 @@ import {
 } from "@workspace/api-zod";
 import { enrichFact, materializeEnrichment } from "./factEnrichment";
 import { recordOverrideHistory } from "./enrichmentOverrideHistory";
-import { hashFactText } from "./enrichmentVersioning";
 import { currentProcessingSignatureFromConfig } from "./processingSignature";
-import { enqueueVisualConceptsForReview } from "./visualConceptJobs";
 import { assertJobOwnership, fencedTransaction } from "./jobFence";
 import { renderCanonical } from "./renderCanonical";
 import {
@@ -56,10 +53,6 @@ import { logger } from "./logger";
 interface EnrichmentJobPayload {
   reviewId?: number;
   factId?: number;
-  // Present ⇒ this is a stale-fact REFRESH candidate run: classify into the
-  // fact_enrichment_versions candidate row, NEVER facts.* (which stays the
-  // live/active enrichment the public reads until the candidate is promoted).
-  versionId?: number;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -284,193 +277,21 @@ export async function runEnrichmentForFact(
   return { ok: true };
 }
 
-/**
- * Classify a stale-fact REFRESH candidate into its `fact_enrichment_versions`
- * row (never `facts.*`). Two-phase, so the fact stays live and editable and the
- * refresh can be rejected mid-flight without a lock held across the LLM call:
- *
- *   1. cheap preflight (no locks) — candidate still `candidate`, its exact
- *      source review still `prep_pending`; else retire as a successful no-op;
- *   2. LLM classification;
- *   3. transactional recheck under row locks — re-validate the candidate + its
- *      exact review are still current, then write the candidate row and advance
- *      that exact review prep_pending → concept_review (Step 2).
- */
-export async function runEnrichmentForCandidateVersion(
-  versionId: number,
-  deps: FactEnrichmentDeps = { classify: enrichFact },
-): Promise<HandlerResult> {
-  // ── Phase 1: cheap preflight ──
-  const [v0] = await db
-    .select({
-      factId: factEnrichmentVersionsTable.factId,
-      status: factEnrichmentVersionsTable.status,
-      sourceReviewId: factEnrichmentVersionsTable.sourceReviewId,
-      overrides: factEnrichmentVersionsTable.enrichmentOverrides,
-      aiDerived: factEnrichmentVersionsTable.enrichmentAiDerived,
-      visualOverride: factEnrichmentVersionsTable.visualOverride,
-    })
-    .from(factEnrichmentVersionsTable)
-    .where(eq(factEnrichmentVersionsTable.id, versionId))
-    .limit(1);
-  if (!v0 || v0.status !== "candidate" || v0.sourceReviewId == null) return { ok: true }; // gone/rejected/superseded → no-op
-  const [rev0] = await db
-    .select({ stage: pendingReviewsTable.workflowStage })
-    .from(pendingReviewsTable)
-    .where(eq(pendingReviewsTable.id, v0.sourceReviewId))
-    .limit(1);
-  if (rev0?.stage !== "prep_pending") return { ok: true }; // cycle resolved → no-op
-
-  const [factRow] = await db
-    .select({ text: factsTable.text })
-    .from(factsTable)
-    .where(eq(factsTable.id, v0.factId))
-    .limit(1);
-  if (!factRow) return { ok: false, error: `fact ${v0.factId} not found for candidate ${versionId}` };
-  const factTextHash = hashFactText(factRow.text);
-
-  // Capture the processing signature the candidate is being classified UNDER,
-  // BEFORE the (slow) LLM call — so a "Mark major update" landing mid-classify
-  // stamps the revision in effect when the model work began, not after.
-  const signature = await currentProcessingSignatureFromConfig();
-
-  // ── Phase 2: LLM classification (no locks held) ──
-  let freshAiDerived: FactEnrichment;
-  try {
-    await assertJobOwnership(); // paid AI call: only while this run owns its job (Issue #1000)
-    freshAiDerived = await deps.classify({
-      factText: renderCanonical(factRow.text),
-      priorCharacters: v0.aiDerived as FactEnrichment | null,
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    // Reflect failure on the live fact's pill; leave the cycle prep_pending so
-    // the job retries. Terminal exhaustion → onAbandon marks the cycle failed.
-    await fencedTransaction(db, (tx) => tx.update(factsTable).set({ enrichmentStatus: "failed" }).where(eq(factsTable.id, v0.factId)));
-    return { ok: false, error: `classify: ${msg}` };
-  }
-
-  // ── Phase 3: transactional recheck + write ──
-  // Overrides are re-read under the version-row lock (not the preflight read),
-  // so a moderator correction saved during the classifier call survives
-  // (PLAN_BUBBLE_SPEAKERS.md, E).
-  const { advancedReviewId } = await fencedTransaction(db, async (tx): Promise<{ advancedReviewId: number | null }> => {
-    const [v1] = await tx
-      .select({
-        status: factEnrichmentVersionsTable.status,
-        sourceReviewId: factEnrichmentVersionsTable.sourceReviewId,
-        overrides: factEnrichmentVersionsTable.enrichmentOverrides,
-      })
-      .from(factEnrichmentVersionsTable)
-      .where(eq(factEnrichmentVersionsTable.id, versionId))
-      .for("update")
-      .limit(1);
-    if (!v1 || v1.status !== "candidate" || v1.sourceReviewId == null) return { advancedReviewId: null }; // rejected/superseded mid-run → no-op
-    const { columns } = materializeEnrichment({
-      aiDerived: freshAiDerived,
-      overrides: (v1.overrides ?? {}) as EnrichmentOverrides,
-    });
-    const [rev1] = await tx
-      .select({ stage: pendingReviewsTable.workflowStage })
-      .from(pendingReviewsTable)
-      .where(eq(pendingReviewsTable.id, v1.sourceReviewId))
-      .for("update")
-      .limit(1);
-    if (rev1?.stage !== "prep_pending") return { advancedReviewId: null }; // cycle advanced/resolved mid-run → no-op
-
-    await tx
-      .update(factEnrichmentVersionsTable)
-      .set({
-        enrichment: columns.enrichment,
-        enrichmentAiDerived: columns.enrichmentAiDerived,
-        enrichmentOverrides: columns.enrichmentOverrides,
-        // Gags live in fact_gags (migration 0139); a candidate holds none.
-        visualOverride: null,
-        factTextHash,
-        // Captured before classify (above). Promote copies this onto
-        // facts.last_processed_signature (permissive: candidate's classify-time
-        // signature, not a fresh one).
-        signature,
-      })
-      .where(eq(factEnrichmentVersionsTable.id, versionId));
-    // Advance THIS exact cycle (deterministic — not the fact-only re-discovery
-    // helper) to Step 2 (concept_review). Renders wait for gag approval.
-    await tx
-      .update(pendingReviewsTable)
-      .set({ workflowStage: "concept_review" })
-      .where(eq(pendingReviewsTable.id, v1.sourceReviewId));
-    // Clear the live fact's "working" pill; facts.* enrichment itself is untouched.
-    await tx.update(factsTable).set({ enrichmentStatus: "ok" }).where(eq(factsTable.id, v0.factId));
-    // A refresh cycle lands at Step 2 (concept_review) — NO render prep here.
-    // Renders are Step 3 and force-fire only when the moderator approves the
-    // visual gag (see approve-visual-concept). We draft the candidate
-    // Visual-Idea concepts, review-aware via candidateVersionId so they reflect
-    // the CANDIDATE's enrichment, not the active fact's. The draft job commits
-    // with the stage advance (Issue #1000 §F): a server stop between the two
-    // used to leave the review at concept_review with no job, and a resumed run
-    // returns early at the preflight, so nothing would ever create it.
-    await enqueueVisualConceptsForReview({
-      reviewId: v1.sourceReviewId,
-      factId: v0.factId,
-      candidateVersionId: versionId,
-    }, tx);
-    return { advancedReviewId: v1.sourceReviewId };
-  });
-  if (advancedReviewId != null) {
-    logger.info({ reviewId: advancedReviewId, versionId }, "[refresh] candidate enriched with its visual concepts job, in one commit");
-  }
-  return { ok: true };
-}
-
 export const enrichmentJobHandler: JobHandler = {
   async run(payload: unknown): Promise<HandlerResult> {
-    const { reviewId, factId, versionId } = payload as EnrichmentJobPayload;
-    if (typeof versionId === "number") {
-      return runEnrichmentForCandidateVersion(versionId);
-    }
+    const { reviewId, factId } = payload as EnrichmentJobPayload;
     if (typeof factId === "number") {
       return runEnrichmentForFact(factId);
     }
     if (typeof reviewId === "number") {
       return runEnrichmentForReview(reviewId);
     }
-    return { ok: false, error: "enrichmentJob payload missing reviewId/factId/versionId" };
+    return { ok: false, error: "enrichmentJob payload missing reviewId/factId" };
   },
   // Terminal failure (retries exhausted): mark the linked cycle prep_failed so
-  // the moderator can retry or reject. Fact-backed staging jobs use the
-  // fact-only helper; refresh-candidate jobs advance their exact review.
+  // the moderator can retry or reject.
   async onAbandon(row: AsyncJobRow): Promise<void> {
-    const { factId, versionId } = (row.payload ?? {}) as EnrichmentJobPayload;
-    if (typeof versionId === "number") {
-      const [v] = await db
-        .select({
-          factId: factEnrichmentVersionsTable.factId,
-          status: factEnrichmentVersionsTable.status,
-          sourceReviewId: factEnrichmentVersionsTable.sourceReviewId,
-        })
-        .from(factEnrichmentVersionsTable)
-        .where(eq(factEnrichmentVersionsTable.id, versionId))
-        .limit(1);
-      // Stale-abandon guard (mirrors advanceReviewForStagingFactEnrichment):
-      // only a still-in-flight cycle may be marked failed. If the moderator
-      // already resolved it (rejected mid-retries), rewriting the review to
-      // prep_failed — or flipping the LIVE fact's pill to failed — would
-      // corrupt a settled state.
-      if (v?.sourceReviewId != null && v.status === "candidate") {
-        const advanced = await db
-          .update(pendingReviewsTable)
-          .set({ workflowStage: "prep_failed" })
-          .where(and(
-            eq(pendingReviewsTable.id, v.sourceReviewId),
-            eq(pendingReviewsTable.workflowStage, "prep_pending"),
-          ))
-          .returning({ id: pendingReviewsTable.id });
-        if (advanced.length > 0) {
-          await db.update(factsTable).set({ enrichmentStatus: "failed" }).where(eq(factsTable.id, v.factId));
-        }
-      }
-      return;
-    }
+    const { factId } = (row.payload ?? {}) as EnrichmentJobPayload;
     if (typeof factId === "number") {
       await advanceReviewForStagingFactEnrichment({ factId, outcome: "terminal_failed" });
     }

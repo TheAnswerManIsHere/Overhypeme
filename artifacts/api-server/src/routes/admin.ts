@@ -10,9 +10,6 @@ import { backfillEmbeddings } from "../lib/embeddings";
 import { enrichFact, materializeEnrichment } from "../lib/factEnrichment";
 import { writeBulkReenrichKeepingCharacterCorrection } from "../lib/factEnrichmentBackfillJob";
 import { recordOverrideHistory } from "../lib/enrichmentOverrideHistory";
-import { findInFlightRefreshCandidate, refreshInReviewErrorBody } from "../lib/enrichmentVersioning";
-import { sendFactBackToReview, SendBackToReviewError } from "../lib/sendBackToReview";
-import { resubmitInactiveFactForModeration, ResubmitForModerationError } from "../lib/resubmitForModeration";
 import {
   applyOverrideReset,
   applyOverrideUpsert,
@@ -880,25 +877,20 @@ router.get("/admin/facts", requireAdmin, async (req: Request, res: Response) => 
   res.json({ facts, total, page, limit });
 });
 
+// Deactivate a fact: the only removal there is until the fact sheet's guarded
+// delete (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1F). A deactivated fact keeps
+// every member's memes, AI pictures and comments.
 router.delete("/admin/facts/:id", requireAdmin, async (req: Request, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid fact id" }); return; }
 
-  const hard = req.query["hard"] === "true";
-
   try {
-    if (hard) {
-      const [deleted] = await db.delete(factsTable).where(eq(factsTable.id, id)).returning({ id: factsTable.id });
-      if (!deleted) { res.status(404).json({ error: "Fact not found" }); return; }
-      res.json({ success: true, deleted: true });
-    } else {
-      const [updated] = await db.update(factsTable).set({ isActive: false }).where(and(eq(factsTable.id, id), eq(factsTable.isActive, true))).returning({ id: factsTable.id });
-      if (!updated) { res.status(404).json({ error: "Fact not found or already inactive" }); return; }
-      res.json({ success: true, deleted: false });
-    }
+    const [updated] = await db.update(factsTable).set({ isActive: false }).where(and(eq(factsTable.id, id), eq(factsTable.isActive, true))).returning({ id: factsTable.id });
+    if (!updated) { res.status(404).json({ error: "Fact not found or already inactive" }); return; }
+    res.json({ success: true, deleted: false });
   } catch (e) {
-    logger.error({ err: e, factId: id, hard }, "[DELETE /admin/facts/:id] failed");
-    res.status(500).json({ error: "Failed to delete fact" });
+    logger.error({ err: e, factId: id }, "[DELETE /admin/facts/:id] failed");
+    res.status(500).json({ error: "Failed to deactivate fact" });
   }
 });
 
@@ -1094,10 +1086,9 @@ router.get("/admin/facts/:id", requireAdmin, async (req: Request, res: Response)
 
 // The override-layer machinery (loadFactOverrideState, serializeResolved,
 // applyOverrideUpsert/Reset, provenance stamping) lives in
-// lib/enrichmentOverrideLayers.ts, SHARED with the refresh-candidate editing
-// routes so the two write paths can never drift. This file keeps owning the
-// fact-specific persistence: row locks, the refresh write-freeze check,
-// materialization onto facts.*, and override-history audit rows.
+// lib/enrichmentOverrideLayers.ts. This file keeps owning the fact-specific
+// persistence: row locks, materialization onto facts.*, and override-history
+// audit rows.
 // GET /admin/facts/:id/enrichment-resolved — the AI baseline, the manual override
 // map, the materialized effective blob, and the unified manual-intervention
 // summary the editor uses to decorate diverged fields.
@@ -1128,11 +1119,6 @@ router.put("/admin/facts/:id/enrichment-overrides", requireAdmin, async (req: Re
     const out = await db.transaction(async (tx): Promise<{ status: number; error?: string; body?: object; state?: OverrideLayers }> => {
       const state = await loadFactOverrideState(tx, id, true);
       if (!state) return { status: 404, error: "Fact not found" };
-      // WRITE FREEZE: while a refresh candidate is in review, the live layers
-      // are read-only (checked under the fact row lock, so it can't race the
-      // send-back transaction). See findInFlightRefreshCandidate.
-      const inFlight = await findInFlightRefreshCandidate(id, tx);
-      if (inFlight) return { status: 409, body: refreshInReviewErrorBody(inFlight) };
       if (!state.aiDerived) return { status: 409, error: "Fact has no enrichment baseline yet — classify it first" };
       const aiDerived = state.aiDerived;
 
@@ -1183,9 +1169,6 @@ router.delete("/admin/facts/:id/enrichment-overrides", requireAdmin, async (req:
     const out = await db.transaction(async (tx): Promise<{ status: number; error?: string; body?: object; state?: OverrideLayers }> => {
       const state = await loadFactOverrideState(tx, id, true);
       if (!state) return { status: 404, error: "Fact not found" };
-      // WRITE FREEZE while a refresh candidate is in review (see the PUT handler).
-      const inFlight = await findInFlightRefreshCandidate(id, tx);
-      if (inFlight) return { status: 409, body: refreshInReviewErrorBody(inFlight) };
       if (!state.aiDerived) return { status: 409, error: "Fact has no enrichment baseline yet" };
       const aiDerived = state.aiDerived;
 
@@ -1250,10 +1233,6 @@ router.patch("/admin/facts/:id/enrichment", requireAdmin, async (req: Request, r
   const state = await loadFactOverrideState(db, id);
   if (!state) { res.status(404).json({ error: "Fact not found" }); return; }
 
-  // WRITE FREEZE while a refresh candidate is in review (see the PUT handler).
-  const inFlightPatch = await findInFlightRefreshCandidate(id);
-  if (inFlightPatch) { res.status(409).json(refreshInReviewErrorBody(inFlightPatch)); return; }
-
   // Reject any attempt to change a tracked field through PATCH.
   if (state.effective) {
     const changed = OVERRIDABLE_PATH_KEYS.filter((p) => {
@@ -1309,11 +1288,6 @@ router.post("/admin/facts/:id/enrich", requireAdmin, async (req: Request, res: R
   const [fact] = await db.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, id)).limit(1);
   if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
 
-  // WRITE FREEZE while a refresh candidate is in review: a direct re-enrich
-  // rewrites facts.* out from under the cycle the moderator is judging.
-  const inFlight = await findInFlightRefreshCandidate(id);
-  if (inFlight) { res.status(409).json(refreshInReviewErrorBody(inFlight)); return; }
-
   await db.update(factsTable).set({ enrichmentStatus: "pending" }).where(eq(factsTable.id, id));
   await enqueueJob({
     queue: "enrichment",
@@ -1324,72 +1298,10 @@ router.post("/admin/facts/:id/enrich", requireAdmin, async (req: Request, res: R
   res.json({ success: true, enrichmentStatus: "pending" });
 });
 
-// POST /admin/facts/:id/send-back-to-review — start a versioned-enrichment
-// REFRESH cycle for a live fact (stale-fact refresh). Thin wrapper over the
-// shared primitive; the fact stays live throughout, the candidate is
-// classified by the async job, and the cycle lands in the moderation queue at
-// Step 2. `clearOverrides` wipes the CANDIDATE's seeded manual-edit layers
-// only (the fact's own layers are never touched here).
-router.post("/admin/facts/:id/send-back-to-review", requireAdmin, async (req: Request, res: Response) => {
-  const id = Number(req.params["id"]);
-  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
-  const clearOverrides = (req.body as { clearOverrides?: unknown } | null | undefined)?.clearOverrides === true;
-  const adminId = (req as AuthenticatedRequest).user?.id ?? null;
-
-  try {
-    const result = await sendFactBackToReview({ factId: id, clearOverrides, adminId });
-    res.json({ success: true, ...result });
-  } catch (err) {
-    if (err instanceof SendBackToReviewError) {
-      if (err.code === "FACT_NOT_FOUND") { res.status(404).json({ error: err.message }); return; }
-      // NOT_ACTIVE / REFRESH_ALREADY_IN_PROGRESS — the in-progress case names
-      // the in-flight cycle so the UI can link to it.
-      res.status(409).json({
-        error: err.message,
-        code: err.code,
-        ...(err.existing ? { reviewId: err.existing.reviewId, candidateVersionId: err.existing.candidateVersionId } : {}),
-      });
-      return;
-    }
-    logger.error({ err, factId: id }, "[POST /admin/facts/:id/send-back-to-review] failed");
-    res.status(500).json({ error: "Failed to send fact back to review" });
-  }
-});
-
-// POST /admin/facts/:id/resubmit-for-moderation — re-enter an INACTIVE fact
-// into moderation (the opposite case from send-back-to-review, which requires
-// the fact to already be active). Reuses the existing factId/history; no
-// duplicate fact is created. See resubmitForModeration.ts for why this exists.
-router.post("/admin/facts/:id/resubmit-for-moderation", requireAdmin, async (req: Request, res: Response) => {
-  const id = Number(req.params["id"]);
-  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
-  const adminId = (req as AuthenticatedRequest).user?.id ?? null;
-
-  try {
-    const result = await resubmitInactiveFactForModeration({ factId: id, adminId });
-    res.json({ success: true, workflowStage: "prep_pending", ...result });
-  } catch (err) {
-    if (err instanceof ResubmitForModerationError) {
-      if (err.code === "FACT_NOT_FOUND") { res.status(404).json({ error: err.message }); return; }
-      // ALREADY_ACTIVE / REVIEW_ALREADY_IN_PROGRESS / WORDING_WITHDRAWN — the
-      // in-progress case names the in-flight review so the UI can link to it.
-      res.status(409).json({
-        error: err.message,
-        code: err.code,
-        ...(err.existing ? { reviewId: err.existing.reviewId } : {}),
-      });
-      return;
-    }
-    logger.error({ err, factId: id }, "[POST /admin/facts/:id/resubmit-for-moderation] failed");
-    res.status(500).json({ error: "Failed to resubmit fact for moderation" });
-  }
-});
-
 // GET /admin/facts/:id/enrichment-versions — the fact's versioned-enrichment
 // history, METADATA ONLY (no jsonb blobs — the panel is for visibility, not
 // rollback). "current" is derived from facts.* (the sole active truth — the
-// version table never holds an active row); "inFlight" is the refresh cycle in
-// review, if any, and doubles as the Facts page's freeze/disable signal.
+// version table never holds an active row).
 router.get("/admin/facts/:id/enrichment-versions", requireAdmin, async (req: Request, res: Response) => {
   const id = Number(req.params["id"]);
   if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
@@ -1427,14 +1339,12 @@ router.get("/admin/facts/:id/enrichment-versions", requireAdmin, async (req: Req
     .where(eq(factEnrichmentVersionsTable.factId, id))
     .orderBy(desc(factEnrichmentVersionsTable.createdAt));
 
-  const candidate = rows.find((r) => r.status === "candidate");
   res.json({
     current: {
       hasEnrichment: fact.enrichment != null,
       enrichmentStatus: fact.enrichmentStatus ?? null,
       hasOverrides: Object.keys((fact.enrichmentOverrides ?? {}) as Record<string, unknown>).length > 0,
     },
-    inFlight: candidate ? { candidateVersionId: candidate.id, reviewId: candidate.sourceReviewId } : null,
     versions: rows.map((r) => ({
       ...r,
       createdAt: r.createdAt.toISOString(),

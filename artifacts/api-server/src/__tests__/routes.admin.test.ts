@@ -818,19 +818,17 @@ describe("DELETE /admin/facts/:id", () => {
     assert.equal(byId.get(otherId), true, "another fact is untouched");
   });
 
-  it("hard-delete removes only that fact", async () => {
+  it("there is no hard delete: ?hard=true deactivates, and the fact row stays (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1F)", async () => {
     const targetId = await createTestFact(`${FACT_PREFIX}${randomUUID()} hard-delete target`);
-    const otherId = await createTestFact(`${FACT_PREFIX}${randomUUID()} hard-delete bystander`);
     const res = await request(makeApp())
       .delete(`/admin/facts/${targetId}?hard=true`)
       .set("authorization", `Bearer ${adminSid}`);
     assert.equal(res.status, 200);
-    assert.equal(res.body.deleted, true);
+    assert.equal(res.body.deleted, false);
 
-    const [gone] = await db.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, targetId));
-    assert.equal(gone, undefined, "the fact should be hard-deleted");
-    const [other] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, otherId));
-    assert.equal(other.isActive, true, "another fact is untouched");
+    const [kept] = await db.select({ id: factsTable.id, isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, targetId));
+    assert.ok(kept, "the fact row, and with it every member's memes, pictures and comments, is kept");
+    assert.equal(kept.isActive, false);
   });
 });
 

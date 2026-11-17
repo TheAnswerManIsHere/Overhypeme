@@ -101,8 +101,6 @@ export async function applyPendingSetIfComplete(tx: Tx, gag: FactGag, adminId: s
     approvedBy: gag.pendingBy ?? adminId,
     approvedAt: now,
     pendingContent: null,
-    pendingRemove: false,
-    pendingReviewId: null,
     pendingBy: null,
     pendingAt: null,
     updatedAt: now,

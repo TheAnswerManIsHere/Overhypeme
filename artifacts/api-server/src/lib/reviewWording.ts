@@ -61,8 +61,8 @@ export function normaliseWording(raw: string): string {
   return normalized.text;
 }
 
-function assertAtTriage(review: { status: string; workflowStage: string; stagingFactId: number | null; candidateVersionId: number | null }): void {
-  if (!canEditWording(review.workflowStage as ReviewWorkflowStage, review.status, review.stagingFactId != null, review.candidateVersionId != null)) {
+function assertAtTriage(review: { status: string; workflowStage: string; stagingFactId: number | null }): void {
+  if (!canEditWording(review.workflowStage as ReviewWorkflowStage, review.status, review.stagingFactId != null)) {
     throw new WordingError(
       "WORDING_LOCKED",
       "The wording is locked: it can only be edited at triage, before the submission is accepted. Withdraw the submission and submit the corrected wording as a new fact.",
@@ -107,7 +107,7 @@ export async function editTriageWording(
 }
 
 /**
- * Withdraw a first-time submission past triage because its wording needs
+ * Withdraw a submission past triage because its wording needs
  * replacing. Terminal: the review leaves the queue and its staging fact can
  * never go live. The corrected wording is submitted as a new fact.
  */
@@ -115,12 +115,10 @@ export async function withdrawForWording(reviewId: number, adminId: string, note
   return db.transaction(async (tx) => {
     const review = await lockReview(tx, reviewId);
     if (!review) throw new WordingError("REVIEW_NOT_FOUND", "Review not found.", 404);
-    if (!canWithdraw(review.workflowStage as ReviewWorkflowStage, review.status, review.candidateVersionId != null)) {
+    if (!canWithdraw(review.workflowStage as ReviewWorkflowStage, review.status)) {
       throw new WordingError(
         "NOT_WITHDRAWABLE",
-        review.candidateVersionId != null
-          ? "A refresh is declined, not withdrawn: the live fact keeps its wording."
-          : "Withdraw applies from acceptance until production approval. At triage, edit the wording or reject the submission.",
+        "Withdraw applies from acceptance until production approval. At triage, edit the wording or reject the submission.",
       );
     }
     const now = new Date();

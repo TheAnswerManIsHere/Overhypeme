@@ -31,8 +31,8 @@ function gag(id: number, slot: number): GagView {
     id, slot, state: "approved", availableToUsers: false, isDefault: slot === 1,
     approvedContent: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: `{NAME} outlifts a forklift, take ${slot}.` },
     approvedExamples: { male: example(id * 10 + 1), female: example(id * 10 + 2), pet: example(id * 10 + 3) },
-    grandfathered: false, approvedAt: CREATED, pendingContent: null, pendingReviewId: null,
-    pendingExamples: { male: null, female: null, pet: null }, pendingRemove: false, refreshedSinceApproval: false,
+    grandfathered: false, approvedAt: CREATED, pendingContent: null,
+    pendingExamples: { male: null, female: null, pet: null },
     renders: { male: tile("i2i_male_default", id * 10 + 1), female: tile("i2i_female_default", id * 10 + 2), pet: tile("i2i_nonhuman_animal", id * 10 + 3) },
   };
 }
@@ -44,11 +44,11 @@ async function stubReview(page: Page, stage: "concept_review" | "production_revi
     workflowStage: stage, stagingFactId: FACT_ID,
     stagingFact: { id: FACT_ID, isActive: false, enrichmentStatus: "ok", visualConceptStatus: "ok" },
     reason: null, adminNote: null, createdAt: CREATED, reviewedAt: null, submitter: null, matchingFact: null,
-    approvedFactId: null, hashtags: ["legend"], enrichment: null, enrichmentStatus: "ok", candidateVersionId: null,
+    approvedFactId: null, hashtags: ["legend"], enrichment: null, enrichmentStatus: "ok",
     rendersRunning: false, renderReviewState: null,
   };
   const { visualPromptStrategyOverride: _gag, ...classification } = enrichmentWithConcept("{NAME} outlifts a forklift.");
-  const view: FactGagsView = { factId: FACT_ID, isActive: false, review: { id: REVIEW_ID, stage, refresh: false }, frozenOutsideReview: false, gags: [gag(1, 1), gag(2, 2)], maxGags: 3 };
+  const view: FactGagsView = { factId: FACT_ID, isActive: false, review: { id: REVIEW_ID, stage }, gags: [gag(1, 1), gag(2, 2)], maxGags: 3 };
 
   await page.route(/\/api\/admin\/reviews(\?.*)?$/, (route: Route) =>
     route.fulfill({ json: { reviews: [row], total: 1, page: 1, limit: 20 } }));
@@ -67,7 +67,7 @@ async function stubReview(page: Page, stage: "concept_review" | "production_revi
       return route.fulfill({ json: { aiDerived: classification, overrides: {}, effective: classification, overrideSummary: { overriddenPaths: [], count: 0 } } });
     }
     if (path.endsWith("/enrichment-versions")) {
-      return route.fulfill({ json: { current: { hasEnrichment: true, enrichmentStatus: "ok", hasOverrides: false }, inFlight: null, versions: [] } });
+      return route.fulfill({ json: { current: { hasEnrichment: true, enrichmentStatus: "ok", hasOverrides: false }, versions: [] } });
     }
     return route.fulfill({ json: { id: FACT_ID, text: TEXT, isActive: false, enrichment: classification, enrichmentStatus: "ok" } });
   });

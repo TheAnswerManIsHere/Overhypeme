@@ -15,7 +15,7 @@
  *     `coreSceneOverride` save-time superRefine applies) so a picked candidate
  *     can never fail that save, and cap it to the coreSceneOverride budget.
  *   - the STORED blob shape persisted on `facts.visual_concept_candidates`
- *     (candidates + provenance + reviewId / candidateVersionId / source /
+ *     (candidates + provenance + reviewId / source /
  *     inputHash) and the normalized `visualConcepts` response the review-detail
  *     endpoint returns (with a SERVER-computed `current` flag — the FE never
  *     recomputes hashes).
@@ -335,10 +335,9 @@ export const visualConceptProvenanceSchema = z.object({
 });
 export type VisualConceptProvenance = z.infer<typeof visualConceptProvenanceSchema>;
 
-/** Where a generation read its fact: a first-time review's staging fact, a
- *  refresh's candidate version, or a live fact outside any review (Draft more
- *  gags, plan PLAN_THREE_GAGS.md increment 2). */
-export const VISUAL_CONCEPT_SOURCE_VALUES = ["staging_fact", "candidate_version", "live_fact"] as const;
+/** Where a generation read its fact: a review's staging fact, or a live fact
+ *  outside any review (Draft more gags, plan PLAN_THREE_GAGS.md increment 2). */
+export const VISUAL_CONCEPT_SOURCE_VALUES = ["staging_fact", "live_fact"] as const;
 export type VisualConceptSource = (typeof VISUAL_CONCEPT_SOURCE_VALUES)[number];
 
 export const visualConceptCandidatesBlobSchema = z.object({
@@ -347,8 +346,6 @@ export const visualConceptCandidatesBlobSchema = z.object({
   provenance: visualConceptProvenanceSchema,
   /** The review cycle these candidates were drafted for; null for a live draft. */
   reviewId: z.number().nullable(),
-  /** The candidate enrichment version (refresh cycles) or null (first-time). */
-  candidateVersionId: z.number().nullable(),
   source: z.enum(VISUAL_CONCEPT_SOURCE_VALUES),
   /** Hash over the render-affecting inputs — see buildVisualConceptInputHash. */
   inputHash: z.string(),
@@ -365,7 +362,6 @@ export type VisualConceptStatus = "pending" | "ok" | "failed";
 
 export type VisualConceptStaleReason =
   | "review_mismatch"
-  | "candidate_version_mismatch"
   | "input_hash_mismatch"
   /** A saved humor note differs from the one these gags were written under. */
   | "humor_note_changed";

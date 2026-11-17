@@ -128,7 +128,6 @@ export async function evaluatePredicates(): Promise<PredicateRecord> {
   const reviews = await db
     .select({
       id: pendingReviewsTable.id,
-      candidateVersionId: pendingReviewsTable.candidateVersionId,
       visualConceptStatus: factsTable.visualConceptStatus,
       visualConceptCandidates: factsTable.visualConceptCandidates,
       humorNote: factsTable.humorNote,
@@ -141,7 +140,6 @@ export async function evaluatePredicates(): Promise<PredicateRecord> {
   for (const r of reviews) {
     const resp = await buildVisualConceptsResponse({
       id: r.id,
-      candidateVersionId: r.candidateVersionId ?? null,
       visualConceptStatus: r.visualConceptStatus ?? null,
       visualConceptCandidates: r.visualConceptCandidates,
       humorNote: r.humorNote,

@@ -7,7 +7,6 @@
  *   - a new gag and a pending change are never offered; the approved version
  *     keeps being served while a change waits;
  *   - a removed gag is gone; a fact that is not live offers nothing;
- *   - a refresh's pick and removal change the list only at promotion;
  *   - a caller naming no gag gets the default; naming one that is not
  *     available is refused, never quietly replaced by another.
  */
@@ -22,7 +21,7 @@ import { factEnrichmentVersionsTable, imagePromptAttemptsTable, pendingReviewsTa
 import { EMPTY_VISUAL_STRATEGY_OVERRIDE, buildPlaceholderFactEnrichment, type VisualPromptStrategyOverride } from "@workspace/api-zod";
 
 import { availableGags, GagNotAvailableError, resolveOfferedGag } from "../lib/gags/resolver.js";
-import { applyReviewGagOps, removeGag, saveGagContent } from "../lib/gags/gagStore.js";
+import { removeGag, saveGagContent } from "../lib/gags/gagStore.js";
 import { withCast } from "./helpers/gagCast.js";
 
 const RUN = randomUUID().slice(0, 8);
@@ -85,23 +84,6 @@ describe("availableGags: what a user may be offered", () => {
     assert.deepEqual(await scenes(factId), ["{NAME} two."]);
     await db.update(factsTable).set({ isActive: false }).where(eq(factsTable.id, factId));
     assert.deepEqual(await availableGags(factId), []);
-  });
-
-  it("a refresh's removal changes the list only at promotion", async () => {
-    const { factId, gagIds } = await liveFact("{NAME} one.", "{NAME} two.");
-    const [review] = await db.insert(pendingReviewsTable).values({
-      submittedText: "refresh", submittedById: adminId, status: "pending", workflowStage: "production_review",
-      stagingFactId: factId, enrichment: buildPlaceholderFactEnrichment() as never, enrichmentStatus: "ok",
-    }).returning({ id: pendingReviewsTable.id });
-    const [cand] = await db.insert(factEnrichmentVersionsTable).values({
-      factId, versionNo: 1, status: "candidate", source: "refresh_candidate", sourceReviewId: review!.id, enrichment: buildPlaceholderFactEnrichment() as never,
-    } as never).returning({ id: factEnrichmentVersionsTable.id });
-    await db.update(pendingReviewsTable).set({ candidateVersionId: cand!.id }).where(eq(pendingReviewsTable.id, review!.id));
-
-    await removeGag(factId, gagIds[0]!, { adminId, reviewId: review!.id });
-    assert.deepEqual(await scenes(factId), ["{NAME} one.", "{NAME} two."], "nothing changes before promotion");
-    await db.transaction((tx) => applyReviewGagOps(tx, factId, review!.id, adminId));
-    assert.deepEqual(await scenes(factId), ["{NAME} two."], "the default moves to the gag that remains");
   });
 });
 

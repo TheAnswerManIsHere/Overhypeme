@@ -9,8 +9,7 @@
  *     styled one and one drawn from other content, and accepts the rest;
  *   - every slot follows the same rules;
  *   - discard and remove, and the last approved gag of a live fact kept;
- *   - during a refresh, gags change only inside its review, and its pick or
- *     removal lands at promotion or is dropped on decline;
+ *   - while a review is open, gags change only inside it;
  *   - saving, adding and discarding enqueue one iteration render job each;
  *     removing enqueues nothing.
  */
@@ -36,7 +35,7 @@ import gagsRouter from "../routes/gags.js";
 import { __setReferenceFalUploadForTest } from "../lib/defaultReferenceResolver.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import { availableGags, normaliseGagContent, primaryGag } from "../lib/gags/resolver.js";
-import { applyReviewGagOps, cancelReviewGagOps, gagContentEqual } from "../lib/gags/gagStore.js";
+import { gagContentEqual } from "../lib/gags/gagStore.js";
 import { loadGagRenderTarget, ensureReviewIterationRenders, reviewRenderStates } from "../lib/reviewRenderScenarios.js";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -377,76 +376,37 @@ describe("gag routes: discard and remove", () => {
   });
 });
 
-describe("gag routes: during a refresh, gags change only inside its review", () => {
-  async function openRefresh(factId: number): Promise<number> {
+describe("gag routes: while a review is open, gags change only inside it", () => {
+  // Refresh reviews are gone (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1H); a
+  // review is opened on the fact directly, as the scope rule holds for any.
+  async function openReview(factId: number): Promise<number> {
     const [review] = await db.insert(pendingReviewsTable).values({
-      submittedText: "refresh", submittedById: adminId, status: "pending", workflowStage: "production_review",
+      submittedText: "review", submittedById: adminId, status: "pending", workflowStage: "production_review",
       stagingFactId: factId, enrichment: buildPlaceholderFactEnrichment() as never, enrichmentStatus: "ok",
     }).returning({ id: pendingReviewsTable.id });
-    const [cand] = await db.insert(factEnrichmentVersionsTable).values({
-      factId, versionNo: 1, status: "candidate", source: "refresh_candidate", sourceReviewId: review!.id,
-      enrichment: buildPlaceholderFactEnrichment() as never,
-    } as never).returning({ id: factEnrichmentVersionsTable.id });
-    await db.update(pendingReviewsTable).set({ candidateVersionId: cand!.id }).where(eq(pendingReviewsTable.id, review!.id));
     return review!.id;
   }
 
-  it("refuses a change from outside the review, and lands the review's pick only at promotion", async () => {
+  it("refuses a change from outside the review, and accepts it from the review", async () => {
     const { factId, gagId } = await liveFact();
-    const reviewId = await openRefresh(factId);
-    const change = scene("{NAME} the refresh's change.");
+    const reviewId = await openReview(factId);
+    const change = scene("{NAME} the review's change.");
 
     const outside = await request(app).put(url(factId, `/${gagId}`)).send({ content: change });
     assert.equal(outside.status, 409);
-    assert.equal(outside.body.code, "REFRESH_IN_REVIEW");
-
+    assert.equal(outside.body.code, "REVIEW_NOT_EDITABLE");
     assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: change, reviewId })).status, 200);
-    await approveSet(factId, gagId, change, reviewId);
-    const row = await gagRow(gagId);
-    assert.equal(row.pendingReviewId, reviewId, "the picks belong to the review");
-    assert.equal(await examplesOf(gagId, "pending"), 3, "all three picks wait for promotion");
-    assert.deepEqual(await offeredScenes(factId), [A.coreSceneOverride], "users keep the approved version until promotion");
-
-    await db.transaction((tx) => applyReviewGagOps(tx, factId, reviewId, adminId));
-    assert.deepEqual(await offeredScenes(factId), [change.coreSceneOverride], "the pick lands at promotion");
   });
 
-  it("a removal made in a declined refresh changes nothing users get, and is not applied by a later one", async () => {
+  it("advancing to Test Renders draws only changed gags' male renders, once: none for an unchanged gag (plan PLAN_GAG_EXAMPLES.md)", async () => {
     const { factId, gagId } = await liveFact();
-    const content = scene("{NAME} a second approved gag.");
-    const added = await request(app).post(url(factId)).send({ content });
+    const added = await request(app).post(url(factId)).send({ content: scene("{NAME} a second gag.") });
     const secondId = added.body.gags.find((g: { slot: number }) => g.slot === 2).id as number;
-    await approveSet(factId, secondId, content);
-
-    const reviewId = await openRefresh(factId);
-    const removed = await request(app).post(url(factId, `/${gagId}/remove`)).send({ reviewId });
-    assert.equal(removed.status, 200, JSON.stringify(removed.body));
-    assert.equal((await gagRow(gagId)).pendingRemove, true);
-    assert.deepEqual(await offeredScenes(factId), [A.coreSceneOverride, content.coreSceneOverride], "nothing removed before promotion");
-
-    await db.transaction((tx) => cancelReviewGagOps(tx, reviewId));
-    const after = await gagRow(gagId);
-    assert.equal(after.pendingRemove, false);
-    assert.equal(after.pendingReviewId, null, "a declined review's decision is no longer owned, so no later review applies it");
-    assert.deepEqual(await offeredScenes(factId), [A.coreSceneOverride, content.coreSceneOverride]);
-  });
-
-  it("advancing to Test Renders draws only changed gags' male renders: none for an unchanged or removed gag (plan PLAN_GAG_EXAMPLES.md)", async () => {
-    const { factId, gagId } = await liveFact();
-    const content = scene("{NAME} a second approved gag.");
-    const added = await request(app).post(url(factId)).send({ content });
-    const secondId = added.body.gags.find((g: { slot: number }) => g.slot === 2).id as number;
-    await approveSet(factId, secondId, content);
-    const added3 = await request(app).post(url(factId)).send({ content: scene("{NAME} a third gag.") });
-    const thirdId = added3.body.gags.find((g: { slot: number }) => g.slot === 3).id as number;
-
-    const reviewId = await openRefresh(factId);
-    // Gag 2: a change, then removed. Gag 3: a change kept. Gag 1: unchanged.
-    assert.equal((await request(app).put(url(factId, `/${secondId}`)).send({ content: scene("{NAME} a change, then removed."), reviewId })).status, 200);
-    assert.equal((await request(app).post(url(factId, `/${secondId}/remove`)).send({ reviewId })).status, 200);
-    assert.equal((await request(app).put(url(factId, `/${thirdId}`)).send({ content: scene("{NAME} the third, changed."), reviewId })).status, 200);
+    await approveSet(factId, secondId, scene("{NAME} a second gag."));
+    const reviewId = await openReview(factId);
+    assert.equal((await request(app).put(url(factId, `/${secondId}`)).send({ content: scene("{NAME} the second, changed."), reviewId })).status, 200);
     const count = async (gid: number) => (await db.select({ id: imagePromptAttemptsTable.id }).from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.gagId, gid))).length;
-    const before = { first: await count(gagId), second: await count(secondId), third: await count(thirdId) };
+    const before = { first: await count(gagId), second: await count(secondId) };
 
     // No vendor call: the i2i reference upload is stubbed, as the render tests do.
     __setReferenceFalUploadForTest(async () => "https://fal.test/ref.jpg");
@@ -457,17 +417,14 @@ describe("gag routes: during a refresh, gags change only inside its review", () 
       __setReferenceFalUploadForTest(null);
     }
     assert.equal(await count(gagId), before.first, "an unchanged gag gets no render");
-    assert.equal(await count(secondId), before.second, "a gag the review removes gets no render");
-    assert.equal(await count(thirdId), before.third + 1, "the changed gag gets one male render, once");
-    const [drawn] = await db.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.gagId, thirdId));
-    assert.equal(drawn!.reviewRenderScenarioKey, "i2i_male_default");
+    assert.equal(await count(secondId), before.second + 1, "the changed gag gets one male render, once");
   });
 
-  it("the list's render state counts each surviving gag: one finishing never hides another (Codex, PR #956 round 2)", async () => {
+  it("the list's render state counts each gag that is not removed: one finishing never hides another (Codex, PR #956 round 2)", async () => {
     const { factId, gagId } = await liveFact();
     const added = await request(app).post(url(factId)).send({ content: scene("{NAME} gag two.") });
     const secondId = added.body.gags.find((g: { slot: number }) => g.slot === 2).id as number;
-    const reviewId = await openRefresh(factId);
+    const reviewId = await openReview(factId);
     const attempt = async (gid: number, state: "running" | "failed" | "done", at: string) => {
       await db.insert(imagePromptAttemptsTable).values({
         factId, gagId: gid, reviewId, reviewRenderScenarioKey: "i2i_male_default", renderJobId: randomUUID(),
@@ -485,101 +442,25 @@ describe("gag routes: during a refresh, gags change only inside its review", () 
     // The earlier gag failed (a newer attempt of it), the later one finished.
     await attempt(gagId, "failed", "2026-01-01T00:02:00Z");
     assert.equal((await reviewRenderStates([reviewId])).get(reviewId), "needs_attention");
-    // The failed gag marked for removal by this review: no longer counted.
-    await db.update(factGagsTable).set({ pendingRemove: true, pendingReviewId: reviewId }).where(eq(factGagsTable.id, gagId));
-    assert.equal((await reviewRenderStates([reviewId])).get(reviewId), "ready");
     // A superseded failure of a gag does not poison its later success.
-    await db.update(factGagsTable).set({ pendingRemove: false, pendingReviewId: null }).where(eq(factGagsTable.id, gagId));
     await attempt(gagId, "done", "2026-01-01T00:03:00Z");
+    assert.equal((await reviewRenderStates([reviewId])).get(reviewId), "ready");
+    // A removed gag is no longer counted.
+    await attempt(secondId, "failed", "2026-01-01T00:04:00Z");
+    assert.equal((await reviewRenderStates([reviewId])).get(reviewId), "needs_attention");
+    await db.update(factGagsTable).set({ removedAt: new Date() }).where(eq(factGagsTable.id, secondId));
     assert.equal((await reviewRenderStates([reviewId])).get(reviewId), "ready");
   });
 
   it("editing after picking cancels the pick", async () => {
     const { factId, gagId } = await liveFact();
-    const reviewId = await openRefresh(factId);
+    const reviewId = await openReview(factId);
     const change = scene("{NAME} picked.");
     await request(app).put(url(factId, `/${gagId}`)).send({ content: change, reviewId });
     await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: await render(factId, gagId, change), reviewId });
     assert.equal(await examplesOf(gagId, "pending"), 1);
     await request(app).put(url(factId, `/${gagId}`)).send({ content: scene("{NAME} edited after the pick."), reviewId });
     assert.equal(await examplesOf(gagId, "pending"), 0, "the pick was for content the gag no longer holds");
-    await db.transaction((tx) => applyReviewGagOps(tx, factId, reviewId, adminId));
-    assert.deepEqual(await offeredScenes(factId), [A.coreSceneOverride], "with no pick, promotion approves nothing");
-  });
-
-  describe("keeping a gag the refresh marked for removal (Codex, PR #956 round 4; increment 2)", () => {
-    /** A live fact with a second approved gag, so either can be marked for removal. */
-    async function twoGags() {
-      const { factId, gagId } = await liveFact();
-      const second = await request(app).post(url(factId)).send({ content: scene("{NAME} a second gag.") });
-      const secondId = (second.body.gags as Array<{ id: number; slot: number }>).find((g) => g.slot === 2)!.id;
-      const content = scene("{NAME} a second gag.");
-      await approveSet(factId, secondId, content);
-      return { factId, gagId, secondId };
-    }
-    const snapshot = async (gagId: number) => {
-      const g = await gagRow(gagId);
-      return { approvedContent: g.approvedContent, pendingContent: g.pendingContent, pendingExamples: await examplesOf(gagId, "pending"), pendingReviewId: g.pendingReviewId, removedAt: g.removedAt };
-    };
-
-    it("an approved gag with no change: Keep restores it exactly", async () => {
-      const { factId, gagId } = await twoGags();
-      const reviewId = await openRefresh(factId);
-      const before = await snapshot(gagId);
-      assert.equal((await request(app).post(url(factId, `/${gagId}/remove`)).send({ reviewId })).status, 200);
-      const kept = await request(app).post(url(factId, `/${gagId}/keep`)).send({ reviewId });
-      assert.equal(kept.status, 200, JSON.stringify(kept.body));
-      assert.equal((await gagRow(gagId)).pendingRemove, false);
-      assert.deepEqual(await snapshot(gagId), before);
-      await db.transaction((tx) => applyReviewGagOps(tx, factId, reviewId, adminId));
-      assert.equal((await availableGags(factId)).length, 2, "promotion removes nothing");
-    });
-
-    it("an approved gag with a change and a picked example: Keep leaves both; Discard leaves the removal mark", async () => {
-      const { factId, gagId } = await twoGags();
-      const reviewId = await openRefresh(factId);
-      const change = scene("{NAME} the refresh's change.");
-      await request(app).put(url(factId, `/${gagId}`)).send({ content: change, reviewId });
-      await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: await render(factId, gagId, change), reviewId });
-      const before = await snapshot(gagId);
-      assert.equal(before.pendingExamples, 1);
-      await request(app).post(url(factId, `/${gagId}/remove`)).send({ reviewId });
-      await request(app).post(url(factId, `/${gagId}/keep`)).send({ reviewId });
-      assert.deepEqual(await snapshot(gagId), before, "the change and its pick survive");
-
-      await request(app).post(url(factId, `/${gagId}/remove`)).send({ reviewId });
-      const discarded = await request(app).post(url(factId, `/${gagId}/discard`)).send({ reviewId });
-      assert.equal(discarded.status, 200, JSON.stringify(discarded.body));
-      const row = await gagRow(gagId);
-      assert.equal(row.pendingContent, null, "discard drops the change");
-      assert.equal(row.pendingRemove, true, "and only the change: the removal stays marked");
-    });
-
-    it("a gag never approved, added in the refresh: Keep keeps it, never deletes it", async () => {
-      const { factId, secondId } = await twoGags();
-      const reviewId = await openRefresh(factId);
-      const added = await request(app).post(url(factId)).send({ content: scene("{NAME} added in the refresh."), reviewId });
-      assert.equal(added.status, 200, JSON.stringify(added.body));
-      const newId = (added.body.gags as Array<{ id: number; slot: number }>).find((g) => g.slot === 3)!.id;
-      const before = await snapshot(newId);
-      await request(app).post(url(factId, `/${newId}/remove`)).send({ reviewId });
-      const kept = await request(app).post(url(factId, `/${newId}/keep`)).send({ reviewId });
-      assert.equal(kept.status, 200, JSON.stringify(kept.body));
-      assert.deepEqual(await snapshot(newId), before);
-      assert.equal((await gagRow(newId)).removedAt, null);
-      assert.ok(secondId > 0);
-    });
-
-    it("refuses Keep on a gag not marked, and from outside the review", async () => {
-      const { factId, gagId } = await twoGags();
-      const reviewId = await openRefresh(factId);
-      const unmarked = await request(app).post(url(factId, `/${gagId}/keep`)).send({ reviewId });
-      assert.equal(unmarked.body.code, "NOT_MARKED_FOR_REMOVAL");
-      await request(app).post(url(factId, `/${gagId}/remove`)).send({ reviewId });
-      const outside = await request(app).post(url(factId, `/${gagId}/keep`)).send({});
-      assert.equal(outside.status, 409);
-      assert.equal((await gagRow(gagId)).pendingRemove, true);
-    });
   });
 });
 

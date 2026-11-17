@@ -1,11 +1,10 @@
 /**
  * Taxonomy Health page — stale-for-reprocess row actions + header readout.
  *
- * Focus (PR3): a stale-for-reprocess row offers ONLY "Send back to review"
- * (never the direct Re-enrich, even when it's ALSO stale_enrichment_version); a
- * row with a refresh already in flight (`refreshInReview`) starts in the
- * "in review" state; and the header renders the engine revision from the
- * extended summary response.
+ * A stale-for-reprocess row offers neither the direct Re-enrich (even when it
+ * is ALSO stale_enrichment_version) nor a send-back, which was removed with
+ * refresh reviews (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1H); and the header
+ * renders the engine revision from the extended summary response.
  *
  * AdminLayout is stubbed to a passthrough so the test needs no auth provider.
  */
@@ -48,7 +47,7 @@ function makeHealth(
     factId,
     overallStatus: "healthy",
     statuses,
-    issues: [{ code: "stale_for_reprocess", severity: "info", message: "Send it back to refresh.", recommendedAction: "send_back_to_review" }],
+    issues: [{ code: "stale_for_reprocess", severity: "info", message: "Processed under an older engine revision.", recommendedAction: "none" }],
     reviewFlags: { ...NO_FLAGS, ...flags },
     summary: {
       primaryArchetype: "superhuman_physical_feat",
@@ -79,33 +78,6 @@ const ROWS = [
     taxonomyConfidence: 0.9,
     health: makeHealth(1, { staleForReprocess: true, staleEnrichmentVersion: true }, ["stale_for_reprocess", "stale_enrichment_version"]),
     updatedAt: null,
-    refreshInReview: false,
-  },
-  {
-    factId: 2,
-    factText: "Already refreshing fact.",
-    primaryArchetype: "superhuman_physical_feat",
-    subtype: "force_scaled_action",
-    overhypeFit: "strong",
-    adultSuitability: "safe",
-    taxonomyConfidence: 0.9,
-    health: makeHealth(2, { staleForReprocess: true }, ["stale_for_reprocess"]),
-    updatedAt: null,
-    refreshInReview: true,
-  },
-  // Fact 3: stale_for_reprocess flagged after 3 failed send-backs.
-  {
-    factId: 3,
-    factText: "Thrice failed fact.",
-    primaryArchetype: "superhuman_physical_feat",
-    subtype: "force_scaled_action",
-    overhypeFit: "strong",
-    adultSuitability: "safe",
-    taxonomyConfidence: 0.9,
-    health: makeHealth(3, { staleForReprocess: true }, ["stale_for_reprocess"]),
-    updatedAt: null,
-    refreshInReview: false,
-    repeatedFailure: true,
   },
 ];
 
@@ -145,45 +117,15 @@ describe("TaxonomyHealth — stale-for-reprocess rows", () => {
     await waitFor(() => expect(screen.getByTestId("engine-revision").textContent).toContain("5"));
   });
 
-  it("an overlapping stale row offers Send back to review and NOT a direct Re-enrich", async () => {
+  it("an overlapping stale row offers no direct Re-enrich and no send-back", async () => {
     renderPage();
-    // Switch to the stale_for_reprocess card is not required — the default list
-    // returns both rows regardless of the active filter (fetch is mocked).
     const row = await waitFor(() => {
       const cell = screen.getByText("Overlapping stale fact.").closest("tr");
       expect(cell).toBeTruthy();
       return cell as HTMLElement;
     });
-    expect(within(row).getByTestId("send-back-to-review")).toBeTruthy();
     expect(within(row).queryByText("Re-enrich")).toBeNull();
-  });
-
-  it("a row with a refresh already in flight starts in the in-review state (no button)", async () => {
-    renderPage();
-    const row = await waitFor(() => {
-      const cell = screen.getByText("Already refreshing fact.").closest("tr");
-      expect(cell).toBeTruthy();
-      return cell as HTMLElement;
-    });
-    expect(within(row).getByTestId("send-back-in-review")).toBeTruthy();
-    expect(within(row).queryByTestId("send-back-to-review")).toBeNull();
-  });
-
-  it("a fact flagged after 3 failed send-backs shows the 3 failed attempts badge beside its send-back button", async () => {
-    renderPage();
-    const row = await waitFor(() => {
-      const cell = screen.getByText("Thrice failed fact.").closest("tr");
-      expect(cell).toBeTruthy();
-      return cell as HTMLElement;
-    });
-    const badge = within(row).getByTestId("send-back-repeated-failure");
-    expect(badge.textContent).toContain("3 failed attempts");
-    const sendBack = within(row).getByTestId("send-back-to-review");
-    // Beside: same action cell, badge after the button.
-    expect(badge.parentElement).toBe(sendBack.parentElement);
-    expect(sendBack.compareDocumentPosition(badge) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // Unflagged rows carry no badge.
-    const plainRow = screen.getByText("Overlapping stale fact.").closest("tr") as HTMLElement;
-    expect(within(plainRow).queryByTestId("send-back-repeated-failure")).toBeNull();
+    expect(within(row).queryByText(/send back/i)).toBeNull();
+    expect(screen.queryByText(/send next 50/i)).toBeNull();
   });
 });

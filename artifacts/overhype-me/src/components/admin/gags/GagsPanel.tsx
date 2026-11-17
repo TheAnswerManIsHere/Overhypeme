@@ -180,7 +180,7 @@ function GagsPanelBody({ factId, reviewId, rendersEnabled, rendersExpected = fal
     );
   }
 
-  const readOnly = disabled || (view.frozenOutsideReview && reviewId == null);
+  const readOnly = disabled;
   const canAdd = !readOnly && view.gags.length < view.maxGags;
 
   return (
@@ -192,12 +192,6 @@ function GagsPanelBody({ factId, reviewId, rendersEnabled, rendersExpected = fal
         </p>
       </div>
 
-      {view.frozenOutsideReview && reviewId == null && (
-        <p className="text-xs text-amber-700 dark:text-amber-300 flex items-start gap-1.5 rounded-sm border border-amber-500/40 bg-amber-500/10 px-3 py-2" data-testid="gags-frozen-note">
-          <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-          This fact is being refreshed. Its gags can only be changed inside that refresh's review, as its last step.
-        </p>
-      )}
 
       {view.gags.length === 0 && !adding && (
         <p className="text-xs text-muted-foreground" data-testid="gags-empty">No gags yet. Add one, or use one of the visual ideas.</p>
@@ -525,7 +519,6 @@ function GagCard({
     done(await s.act(() => gagApi.remove(factId, gag.id, reviewId)));
   };
   // Cancel a refresh's removal of this gag: only the mark goes; its change and pick stay.
-  const keep = async () => done(await s.act(() => gagApi.keep(factId, gag.id, reviewId)));
   const runRenders = async (kinds: GagExampleKind[], redraw = false) => done(await s.act(() => gagApi.runRenders(factId, gag.id, reviewId, kinds, redraw)));
   const approve = async (card: RenderScenarioCard) => {
     if (card.latestAttemptId == null) return;
@@ -565,16 +558,9 @@ function GagCard({
           Approved before gags had male, female and pet examples. It stays offered to users; approving its three examples completes it.
         </p>
       )}
-      {gag.refreshedSinceApproval && (
-        <p className="text-xs text-muted-foreground" data-testid="gag-refreshed-note">Approved before the fact's latest refresh. It stays offered to users.</p>
-      )}
-      {gag.pendingRemove && (
-        <p className="text-xs text-amber-700 dark:text-amber-300" data-testid="gag-pending-remove">Will be removed when this refresh is promoted.</p>
-      )}
       <p className="text-xs text-foreground" data-testid="gag-example-words">
         {building ? `This change: ${exampleWords(gag.pendingExamples, "picked")}.` : `${exampleWords(gag.approvedExamples)}.`}
-        {building && gag.pendingReviewId != null && " The picks take effect when this refresh is promoted."}
-        {building && gag.pendingReviewId == null && " The change reaches users when all three are approved."}
+        {building && " The change reaches users when all three are approved."}
       </p>
 
       {GAG_EXAMPLE_KINDS.some((k) => gag.approvedExamples[k]?.imageUrl) && (
@@ -612,18 +598,10 @@ function GagCard({
               <RotateCcw className="w-3.5 h-3.5" /> Discard the saved change
             </button>
           )}
-          {gag.pendingRemove && (
-            <button type="button" onClick={() => void keep()} disabled={locked} data-testid="gag-keep"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border border-border rounded-sm hover:bg-muted text-foreground disabled:opacity-40">
-              <RotateCcw className="w-3.5 h-3.5" /> Keep this gag
-            </button>
-          )}
-          {!gag.pendingRemove && (
-            <button type="button" onClick={() => void remove()} disabled={locked} data-testid="gag-remove"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border border-destructive/50 text-destructive rounded-sm hover:bg-destructive/10 disabled:opacity-40">
-              <Trash2 className="w-3.5 h-3.5" /> Remove gag
-            </button>
-          )}
+          <button type="button" onClick={() => void remove()} disabled={locked} data-testid="gag-remove"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border border-destructive/50 text-destructive rounded-sm hover:bg-destructive/10 disabled:opacity-40">
+            <Trash2 className="w-3.5 h-3.5" /> Remove gag
+          </button>
         </div>
       )}
 

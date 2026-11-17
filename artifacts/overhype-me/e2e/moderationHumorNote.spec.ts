@@ -62,7 +62,7 @@ async function stubGagServer(page: Page): Promise<{ notesSaved: () => string[]; 
       workflowStage: "concept_review", stagingFactId: FACT_ID,
       stagingFact: { id: FACT_ID, isActive: false, enrichmentStatus: "ok", visualConceptStatus: "ok", enrichment: enrichmentWithConcept("{NAME} slams a revolving door.") },
       reason: null, adminNote: null, createdAt: "2026-11-13T12:00:00.000Z", reviewedAt: null, submitter: null, matchingFact: null,
-      approvedFactId: null, hashtags: ["legend"], enrichment: null, enrichmentStatus: "ok", candidateVersionId: null,
+      approvedFactId: null, hashtags: ["legend"], enrichment: null, enrichmentStatus: "ok",
       rendersRunning: false, renderReviewState: null,
       visualConcepts: visualConcepts(),
     } });

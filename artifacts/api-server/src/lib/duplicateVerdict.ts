@@ -20,7 +20,7 @@
  * The detector is passed in rather than imported, so this module stays below
  * the routes and tests can supply one.
  */
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { factsTable, pendingReviewsTable } from "@workspace/db/schema";
 import { duplicateMatchText } from "./duplicateText";
@@ -49,9 +49,9 @@ export interface DuplicateView {
 
 type ReviewRow = typeof pendingReviewsTable.$inferSelect;
 
-/** Whether a review's wording can still take a duplicate result: a first-time submission at triage. */
-export function isAtDuplicateTriage(review: Pick<ReviewRow, "status" | "workflowStage" | "candidateVersionId">): boolean {
-  return review.status === "pending" && review.workflowStage === "triage_pending" && review.candidateVersionId == null;
+/** Whether a review's wording can still take a duplicate result: a submission at triage. */
+export function isAtDuplicateTriage(review: Pick<ReviewRow, "status" | "workflowStage">): boolean {
+  return review.status === "pending" && review.workflowStage === "triage_pending";
 }
 
 /** The columns a detector result writes onto its review. */
@@ -93,7 +93,6 @@ export async function checkReviewDuplicate(reviewId: number, detector: Duplicate
       eq(pendingReviewsTable.submittedText, checkedText),
       eq(pendingReviewsTable.status, "pending"),
       eq(pendingReviewsTable.workflowStage, "triage_pending"),
-      isNull(pendingReviewsTable.candidateVersionId),
     ))
     .returning();
   if (updated) return updated;
@@ -102,7 +101,7 @@ export async function checkReviewDuplicate(reviewId: number, detector: Duplicate
 }
 
 /** Whether triage should (re)check this review on opening: no usable result for its wording. */
-export function needsDuplicateCheck(review: Pick<ReviewRow, "status" | "workflowStage" | "candidateVersionId">, view: DuplicateView): boolean {
+export function needsDuplicateCheck(review: Pick<ReviewRow, "status" | "workflowStage">, view: DuplicateView): boolean {
   return isAtDuplicateTriage(review) && (view.state === "not_checked" || view.state === "unavailable");
 }
 

@@ -50,7 +50,7 @@ export function useGagIdeaActions(args: {
 
   const actions = useMemo((): ConceptAction[] => {
     if (!gagsView || factId <= 0) return [];
-    const live = gagsView.gags.filter((g) => !g.pendingRemove);
+    const live = gagsView.gags;
     const contentOf = (g: (typeof live)[number]) => g.pendingContent ?? g.approvedContent ?? EMPTY_VISUAL_STRATEGY_OVERRIDE;
     const first = live.find((g) => g.isDefault) ?? live[0];
     const out: ConceptAction[] = [];

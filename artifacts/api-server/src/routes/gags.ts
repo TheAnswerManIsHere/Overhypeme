@@ -15,7 +15,6 @@
  *   POST /api/admin/facts/:factId/gags/:gagId/renders          run its test renders
  *   POST /api/admin/facts/:factId/gags/:gagId/approve          approve a render as its example
  *   POST /api/admin/facts/:factId/gags/:gagId/remove           remove it
- *   POST /api/admin/facts/:factId/gags/:gagId/keep             cancel a refresh's removal of it
  *   GET  /api/admin/gags/:gagId/renders/:renderJobId/image     a render's image
  *   GET  /api/admin/facts/:factId/gags/ideas                   a live fact's drafted ideas
  *   POST /api/admin/facts/:factId/gags/ideas                   Draft more gags (live fact)
@@ -41,7 +40,6 @@ import {
   assertCanRunGagRenders,
   createGag,
   discardGagChange,
-  keepGag,
   removeGag,
   saveGagContent,
 } from "../lib/gags/gagStore";
@@ -159,14 +157,6 @@ router.post("/admin/facts/:factId/gags/:gagId/remove", requireAdmin, async (req:
   const body = parse(gagScopeBodySchema, req, res);
   if (!body) return;
   await respond(res, p.factId, () => removeGag(p.factId, p.gagId, { adminId: req.user.id, reviewId: body.reviewId ?? null }));
-});
-
-router.post("/admin/facts/:factId/gags/:gagId/keep", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
-  const p = ids(req);
-  if (!p) { res.status(400).json({ error: "Invalid id" }); return; }
-  const body = parse(gagScopeBodySchema, req, res);
-  if (!body) return;
-  await respond(res, p.factId, () => keepGag(p.factId, p.gagId, { adminId: req.user.id, reviewId: body.reviewId ?? null }));
 });
 
 router.post("/admin/facts/:factId/gags/:gagId/approve", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {

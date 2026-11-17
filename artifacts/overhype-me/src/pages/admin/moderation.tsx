@@ -17,7 +17,6 @@ import {
   type StoredCandidateConcept,
   type FactGagsView,
   canEditWording,
-  isCompleteSet,
   joinWithAnd,
   canWithdraw,
 } from "@workspace/api-zod";
@@ -29,7 +28,6 @@ import {
 import { EnrichmentSummary, isApprovable } from "@/components/admin/EnrichmentEditor";
 import { CharactersEditor } from "@/components/admin/CharactersEditor";
 import { useFactEnrichmentEditing } from "@/components/admin/useFactEnrichmentEditing";
-import { RefreshReviewBadge } from "@/components/admin/RefreshReviewBadge";
 import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { FinalHashtagsEditor } from "@/components/admin/FinalHashtagsEditor";
@@ -89,13 +87,6 @@ interface Review {
   hashtags: string[] | null;
   enrichment: FactEnrichment | null;
   enrichmentStatus: string | null;
-  /**
-   * Non-null ⇒ this is a REFRESH cycle of a live fact (versioned enrichment):
-   * Step 2 reviews/edits the candidate version, approval promotes it, and
-   * declining leaves the live fact exactly as-is — this is never a fact
-   * rejection. Null for first-time submissions.
-   */
-  candidateVersionId: number | null;
   /** True while a test render (auto-batch or manual re-run) is queued/rendering. */
   rendersRunning?: boolean;
   /** Coarse Step-3 render state (production_review rows only; null otherwise). */
@@ -356,11 +347,9 @@ function StepIndicator({ step }: { step: WizardStep }) {
  *  - production_review   → Step 3 default (approve for production / back to gags).
  *  - resolved            → read-only summary + link to the live fact.
  *
- * Once triage passes, a first-time candidate is never rejected again — a
- * failed prep, an unfinished gag, or a render that isn't ready
- * just leaves it pending until an admin resolves it. A refresh cycle (an
- * already-live fact) is the one exception: its "reject" ("don't promote
- * this refresh") is available from any of these stages via `canRejectNow`.
+ * Once triage passes, a candidate is never rejected again — a failed prep,
+ * an unfinished gag, or a render that isn't ready just leaves it pending
+ * until an admin resolves or withdraws it.
  */
 function ReviewModal({
   review,
@@ -400,11 +389,6 @@ function ReviewModal({
   // Both Step 2 and Step 3 expose the enrichment/Visual-Concept editor.
   const isEditableStep = isConceptReview || isProductionReview;
   const isResolved = review.status !== "pending";
-  // A refresh cycle of a LIVE fact: Step 2 edits the CANDIDATE version (the
-  // live fact's enrichment is frozen), approval promotes it, declining keeps
-  // the live fact untouched — never a rejection of the fact itself, since it
-  // already cleared triage. Set at review creation — never flips mid-mount.
-  const isRefreshCycle = (detail?.candidateVersionId ?? review.candidateVersionId) != null;
 
   // The duplicate verdict belongs to the saved wording: the on-open check
   // (David, Q1) applies only while that wording stands, and a wording save
@@ -417,7 +401,7 @@ function ReviewModal({
     reviewId: review.id,
     submittedText: wording.submittedText,
     view: wording.duplicate,
-    canCheck: stage === "triage_pending" && !isRefreshCycle,
+    canCheck: stage === "triage_pending",
     onView: setDuplicate,
     onChecked: onActionDone,
   });
@@ -434,11 +418,7 @@ function ReviewModal({
   // show what the edited enrichment would draw (plan PLAN_GAG_EXAMPLES.md).
   const [gagsReloadKey, setGagsReloadKey] = useState(0);
   const enrichEditing = useFactEnrichmentEditing({
-    // Refresh cycles edit the CANDIDATE version through the review-scoped
-    // endpoints; first-time cycles edit the staging fact as before.
-    target: isRefreshCycle
-      ? { kind: "reviewCandidate", reviewId: review.id, factId: stagingFactId }
-      : { kind: "fact", factId: stagingFactId },
+    target: { kind: "fact", factId: stagingFactId },
     // Editable in BOTH Step 2 (Visual Concept) and Step 3 (Test Renders).
     enabled: isEditableStep && stagingFactId > 0,
     editableUntrackedFields: [],
@@ -645,52 +625,36 @@ function ReviewModal({
   };
   const onReject = async () => {
     // Rejection reason (duplicate/spam/offensive/lame) judges whether the
-    // FACT belongs in the database — required for a first-time triage
-    // reject, but meaningless for a refresh cycle's "don't promote" decline
-    // (that fact already cleared triage; the live fact is never rejected).
-    if (!isRefreshCycle && !reason) { setError("Please select a rejection reason before rejecting."); return; }
-    // A refresh reject marks the candidate non-pending; drain any in-flight
-    // per-field override write first so a field just blurred by this click
-    // doesn't fail against the rejected candidate (the edit is moot on reject,
-    // but the failed write would surface a spurious error).
+    // FACT belongs in the database.
+    if (!reason) { setError("Please select a rejection reason before rejecting."); return; }
+    // Drain any in-flight per-field override write first so a field just
+    // blurred by this click does not surface a spurious error.
     await enrichEditing.flushOverrides();
-    void runAction("reject", { rejectionReason: isRefreshCycle ? undefined : reason, adminNote: note || undefined });
+    void runAction("reject", { rejectionReason: reason, adminNote: note || undefined });
   };
   const onApproveProduction = async () => {
-    // Land any in-flight per-field override write BEFORE promotion. A tracked
+    // Land any in-flight per-field override write BEFORE approval. A tracked
     // field (semantic entity, or a Revert-to-AI reset that never marks the
-    // draft dirty) blurred by this very click fires an un-awaited PUT/DELETE;
-    // promotion marks the candidate non-pending, so a write still in flight is
-    // rejected (CANDIDATE_NOT_PENDING) and the human edit is silently dropped
-    // from the promoted fact. Awaiting also lets adoptServerSlice reconcile the
-    // draft, so the unsaved-VSO gate below reads true (post-flush) state.
+    // draft dirty) blurred by this very click fires an un-awaited PUT/DELETE.
+    // Awaiting also lets adoptServerSlice reconcile the draft, so the
+    // unsaved-VSO gate below reads true (post-flush) state.
     const flushed = await enrichEditing.flushOverrides();
     if (!flushed) {
-      setError(
-        isRefreshCycle
-          ? "A field edit didn't save — resolve it (retry the field) before promoting."
-          : "A field edit didn't save — resolve it (retry the field) before approving.",
-      );
+      setError("A field edit didn't save — resolve it (retry the field) before approving.");
       return;
     }
-    // Approval publishes the SAVED enrichment (staging fact for first-time
-    // cycles; the candidate version for refresh cycles) — the client never
-    // sends a blob. An unsaved Visual Strategy draft therefore wouldn't ship;
+    // Approval publishes the SAVED enrichment of the staging fact — the client
+    // never sends a blob. An unsaved Visual Strategy draft therefore wouldn't ship;
     // force a Save/Discard first so nothing silently diverges from what the
     // moderator sees. Read isDirty() (ref-based) so it reflects the just-flushed
     // reconcile, not the stale value this closure captured before the await.
     if (enrichmentDraft.isDirty()) {
-      setError(
-        isRefreshCycle
-          ? "You have unsaved enrichment edits — Save or Discard them before promoting (approval promotes the saved candidate)."
-          : "You have unsaved enrichment edits — Save or Discard them before approving (approval publishes the saved staging fact).",
-      );
+      setError("You have unsaved enrichment edits — Save or Discard them before approving (approval publishes the saved staging fact).");
       return;
     }
     const body: Record<string, unknown> = {
       adminNote: note || undefined,
-      // Refresh approval never attaches/rewrites discovery tags — send none.
-      ...(isRefreshCycle ? {} : { hashtags: finalHashtags }),
+      hashtags: finalHashtags,
     };
     void runAction("approve-for-production", body);
   };
@@ -740,20 +704,17 @@ function ReviewModal({
     }
   }, [review.id, applyTransition]);
 
-  // A first-time fact can't ship without discovery tags; a refresh keeps the
-  // live fact's existing tags, so the gate doesn't apply (the server skips it too).
+  // A fact can't ship without discovery tags (the server refuses it too).
   // ── Gag gates (plans PLAN_THREE_GAGS.md and PLAN_GAG_EXAMPLES.md) ──
   // Approving the Gags step needs a saved gag; approving for production needs
   // a gag that will be offered once the decision lands: one approved already
-  // (with its male, female and pet examples, or grandfathered), or, inside a
-  // refresh, one whose three picks land at promotion. The server enforces both
-  // and names what is missing; these only keep the buttons honest.
-  const gagsLive = (gagsView?.gags ?? []).filter((g) => !g.pendingRemove);
+  // (with its male, female and pet examples, or grandfathered). The server
+  // enforces both and names what is missing; these only keep the buttons honest.
+  const gagsLive = gagsView?.gags ?? [];
   const hasSavedGag = gagsLive.some((g) => !!(g.pendingContent ?? g.approvedContent)?.coreSceneOverride?.trim());
-  const hasApprovedGag = gagsLive.some((g) => g.approvedContent != null
-    || (g.pendingReviewId != null && isCompleteSet(g.pendingExamples)));
+  const hasApprovedGag = gagsLive.some((g) => g.approvedContent != null);
   const canApproveProduction = isApprovable(enrichment)
-    && (isRefreshCycle || finalHashtags.length > 0)
+    && finalHashtags.length > 0
     && hasApprovedGag
     && !gagsUnsaved;
   const ideasPending = visualConceptStatus === "pending";
@@ -764,14 +725,10 @@ function ReviewModal({
   const ideasStaleButSaved = ideasTerminalOk && detail?.visualConcepts?.current === false && hasSavedGag;
   // "Approve the gags": enabled with a saved gag AND terminal-OK ideas.
   const canApproveGag = hasSavedGag && ideasTerminalOk && !gagsUnsaved;
-  // Refresh cycles reject the CANDIDATE, not the fact — the label says so.
-  const rejectLabel = isRefreshCycle ? "Don't Promote Refresh" : "Reject";
-  // A first-time submission can only be rejected during triage (Step 1) —
-  // once triage passes, a stuck candidate stays pending until an admin
-  // resolves it. A refresh cycle's "reject" ("don't promote") is always
-  // available since it never touches the live fact.
-  const canRejectNow = stage === "triage_pending" || isRefreshCycle;
-  const matchVisible = !isRefreshCycle && duplicateMatchShown(wording.duplicate, showClosest);
+  // A submission can only be rejected during triage (Step 1) — once triage
+  // passes, a stuck candidate stays pending until an admin resolves it.
+  const canRejectNow = stage === "triage_pending";
+  const matchVisible = duplicateMatchShown(wording.duplicate, showClosest);
 
   // ── Sub-renders ────────────────────────────────────────────────────────────
 
@@ -781,21 +738,19 @@ function ReviewModal({
         <span>
           Submitted by:{" "}
           <strong className="text-foreground">
-            {isRefreshCycle ? "Admin-initiated refresh" : (review.submitter?.displayName ?? review.submitter?.email ?? "Unknown")}
+            {review.submitter?.displayName ?? review.submitter?.email ?? "Unknown"}
           </strong>
         </span>
-        {!isRefreshCycle && review.submitter?.email && <span>Email: <strong className="text-foreground">{review.submitter.email}</strong></span>}
-        {!isRefreshCycle && (
-          <DuplicateVerdictLine
-            view={wording.duplicate}
-            checking={duplicateCheck.checking}
-            failed={duplicateCheck.failed}
-            canCheck={stage === "triage_pending"}
-            onRetry={() => void duplicateCheck.check()}
-            showClosest={showClosest}
-            onShowClosest={() => setShowClosest(true)}
-          />
-        )}
+        {review.submitter?.email && <span>Email: <strong className="text-foreground">{review.submitter.email}</strong></span>}
+        <DuplicateVerdictLine
+          view={wording.duplicate}
+          checking={duplicateCheck.checking}
+          failed={duplicateCheck.failed}
+          canCheck={stage === "triage_pending"}
+          onRetry={() => void duplicateCheck.check()}
+          showClosest={showClosest}
+          onShowClosest={() => setShowClosest(true)}
+        />
         <span>Date: <strong className="text-foreground">{new Date(review.createdAt).toLocaleDateString()}</strong></span>
       </div>
 
@@ -805,8 +760,8 @@ function ReviewModal({
           label="Submitted Fact"
           text={wording.submittedText}
           originalText={wording.submittedTextOriginal}
-          editable={canEditWording(stage, review.status, review.stagingFactId != null, isRefreshCycle)}
-          withdrawable={canWithdraw(stage, review.status, isRefreshCycle)}
+          editable={canEditWording(stage, review.status, review.stagingFactId != null)}
+          withdrawable={canWithdraw(stage, review.status)}
           onSaved={(saved) => { duplicateCheck.supersede(); setWording(saved); setShowClosest(false); onActionDone(); }}
           onDirtyChange={setWordingDirty}
           onWithdrawn={() => { onActionDone(); onClose(); }}
@@ -818,16 +773,9 @@ function ReviewModal({
 
   const DecisionInputs = (
     <div className="space-y-4">
-      {isRefreshCycle && (
-        <p className="text-xs text-muted-foreground" data-testid="refresh-reject-hint">
-          This declines the refresh candidate only — it is never a rejection of the fact itself. The live fact stays
-          published and completely unchanged; it just doesn't pick up this update.
-        </p>
-      )}
       {/* Rejection Reason judges whether the FACT belongs in the database
-          (duplicate/spam/offensive/lame) — it never applies to a refresh
-          decline, since that fact already cleared triage. */}
-      {!isRefreshCycle && (
+          (duplicate/spam/offensive/lame). */}
+      {(
         <div>
           <label className="block text-sm font-semibold text-foreground mb-2">
             Rejection Reason <span className="text-muted-foreground font-normal">(required to reject)</span>
@@ -848,7 +796,7 @@ function ReviewModal({
         <label className="block text-sm font-semibold text-foreground mb-2">
           Admin Note{" "}
           <span className="text-muted-foreground font-normal">
-            {isRefreshCycle ? "(optional, internal — explains why this update wasn't promoted)" : "(optional, sent to user)"}
+            (optional, sent to user)
           </span>
         </label>
         <textarea
@@ -869,7 +817,7 @@ function ReviewModal({
   const SubmittedFactCard = (
     <div className="bg-background border-2 border-border rounded-sm p-4">
       <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3">
-        {isRefreshCycle ? "Live Fact (being refreshed)" : "Submitted Fact"}
+        Submitted Fact
       </p>
       <p className="text-base italic text-foreground leading-relaxed">"{review.submittedText}"</p>
     </div>
@@ -997,7 +945,6 @@ function ReviewModal({
             <ClipboardList className="w-5 h-5 text-primary" />
             <h2 className="font-display font-bold uppercase tracking-wide text-foreground">Review #{review.id}</h2>
             <StageBadge stage={stage} />
-            {isRefreshCycle && <RefreshReviewBadge />}
             <ReasonBadge reason={review.reason} />
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-xl leading-none shrink-0">×</button>
@@ -1053,14 +1000,6 @@ function ReviewModal({
           {!isResolved && step === "concept" && isConceptReview && (
             <div className="space-y-4">
               {SubmittedFactCard}
-
-              {isRefreshCycle && (
-                <p className="text-xs text-muted-foreground" data-testid="refresh-step2-hint">
-                  Refresh review: you're editing and approving the <strong>candidate</strong> enrichment. Approving the
-                  visual gag applies it to future renders only; declining keeps the live fact exactly as it is — this
-                  is never a rejection of the fact. Existing memes, images, and hashtags are never changed.
-                </p>
-              )}
 
               <p className="text-xs text-muted-foreground" data-testid="gags-step-hint">
                 Write, edit or use an idea for each gag: the plain-language description of how the joke works
@@ -1137,17 +1076,9 @@ function ReviewModal({
             <div className="space-y-4">
               {SubmittedFactCard}
 
-              {isRefreshCycle && (
-                <p className="text-xs text-muted-foreground" data-testid="refresh-step3-hint">
-                  Refresh review: you're editing and approving the <strong>candidate</strong> enrichment. Promoting
-                  applies it to future renders only; declining keeps the live fact exactly as it is — this is never a
-                  rejection of the fact. Existing memes, images, and hashtags are never changed.
-                </p>
-              )}
-
               {/* The tags that ship with the fact: a section of its own (plan
-                  PLAN_GAG_EXAMPLES.md). A refresh keeps the live fact's tags. */}
-              {!isRefreshCycle && (
+                  PLAN_GAG_EXAMPLES.md). */}
+              {(
                 <div className="rounded-sm border border-border bg-card p-3" data-testid="final-hashtags-section">
                   <FinalHashtagsEditor
                     finalHashtags={finalHashtags}
@@ -1224,7 +1155,7 @@ function ReviewModal({
                 </Button>
                 <Button variant="outline" onClick={onReject} isLoading={loading}
                   className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                  <XCircle className="w-4 h-4" /> {rejectLabel}
+                  <XCircle className="w-4 h-4" /> Reject
                 </Button>
                 <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
               </div>
@@ -1235,7 +1166,7 @@ function ReviewModal({
                 {canRejectNow && (
                   <Button variant="outline" onClick={onReject} isLoading={loading}
                     className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                    <XCircle className="w-4 h-4" /> {rejectLabel} (cancels prep)
+                    <XCircle className="w-4 h-4" /> Reject (cancels prep)
                   </Button>
                 )}
                 <Button variant="outline" onClick={onClose} disabled={loading}>Close</Button>
@@ -1251,7 +1182,7 @@ function ReviewModal({
                 {canRejectNow && (
                   <Button variant="outline" onClick={onReject} isLoading={loading}
                     className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                    <XCircle className="w-4 h-4" /> {rejectLabel}
+                    <XCircle className="w-4 h-4" /> Reject
                   </Button>
                 )}
                 <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
@@ -1268,15 +1199,14 @@ function ReviewModal({
                 {canRejectNow && (
                   <Button variant="outline" onClick={onReject} isLoading={loading}
                     className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                    <XCircle className="w-4 h-4" /> {rejectLabel}
+                    <XCircle className="w-4 h-4" /> Reject
                   </Button>
                 )}
                 <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
               </div>
             )}
 
-            {/* Step 2 (Visual Concept): approve the gag (unlocks renders), or —
-                for a refresh cycle only — decline to promote it. A first-time
+            {/* Step 2 (Visual Concept): approve the gag (unlocks renders). A
                 candidate that's stuck here stays pending until an admin fixes
                 the Visual Concept; it is never rejected past triage. */}
             {!isResolved && step === "concept" && isConceptReview && (
@@ -1296,7 +1226,7 @@ function ReviewModal({
                   {canRejectNow && (
                     <Button variant="outline" onClick={onReject} isLoading={loading}
                       className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                      <XCircle className="w-4 h-4" /> {rejectLabel}
+                      <XCircle className="w-4 h-4" /> Reject
                     </Button>
                   )}
                   <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
@@ -1319,10 +1249,8 @@ function ReviewModal({
             {/* Step 3 (Test Renders): approve for production. */}
             {!isResolved && step === "render" && isProductionReview && (
               <div className="space-y-3">
-                {/* Rejection Reason + note live here too, right above the buttons —
-                    but only for a refresh cycle ("don't promote"). A first-time
-                    candidate stuck on a bad render stays pending until an admin
-                    fixes it; it is never rejected past triage. */}
+                {/* A candidate stuck on a bad render stays pending until an
+                    admin fixes it; it is never rejected past triage. */}
                 {canRejectNow && DecisionInputs}
                 <div className="flex flex-wrap gap-3">
                   <Button variant="outline" onClick={() => void onBackToVisualConcept()} isLoading={loading} disabled={loading}
@@ -1333,12 +1261,12 @@ function ReviewModal({
                     title={canApproveProduction ? undefined : "Approve is disabled — see the note below"}
                     className="bg-green-600 hover:bg-green-700 text-white gap-2 disabled:opacity-50"
                     data-testid="approve-for-production">
-                    <Rocket className="w-4 h-4" /> {isRefreshCycle ? "Promote Refresh" : "Approve for Production"}
+                    <Rocket className="w-4 h-4" /> Approve for Production
                   </Button>
                   {canRejectNow && (
                     <Button variant="outline" onClick={onReject} isLoading={loading}
                       className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                      <XCircle className="w-4 h-4" /> {rejectLabel}
+                      <XCircle className="w-4 h-4" /> Reject
                     </Button>
                   )}
                   <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
@@ -1531,7 +1459,6 @@ function FactReviewsPanel() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3 mb-2 flex-wrap">
                     <StageBadge stage={r.workflowStage} />
-                    {r.candidateVersionId != null && <RefreshReviewBadge />}
                     <ReasonBadge reason={r.reason} />
                     {r.duplicate?.state === "duplicate" && (
                       <span className="inline-flex items-center gap-1 text-xs font-semibold text-primary" data-testid="queue-duplicate-label" title={verdictLabel(r.duplicate)}>
@@ -1546,7 +1473,7 @@ function FactReviewsPanel() {
                     )}
                     <span className="text-xs text-muted-foreground">
                       Review #{r.id} ·{" "}
-                      by {r.candidateVersionId != null ? "admin refresh" : (r.submitter?.displayName ?? r.submitter?.email ?? "unknown")} · {new Date(r.createdAt).toLocaleDateString()}
+                      by {r.submitter?.displayName ?? r.submitter?.email ?? "unknown"} · {new Date(r.createdAt).toLocaleDateString()}
                     </span>
                   </div>
                   <p className="text-sm text-foreground italic line-clamp-2">"{r.submittedText}"</p>

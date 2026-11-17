@@ -62,8 +62,6 @@ export const gagApi = {
     call("POST", `${base(factId)}/${gagId}/discard`, scope(reviewId)),
   remove: (factId: number, gagId: number, reviewId: number | null) =>
     call("POST", `${base(factId)}/${gagId}/remove`, scope(reviewId)),
-  keep: (factId: number, gagId: number, reviewId: number | null) =>
-    call("POST", `${base(factId)}/${gagId}/keep`, scope(reviewId)),
   /** A live fact's drafted ideas (Draft more gags). */
   ideas: (factId: number) => ideas("GET", factId),
   /** Draft more gags on a live fact: starts the gag writer, answers with the ideas (working). */

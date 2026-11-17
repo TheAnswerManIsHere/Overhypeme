@@ -15,7 +15,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { FactEnrichment } from "@workspace/api-zod";
 import { useFactEnrichmentEditing, type UseFactEnrichmentEditingOptions } from "./useFactEnrichmentEditing";
-import { createLocalStorageAdapter } from "@/lib/form-draft-storage";
 
 function makeEnrichment(over: Partial<FactEnrichment> = {}): FactEnrichment {
   return {
@@ -82,13 +81,13 @@ function renderEditing(initial: UseFactEnrichmentEditingOptions) {
   });
 }
 
-/** Replace the stubbed fetch's answer to the enrichment PATCH (fact or
- *  candidate route) with a failure, leaving every other endpoint as stubbed. */
+/** Replace the stubbed fetch's answer to the enrichment PATCH with a failure,
+ *  leaving every other endpoint as stubbed. */
 function failEnrichmentPatch(status: number, body: unknown) {
   const inner = globalThis.fetch as unknown as (url: string, init?: RequestInit) => Promise<Response>;
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     const u = String(url);
-    if ((init?.method ?? "GET") === "PATCH" && /\/(candidate-)?enrichment$/.test(u)) {
+    if ((init?.method ?? "GET") === "PATCH" && /\/enrichment$/.test(u)) {
       return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
     }
     return inner(url, init);
@@ -214,12 +213,11 @@ describe("useFactEnrichmentEditing", () => {
     expect(result.current.draft.commitError).toBe("something_coded");
   });
 
-  // ── reviewCandidate target (refresh cycles) ────────────────────────────────
+  // ── Override writes ────────────────────────────────────────────────────────
 
-  /** Stub fetch for CANDIDATE mode: only the review-scoped endpoints exist;
-   *  any /api/admin/facts call is the bug the target abstraction prevents. */
-  function mockCandidateFetch(
-    reviewId: number,
+  /** Stub fetch for the fact endpoints, with the override write optionally failing. */
+  function mockOverrideFetch(
+    factId: number,
     enrichment: FactEnrichment,
     opts: { failPut?: { status: number; error: string; code: string } } = {},
   ) {
@@ -231,126 +229,39 @@ describe("useFactEnrichmentEditing", () => {
       calls.push({ url: u, method, body });
       const json = (b: unknown, status = 200) =>
         new Response(JSON.stringify(b), { status, headers: { "Content-Type": "application/json" } });
-
-      if (u === `/api/admin/reviews/${reviewId}/candidate-enrichment-resolved`) {
-        return json({
-          aiDerived: enrichment, overrides: {}, effective: enrichment,
-          overrideSummary: EMPTY_SUMMARY, enrichmentStatus: "ok", factId: 42, candidateVersionId: 9,
-        });
+      if (u === `/api/admin/facts/${factId}/enrichment-resolved`) {
+        return json({ aiDerived: enrichment, overrides: {}, effective: enrichment, overrideSummary: EMPTY_SUMMARY });
       }
-      if (u === `/api/admin/reviews/${reviewId}/candidate-enrichment` && method === "PATCH") {
-        return json({ success: true, enrichment: (body as { enrichment: FactEnrichment }).enrichment });
-      }
-      if (u.startsWith(`/api/admin/reviews/${reviewId}/candidate-overrides`)) {
+      if (u.startsWith(`/api/admin/facts/${factId}/enrichment-overrides`)) {
         if (opts.failPut) return json({ error: opts.failPut.error, code: opts.failPut.code }, opts.failPut.status);
         return json({ aiDerived: enrichment, overrides: {}, effective: enrichment, overrideSummary: EMPTY_SUMMARY });
       }
-      // Anything else — most importantly /api/admin/facts/* — is a wrong-target bug.
+      if (u === `/api/admin/facts/${factId}`) return json({ id: factId, enrichment, enrichmentStatus: "ok" });
       return new Response("{}", { status: 500 });
     });
     vi.stubGlobal("fetch", fetchMock);
     return { calls };
   }
 
-  it("candidate target: every read/write hits the review-scoped endpoints, never /api/admin/facts", async () => {
-    const { calls } = mockCandidateFetch(31, makeEnrichment());
-    const { result } = renderEditing({
-      target: { kind: "reviewCandidate", reviewId: 31, factId: 42 },
-      enabled: true,
+  it("a failed override write surfaces the server's message", async () => {
+    mockOverrideFetch(42, makeEnrichment(), {
+      failPut: { status: 409, error: "Fact has no enrichment baseline yet", code: "NO_BASELINE" },
     });
-    await waitFor(() => expect(result.current.enrichment).not.toBeNull());
-    await waitFor(() => expect(result.current.overrideContext).toBeDefined());
-
-    // Tracked override write → candidate endpoint.
-    await act(async () => { result.current.overrideContext!.onOverride("/overhypeFit", "questionable"); });
-    await waitFor(() =>
-      expect(calls.some((c) => c.method === "PUT" && c.url === "/api/admin/reviews/31/candidate-overrides")).toBe(true),
-    );
-
-    // A draft commit sends nothing: the candidate PATCH is retired (a gag
-    // lives in fact_gags, migration 0139), and its one untracked field is pinned.
-    act(() =>
-      result.current.draft.setValue((prev) => ({ ...(prev as FactEnrichment), suggestedHashtags: ["stale"] })),
-    );
-    await act(async () => { await result.current.draft.save(); });
-    expect(calls.some((c) => c.method === "PATCH")).toBe(false);
-
-    // The invariant: nothing ever touched a fact URL.
-    expect(calls.filter((c) => c.url.includes("/api/admin/facts"))).toEqual([]);
-  });
-
-  it("candidate target: distinct draft namespace + supportsRerun=false (no /enrich call ever)", async () => {
-    const { calls } = mockCandidateFetch(31, makeEnrichment());
-    const { result } = renderEditing({
-      target: { kind: "reviewCandidate", reviewId: 31, factId: 42 },
-      enabled: true,
-    });
-    await waitFor(() => expect(result.current.enrichment).not.toBeNull());
-
-    act(() =>
-      result.current.draft.setValue((prev) => ({ ...(prev as FactEnrichment), suggestedHashtags: ["candidate-draft"] })),
-    );
-    // The draft persist is debounced (1.5s) — wait past it.
-    await waitFor(
-      () => expect(window.localStorage.getItem("candidate-enrichment-draft::31")).not.toBeNull(),
-      { timeout: 4000 },
-    );
-    expect(window.localStorage.getItem("fact-enrichment-draft::42")).toBeNull();
-
-    expect(result.current.supportsRerun).toBe(false);
-    await act(async () => { await result.current.rerunWithConfirm(); });
-    expect(calls.filter((c) => c.url.includes("/enrich"))).toEqual([]);
-  });
-
-  it("candidate target: ignores stale restored fields outside the editable draft", async () => {
-    const server = makeEnrichment({ primaryArchetype: "superhuman_physical_feat" });
-    createLocalStorageAdapter<FactEnrichment>({ key: "candidate-enrichment-draft::31" }).save(
-      makeEnrichment({ primaryArchetype: "object_logic_impossibility" }),
-    );
-    mockCandidateFetch(31, server);
-
-    const { result } = renderEditing({
-      target: { kind: "reviewCandidate", reviewId: 31, factId: 42 },
-      enabled: true,
-      editableUntrackedFields: [],
-    });
-
-    await waitFor(() => expect(result.current.enrichment).not.toBeNull());
-    await waitFor(() => expect(result.current.draft.hasUncommittedChanges).toBe(false));
-    expect(result.current.enrichment?.primaryArchetype).toBe("superhuman_physical_feat");
-    expect(window.localStorage.getItem("candidate-enrichment-draft::31")).toBeNull();
-  });
-
-  it("candidate target: a failed override write surfaces the server's message", async () => {
-    mockCandidateFetch(31, makeEnrichment(), {
-      failPut: {
-        status: 409,
-        error: "This refresh was already promoted — its candidate can no longer be edited.",
-        code: "CANDIDATE_NOT_PENDING",
-      },
-    });
-    const { result } = renderEditing({
-      target: { kind: "reviewCandidate", reviewId: 31, factId: 42 },
-      enabled: true,
-    });
+    const { result } = renderEditing({ target: { kind: "fact", factId: 42 }, enabled: true });
     await waitFor(() => expect(result.current.overrideContext).toBeDefined());
 
     await act(async () => { result.current.overrideContext!.onOverride("/overhypeFit", "questionable"); });
-    await waitFor(() => expect(result.current.overrideError).toMatch(/already promoted/));
+    await waitFor(() => expect(result.current.overrideError).toMatch(/no enrichment baseline/));
     expect(result.current.overrideContext?.pending["/overhypeFit"]).toBe("error");
   });
 
   // ── flushOverrides: the terminal-action race guard ──────────────────────────
-  // A field blurred by the same click that fires promote/reject starts an
-  // un-awaited override write; the terminal action flushes it first so the
-  // candidate isn't marked non-pending mid-write (which drops the edit).
+  // A field blurred by the same click that fires approve/reject starts an
+  // un-awaited override write; the terminal action flushes it first.
 
   it("flushOverrides awaits an in-flight override write and reports success", async () => {
-    const { calls } = mockCandidateFetch(31, makeEnrichment());
-    const { result } = renderEditing({
-      target: { kind: "reviewCandidate", reviewId: 31, factId: 42 },
-      enabled: true,
-    });
+    const { calls } = mockOverrideFetch(42, makeEnrichment());
+    const { result } = renderEditing({ target: { kind: "fact", factId: 42 }, enabled: true });
     await waitFor(() => expect(result.current.overrideContext).toBeDefined());
 
     let flushed: boolean | undefined;
@@ -362,19 +273,16 @@ describe("useFactEnrichmentEditing", () => {
     });
 
     expect(flushed).toBe(true);
-    // The write actually landed (pending cleared) against the candidate endpoint.
+    // The write actually landed (pending cleared).
     expect(result.current.overrideContext?.pending["/overhypeFit"]).toBeUndefined();
-    expect(calls.some((c) => c.method === "PUT" && c.url === "/api/admin/reviews/31/candidate-overrides")).toBe(true);
+    expect(calls.some((c) => c.method === "PUT" && c.url === "/api/admin/facts/42/enrichment-overrides")).toBe(true);
   });
 
   it("flushOverrides reports failure when an in-flight override write fails", async () => {
-    mockCandidateFetch(31, makeEnrichment(), {
-      failPut: { status: 409, error: "already promoted", code: "CANDIDATE_NOT_PENDING" },
+    mockOverrideFetch(42, makeEnrichment(), {
+      failPut: { status: 409, error: "write refused", code: "CONFLICT" },
     });
-    const { result } = renderEditing({
-      target: { kind: "reviewCandidate", reviewId: 31, factId: 42 },
-      enabled: true,
-    });
+    const { result } = renderEditing({ target: { kind: "fact", factId: 42 }, enabled: true });
     await waitFor(() => expect(result.current.overrideContext).toBeDefined());
 
     let flushed: boolean | undefined;
@@ -383,18 +291,15 @@ describe("useFactEnrichmentEditing", () => {
       flushed = await result.current.flushOverrides();
     });
 
-    // The terminal action sees the failure and can abort instead of promoting
+    // The terminal action sees the failure and can abort instead of approving
     // over a dropped edit.
     expect(flushed).toBe(false);
     expect(result.current.overrideContext?.pending["/overhypeFit"]).toBe("error");
   });
 
   it("flushOverrides resolves true immediately when nothing is in flight", async () => {
-    mockCandidateFetch(31, makeEnrichment());
-    const { result } = renderEditing({
-      target: { kind: "reviewCandidate", reviewId: 31, factId: 42 },
-      enabled: true,
-    });
+    mockOverrideFetch(42, makeEnrichment());
+    const { result } = renderEditing({ target: { kind: "fact", factId: 42 }, enabled: true });
     await waitFor(() => expect(result.current.overrideContext).toBeDefined());
 
     let flushed: boolean | undefined;

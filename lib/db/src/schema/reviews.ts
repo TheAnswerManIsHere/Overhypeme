@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, varchar, integer, bigint, jsonb, pgEnum, index, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, varchar, integer, jsonb, pgEnum, index, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { usersTable } from "./auth";
 import { factsTable } from "./facts";
 
@@ -72,14 +72,6 @@ export const pendingReviewsTable = pgTable("pending_reviews", {
    * decision and its waiver live together.
    */
   visualRenderApprovalWaiver: jsonb("visual_render_approval_waiver"),
-  /**
-   * For a refresh (send-back) cycle: the fact_enrichment_versions.id of the
-   * candidate this review is reviewing. Null for first-time submission cycles.
-   * Its presence is how every surface distinguishes a refresh review from a
-   * first-time one. App-managed pointer (no hard FK, to avoid a schema import
-   * cycle with fact_enrichment_versions, whose source_review_id points back here).
-   */
-  candidateVersionId: bigint("candidate_version_id", { mode: "number" }),
   /**
    * The wording as submitted, kept when an admin edits it at triage (migration
    * 0141, plan PLAN_THREE_GAGS.md increment 3). Null when it was never edited.

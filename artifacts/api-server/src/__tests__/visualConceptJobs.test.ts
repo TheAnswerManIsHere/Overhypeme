@@ -19,7 +19,7 @@ import express, { type Express } from "express";
 import request from "supertest";
 
 import { db } from "@workspace/db";
-import { usersTable, factsTable, pendingReviewsTable, asyncJobsTable, adminConfigTable, factEnrichmentVersionsTable, factGagsTable } from "@workspace/db/schema";
+import { usersTable, factsTable, pendingReviewsTable, asyncJobsTable, adminConfigTable, factGagsTable } from "@workspace/db/schema";
 import { ALL_ENGINES } from "../lib/engines/index.js";
 import { and, eq, gte, inArray, like } from "drizzle-orm";
 import {
@@ -180,7 +180,6 @@ describe("fact_visual_concepts handler", () => {
     assert.equal(parsed.data!.candidates.length, 3);
     assert.equal(parsed.data!.reviewId, reviewId);
     assert.equal(parsed.data!.source, "staging_fact");
-    assert.equal(parsed.data!.candidateVersionId, null);
     assert.ok(parsed.data!.inputHash.length > 0);
   });
 
@@ -214,7 +213,7 @@ describe("buildVisualConceptsResponse — server-computed current flag", () => {
 
     const state = await factConceptState(factId);
     const fresh = await buildVisualConceptsResponse({
-      id: reviewId, candidateVersionId: null,
+      id: reviewId,
       visualConceptStatus: state.status, visualConceptCandidates: state.blob,
     });
     assert.equal(fresh.status, "ok");
@@ -227,7 +226,7 @@ describe("buildVisualConceptsResponse — server-computed current flag", () => {
       .set({ enrichment: { ...ENRICHMENT, primaryArchetype: "impossible_knowledge_or_skill" } })
       .where(eq(factsTable.id, factId));
     const stale = await buildVisualConceptsResponse({
-      id: reviewId, candidateVersionId: null,
+      id: reviewId,
       visualConceptStatus: state.status, visualConceptCandidates: state.blob,
     });
     assert.equal(stale.current, false);
@@ -261,7 +260,7 @@ describe("buildVisualConceptsResponse — server-computed current flag", () => {
       const { reviewId, factId } = await seedReview(adminId, "concept_review", original);
       await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate() });
       const state = await factConceptState(factId);
-      const review = { id: reviewId, candidateVersionId: null, visualConceptStatus: state.status, visualConceptCandidates: state.blob };
+      const review = { id: reviewId, visualConceptStatus: state.status, visualConceptCandidates: state.blob };
 
       assert.equal((await buildVisualConceptsResponse(review)).current, true, "fresh ideas are current");
 
@@ -286,7 +285,7 @@ describe("buildVisualConceptsResponse — server-computed current flag", () => {
     await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate() });
     const state = await factConceptState(factId);
     const res = await buildVisualConceptsResponse({
-      id: reviewId + 987654, candidateVersionId: null,
+      id: reviewId + 987654,
       visualConceptStatus: state.status, visualConceptCandidates: state.blob,
     });
     assert.equal(res.current, false);
@@ -295,7 +294,7 @@ describe("buildVisualConceptsResponse — server-computed current flag", () => {
 
   it("reports status-only (no candidates) when there is no stored blob", async () => {
     const res = await buildVisualConceptsResponse({
-      id: 1, candidateVersionId: null, visualConceptStatus: "pending", visualConceptCandidates: null,
+      id: 1, visualConceptStatus: "pending", visualConceptCandidates: null,
     });
     assert.deepEqual(res, { status: "pending", candidates: [], current: false, humorNote: null });
   });
@@ -382,7 +381,7 @@ describe("the gag writer: humor note, joke read and freshness", () => {
   async function response(reviewId: number, factId: number) {
     const [row] = await db.select().from(factsTable).where(eq(factsTable.id, factId)).limit(1);
     return buildVisualConceptsResponse({
-      id: reviewId, candidateVersionId: null,
+      id: reviewId,
       visualConceptStatus: row!.visualConceptStatus, visualConceptCandidates: row!.visualConceptCandidates,
       humorNote: row!.humorNote, humorNoteApprovedBy: row!.humorNoteApprovedBy, humorNoteApprovedAt: row!.humorNoteApprovedAt,
     });
@@ -409,22 +408,20 @@ describe("the gag writer: humor note, joke read and freshness", () => {
     assert.equal(got.renderPolicy.violence.mode, "soften");
   });
 
-  it("a refresh sends each gag's version being worked on: the review's pending change over the approved one (plan PLAN_THREE_GAGS.md, increment 2)", async () => {
-    // The gag holds an approved version A and, inside the refresh, a pending change B.
+  it("sends each gag's version being worked on: its pending change over the approved one (plan PLAN_THREE_GAGS.md, increment 2)", async () => {
+    // The gag holds an approved version A and a pending change B.
     const { reviewId, factId } = await seedReview(adminId, "concept_review");
-    const [v] = await db.insert(factEnrichmentVersionsTable).values({ factId, versionNo: 1, status: "candidate", source: "refresh_candidate", enrichment: ENRICHMENT as never } as never).returning({ id: factEnrichmentVersionsTable.id });
-    await db.update(pendingReviewsTable).set({ candidateVersionId: v!.id }).where(eq(pendingReviewsTable.id, reviewId));
     await db.insert(factGagsTable).values({
       factId, slot: 1,
       approvedContent: { version: 1, coreSceneOverride: "{NAME} approved gag A." } as never, approvedCarriedOver: true,
-      pendingContent: { version: 1, coreSceneOverride: "{NAME} refresh candidate B." } as never, pendingReviewId: reviewId,
+      pendingContent: { version: 1, coreSceneOverride: "{NAME} pending change B." } as never,
     });
     let seen: Parameters<VisualConceptsJobDeps["generate"]>[0] | null = null;
     await runVisualConceptsJob({ reviewId, factId, moderatorDraftScene: "{NAME} draft C." }, { generate: async (input) => { seen = input; return stubGenerate()(input); } });
     const got = seen as unknown as Parameters<VisualConceptsJobDeps["generate"]>[0];
-    assert.deepEqual(got.existingGags.map((g) => g.scene), ["{NAME} refresh candidate B."]);
+    assert.deepEqual(got.existingGags.map((g) => g.scene), ["{NAME} pending change B."]);
     assert.equal(got.draft?.scene, "{NAME} draft C.");
-    assert.equal((got.enrichment as unknown as { visualPromptStrategyOverride: { coreSceneOverride: string } }).visualPromptStrategyOverride.coreSceneOverride, "{NAME} refresh candidate B.", "the review works on the gag's pending change");
+    assert.equal((got.enrichment as unknown as { visualPromptStrategyOverride: { coreSceneOverride: string } }).visualPromptStrategyOverride.coreSceneOverride, "{NAME} pending change B.", "the review works on the gag's pending change");
   });
 
   it("stores the joke read, and the response carries it with no saved note", async () => {
@@ -518,7 +515,7 @@ describe("the gag writer has no fallback model", () => {
       const [row] = await db.select().from(factsTable).where(eq(factsTable.id, factId));
       assert.equal(row!.visualConceptStatus, "failed", "the handler itself marks the fact failed (no onAbandon on a terminal failure)");
       const r = await buildVisualConceptsResponse({
-        id: reviewId, candidateVersionId: null, visualConceptStatus: row!.visualConceptStatus, visualConceptCandidates: row!.visualConceptCandidates,
+        id: reviewId, visualConceptStatus: row!.visualConceptStatus, visualConceptCandidates: row!.visualConceptCandidates,
         humorNote: row!.humorNote, humorNoteApprovedBy: row!.humorNoteApprovedBy, humorNoteApprovedAt: row!.humorNoteApprovedAt,
       });
       assert.equal(r.candidates.length, 3, "the stored ideas still load");
