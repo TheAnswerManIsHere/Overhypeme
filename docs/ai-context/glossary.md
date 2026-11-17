@@ -682,10 +682,12 @@ rule](./decisions.md#2026-11-15--a-pictures-subject-is-a-person-or-a-pet-vehicle
 
 ### Visual Strategy Override
 
-The moderator-authored block that carries the [Visual Concept](#visual-concept)
-plus the rest of a [gag](#gag)'s scene controls ("More art direction" in the
-gag's card). It is a gag's content, never part of the enrichment. Authored in
-plain English and auto-tokenized on save.
+The moderator-authored block that carries the [Visual Concept](#visual-concept),
+a [gag](#gag)'s bubbles and its [cast](#cast). It is a gag's content, never
+part of the enrichment. Authored in plain English and auto-tokenized on save.
+It still holds eleven legacy "More art direction" fields, gone from the card
+since PLAN_GAG_DIRECT_RENDER.md increment 2 and folded into scenes by
+[the fold](#the-fold); increment 3 removes them.
 → [visual-pipeline](./visual-pipeline.md)
 
 ### Speech and thought bubbles
@@ -695,9 +697,29 @@ pipeline turns that into its own dedicated engine instruction. The
 engine-facing wording for a balloon has **exactly one author — the pipeline**,
 never the moderator's Concept prose, so two descriptions of the same balloon
 can't diverge. A bubble's **speaker** is picked from a dropdown of the
-subject, the fact's [characters](#fact-character-list) and the gag's extra
-Scene Role Assignments; the bubble stores the plain label ("mom"), and a saved
-speaker on none of those lists is kept as typed.
+subject and the gag's [cast](#cast); the bubble stores the plain label
+("mom"), and a saved speaker the cast lacks is shown as typed, marked, and
+stops the save until it is re-picked or the scene shows them.
+→ [visual-pipeline](./visual-pipeline.md)
+
+### Cast
+
+Who is in one [gag](#gag)'s scene besides the subject, each with a short
+description that picks them out ("mom: the woman in the passenger seat").
+Part of the gag's content, derived from its scene by cast extraction and never
+typed; shown read-only on the gag card, it is what a bubble's speaker is picked
+from. Not the [fact character list](#fact-character-list): that names who the
+fact mentions; the cast names who this gag draws. "Extracted" only when its
+`castExtraction` marker is set; an empty cast with the marker means nobody
+else is there.
+→ [visual-pipeline](./visual-pipeline.md)
+
+### The fold
+
+The one-off job that moves a gag version's legacy "More art direction" values
+into its scene text, word for word, and reads every version's [cast](#cast).
+A version whose conversion would change the picture is listed for a moderator
+instead. Its originals are kept so a conversion can be reversed.
 → [visual-pipeline](./visual-pipeline.md)
 
 ### Fact character list
@@ -706,8 +728,9 @@ Everyone a fact names besides the subject — people and pets — each under a
 short neutral **label** ("mom", "dog", "the referee"), shown with the stand-in
 name where it is the subject's own ("Alex's mom"). An enrichment field
 (`characters`), produced by its own versioned call and correctable by a
-moderator as one override; it is what a bubble's speaker is picked from, and
-the image planner reads it as naming context, never as a cast list. A list is
+moderator as one override; cast extraction uses its labels to name the
+characters a gag's scene shows, and the image planner reads it as naming
+context, never as a cast list. A list is
 "extracted" only when its `charactersExtraction` marker is set.
 → [taxonomy-and-enrichment](./taxonomy-and-enrichment.md)
 

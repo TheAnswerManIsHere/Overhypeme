@@ -35,6 +35,7 @@ import {
   type SubjectRealizationMode,
   OVERRIDABLE_PATHS,
   type OverridablePath,
+  SCENE_RAW_MAX_CHARS,
 } from "@workspace/api-zod";
 import { AlertTriangle, RefreshCw, Save, X, Plus, Trash2, Search, Loader2, Sparkles, ExternalLink, CheckCircle2 } from "lucide-react";
 import { OverrideMark } from "./OverrideMark";
@@ -1169,8 +1170,8 @@ function StringListEditor({
   );
 }
 
-/** Max chars for the moderator-authored core scene (mirrors the zod cap). */
-export const CORE_SCENE_MAX_CHARS = 1500;
+/** Max chars for the moderator-authored core scene: the zod cap itself (3000 since the fold moved the extra fields' budget to the scene). */
+export const CORE_SCENE_MAX_CHARS = SCENE_RAW_MAX_CHARS;
 
 /** Max chars for a roleBindings entity label (mirrors the zod cap). */
 export const ROLE_ENTITY_MAX_CHARS = 60;

@@ -134,9 +134,9 @@ describe("visualPromptStrategyOverrideSchema", () => {
     if (!res.success) assert.match(res.error.issues.map((i) => i.message).join(" "), /token/i);
   });
 
-  it("rejects a coreSceneOverride over the 1500-char cap", () => {
+  it("rejects a coreSceneOverride over the 3000-char cap (the extra fields' budget moved to the scene)", () => {
     const res = visualPromptStrategyOverrideSchema.safeParse(
-      makeOverride({ coreSceneOverride: "x".repeat(1501) }),
+      makeOverride({ coreSceneOverride: "x".repeat(3001) }),
     );
     assert.equal(res.success, false);
   });

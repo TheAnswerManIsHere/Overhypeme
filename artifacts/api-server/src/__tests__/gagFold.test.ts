@@ -24,6 +24,9 @@ import { foldGagContent } from "../lib/gags/fold.js";
 import { GAG_FOLD_QUEUE, gagFoldReport, revertGagFold, runGagFold, startGagFold, type GagFoldDeps } from "../lib/gags/foldJob.js";
 import { normaliseGagContent } from "../lib/gags/resolver.js";
 import type { CastExtractionInput } from "../lib/gags/castExtraction.js";
+import request from "supertest";
+import gagFoldRouter from "../routes/gagFold.js";
+import { buildTestApp } from "./helpers/buildTestApp.js";
 
 const RUN = randomUUID().slice(0, 8);
 const base = (scene: string, extra: Partial<VisualPromptStrategyOverride> = {}): VisualPromptStrategyOverride =>
@@ -265,5 +268,34 @@ describe("the fold job", () => {
     const second = await startGagFold();
     assert.ok(second.deduped >= 1, "a queued version is not queued twice");
     assert.ok(first.requested >= 1);
+  });
+});
+
+describe("the fold's routes", () => {
+  const member = `t-fold-member-${RUN}`;
+  const admin = `t-fold-admin-${RUN}`;
+  before(async () => {
+    await db.insert(usersTable).values([
+      { id: member, email: `${member}@test.local`, isAdmin: false, membershipTier: "legendary" },
+      { id: admin, email: `${admin}@test.local`, isAdmin: true, membershipTier: "legendary" },
+    ]);
+  });
+  after(async () => {
+    await db.delete(usersTable).where(inArray(usersTable.id, [member, admin]));
+  });
+
+  it("are admin-only: a member can neither read the report, start a run, nor reverse a fold", async () => {
+    const app = buildTestApp({ kind: "authenticated", userId: member }, gagFoldRouter);
+    assert.equal((await request(app).get("/api/admin/gag-fold")).status, 403);
+    assert.equal((await request(app).post("/api/admin/gag-fold/run")).status, 403);
+    assert.equal((await request(app).post("/api/admin/gag-fold/archive/1/revert")).status, 403);
+  });
+
+  it("answer an admin with the report, and a reversal of an unknown conversion with 404", async () => {
+    const app = buildTestApp({ kind: "authenticated", userId: admin }, gagFoldRouter);
+    const res = await request(app).get("/api/admin/gag-fold");
+    assert.equal(res.status, 200);
+    assert.ok(Array.isArray(res.body.forModerator) && Array.isArray(res.body.castMissing));
+    assert.equal((await request(app).post("/api/admin/gag-fold/archive/999999999/revert")).status, 404);
   });
 });
