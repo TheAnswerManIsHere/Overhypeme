@@ -33,7 +33,6 @@ import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { db, imageGenerationRequestsTable, type ImageGenerationRequest, type VendorRequestStatus } from "@workspace/db";
 import { fencedTransaction, jobAbortSignal, rethrowIfOwnershipLost } from "./jobFence";
 import { FAL_PENDING_STATUSES, renderFal } from "./renderFalTransport";
-import { falContentRefusal } from "./falClient";
 import { stableStringify } from "./factRenderScenarios";
 import { logger } from "./logger";
 
@@ -96,46 +95,75 @@ async function latestRequest(attemptId: number, endpointId: string): Promise<Ima
   return row ?? null;
 }
 
-/** True when a fal error says the request itself is finished and failed, not that the read did. */
-function isKnownRequestFailure(err: unknown): boolean {
-  if (falContentRefusal(err)) return true;
+/** An error carrying an HTTP status: fal answered, rather than the read itself failing. */
+function httpStatusOf(err: unknown): number | null {
   const status = (err as { status?: unknown } | null)?.status;
-  return typeof status === "number" && status >= 400 && status < 500 && status !== 408 && status !== 429;
+  return typeof status === "number" ? status : null;
+}
+
+/**
+ * A status read that failed with a definite answer about the request (a 4xx
+ * other than a timeout or a rate limit: the request is unknown or gone).
+ * Anything else about a status read leaves the request open.
+ */
+function isDefiniteStatusAnswer(err: unknown): boolean {
+  const status = httpStatusOf(err);
+  return status != null && status >= 400 && status < 500 && status !== 408 && status !== 429;
 }
 
 /**
  * Wait for a submitted request and return its output. Each status change is
- * written to the row, which is what the tile reads. A known failure marks the
- * row FAILED; a read that failed for another reason leaves it open, so the
- * retry collects it again.
+ * written to the row, which is what the tile reads.
+ *
+ * Once fal says COMPLETED, the request is finished: fal reports a failed
+ * request as COMPLETED too, and its result read replays the model's own error
+ * (a content refusal's 422, a model 500 or 504). Any HTTP answer to that read
+ * is therefore the request's outcome, and a failure marks the row FAILED so
+ * the retry submits anew, as before this resume existed (plan §C: "a known
+ * failure is never collected repeatedly"; PR #1017 round 2). The row stays
+ * open only when nothing was learned about the request: a read with no HTTP
+ * answer, a status read that was refused or timed out, a wait that ran out.
  */
 async function collect(row: { id: number; endpointId: string }, vendorRequestId: string, written: VendorRequestStatus | null): Promise<DrawOutcome> {
   const transport = renderFal();
   const signal = jobAbortSignal();
   const deadline = now() + COLLECT_TIMEOUT_MS;
-  try {
-    for (;;) {
-      const status = await transport.status(row.endpointId, vendorRequestId);
-      if (FAL_PENDING_STATUSES.has(status)) {
-        if (status !== written) {
-          await setStatus(row.id, status as VendorRequestStatus);
-          written = status as VendorRequestStatus;
-        }
-        if (now() >= deadline) {
-          return { ok: false, err: new Error(`fal request ${vendorRequestId} had not finished after ${COLLECT_TIMEOUT_MS / 60_000} minutes; it will be collected on retry`), generationRequestId: row.id, vendorRequestId };
-        }
-        await sleep(STATUS_POLL_MS, signal);
-        continue;
+  const fail = (err: unknown): DrawOutcome => ({ ok: false, err, generationRequestId: row.id, vendorRequestId });
+  for (;;) {
+    let status: string;
+    try {
+      status = await transport.status(row.endpointId, vendorRequestId);
+    } catch (err) {
+      rethrowIfOwnershipLost(err); // a run that lost its job stops here; the next run collects
+      if (isDefiniteStatusAnswer(err)) await setStatus(row.id, "FAILED");
+      return fail(err);
+    }
+    if (FAL_PENDING_STATUSES.has(status)) {
+      if (status !== written) {
+        await setStatus(row.id, status as VendorRequestStatus);
+        written = status as VendorRequestStatus;
       }
-      // COMPLETED, or a word we do not know: the result read says which.
+      if (now() >= deadline) {
+        return fail(new Error(`fal request ${vendorRequestId} had not finished after ${COLLECT_TIMEOUT_MS / 60_000} minutes; it will be collected on retry`));
+      }
+      await sleep(STATUS_POLL_MS, signal);
+      continue;
+    }
+    if (status !== "COMPLETED") {
+      // A word fal does not document: nothing is learned, so nothing is closed.
+      return fail(new Error(`fal request ${vendorRequestId} reported status ${status}; it will be read again on retry`));
+    }
+    try {
       const data = await transport.result(row.endpointId, vendorRequestId);
       await setStatus(row.id, "COMPLETED");
       return { ok: true, data, generationRequestId: row.id, vendorRequestId };
+    } catch (err) {
+      rethrowIfOwnershipLost(err);
+      // Finished: an HTTP answer here is the model's own outcome. No answer at
+      // all (a dropped connection) says nothing, and the retry reads it again.
+      if (httpStatusOf(err) != null) await setStatus(row.id, "FAILED");
+      return fail(err);
     }
-  } catch (err) {
-    rethrowIfOwnershipLost(err); // a run that lost its job stops here; the next run collects
-    if (isKnownRequestFailure(err)) await setStatus(row.id, "FAILED");
-    return { ok: false, err, generationRequestId: row.id, vendorRequestId };
   }
 }
 

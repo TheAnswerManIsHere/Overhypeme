@@ -893,6 +893,53 @@ describe("image_generation — a resumed render collects what was already paid f
     assert.equal(fake.submits.length, 1, "one new submit in total");
   });
 
+  for (const status of [500, 504]) {
+    it(`fal finished the request with a model ${status}: the row is marked failed and the retry draws anew, once (PR #1017 round 2)`, async () => {
+      const { attemptId, factId } = await planned();
+      const fake = fakeFal();
+      const prior = await earlierRequest(attemptId, factId, { vendorRequestId: `v-model-${status}`, vendorStatus: "IN_PROGRESS" });
+      fake.requests.set(`v-model-${status}`, { statuses: ["COMPLETED"], answer: new ApiError({ message: "model error", status, body: { detail: "internal_server_error" } }) });
+      const first = await run(attemptId, fake);
+      assert.equal(first.ok, false);
+      assert.notEqual((first as { retryable?: boolean }).retryable, false, "the existing retry applies");
+      assert.equal((await requestRow(prior.id)).vendorStatus, "FAILED", "a finished failure is never collected again");
+      assert.deepEqual(fake.submits, []);
+      const second = await run(attemptId, fake);
+      assert.equal(second.ok, true, JSON.stringify(second));
+      assert.equal(fake.submits.length, 1, "exactly one new draw");
+    });
+  }
+
+  it("a result read that got no HTTP answer leaves the request open, and the retry collects it with no new submit", async () => {
+    const { attemptId, factId } = await planned();
+    const fake = fakeFal();
+    const prior = await earlierRequest(attemptId, factId, { vendorRequestId: "v-flaky", vendorStatus: "IN_PROGRESS" });
+    let reads = 0;
+    fake.requests.set("v-flaky", { statuses: ["COMPLETED"], answer: pictureData() });
+    const resultOf = fake.transport.result.bind(fake.transport);
+    fake.transport.result = async (endpoint, id) => {
+      if (id === "v-flaky" && ++reads === 1) throw new TypeError("fetch failed");
+      return resultOf(endpoint, id);
+    };
+    const first = await run(attemptId, fake);
+    assert.equal(first.ok, false);
+    assert.notEqual((await requestRow(prior.id)).vendorStatus, "FAILED", "nothing was learned, so nothing is closed");
+    const second = await run(attemptId, fake);
+    assert.equal(second.ok, true, JSON.stringify(second));
+    assert.deepEqual(fake.submits, [], "collected, never paid again");
+  });
+
+  it("a status word fal does not document is not taken as a failure: the request stays open", async () => {
+    const { attemptId, factId } = await planned();
+    const fake = fakeFal();
+    const prior = await earlierRequest(attemptId, factId, { vendorRequestId: "v-odd", vendorStatus: "IN_PROGRESS" });
+    fake.requests.set("v-odd", { statuses: ["CANCELLING"], answer: new ApiError({ message: "Bad Request", status: 400, body: {} }) });
+    const out = await run(attemptId, fake);
+    assert.equal(out.ok, false);
+    assert.notEqual((await requestRow(prior.id)).vendorStatus, "FAILED");
+    assert.deepEqual(fake.submits, []);
+  });
+
   it("the receipt was lost and fal's history holds exactly one unclaimed match: it is collected", async () => {
     const { attemptId, factId } = await planned();
     const input = { prompt: `lost ${randomUUID()}` };

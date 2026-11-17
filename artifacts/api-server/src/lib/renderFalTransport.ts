@@ -133,8 +133,11 @@ const subscribeBackedFal: RenderFal = {
     subscribed.set(id, (response as { data?: unknown }).data ?? response);
     return id;
   },
-  async status(_endpointId, requestId) {
-    return subscribed.has(requestId) ? "COMPLETED" : "UNKNOWN";
+  async status(endpointId, requestId) {
+    // Gone (read already, or another process): a definite answer, so the row
+    // closes and the retry submits anew, as subscribe did.
+    if (!subscribed.has(requestId)) throw new FalHttpError(`no answer kept for ${requestId} on ${endpointId} in this process`, 404, null);
+    return "COMPLETED";
   },
   async result(endpointId, requestId) {
     // Gone (read already, or another process): a known end, so the retry submits anew, as subscribe did.

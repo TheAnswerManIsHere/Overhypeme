@@ -589,6 +589,40 @@ describe("async job leases", () => {
       assert.equal(after.recoveryProtocol, 3);
     });
 
+    it("release pair 1 → 2: a row an earlier release claimed (no stamp) and a capable worker reclaims requires that worker's protocol, so the earlier release never claims it (PR #1017 round 2)", async () => {
+      const queue = newQueue();
+      let runs = 0;
+      const handler: JobHandler = { async run() { runs++; return { ok: true }; } };
+      registerJobHandler(queue, handler, { recoveryProtocol: 1, fastReclaim: true });
+      const { jobId } = await enqueueJob({ queue, payload: {} });
+      // Claimed by the earlier release: leased, but no claim stamp.
+      await db.update(asyncJobsTable).set({ status: "processing", leaseToken: randomUUID(), claimRecoveryProtocol: null })
+        .where(eq(asyncJobsTable.id, jobId));
+      await lapseLease(jobId);
+      await recoverStuckProcessing(db);
+      const after = await getJob(jobId);
+      assert.equal(after.status, "recovering");
+      assert.equal(after.recoveryProtocol, 1);
+
+      registerJobHandler(queue, handler); // the earlier release: declares nothing
+      await asyncJobsTick(db, new Date(), { queues: [queue] });
+      assert.equal(runs, 0, "the earlier release never claims it");
+      registerJobHandler(queue, handler, { recoveryProtocol: 1 });
+      await asyncJobsTick(db, new Date(), { queues: [queue] });
+      assert.equal(runs, 1, "a capable worker resumes it");
+    });
+
+    it("a reclaim never lowers a requirement a row already carries", async () => {
+      const queue = newQueue();
+      registerJobHandler(queue, { async run() { return { ok: true }; } }, { recoveryProtocol: 1, fastReclaim: true });
+      const { jobId } = await enqueueJob({ queue, payload: {} });
+      await db.update(asyncJobsTable).set({ status: "processing", leaseToken: randomUUID(), claimRecoveryProtocol: 2 })
+        .where(eq(asyncJobsTable.id, jobId));
+      await lapseLease(jobId);
+      await recoverStuckProcessing(db);
+      assert.equal((await getJob(jobId)).recoveryProtocol, 2);
+    });
+
     it("dedupe: enqueueing a job whose key matches a recovering row is refused as a duplicate", async () => {
       const queue = newQueue();
       const key = randomUUID();

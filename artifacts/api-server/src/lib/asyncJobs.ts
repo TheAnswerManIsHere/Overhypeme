@@ -888,9 +888,10 @@ export async function renewHeldLeases(
  *   rule: reclaimed once `updated_at` is older than `cutoffMinutes`, because an
  *   old, unfenced worker may still be running it.
  *
- * A reclaimed row goes to `recovering` when its queue declared recovery (at
- * claim, or earlier) — stamped with the protocol it needs — and to `pending`
- * otherwise. Each reclaim is logged with the owner it was taken from.
+ * A reclaimed row goes to `recovering` when its queue declared recovery — at
+ * claim, earlier, or on this worker (a row an earlier release claimed carries
+ * no stamp) — stamped with the highest protocol any of them needs, and to
+ * `pending` otherwise. Each reclaim is logged with the owner it was taken from.
  */
 export async function recoverStuckProcessing(
   dbInstance: Pick<typeof defaultDb, "update" | "select">,
@@ -898,12 +899,21 @@ export async function recoverStuckProcessing(
 ): Promise<number> {
   const cutoff = sql`now() - make_interval(mins => ${cutoffMinutes})`;
   const fastQueues = [...SETTINGS_OF_QUEUE].filter(([, s]) => s.fastReclaim).map(([q]) => q);
+  // The protocol this worker declares for each queue it handles. A row claimed
+  // before its queue declared recovery (by an earlier release) carries no
+  // requirement; reclaimed here, it takes this worker's, so a worker that
+  // cannot recover it never claims it (plan §A, release pairs; PR #1017 round 2).
+  const declared = [...SETTINGS_OF_QUEUE].filter(([, s]) => s.recoveryProtocol != null);
+  const declaredForQueue = declared.length > 0
+    ? sql`CASE ${asyncJobsTable.queue} ${sql.join(declared.map(([q, s]) => sql`WHEN ${q} THEN ${s.recoveryProtocol}::integer`), sql` `)} END`
+    : sql`NULL::integer`;
+  const required = sql`GREATEST(${asyncJobsTable.recoveryProtocol}, ${asyncJobsTable.claimRecoveryProtocol}, ${declaredForQueue})`;
 
   const leased = await dbInstance
     .update(asyncJobsTable)
     .set({
-      status: sql`CASE WHEN COALESCE(${asyncJobsTable.recoveryProtocol}, ${asyncJobsTable.claimRecoveryProtocol}) IS NULL THEN 'pending' ELSE 'recovering' END`,
-      recoveryProtocol: sql`GREATEST(${asyncJobsTable.recoveryProtocol}, ${asyncJobsTable.claimRecoveryProtocol})`,
+      status: sql`CASE WHEN ${required} IS NULL THEN 'pending' ELSE 'recovering' END`,
+      recoveryProtocol: required,
       leaseExpiresAt: null,
       updatedAt: new Date(),
     })
