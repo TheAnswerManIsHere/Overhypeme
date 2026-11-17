@@ -147,10 +147,12 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
    * The gag this attempt drew (migration 0139). Null on every attempt made
    * before gags had their own table; those drew the fact's only gag, whose
    * content is in `fact_enrichment_snapshot`. The snapshot stays the exact
-   * content rendered either way. A plain value, no foreign key: a gag row is
-   * never deleted except with its fact, which deletes its attempts too, and
-   * fact_gags already points back here for its example, so a key both ways
-   * would make the pair impossible to insert in either order.
+   * content rendered either way. A plain value, no foreign key: fact_gags
+   * already points back here for its example, so a key both ways would make
+   * the pair impossible to insert in either order. It can name a gag that no
+   * longer exists: rejecting a submission deletes its gags and keeps its
+   * fact (PLAN_FACT_LIFECYCLE_REBUILD.md 1D), and those attempts are reached
+   * by no screen, since renders are listed and picked only through a gag.
    */
   gagId: bigint("gag_id", { mode: "number" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

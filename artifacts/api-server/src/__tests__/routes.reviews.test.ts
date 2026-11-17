@@ -17,6 +17,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
 import express, { type Express } from "express";
+import { assertCanRunGagRenders, GagError } from "../lib/gags/gagStore";
 import request from "supertest";
 
 import { db, factGagsTable } from "@workspace/db";
@@ -1142,6 +1143,50 @@ describe("reject from every step (PLAN_FACT_LIFECYCLE_REBUILD.md item 13)", () =
       assert.ok(feed.some((e) => e.actionType === "review_rejected"), "the submitter is told (the email follows the same path)");
     });
   }
+
+  it("waits for a gag being added and discards it too; a gag action after the rejection is refused (PR #1036 round 1)", async () => {
+    const { staging, review } = await seedPastTriage("concept_review");
+    const adminId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+
+    // Another transaction holds the fact row, the way every gag action does,
+    // and adds a gag while Reject is waiting for it.
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    let locked!: () => void;
+    const lockTaken = new Promise<void>((r) => { locked = r; });
+    const adder = db.transaction(async (tx) => {
+      await tx.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, staging.id)).for("update");
+      locked();
+      await held;
+      await tx.insert(factGagsTable).values({ factId: staging.id, slot: 2, pendingContent: GAG });
+    });
+    await lockTaken;
+
+    let settled = false;
+    const rejecting = request(makeApp())
+      .post(`/admin/reviews/${review.id}/reject`)
+      .set("authorization", `Bearer ${sid}`)
+      .send({ rejectionReason: "visual" })
+      .then((r) => { settled = true; return r; });
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(settled, false, "Reject waits for the fact row");
+    release();
+    await adder;
+    const res = await rejecting;
+    assert.equal(res.status, 200);
+
+    const gags = await db.select().from(factGagsTable).where(eq(factGagsTable.factId, staging.id));
+    assert.equal(gags.length, 0, "the gag added while Reject waited is discarded too");
+    const [action] = await db.select({ detail: adminActionsTable.detail }).from(adminActionsTable).where(eq(adminActionsTable.reviewId, review.id));
+    assert.equal((action.detail as { gagsDiscarded: number }).gagsDiscarded, 2);
+
+    await assert.rejects(
+      assertCanRunGagRenders(staging.id, 1, { adminId, reviewId: review.id }),
+      (err: unknown) => err instanceof GagError && err.code === "REVIEW_NOT_EDITABLE",
+      "a gag action after the rejection is refused",
+    );
+  });
 
   it("a triage-stage reject stays triage_rejected", async () => {
     const submitterId = await createTestUser();

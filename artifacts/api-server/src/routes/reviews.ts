@@ -855,9 +855,11 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
   const { adminNote = null, rejectionReason } = bodyParsed.data;
 
   // Reject from any step before the fact goes live (plan
-  // PLAN_FACT_LIFECYCLE_REBUILD.md, oracle item 13). Under the review's row
-  // lock, like every other transition, so a concurrent approval or advance
-  // either lands first (and this refuses) or waits for it.
+  // PLAN_FACT_LIFECYCLE_REBUILD.md, oracle item 13). The review's row lock
+  // serialises it with transitions that take the review first. Approval and
+  // classification completion take the fact first, so against those one side
+  // can fail with a deadlock error and is retried by hand; the shared lock
+  // order across every transition is increment 1.2c-ii's (PR #1036 round 1).
   const outcome = await db.transaction(async (tx) => {
     const review = await lockReview(tx, id);
     if (!review) return { kind: "not_found" as const };
@@ -878,13 +880,18 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
     if (review.stagingFactId != null) {
       // The submission's gags and their renders are discarded (1D): its
       // staging fact was never approved and stays inactive, so nothing of it
-      // reaches members or the Facts page. A render still running finds its
-      // gag gone and stores nothing anyone is offered.
-      const removed = await tx.delete(factGagsTable).where(eq(factGagsTable.factId, review.stagingFactId)).returning({ id: factGagsTable.id });
-      gagsDiscarded = removed.length;
+      // reaches members or the Facts page. The fact row is locked before its
+      // gags, the order every gag action takes (gagStore.ts), so a gag being
+      // added commits first and is deleted here, and one arriving after is
+      // refused because the review is no longer open. A render still running
+      // stores its picture on its attempt, attached to no gag: no screen lists
+      // or picks it, like the renders that finished before the rejection.
+      await tx.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, review.stagingFactId)).for("update");
       await tx.update(factsTable)
         .set({ enrichmentStatus: sql`CASE WHEN ${factsTable.enrichmentStatus} = 'pending' THEN NULL ELSE ${factsTable.enrichmentStatus} END` })
         .where(eq(factsTable.id, review.stagingFactId));
+      const removed = await tx.delete(factGagsTable).where(eq(factGagsTable.factId, review.stagingFactId)).returning({ id: factGagsTable.id });
+      gagsDiscarded = removed.length;
     }
     await recordAdminAction({ reviewId: id, factId: review.stagingFactId }, req.user.id, "reject", { reason: rejectionReason, adminNote, stage: review.workflowStage, gagsDiscarded }, tx);
     return { kind: "rejected" as const, review };
