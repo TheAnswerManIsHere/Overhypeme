@@ -190,7 +190,7 @@ describe("the scrub primitives", () => {
       reviewRenderSubject?: { name: string; pronouns: string | null };
     };
     assert.equal(rc({ promptIdentity: { version: 1, name: "Realname", pronouns: null, source: "user" } }).promptIdentity!.name, "Avery");
-    assert.equal(rc({ promptIdentity: { version: 1, name: "Susan Franklin", pronouns: "she/her", source: "review_sample" } }).promptIdentity!.name, "Susan Franklin");
+    assert.equal(rc({ promptIdentity: { version: 1, name: "Raena Franklin", pronouns: "she/her", source: "review_sample" } }).promptIdentity!.name, "Raena Franklin");
     const typed = rc({ promptIdentity: { version: 1, name: "Zqx Typed", pronouns: null, source: "workbench" } }).promptIdentity!;
     assert.deepEqual([typed.name, typed.source], ["Avery", "workbench"], "a typed sample name goes; its source, and so its precedence, stays");
     assert.equal(rc({ reviewRenderSubject: { name: "David Franklin", pronouns: "he/him" } }).reviewRenderSubject!.name, "David Franklin");

@@ -250,8 +250,8 @@ describe("a comparison run end to end, with fakes", () => {
     const edit = panels.find((p) => p.imageMode === "i2i")!;
     assert.match(String(edit.referenceImageUrl), /^https:\/\/fal\.test\/ref-\d+\.jpg$/);
     // Each fixed photo names its own subject in everything the panel freezes:
-    // the wife's photo renders as Susan Franklin, she/her; David's as David.
-    for (const [scenario, name, pronouns] of [["i2i_female_default", "Susan Franklin", "she/her"], ["i2i_male_default", "David Franklin", "he/him"]] as const) {
+    // the wife's photo renders as Raena Franklin, she/her; David's as David.
+    for (const [scenario, name, pronouns] of [["i2i_female_default", "Raena Franklin", "she/her"], ["i2i_male_default", "David Franklin", "he/him"]] as const) {
       const panel = panels.find((p) => p.scenarioKey === scenario)!;
       assert.match(String(panel.frozenFactText), new RegExp(name), `${scenario}: the frozen fact text`);
       const subject = (panel.compileArgs as { renderedSubject: { name: string; pronouns: string } }).renderedSubject;

@@ -1,5 +1,5 @@
 // The moderation test render's sample subject matches the reference photo it
-// is drawn from: the wife's photo renders as Susan Franklin, she/her; every
+// is drawn from: the wife's photo renders as Raena Franklin, she/her; every
 // other photo as David Franklin, he/him. With no photo there is no render
 // (compiler review, Phase 2: every picture starts from a photo).
 import { describe, it } from "node:test";
@@ -21,11 +21,11 @@ function fromReference(identityType: ReferenceIdentityType) {
 }
 
 describe("resolveRenderReviewInput — the sample subject follows the reference photo", () => {
-  it("the wife's photo → Susan Franklin / she-her", async () => {
+  it("the wife's photo → Raena Franklin / she-her", async () => {
     const out = await resolveRenderReviewInput("{NAME} dances in {NAME_POSSESSIVE} pants.", ENRICHMENT, fromReference("female"));
-    assert.equal(out.renderedSubject.name, "Susan Franklin");
+    assert.equal(out.renderedSubject.name, "Raena Franklin");
     assert.equal(out.renderedSubject.pronouns, "she/her");
-    assert.equal(out.renderedFactText, "Susan Franklin dances in Susan Franklin's pants.");
+    assert.equal(out.renderedFactText, "Raena Franklin dances in Raena Franklin's pants.");
   });
 
   it("David's photo → David Franklin / he-him", async () => {
