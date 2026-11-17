@@ -27,7 +27,7 @@
  * A listed version is not converted at all: its moderator edits it through
  * the ordinary pending change and render approval.
  */
-import { EMPTY_VISUAL_STRATEGY_OVERRIDE, type VisualPromptStrategyOverride } from "@workspace/api-zod";
+import { EMPTY_VISUAL_STRATEGY_OVERRIDE, hasExtraArtDirection, type VisualPromptStrategyOverride } from "@workspace/api-zod";
 import { validateVisualStrategyOverridePersistence } from "../imagePrompt/promptBudget";
 
 /** The default violence intensity: "allow" at it is no override at all (renderPolicyEnums.ts). */
@@ -41,21 +41,7 @@ export type FoldOutcome =
   | { kind: "listed"; reasons: string[] };
 
 /** Whether a version still holds anything in the eleven fields (or the intent and notes that went with them). */
-export function hasExtraFields(c: VisualPromptStrategyOverride): boolean {
-  return Boolean(
-    c.moderatorIntent?.trim()
-    || c.notesForModerator?.trim()
-    || c.subjectRealizationOverride
-    || c.requiredVisualDetails.length
-    || c.forbiddenVisualDetails.length
-    || c.roleBindings.length
-    || c.compositionGuidance.length
-    || c.styleAgnosticPromptAdditions.length
-    || c.negativePromptAdditions.length
-    || c.supportingTextPolicyOverride
-    || c.violencePolicyOverride,
-  );
-}
+export const hasExtraFields = hasExtraArtDirection;
 
 const clean = (s: string) => s.replace(/\s+/g, " ").trim();
 /** One sentence: trimmed, ending in a full stop unless it already ends a sentence. */

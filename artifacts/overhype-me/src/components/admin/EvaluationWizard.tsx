@@ -12,6 +12,7 @@ import { AlertTriangle, Check, ChevronLeft, ChevronRight, Loader2, Search, Spark
 import {
   EVALUATION_CANDIDATE_FAMILIES,
   EVALUATION_PHOTO_TYPES,
+  hasExtraArtDirection,
   type EvaluationSelection,
 } from "@workspace/api-zod";
 import { readError } from "@/components/admin/readError";
@@ -366,7 +367,17 @@ function FactPicker({ chosen, onChange }: { chosen: FactHit[]; onChange: (facts:
   );
 }
 
-interface GagChoiceRow { id: number; slot: number; scene: string; bubbles: number; isDefault: boolean }
+interface GagChoiceRow {
+  id: number;
+  slot: number;
+  scene: string;
+  bubbles: number;
+  isDefault: boolean;
+  /** Only a saved change, never approved: a draft would be drawn. */
+  unapproved: boolean;
+  /** Values in the old "More art direction" fields: the planner reads them, the direct path does not (build report on Issue #987). */
+  extraArtDirection: boolean;
+}
 
 /**
  * A path evaluation's gags (plan PLAN_GAG_DIRECT_RENDER.md, A): every live gag
@@ -385,7 +396,15 @@ function GagPicker({ facts, chosen, onChange }: { facts: FactHit[]; chosen: Reco
         const rows = r.view.gags
           .map((g) => ({ g, content: g.approvedContent ?? g.pendingContent }))
           .filter(({ content }) => !!content?.coreSceneOverride?.trim())
-          .map(({ g, content }) => ({ id: g.id, slot: g.slot, scene: content!.coreSceneOverride!.trim(), bubbles: content!.bubbles.length, isDefault: g.isDefault }))
+          .map(({ g, content }) => ({
+            id: g.id,
+            slot: g.slot,
+            scene: content!.coreSceneOverride!.trim(),
+            bubbles: content!.bubbles.length,
+            isDefault: g.isDefault,
+            unapproved: g.approvedContent == null,
+            extraArtDirection: hasExtraArtDirection(content!),
+          }))
           .sort((a, b) => a.slot - b.slot);
         setByFact((m) => ({ ...m, [f.id]: rows }));
         if (rows.length) {
@@ -419,7 +438,20 @@ function GagPicker({ facts, chosen, onChange }: { facts: FactHit[]; chosen: Reco
             {Array.isArray(rows) && rows.map((g) => (
               <label key={g.id} className="flex items-start gap-2 text-sm text-foreground">
                 <input type="checkbox" className="mt-1" checked={(chosen[f.id] ?? []).includes(g.id)} onChange={() => toggleGag(f.id, g.id)} data-testid={`wizard-gag-${g.id}`} />
-                <span>Gag {g.slot}{g.isDefault ? " (default)" : ""}: {g.scene}{g.bubbles ? ` · ${g.bubbles} bubble${g.bubbles === 1 ? "" : "s"}` : ""}</span>
+                <span>
+                  Gag {g.slot}{g.isDefault ? " (default)" : ""}: {g.scene}{g.bubbles ? ` · ${g.bubbles} bubble${g.bubbles === 1 ? "" : "s"}` : ""}
+                  {g.unapproved && (
+                    <span className="ml-1 text-[11px] font-semibold text-amber-700 dark:text-amber-300" data-testid={`wizard-gag-unapproved-${g.id}`}>
+                      · unapproved draft
+                    </span>
+                  )}
+                  {g.extraArtDirection && (
+                    <span className="ml-1 text-[11px] font-semibold text-amber-700 dark:text-amber-300" data-testid={`wizard-gag-extras-${g.id}`}
+                      title="This gag has values in the old extra art-direction fields. The planner reads them and the direct path does not, so a difference may come from them, not the path. The fold moves them into the scene.">
+                      · has extra art direction (not folded yet)
+                    </span>
+                  )}
+                </span>
               </label>
             ))}
           </div>

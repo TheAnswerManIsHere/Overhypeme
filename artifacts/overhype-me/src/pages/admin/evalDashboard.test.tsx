@@ -62,7 +62,7 @@ beforeEach(() => {
     }
     if (url.endsWith("/facts/11/gags")) {
       return respond({ gags: [
-        { id: 501, slot: 1, isDefault: true, approvedContent: { coreSceneOverride: "{NAME} bench-presses a mountain.", bubbles: [] }, pendingContent: null },
+        { id: 501, slot: 1, isDefault: true, approvedContent: { coreSceneOverride: "{NAME} bench-presses a mountain.", bubbles: [], compositionGuidance: ["low angle"] }, pendingContent: null },
         { id: 502, slot: 2, isDefault: false, approvedContent: null, pendingContent: { coreSceneOverride: "{NAME} carries a mountain home; mom gasps.", bubbles: [{ type: "speech", entity: "mom", text: "Put it down!" }] } },
         { id: 503, slot: 3, isDefault: false, approvedContent: null, pendingContent: null },
       ] });
@@ -133,6 +133,11 @@ describe("the Eval page", () => {
     await waitFor(() => expect((screen.getByTestId("wizard-gag-501") as HTMLInputElement).checked).toBe(true));
     expect(screen.queryByTestId("wizard-gag-503")).toBeNull(); // a gag with no content cannot be drawn
     expect(screen.getByTestId("wizard-gags-11").textContent).toMatch(/1 bubble/);
+    // Marked: an unapproved draft, and a gag the direct path would draw without its extra art direction (build report on Issue #987).
+    expect(screen.getByTestId("wizard-gag-unapproved-502")).toBeTruthy();
+    expect(screen.queryByTestId("wizard-gag-unapproved-501")).toBeNull();
+    expect(screen.getByTestId("wizard-gag-extras-501")).toBeTruthy();
+    expect(screen.queryByTestId("wizard-gag-extras-502")).toBeNull();
     fireEvent.click(screen.getByTestId("wizard-gag-502"));
     fireEvent.click(screen.getByTestId("wizard-gag-501"));
     fireEvent.click(screen.getByTestId("wizard-gag-502"));

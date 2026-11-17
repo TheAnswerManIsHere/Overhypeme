@@ -217,6 +217,28 @@ const visualPromptStrategyOverrideBase = z.object({
 });
 
 export type VisualPromptStrategyOverride = z.infer<typeof visualPromptStrategyOverrideBase>;
+
+/**
+ * Whether a gag version still holds anything in the eleven "More art direction"
+ * fields (or the intent and notes that went with them): what the fold moves
+ * into the scene (PLAN_GAG_DIRECT_RENDER.md, E). The direct path reads none of
+ * them, so a comparison marks a gag that has any.
+ */
+export function hasExtraArtDirection(c: VisualPromptStrategyOverride): boolean {
+  return Boolean(
+    c.moderatorIntent?.trim()
+    || c.notesForModerator?.trim()
+    || c.subjectRealizationOverride
+    || (c.requiredVisualDetails ?? []).length
+    || (c.forbiddenVisualDetails ?? []).length
+    || (c.roleBindings ?? []).length
+    || (c.compositionGuidance ?? []).length
+    || (c.styleAgnosticPromptAdditions ?? []).length
+    || (c.negativePromptAdditions ?? []).length
+    || c.supportingTextPolicyOverride
+    || c.violencePolicyOverride,
+  );
+}
 export type VisualStrategyRoleBinding = z.infer<typeof roleBindingSchema>;
 
 // ─── Token handling ─────────────────────────────────────────────────────────
