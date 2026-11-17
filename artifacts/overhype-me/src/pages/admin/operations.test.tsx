@@ -15,10 +15,10 @@ import AdminOperations from "./operations";
 
 const LANE = { lane: "render", liveInstanceCount: 1, lastScheduledAt: new Date().toISOString(), inFlightCount: 0, stalled: false };
 
-function stub(payload: unknown, rings = true, status = 200) {
+function stub(payload: unknown, rings: boolean | "not_connected" = true, status = 200) {
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
     if (String(input).includes("/test-alert")) {
-      return new Response(JSON.stringify({ sent: true, rings }), { status: 200 });
+      return new Response(JSON.stringify(rings === "not_connected" ? { sent: false, reason: "not_connected" } : { sent: true, rings }), { status: 200 });
     }
     return new Response(JSON.stringify(payload), { status });
   }));
@@ -46,13 +46,22 @@ describe("Operations page", () => {
     stub({
       checkedAt: new Date().toISOString(),
       lanes: { status: "ok", lanes: [{ ...LANE, stalled: true }] },
-      incidents: { status: "ok", incidents: [{ title: "Downtime detected", source: "site_down", label: "Site down", lastSeen: new Date().toISOString(), count: 3, link: "https://sentry.example/1" }] },
+      incidents: { status: "ok", incidents: [{ title: "Downtime detected", source: "site_down", label: "Site down", ongoing: false, lastSeen: new Date().toISOString(), count: 3, link: "https://sentry.example/1" }] },
     });
     render(<AdminOperations />);
     const list = await screen.findByTestId("operations-incidents");
     expect(list.textContent).toContain("Site down");
+    expect(list.textContent).toContain("resolved");
     expect(screen.getByRole("link", { name: /Open in Sentry/ }).getAttribute("href")).toBe("https://sentry.example/1");
     expect(screen.getByTestId("operations-lanes").textContent).toContain("stopped");
+  });
+
+  it("says plainly when the server is not connected to Sentry, never that it sent", async () => {
+    stub({ checkedAt: new Date().toISOString(), lanes: { status: "ok", lanes: [] }, incidents: { status: "ok", incidents: [] } }, "not_connected");
+    render(<AdminOperations />);
+    fireEvent.click(await screen.findByTestId("operations-test-alert"));
+    await waitFor(() => expect(screen.getByTestId("operations-test-not-connected").textContent).toContain("not connected to Sentry"));
+    expect(screen.queryByTestId("operations-test-sent")).toBeNull();
   });
 
   it("says a test alert from a non-live site does not ring", async () => {

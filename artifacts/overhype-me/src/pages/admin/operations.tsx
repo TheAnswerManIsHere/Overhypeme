@@ -27,6 +27,8 @@ interface Incident {
   source: string;
   /** The server's label for the source. */
   label: string;
+  /** Still open in Sentry; false once resolved. */
+  ongoing: boolean;
   lastSeen: string;
   count: number;
   link: string;
@@ -50,7 +52,9 @@ export default function AdminOperations() {
   const [data, setData] = useState<OperationsPayload | null>(null);
   const [initialError, setInitialError] = useState<string | null>(null);
   const [staleSince, setStaleSince] = useState<string | null>(null);
-  const [test, setTest] = useState<{ status: "idle" | "sending" | "failed" } | { status: "sent"; rings: boolean }>({ status: "idle" });
+  const [test, setTest] = useState<
+    { status: "idle" | "sending" | "failed" | "not_connected" } | { status: "sent"; rings: boolean }
+  >({ status: "idle" });
   const hasData = useRef(false);
   const seq = useRef(0);
   const appliedSeq = useRef(0);
@@ -97,8 +101,8 @@ export default function AdminOperations() {
     try {
       const res = await fetch("/api/admin/operations/test-alert", { method: "POST", credentials: "include" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const body = (await res.json()) as { rings?: boolean };
-      setTest({ status: "sent", rings: body.rings === true });
+      const body = (await res.json()) as { sent?: boolean; rings?: boolean };
+      setTest(body.sent === true ? { status: "sent", rings: body.rings === true } : { status: "not_connected" });
     } catch {
       setTest({ status: "failed" });
     }
@@ -159,12 +163,12 @@ export default function AdminOperations() {
             </section>
 
             <section>
-              <h2 className="mb-2 text-lg font-semibold">Recent incidents (last 7 days, live site)</h2>
+              <h2 className="mb-2 text-lg font-semibold">Recent incidents (last 7 days, live site, open and resolved)</h2>
               {data.incidents.status === "unavailable" ? (
                 <p className="text-sm text-amber-600" data-testid="operations-incidents-unavailable">
                   {data.incidents.reason === "not_configured"
-                    ? "Unavailable: the server has no Sentry token, so it cannot list incidents. Alerts still reach your phone."
-                    : "Unavailable: Sentry could not be reached just now. Alerts still reach your phone."}
+                    ? "Unavailable: the server has no Sentry token, so it cannot list incidents. Alerts are sent by Sentry, not by this page."
+                    : "Unavailable: Sentry could not be reached just now. Alerts are sent by Sentry, not by this page."}
                 </p>
               ) : data.incidents.incidents.length === 0 ? (
                 <p className="text-sm text-muted-foreground" data-testid="operations-incidents-none">
@@ -175,6 +179,9 @@ export default function AdminOperations() {
                   {data.incidents.incidents.map((i) => (
                     <li key={i.link || i.title} className="flex flex-wrap items-center gap-2">
                       <span className="rounded bg-muted px-1.5 py-0.5 text-xs">{i.label}</span>
+                      <span className={i.ongoing ? "text-xs font-medium text-destructive" : "text-xs text-muted-foreground"}>
+                        {i.ongoing ? "ongoing" : "resolved"}
+                      </span>
                       <span>{i.title}</span>
                       <span className="text-muted-foreground">
                         · {i.count}× · last {formatTime(i.lastSeen)}
@@ -206,6 +213,12 @@ export default function AdminOperations() {
             <p className="mt-2 text-sm" data-testid="operations-test-sent">
               Sent to Sentry.
               {test.rings ? " Your phone should ring shortly." : " This is not the live site, so it is recorded in Sentry but does not ring your phone."}
+            </p>
+          )}
+          {test.status === "not_connected" && (
+            <p className="mt-2 text-sm text-destructive" data-testid="operations-test-not-connected">
+              Not sent: this server is not connected to Sentry, so no alert from it can reach your phone. Its Sentry
+              connection setting is missing.
             </p>
           )}
           {test.status === "failed" && (

@@ -14,7 +14,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { requireAdmin } from "./admin";
 import { laneHealth } from "../lib/queueHealth";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
-import { alertLabel, alertSourceForTitle, reportOperationalAlert, type AlertSource } from "../lib/operationalAlerts";
+import { alertLabel, alertRouteConnected, alertSourceForTitle, reportOperationalAlert, type AlertSource } from "../lib/operationalAlerts";
 import { isProductionEnv } from "../lib/env";
 import { logger } from "../lib/logger";
 
@@ -27,6 +27,8 @@ export interface Incident {
   source: IncidentSource;
   /** What the page shows for the source; sent so the page holds no copy of the list. */
   label: string;
+  /** Still open in Sentry; false once resolved (an outage resolves itself on recovery). */
+  ongoing: boolean;
   lastSeen: string;
   count: number;
   link: string;
@@ -43,6 +45,7 @@ const SENTRY_TIMEOUT_MS = 5_000;
 
 interface SentryIssue {
   title?: string;
+  status?: string;
   lastSeen?: string;
   count?: string | number;
   permalink?: string;
@@ -56,7 +59,9 @@ export function classifyIssue(issue: SentryIssue): IncidentSource {
   // by its fixed title, which lib/operationalAlerts.ts defines once.
   const source = alertSourceForTitle(issue.title);
   if (source) return source;
-  if (issue.issueCategory === "uptime" || (issue.issueType ?? "").startsWith("uptime")) return "site_down";
+  // Sentry files uptime downtime under the "outage" category (read from a real
+  // route-test incident, 2026-11-17); the type check covers the uptime_* types.
+  if (issue.issueCategory === "outage" || issue.issueCategory === "uptime" || (issue.issueType ?? "").startsWith("uptime")) return "site_down";
   return "error";
 }
 
@@ -93,7 +98,10 @@ export async function readRecentIncidentsCached(): Promise<IncidentList> {
 export async function readRecentIncidents(token = process.env["SENTRY_API_TOKEN"]): Promise<IncidentList> {
   if (!token) return { status: "unavailable", reason: "not_configured" };
   const params = new URLSearchParams({
-    query: "is:unresolved",
+    // Empty, not omitted: Sentry applies `is:unresolved` when `query` is
+    // absent, and a resolved incident (every recovered outage) still belongs
+    // in the recent history.
+    query: "",
     environment: "production",
     statsPeriod: "7d",
     sort: "date",
@@ -117,6 +125,7 @@ export async function readRecentIncidents(token = process.env["SENTRY_API_TOKEN"
         title: String(issue.title ?? "(untitled)"),
         source,
         label: source === "site_down" ? "Site down" : source === "error" ? "Error" : alertLabel(source),
+        ongoing: issue.status !== "resolved",
         lastSeen: String(issue.lastSeen ?? ""),
         count: Number(issue.count ?? 0) || 0,
         link: String(issue.permalink ?? ""),
@@ -129,12 +138,34 @@ export async function readRecentIncidents(token = process.env["SENTRY_API_TOKEN"
   }
 }
 
+/**
+ * The shared limiter writes a counter row. These are the screens David opens
+ * when the product is failing, so a database that reads but cannot save must
+ * not take them down: a failure of the counter's storage is logged and the
+ * request carries on. The limit is unchanged whenever the counter works, and
+ * checkSharedRateLimit itself is untouched (sign-in and submission throttles
+ * rely on it failing closed).
+ */
+let limiter: typeof checkSharedRateLimit = checkSharedRateLimit;
+export function __setOperationsLimiterForTest(fn: typeof checkSharedRateLimit | null): void {
+  limiter = fn ?? checkSharedRateLimit;
+}
+
+async function withinLimit(req: Request, endpoint: string, limit: number): Promise<boolean> {
+  try {
+    const result = await limiter(
+      { endpoint, ip: req.ip ?? null, userId: req.user?.id ?? null },
+      { limit, windowMs: 60_000 },
+    );
+    return result.allowed;
+  } catch (err) {
+    logger.warn({ err, endpoint }, "[operations] rate-limit storage failed; serving the request");
+    return true;
+  }
+}
+
 router.get("/admin/operations", requireAdmin, async (req: Request, res: Response): Promise<void> => {
-  const rateLimit = await checkSharedRateLimit(
-    { endpoint: "admin.operations.read", ip: req.ip ?? null, userId: req.user?.id ?? null },
-    { limit: 60, windowMs: 60_000 },
-  );
-  if (!rateLimit.allowed) { res.status(429).json({ error: "Too many requests" }); return; }
+  if (!(await withinLimit(req, "admin.operations.read", 60))) { res.status(429).json({ error: "Too many requests" }); return; }
 
   // Each half is read independently: one failing must not hide the other.
   const [lanesResult, incidents] = await Promise.all([
@@ -151,11 +182,11 @@ router.get("/admin/operations", requireAdmin, async (req: Request, res: Response
 });
 
 router.post("/admin/operations/test-alert", requireAdmin, async (req: Request, res: Response): Promise<void> => {
-  const rateLimit = await checkSharedRateLimit(
-    { endpoint: "admin.operations.test-alert", ip: req.ip ?? null, userId: req.user?.id ?? null },
-    { limit: 5, windowMs: 60_000 },
-  );
-  if (!rateLimit.allowed) { res.status(429).json({ error: "Too many requests" }); return; }
+  if (!(await withinLimit(req, "admin.operations.test-alert", 5))) { res.status(429).json({ error: "Too many requests" }); return; }
+  if (!alertRouteConnected()) {
+    res.json({ sent: false, reason: "not_connected" });
+    return;
+  }
   reportOperationalAlert("test", { requestedAt: new Date().toISOString() });
   res.json({ sent: true, rings: isProductionEnv() });
 });

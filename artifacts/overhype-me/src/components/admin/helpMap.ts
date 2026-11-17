@@ -51,6 +51,10 @@ export const ADMIN_HELP_MAP: Record<string, HelpTarget> = {
   "/admin/trace": { chapter: "5-visual-pipeline" },
   "/admin/taxonomy-health": { chapter: "4-taxonomy-and-enrichment", anchor: "for-the-admin-taxonomy-health" },
   "/admin/email-queue": { chapter: "12-background-work", anchor: "email-the-most-consequential-rider" },
+  // No chapter covers the Operations page yet (its Manual harvest is the
+  // batched Type 2 pass); chapter 12's queue-health section is the nearest
+  // neighbour, since the page starts from the same lane liveness.
+  "/admin/operations": { chapter: "12-background-work", anchor: "worker-liveness-and-the-queue-health-surface" },
   "/admin/queue-health": { chapter: "12-background-work", anchor: "worker-liveness-and-the-queue-health-surface" },
   "/admin/features": { chapter: "11-admin-console", anchor: "tuning-how-the-product-behaves" },
   "/admin/config": { chapter: "11-admin-console", anchor: "tuning-how-the-product-behaves" },

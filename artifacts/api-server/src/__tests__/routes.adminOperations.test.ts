@@ -19,12 +19,13 @@ import { like } from "drizzle-orm";
 
 import adminOperationsRouter, {
   __resetIncidentCacheForTest,
+  __setOperationsLimiterForTest,
   __setOperationsFetchForTest,
   classifyIssue,
   readRecentIncidents,
   readRecentIncidentsCached,
 } from "../routes/adminOperations.js";
-import { __setAlertCaptureForTest, alertTitle, reportOperationalAlert } from "../lib/operationalAlerts.js";
+import { __setAlertCaptureForTest, __setAlertReadinessForTest, alertTitle, reportOperationalAlert } from "../lib/operationalAlerts.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 
 const USER_PREFIX = "tops-";
@@ -49,16 +50,20 @@ describe("/admin/operations", () => {
     adminId = await createUser(true);
     memberId = await createUser(false);
     __setAlertCaptureForTest((message, context) => { captured.push({ message, context }); });
+    __setAlertReadinessForTest(() => true);
   });
 
   afterEach(() => {
     captured.length = 0;
     __setOperationsFetchForTest(null);
     __resetIncidentCacheForTest();
+    __setOperationsLimiterForTest(null);
+    __setAlertReadinessForTest(() => true);
   });
 
   after(async () => {
     __setAlertCaptureForTest(null);
+    __setAlertReadinessForTest(null);
     await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
   });
 
@@ -83,6 +88,43 @@ describe("/admin/operations", () => {
     assert.deepEqual(ctx.fingerprint, ["operational-alert", "test"]);
   });
 
+  it("says a test alert was not sent when the server is not connected to Sentry", async () => {
+    __setAlertReadinessForTest(() => false);
+    const res = await request(buildTestApp({ kind: "authenticated", userId: adminId }, adminOperationsRouter))
+      .post("/api/admin/operations/test-alert");
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, { sent: false, reason: "not_connected" });
+    assert.equal(captured.length, 0);
+  });
+
+  it("keeps working when the rate-limit counter cannot be saved", async () => {
+    __setOperationsLimiterForTest(async () => { throw new Error("cannot execute INSERT in a read-only transaction"); });
+    const saved = process.env["SENTRY_API_TOKEN"];
+    process.env["SENTRY_API_TOKEN"] = "token";
+    __setOperationsFetchForTest(async () => new Response(JSON.stringify([
+      { title: "TypeError: x", status: "resolved", lastSeen: "2026-11-17T21:00:00Z", count: "1", permalink: "https://s/9" },
+    ]), { status: 200 }));
+    try {
+      const app = buildTestApp({ kind: "authenticated", userId: adminId }, adminOperationsRouter);
+      const read = await request(app).get("/api/admin/operations");
+      assert.equal(read.status, 200);
+      assert.equal(read.body.lanes.status, "ok");
+      assert.equal(read.body.incidents.status, "ok");
+      const alert = await request(app).post("/api/admin/operations/test-alert");
+      assert.equal(alert.status, 200);
+      assert.equal(alert.body.sent, true);
+      assert.equal(captured.length, 1);
+    } finally {
+      if (saved === undefined) delete process.env["SENTRY_API_TOKEN"]; else process.env["SENTRY_API_TOKEN"] = saved;
+    }
+  });
+
+  it("still refuses past the limit when the counter works", async () => {
+    __setOperationsLimiterForTest(async () => ({ allowed: false }) as Awaited<ReturnType<typeof import("../lib/sharedRateLimiter.js").checkSharedRateLimit>>);
+    const res = await request(buildTestApp({ kind: "authenticated", userId: adminId }, adminOperationsRouter)).get("/api/admin/operations");
+    assert.equal(res.status, 429);
+  });
+
   it("shows the live lane state and says incidents are unavailable when no Sentry token is set", async () => {
     const saved = process.env["SENTRY_API_TOKEN"];
     delete process.env["SENTRY_API_TOKEN"];
@@ -102,18 +144,27 @@ describe("/admin/operations", () => {
 describe("readRecentIncidents", () => {
   afterEach(() => __setOperationsFetchForTest(null));
 
-  it("maps Sentry issues to sources", async () => {
-    __setOperationsFetchForTest(async () => new Response(JSON.stringify([
-      { title: alertTitle("unrecorded_spend"), lastSeen: "2026-11-17T23:00:00Z", count: "2", permalink: "https://s/1" },
-      { title: "Downtime detected for https://overhype.me/", issueCategory: "uptime", lastSeen: "2026-11-17T22:00:00Z", count: "1", permalink: "https://s/2" },
-      { title: "TypeError: x is undefined", issueCategory: "error", lastSeen: "2026-11-17T21:00:00Z", count: "7", permalink: "https://s/3" },
-    ]), { status: 200 }));
+  it("asks Sentry for resolved and open incidents, and maps them to sources", async () => {
+    let requested = "";
+    __setOperationsFetchForTest(async (input) => {
+      requested = String(input);
+      return new Response(JSON.stringify([
+        { title: alertTitle("unrecorded_spend"), status: "unresolved", lastSeen: "2026-11-17T23:00:00Z", count: "2", permalink: "https://s/1" },
+        // The real shape of a recovered uptime incident (SENTRY_PROJECT_BACKEND-16).
+        { title: "Downtime detected for https://overhype.me/", issueCategory: "outage", status: "resolved", lastSeen: "2026-11-17T22:00:00Z", count: "1", permalink: "https://s/2" },
+        { title: "TypeError: x is undefined", issueCategory: "error", status: "resolved", lastSeen: "2026-11-17T21:00:00Z", count: "7", permalink: "https://s/3" },
+      ]), { status: 200 });
+    });
     const list = await readRecentIncidents("token");
+    const url = new URL(requested);
+    assert.equal(url.searchParams.get("query"), "", "an explicit empty query; Sentry defaults to is:unresolved");
+    assert.equal(url.searchParams.get("environment"), "production");
     assert.equal(list.status, "ok");
     if (list.status !== "ok") return;
     assert.deepEqual(list.incidents.map((i) => i.source), ["unrecorded_spend", "site_down", "error"]);
     assert.deepEqual(list.incidents.map((i) => i.label), ["Spend not recorded", "Site down", "Error"]);
     assert.equal(list.incidents[0]!.count, 2);
+    assert.deepEqual(list.incidents.map((i) => i.ongoing), [true, false, false]);
   });
 
   it("reports unavailable, never an empty list, when Sentry refuses or cannot be reached", async () => {

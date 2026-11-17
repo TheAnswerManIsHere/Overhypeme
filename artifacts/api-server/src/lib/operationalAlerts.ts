@@ -52,6 +52,24 @@ export function alertSourceForTitle(title: string | undefined): AlertSource | nu
   return (title && SOURCE_BY_TITLE.get(title)) || null;
 }
 
+/**
+ * Whether the reporter is connected to Sentry at all. False when the server
+ * started with no `SENTRY_DSN_BACKEND` (instrument.ts then disables error
+ * reporting): a report is accepted and silently goes nowhere. Only the
+ * Operations page's test button asks; ordinary callers never wait on it.
+ */
+let readiness: () => boolean = () => Sentry.isEnabled();
+export function alertRouteConnected(): boolean {
+  try {
+    return readiness();
+  } catch {
+    return false;
+  }
+}
+export function __setAlertReadinessForTest(fn: (() => boolean) | null): void {
+  readiness = fn ?? (() => Sentry.isEnabled());
+}
+
 /** The capture function, swappable in tests. */
 type Capture = (message: string, context: Parameters<typeof Sentry.captureMessage>[1]) => unknown;
 let capture: Capture = (message, context) => Sentry.captureMessage(message, context);
