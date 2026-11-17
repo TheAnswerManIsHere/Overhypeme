@@ -182,9 +182,8 @@ Modification status:
   The 2026-10-17 paid-run sweep (KITT #219) added one clause to the
   existing notes of `prototype/LOGIC.md`, `prototype/UI.md` and
   `test-driven-development/SKILL.md`: a check that would start a paid AI run
-  runs within David's paid-run budget — $5 a run, $25 a week across every product — and asks him
-  only above it (the clause first required his go-ahead for each run; retired
-  2026-10-21).
+  runs within David's monthly paid-run budget — $100 a calendar month across every product, no per-run cap — and asks him only for a run that would take the month past it (the clause first required his go-ahead for each run, retired 2026-10-21; then a $5-a-run and $25-a-week budget, retired 2026-11-17; the rule's home is
+  `docs/tests/uat-doc-format.md`, *Lanes*).
 - `grill-me/SKILL.md` — **no longer verbatim as of PR #545**: body changed
   from `Run a `/grilling` session.` to upstream's exact delegation form,
   `Call the Skill tool with "grilling".` (it had pointed at a skill that was

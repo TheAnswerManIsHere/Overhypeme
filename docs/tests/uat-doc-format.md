@@ -106,7 +106,7 @@ only that the image exists; the step passes or fails on Claude's reading of
 it, clause by clause. There is no baseline image to compare against: an
 `Expect` that would say "looks as it did before" is written as the screen it
 should show. A capture that needs a paid vendor runs within David's
-paid-run budget and asks above it (the paragraph after next), under any
+monthly paid-run budget and asks only past it (the paragraph after next), under any
 tighter cap the consumer declares, and is never the `live` lane, which stays
 read-only. (The run-time mechanics are the `uat` skill's, *Where the browser
 automation lives*.)
@@ -134,44 +134,50 @@ lanes — since David's words cover *"any tests"*: none of them judges what a
 generated image shows. It narrows nothing else; text, placement, typography
 and framing the product's own code draws stay `capture`.
 
-**A paid AI run proceeds within David's budget and is reported with its
-cost; above it, the run asks first** (David, 2026-10-21: *"Limit it to
-$5/run and set a weekly budget of $25 just in case."*, on the irreversible
-list in `agent-working-rules.md`, *A reversible choice proceeds on the
-recommendation*; until then every paid run needed his go-ahead in words —
-David, 2026-10-17: *"There's no point in capping the cost to a few dollars
-if you're going to be running the tests hundreds of times"* — and that
-sentence is why the budget is small and the week's total is counted),
-whatever its lane — a `capture`, a `scripted` journey, a `live`
+**A paid AI run that is needed proceeds without asking, within David's
+monthly budget, and is reported with its cost; only a run that would take
+the month past it asks first** (David, 2026-11-17: *"Stop asking about
+spending money. We need to get to launch. Reset the spend amount to
+$100/month and just do what is needed."*). The budget is **$100 per calendar
+month (UTC), one total across every product**, with no per-run cap. It
+replaced a per-run cap of $5 and a weekly budget of $25 (David, 2026-10-21),
+which had in turn replaced a go-ahead in words for every paid run (David,
+2026-10-17: *"There's no point in capping the cost to a few dollars if
+you're going to be running the tests hundreds of times"*). The rule binds
+whatever the run's lane — a `capture`, a `scripted` journey, a `live`
 check, a prototype's scaled machine lanes, a Post-merge verification step,
 a diagnostic reproduction on the live system. A paid AI run is a call the
 check makes to a paid AI vendor (a real render, a real model call); the
 review loop's own assessors are not checks and keep their own rules.
-A run that would cost more than $5, or take the week past $25, asks first,
-naming the paid calls and the worst-case cost; one within both proceeds, is
-never run in a loop or a series that would pass the week's total, and
-reports what it cost in the hand-back and on the ledger below. **The week's total is read,
-never remembered** (2026-10-21, after the first build report found the $25
-had no record any session could read). **The $25 is one total across every
-product** (David, 2026-10-22: *"$25/week is across all products."*), so there
-is **one ledger for the fleet**: an open issue in KITT's repository
+"Needed" is the work's judgement, not a licence: a run proceeds because the
+check it serves is owed, and a paid run a free check would answer is not
+needed. A run that would take the month's total past $100 asks first,
+naming the paid calls and the worst-case cost, and is on the irreversible
+list in `agent-working-rules.md`, *A reversible choice proceeds on the
+recommendation*; one within it proceeds, is never run in a loop or a series
+that would pass the month's total, and reports what it cost in the hand-back
+and on the ledger below. **The month's total is read, never remembered**
+(2026-10-21, after the first build report found the then-weekly budget had
+no record any session could read), and since the budget is one total across
+every product (David, 2026-10-22, of the weekly figure then: *"$25/week is
+across all products."*; the monthly one keeps that scope), there is **one
+ledger for the fleet**: an open issue in KITT's repository
 (`PAID_RUN_LEDGER_REPO` in `machinery.mjs`) labelled `paid-ai-ledger`, opened
 at the fleet's first paid run, and every paid run in any product adds one
 comment to it — the date, the product, what ran, and what it cost, under the
 disclosure check, since that repository is public. Before a paid run, every
-comment from the trailing seven days is totalled, whichever product it
-names; that total plus the run's worst case is what is held against $25. A
-run whose cost was not recorded is counted at its worst case. A session
-whose GitHub access does not reach KITT attaches it (`add_repo`,
-push access, since it writes the comment) before the run — an attach
-refused by the auto-mode classifier stops and asks
+comment dated in the current calendar month (UTC) is totalled, whichever
+product it names; that total plus the run's worst case is what is held
+against $100. A run whose cost was not recorded is counted at its worst
+case. A session whose GitHub access does not reach KITT attaches it
+(`add_repo`, push access, since it writes the comment) before the run — an
+attach refused by the auto-mode classifier stops and asks
 ([`add-repo-refused-in-auto-mode.md`](../../.agents/memory/add-repo-refused-in-auto-mode.md)); one that still
-cannot read the ledger cannot know the week's total, so the run asks first,
-as one above the budget would. A spending cap the consumer
-declares bounds a run below the fleet's, never above it, and a check that
-would start a paid run is never read-only. It is never a `ci`
-check either: CI runs on every push, so nothing could keep it inside $5 a
-run or $25 a week across every product.
+cannot read the ledger cannot know the month's total, so the run asks first,
+as one past the budget would. A spending cap the consumer declares bounds a
+run below the fleet's, never above it, and a check that would start a paid
+run is never read-only. It is never a `ci` check either: CI runs on every
+push, so nothing could keep it inside $100 a month across every product.
 Checks that start no paid run carry on as their lane says.
 
 **A step is `human` only when no machine can answer it** — or when it

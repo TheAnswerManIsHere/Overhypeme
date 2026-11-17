@@ -45,8 +45,7 @@ written verification note ("run X, observe Y"). A prototype-phase feature
 keeps this rule — its surface is the thing the owner uses — with the machine
 lanes proving what a machine can check (never what an AI-generated image
 shows beyond what anyone would verify the same way, which is his, and a
-paid AI run within his budget, $5 a run and $25 a week across every product, on his go-ahead only
-above it: [`uat-doc-format.md`](../tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07))
+paid AI run within his monthly budget, $100 a calendar month across every product with no per-run cap, asking only for a run that would take the month past it: [`uat-doc-format.md`](../tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07))
 and the owner's feedback, not a note, standing as the acceptance script for
 the rest
 ([`working-modes.md`](working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
@@ -184,14 +183,14 @@ and carries on, and he corrects it if it is wrong (David, 2026-11-14;
   but a reviewed pull request (one landed by PR takes the ordinary bar, with
   its latitude line, as the Claude core's *No PR waits for David's click*
   already says — the list names the live toggle, not the reviewed diff);
-  **a paid AI run, or any
-  cost beyond the session's own tokens, above $5 for one run, and any such
-  spend once the week's total across every product — read from the fleet's
-  paid-run ledger in KITT (`uat-doc-format.md`, *Lanes*) — would pass
-  $25** (David, 2026-10-21: *"Include
-  paid AI runs or anything that incurs cost above just the tokens in my
-  plan. Limit it to $5/run and set a weekly budget of $25 just in case."*) —
-  below both, a paid run proceeds and its cost is reported. The list is
+  **a paid AI run, or any cost beyond the session's own tokens, that would take
+  the calendar month's total across every product — read from the fleet's
+  paid-run ledger in KITT (`uat-doc-format.md`, *Lanes*) — past $100**
+  (David, 2026-11-17: *"Stop asking about spending money. We need to get to
+  launch. Reset the spend amount to $100/month and just do what is
+  needed."*; it replaced $5 a run and $25 a week, David, 2026-10-21) —
+  within it, a needed paid run proceeds without asking and its cost is
+  reported. The list is
   closed and grows only by his word.
 - **Plans are his, every time** (David, 2026-10-10: *"Don't do anything that's
   not in a plan and don't build new plans and start executing against them
