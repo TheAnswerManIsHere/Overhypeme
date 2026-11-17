@@ -133,6 +133,29 @@ async function pinRestoredSnapshot(databaseUrl: string): Promise<Record<string, 
   }
 }
 
+/**
+ * The render-failure control's one setting: a single picture attempt. A
+ * retryable render failure reads "rendering" while the queue retries it and
+ * "failed" only when the queue gives up (PLAN_NB_FALLBACK.md), and the default
+ * schedule gives up after about ten and a half hours. One attempt makes the
+ * recorded vendor error reach the failed state through the queue's own give-up
+ * path (`onAbandon`) within the journey's wait. Reported, so a run shows it.
+ */
+async function pinOneRenderAttempt(databaseUrl: string): Promise<Record<string, unknown>> {
+  const client = new pg.Client({ connectionString: databaseUrl });
+  await client.connect();
+  try {
+    await client.query(
+      `INSERT INTO admin_config (key, value, data_type, label)
+       VALUES ('async_job_image_generation_max_attempts', '1', 'integer', 'Image generation: max attempts (render-failure control)')
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    );
+    return { imageGenerationMaxAttempts: 1 };
+  } finally {
+    await client.end();
+  }
+}
+
 function storageEnv(work: string) {
   return {
     STORAGE_BACKEND: "local-double",
@@ -170,6 +193,7 @@ async function journeys(cfg: InnerConfig): Promise<Record<string, unknown>> {
     run("scripts/load-legacy-fixture.ts", { ...base, ...storage }, "loading the legacy fixture");
   }
   if (cfg.restoredSnapshot) out.snapshotPins = await pinRestoredSnapshot(cfg.databaseUrl);
+  if (cfg.control === "render-failure") out.controlPins = await pinOneRenderAttempt(cfg.databaseUrl);
   run("scripts/seed-e2e-test-accounts.ts", { ...base, BCRYPT_SALT_ROUNDS: "4" }, "seeding the test accounts");
 
   const port = cfg.serve?.port ?? (await freePort());
