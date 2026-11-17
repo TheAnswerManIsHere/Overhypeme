@@ -3,6 +3,7 @@
  * @subsystem community
  */
 import { useState, useEffect } from "react";
+import { REJECTION_REASON_LABELS, type RejectionReason } from "@workspace/api-zod";
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Layout } from "@/components/layout/Layout";
@@ -69,12 +70,6 @@ function TimeAgo({ iso }: { iso: string }) {
   return <span>{new Date(iso).toLocaleDateString()}</span>;
 }
 
-const REJECTION_REASON_LABELS: Record<string, string> = {
-  duplicate: "Duplicate",
-  spam: "Spam",
-  offensive: "Offensive",
-  lame: "Lame",
-};
 
 function EntryCard({ entry }: { entry: ActivityEntry }) {
   const meta = ACTION_META[entry.actionType] ?? ACTION_META.system_message;
@@ -85,7 +80,7 @@ function EntryCard({ entry }: { entry: ActivityEntry }) {
   const rejectionReason = entry.metadata?.rejectionReason as string | undefined;
   const adminNote = entry.metadata?.adminNote as string | undefined;
 
-  const rejectionReasonLabel = rejectionReason ? REJECTION_REASON_LABELS[rejectionReason] ?? rejectionReason : null;
+  const rejectionReasonLabel = rejectionReason ? REJECTION_REASON_LABELS[rejectionReason as RejectionReason] ?? rejectionReason : null;
 
   return (
     <div className={`flex gap-4 p-4 rounded-sm border transition-colors ${entry.read ? "bg-card border-border" : "bg-primary/5 border-primary/20"}`}>

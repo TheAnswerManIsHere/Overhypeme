@@ -9,6 +9,7 @@
  *  - canProvisionallyApprove includes concept_review.
  */
 
+import { reviewReasonEnum } from "@workspace/db/schema";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
@@ -21,6 +22,7 @@ import {
   canApproveVisualConcept,
   canProductionApprove,
   canReject,
+  REJECTION_REASON_VALUES,
 } from "@workspace/api-zod";
 
 describe("moderationWorkflow — concept_review stage", () => {
@@ -57,6 +59,12 @@ describe("moderationWorkflow — concept_review stage", () => {
     }
     assert.equal(canReject("triage_pending", "rejected"), false);
     assert.equal(canReject("production_review", "approved"), false);
+  });
+
+  it("the rejection reasons and the review_reason enum are one list", () => {
+    // lib/db cannot import api-zod, so the enum repeats the list; this keeps
+    // the two copies from drifting.
+    assert.deepEqual([...reviewReasonEnum.enumValues], [...REJECTION_REASON_VALUES]);
   });
 
   it("canProvisionallyApprove: re-prep allowed from concept_review", () => {

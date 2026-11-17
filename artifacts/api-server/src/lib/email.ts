@@ -22,7 +22,7 @@
  * Brand: dark bg (#0d0d0e), danger orange (BRAND_ORANGE), Oswald + Inter typography.
  */
 import { randomUUID } from "node:crypto";
-import { BRAND_ORANGE } from "@workspace/api-zod";
+import { BRAND_ORANGE, type RejectionReason } from "@workspace/api-zod";
 import { Resend } from "resend";
 import { eq, sql } from "drizzle-orm";
 import { db as defaultDb } from "@workspace/db";
@@ -925,7 +925,7 @@ ${divider()}
   return { subject, text, html };
 }
 
-const REJECTION_REASON_LABELS: Record<string, string> = {
+const REJECTION_REASON_LABELS: Record<RejectionReason, string> = {
   duplicate: "Duplicate — this fact is too similar to one already in the database.",
   spam: "Spam — this submission doesn't meet our community guidelines.",
   offensive: "Offensive — this fact contains content that violates our standards.",
@@ -940,7 +940,7 @@ export function buildReviewRejectedEmail(opts: {
   rejectionReason?: string | null;
 }): Pick<EmailPayload, "subject" | "text" | "html"> {
   const subject = "Update on your submitted Overhype.me fact";
-  const reasonLabel = opts.rejectionReason ? REJECTION_REASON_LABELS[opts.rejectionReason] : null;
+  const reasonLabel = opts.rejectionReason ? REJECTION_REASON_LABELS[opts.rejectionReason as RejectionReason] ?? null : null;
 
   const text = [
     `HEY ${opts.username.toUpperCase()}, NOT EVERY LEGEND MAKES THE CUT.`,

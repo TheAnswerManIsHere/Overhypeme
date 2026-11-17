@@ -81,9 +81,9 @@ export const pendingReviewsTable = pgTable("pending_reviews", {
   wordingEditedBy: varchar("wording_edited_by").references(() => usersTable.id, { onDelete: "set null" }),
   wordingEditedAt: timestamp("wording_edited_at", { withTimezone: true }),
   /**
-   * Withdraw: wording needs replacing (migration 0141). Set once, when a
-   * moderator ends a submission past triage whose wording is wrong; the review
-   * is terminal and its staging fact can never go live.
+   * Withdraw: wording needs replacing (migration 0141). RETIRED with Withdraw
+   * (Issue #1018, increment 1.2c-i): nothing writes or reads it; dropped by the
+   * stage cutover's contract migration (1.2c-ii).
    */
   withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),
   withdrawnBy: varchar("withdrawn_by").references(() => usersTable.id, { onDelete: "set null" }),

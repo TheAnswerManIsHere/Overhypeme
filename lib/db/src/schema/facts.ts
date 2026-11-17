@@ -93,8 +93,9 @@ export const factsTable = pgTable("facts", {
   /**
    * Set when this fact's submission was withdrawn because its wording needs
    * replacing (migration 0141): the fact can never go live
-   * (facts_withdrawn_stays_inactive). Its text, like every fact's, never
-   * changes (the facts_text_is_locked trigger).
+   * (facts_withdrawn_stays_inactive). RETIRED with Withdraw (Issue #1018,
+   * increment 1.2c-i): no longer written; dropped with its check by the stage
+   * cutover's contract migration (1.2c-ii).
    */
   wordingWithdrawnAt: timestamp("wording_withdrawn_at", { withTimezone: true }),
   /**

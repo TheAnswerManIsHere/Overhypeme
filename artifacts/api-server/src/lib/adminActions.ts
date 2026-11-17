@@ -42,10 +42,10 @@ export async function recordAdminActions(records: AdminActionRecord[], executor?
     action: r.action,
     detail: r.detail ?? {},
   }));
-  if (executor) { await executor.insert(adminActionsTable).values(rows); return; }
   try {
-    await db.insert(adminActionsTable).values(rows);
+    await (executor ?? db).insert(adminActionsTable).values(rows);
   } catch (err) {
+    if (executor) throw err;
     logger.error({ err, actions: records.map((r) => r.action), targets: records.map((r) => r.target) }, "[admin-actions] could not record an action after its change committed");
   }
 }
