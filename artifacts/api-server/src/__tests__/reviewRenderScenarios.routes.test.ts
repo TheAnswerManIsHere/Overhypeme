@@ -214,7 +214,7 @@ describe("POST /admin/reviews/:id/render-scenarios", () => {
     assert.equal(grid.body.tally.requested, 3, "and is not counted as owed work");
   });
 
-  it("renders the wife's scenario as Susan Franklin, and hashes it with that same subject", async () => {
+  it("renders the wife's scenario as Raena Franklin, and hashes it with that same subject", async () => {
     const reviewId = await seedReview(plainId);
     await request(makeApp())
       .post(`/admin/reviews/${reviewId}/render-scenarios`)
@@ -223,7 +223,7 @@ describe("POST /admin/reviews/:id/render-scenarios", () => {
 
     const [attempt] = await db.select().from(imagePromptAttemptsTable)
       .where(eq(imagePromptAttemptsTable.reviewId, reviewId));
-    assert.match(attempt!.renderedFactText!, /Susan Franklin/);
+    assert.match(attempt!.renderedFactText!, /Raena Franklin/);
     assert.equal(attempt!.subjectRenderMode, "human_identity_i2i");
 
     // A just-enqueued attempt is NOT stale: the live grid recomputes the same

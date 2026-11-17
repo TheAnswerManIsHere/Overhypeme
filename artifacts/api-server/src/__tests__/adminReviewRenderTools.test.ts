@@ -259,7 +259,7 @@ describe("POST /admin/reviews/:id/render", () => {
     assert.equal(res.body.error, "fact_enrichment_invalid");
   });
 
-  it("the wife's photo renders as Susan Franklin, she/her, when no name is given", async () => {
+  it("the wife's photo renders as Raena Franklin, she/her, when no name is given", async () => {
     const { reviewId } = await seedReview({ submittedById: plainId });
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/render`)
@@ -268,7 +268,7 @@ describe("POST /admin/reviews/:id/render", () => {
     assert.equal(res.status, 202, JSON.stringify(res.body));
     const [attempt] = await db.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.id, res.body.attemptId)).limit(1);
     assert.equal(attempt!.subjectRenderMode, "human_identity_i2i");
-    assert.deepEqual((attempt!.renderControls as Record<string, unknown>)["reviewRenderSubject"], { name: "Susan Franklin", pronouns: "she/her" });
+    assert.deepEqual((attempt!.renderControls as Record<string, unknown>)["reviewRenderSubject"], { name: "Raena Franklin", pronouns: "she/her" });
   });
 
   it("202 + inserts an ephemeral, audited attempt drawn from David's photo by default", async () => {

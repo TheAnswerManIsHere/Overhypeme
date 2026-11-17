@@ -74,7 +74,7 @@ export const REVIEW_RENDER_PREPARE_QUEUE = "review_render_scenarios_prepare";
  * The render controls every scenario render uses. The sample subject's name
  * and pronouns no longer ride here as a "fallback gender": they come from the
  * scenario's reference photo (`defaultPreviewSubjectForReference`), so the
- * wife's photo renders as Susan Franklin, she/her (compiler review, Phase 2).
+ * wife's photo renders as Raena Franklin, she/her (compiler review, Phase 2).
  */
 export function defaultScenarioRenderControls(): {
   aspectRatio: string;

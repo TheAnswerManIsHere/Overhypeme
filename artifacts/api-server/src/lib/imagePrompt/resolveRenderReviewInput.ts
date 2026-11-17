@@ -52,7 +52,7 @@ export interface RenderReviewControls {
   /**
    * The fixed reference photo a moderation or capture render uses, when it
    * uses one. Its identity names the sample subject: the wife's photo renders
-   * as Susan Franklin, she/her; every other one as David Franklin, he/him.
+   * as Raena Franklin, she/her; every other one as David Franklin, he/him.
    */
   referenceIdentityType?: ReferenceIdentityType | null;
 }
@@ -99,7 +99,7 @@ export function defaultPreviewSubjectForGender(
 ): { name: string; pronouns: string } {
   switch (gender) {
     case "female":
-      return { name: "Susan Franklin", pronouns: "she/her" };
+      return { name: "Raena Franklin", pronouns: "she/her" };
     case "neutral":
       return { name: "Alex Franklin", pronouns: "they/them" };
     default: // "male" and null/undefined (i2i) → historical default

@@ -14,7 +14,7 @@ near-empty placeholder is rejected by the health check.
 | Identity type             | File                          | Status                                            |
 | ------------------------- | ----------------------------- | ------------------------------------------------- |
 | `male`                    | `male.jpg`                    | ✅ Provided (upright-normalized male portrait).    |
-| `female`                  | `female.jpg`                  | ✅ Provided (upright-normalized female portrait).  |
+| `female`                  | `female.jpg`                  | ✅ Provided (David's wife, Raena Franklin; upright-normalized). |
 | `nonhuman_animal`         | `nonhuman-animal.jpg`         | ✅ Provided (David's cat; metadata stripped, v2). |
 | `nonhuman_object_vehicle` | `nonhuman-object-vehicle.jpg` | ✅ Provided (upright-normalized car).             |
 
