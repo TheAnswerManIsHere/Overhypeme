@@ -661,9 +661,9 @@ byte-identical wording.
 
 ### Render mode
 
-What the engine is asked to preserve: a real uploaded likeness, a non-human
-subject from a reference image, or nothing at all (render from description
-alone). Inferred automatically from available image material, with a human
+What the engine is asked to preserve: a real uploaded likeness, a pet from a
+reference image ([a subject is a person or a pet](./decisions.md#2026-11-15--a-pictures-subject-is-a-person-or-a-pet-vehicles-objects-and-mascots-are-not-subjects)), or nothing at all
+(render from description alone). Inferred automatically from available image material, with a human
 override when the automatic read is wrong.
 → [visual-pipeline](./visual-pipeline.md)
 
@@ -722,8 +722,8 @@ change a render already in flight.
 ### Reference image
 
 Image material the engine is asked to preserve something from — a real
-uploaded likeness, or a pet (a subject is a person or a pet). Which one applies (or neither) is
-what [render mode](#render-mode) decides.
+uploaded likeness, or a pet ([a subject is a person or a pet](./decisions.md#2026-11-15--a-pictures-subject-is-a-person-or-a-pet-vehicles-objects-and-mascots-are-not-subjects)). Which
+one applies (or neither) is what [render mode](#render-mode) decides.
 → [visual-pipeline](./visual-pipeline.md)
 
 ### Readable-text policy
