@@ -12,6 +12,12 @@
  *                meanings appended to the humor note.
  * Both arms start with no existing gags and no draft, like a new submission.
  *
+ * The sheet shows each idea in the gag writer's own words, from its reply. The
+ * product's second model, which converts the stand-in name to tokens, is not
+ * called: a plain swap stands in for it, so no idea can be lost or reworded
+ * between the writer and the judge, and the gag writer is the only model a
+ * run calls. Its validation and corrective retry run as in the product.
+ *
  * It writes, under the output directory:
  *   - sheet.md   the judging sheet: per fact, "Set 1" and "Set 2" in an order
  *                drawn at random, with no word of which arm is which;
@@ -36,15 +42,14 @@ import { randomInt } from "node:crypto";
 import { db } from "@workspace/db";
 import { factsTable } from "@workspace/db/schema";
 import { inArray } from "drizzle-orm";
-import { validateEnrichment, visualConceptCandidatesBlobSchema, type StoredCandidateConcept } from "@workspace/api-zod";
+import { isCandidateConceptPickable, validateEnrichment, visualConceptCandidatesBlobSchema } from "@workspace/api-zod";
 import { OPENAI_PRICES } from "../src/lib/aiDouble/recorder";
-import { armInputs, type Arm } from "../src/lib/visualConcepts/blindCheck";
+import { armInputs, ideaLines, standInTokenize, writerIdeas, type Arm, type WriterIdea } from "../src/lib/visualConcepts/blindCheck";
 import {
   buildVisualConceptsUserMessage,
   generateVisualConceptsWithModel,
   makeOpenAIConceptsCaller,
   resolveVisualConceptsLLMSettings,
-  STAND_IN_NAME,
   withStandIn,
   type GenerateVisualConceptsInput,
   type VisualConceptsLLMSettings,
@@ -60,7 +65,10 @@ interface ArmResult {
   arm: Arm;
   request: string;
   jokeRead: string | null;
-  candidates: StoredCandidateConcept[];
+  /** The ideas as the writer wrote them in the reply that was accepted. */
+  ideas: WriterIdea[];
+  /** Ideas the product could not use, by its own validation; shown to the judge all the same. */
+  unusable: number;
   usage: VisualConceptsUsage[];
   costUsd: number;
   error: string | null;
@@ -97,15 +105,6 @@ async function pooled<T, R>(items: T[], limit: number, work: (item: T) => Promis
   return results;
 }
 
-function ideaLines(c: StoredCandidateConcept, n: number): string[] {
-  const lines = [`**Idea ${n}.** ${withStandIn(c.sceneDescription ?? "")}`];
-  for (const b of c.bubbles ?? []) {
-    if (!b.text?.trim()) continue;
-    lines.push(`- ${b.type} bubble, ${b.entity === "subject" ? STAND_IN_NAME : b.entity}: "${withStandIn(b.text)}"`);
-  }
-  return lines;
-}
-
 async function loadPlans(ids: number[]): Promise<{ plans: FactPlan[]; skipped: string[] }> {
   const rows = await db
     .select({
@@ -139,12 +138,26 @@ async function loadPlans(ids: number[]): Promise<{ plans: FactPlan[]; skipped: s
 async function runArm(arm: Arm, input: GenerateVisualConceptsInput, settings: VisualConceptsLLMSettings, price: Price): Promise<ArmResult> {
   const request = buildVisualConceptsUserMessage(input);
   const usage: VisualConceptsUsage[] = [];
+  const call = makeOpenAIConceptsCaller(settings, (u) => usage.push(u));
+  // The last reply is the one accepted when generation succeeds (a corrective call replaces the first).
+  let lastReply: string | null = null;
+  const callAndKeep: typeof call = async (msgs) => (lastReply = await call(msgs));
+  const failed = (error: string): ArmResult =>
+    ({ arm, request, jokeRead: null, ideas: [], unusable: 0, usage, costUsd: costOf(usage, price), error });
   try {
-    const out = await generateVisualConceptsWithModel(input, makeOpenAIConceptsCaller(settings, (u) => usage.push(u)));
-    return { arm, request, jokeRead: out.jokeRead, candidates: out.candidates, usage, costUsd: costOf(usage, price), error: null };
+    const out = await generateVisualConceptsWithModel(input, callAndKeep, standInTokenize);
+    const ideas = writerIdeas(lastReply);
+    if (!ideas) return failed("the accepted reply could not be read back");
+    const unusable = out.candidates.filter((c) => !isCandidateConceptPickable(c)).length;
+    return { arm, request, jokeRead: out.jokeRead, ideas, unusable, usage, costUsd: costOf(usage, price), error: null };
   } catch (err) {
-    return { arm, request, jokeRead: null, candidates: [], usage, costUsd: costOf(usage, price), error: err instanceof Error ? err.message : String(err) };
+    return failed(err instanceof Error ? err.message : String(err));
   }
+}
+
+function armStatus(r: ArmResult): string {
+  if (r.error) return `FAILED (${r.error})`;
+  return r.unusable ? `ok, ${r.unusable} idea(s) the product could not use` : "ok";
 }
 
 async function main(): Promise<void> {
@@ -194,7 +207,7 @@ async function main(): Promise<void> {
       runArm("today", p.inputs.today, settings, price),
       runArm("reduced", p.inputs.reduced, settings, price),
     ]);
-    console.log(`#${p.factId}: today ${today.error ? `FAILED (${today.error})` : "ok"}, reduced ${reduced.error ? `FAILED (${reduced.error})` : "ok"}; $${(today.costUsd + reduced.costUsd).toFixed(2)}`);
+    console.log(`#${p.factId}: today ${armStatus(today)}, reduced ${armStatus(reduced)}; $${(today.costUsd + reduced.costUsd).toFixed(2)}`);
     return { p, today, reduced };
   });
 
@@ -206,14 +219,14 @@ async function main(): Promise<void> {
     order.forEach((r, i) => {
       sheet.push(`### Set ${i + 1}`, "");
       if (r.error) sheet.push(`_This set could not be written: ${r.error}_`, "");
-      r.candidates.forEach((c, n) => sheet.push(...ideaLines(c, n + 1), ""));
+      r.ideas.forEach((idea, n) => sheet.push(...ideaLines(idea, n + 1), ""));
     });
     key.push({ factId: p.factId, noteSource: p.noteSource, set1: order[0]!.arm, set2: order[1]!.arm, arms: { today, reduced } });
   }
 
   writeFileSync(join(outDir, "sheet.md"), sheet.join("\n"));
   writeFileSync(join(outDir, "key.json"), JSON.stringify({ totalCostUsd: Number(total.toFixed(4)), skipped, facts: key }, null, 2));
-  console.log(`\nWrote ${join(outDir, "sheet.md")} and key.json. Total cost $${total.toFixed(2)} (gag-writer calls only; the tokenizer's calls are not counted).`);
+  console.log(`\nWrote ${join(outDir, "sheet.md")} and key.json. Total cost $${total.toFixed(2)}; the gag writer is the only model the run called.`);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(import.meta.filename ?? "")) {
