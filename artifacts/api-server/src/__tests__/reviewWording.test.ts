@@ -8,8 +8,10 @@
  *     change to the fact's text;
  *   - a triage edit racing acceptance, in both completion orders, locks the
  *     edited wording or refuses the edit, never the stale wording;
- *   - Withdraw ends a submission past triage for good: it leaves the queue
- *     and the submitter's pending count, and its fact can never go live.
+ *   - a submission past triage whose wording needs replacing is rejected
+ *     (Withdraw was folded into Reject on every step, PLAN_FACT_LIFECYCLE_
+ *     REBUILD.md item 13): it leaves the queue and the submitter's pending
+ *     count, and its fact can never go live.
  */
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -75,7 +77,7 @@ after(async () => {
     await db.delete(asyncJobsTable).where(inArray(asyncJobsTable.externalId, factIds.map(String)));
     await db.delete(factsTable).where(inArray(factsTable.id, factIds));
   }
-  // Acceptance and Withdraw write the submitter's activity feed.
+  // Acceptance and Reject write the submitter's activity feed.
   await db.delete(activityFeedTable).where(inArray(activityFeedTable.userId, [adminId, submitterId]));
   await db.delete(usersTable).where(inArray(usersTable.id, [adminId, submitterId]));
 });
@@ -140,6 +142,7 @@ describe("the wording locks on acceptance", () => {
     const refused = await request(app).post(url(id, "wording")).send({ text: "{NAME} a later edit to the wording." });
     assert.equal(refused.status, 409);
     assert.equal(refused.body.code, "WORDING_LOCKED");
+    assert.match(refused.body.error, /Reject the submission/, "the locked-wording refusal points at Reject, not the removed Withdraw");
     await assert.rejects(db.update(factsTable).set({ text: "{NAME} edited around the route." }).where(eq(factsTable.id, fact!.id)));
   });
 
@@ -172,7 +175,7 @@ describe("the wording locks on acceptance", () => {
   });
 });
 
-describe("Withdraw: wording needs replacing", () => {
+describe("Reject past triage: the wording needs replacing", () => {
   it("ends the submission for good: off the queue and the pending count, never live", async () => {
     const id = await triageReview();
     assert.equal((await accept(id)).status, 200);
@@ -180,32 +183,28 @@ describe("Withdraw: wording needs replacing", () => {
       .filter((r) => (UNRESOLVED_SUBMISSION_STAGE_VALUES as readonly string[]).includes(r.workflowStage)).length;
     const pendingBefore = await unresolved();
 
-    const res = await request(app).post(url(id, "withdraw")).send({ note: "The joke reads backwards." });
+    const res = await request(app).post(url(id, "reject")).send({ rejectionReason: "lame", adminNote: "The joke reads backwards." });
     assert.equal(res.status, 200, JSON.stringify(res.body));
     const row = await reviewRow(id);
     assert.equal(row.status, "rejected");
     assert.equal(row.workflowStage, "production_rejected");
-    assert.ok(row.withdrawnAt);
-    assert.equal(row.withdrawnBy, adminId);
+    assert.equal(row.reviewedById, adminId);
     assert.equal(await unresolved(), pendingBefore - 1, "the submitter's pending count drops");
 
     const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, row.stagingFactId!));
-    assert.ok(fact!.wordingWithdrawnAt);
     assert.equal(fact!.isActive, false);
-    await assert.rejects(db.update(factsTable).set({ isActive: true }).where(eq(factsTable.id, fact!.id)), "the database keeps it inactive");
 
-    const again = await request(app).post(url(id, "withdraw")).send({});
+    const again = await request(app).post(url(id, "reject")).send({ rejectionReason: "lame" });
     assert.equal(again.status, 409);
-    assert.equal(again.body.code, "NOT_WITHDRAWABLE");
     assert.equal((await request(app).post(url(id, "approve-for-production")).send({})).status >= 400, true, "a resolved review cannot be approved");
   });
 
   it("stays final when prep finishes after it: the late result moves nothing", async () => {
     const id = await triageReview();
     assert.equal((await accept(id)).status, 200);
-    assert.equal((await request(app).post(url(id, "withdraw")).send({})).status, 200);
+    assert.equal((await request(app).post(url(id, "reject")).send({ rejectionReason: "lame" })).status, 200);
     const factId = (await reviewRow(id)).stagingFactId!;
-    // A withdrawn review is resolved, so the late result finds nothing to advance.
+    // A rejected review is resolved, so the late result finds nothing to advance.
     await advanceReviewForStagingFactEnrichment({ factId, outcome: "success" });
     await advanceReviewForStagingFactEnrichment({ factId, outcome: "terminal_failed" });
     const row = await reviewRow(id);
@@ -213,9 +212,9 @@ describe("Withdraw: wording needs replacing", () => {
     assert.equal(row.status, "rejected");
   });
 
-  it("a stale acceptance re-check refuses a review withdrawn since its first read", async () => {
+  it("a stale acceptance re-check refuses a review rejected since its first read", async () => {
     // Acceptance from prep_failed (a retry) reads the review, then locks it. A
-    // withdrawal landing between the two leaves the locked row resolved, and
+    // rejection landing between the two leaves the locked row resolved, and
     // acceptance answers 409 rather than writing prep_pending over it.
     const id = await triageReview();
     assert.equal((await accept(id)).status, 200);
@@ -228,7 +227,7 @@ describe("Withdraw: wording needs replacing", () => {
         await tx.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).for("update");
         taken();
         await held;
-        await tx.update(pendingReviewsTable).set({ status: "rejected", workflowStage: "production_rejected", withdrawnAt: new Date(), withdrawnBy: adminId }).where(eq(pendingReviewsTable.id, id));
+        await tx.update(pendingReviewsTable).set({ status: "rejected", workflowStage: "production_rejected", reason: "lame", reviewedById: adminId }).where(eq(pendingReviewsTable.id, id));
       });
     });
     await lockTaken;
@@ -243,11 +242,9 @@ describe("Withdraw: wording needs replacing", () => {
     assert.equal(row.status, "rejected");
   });
 
-  it("is refused at triage, where the wording can still be edited", async () => {
+  it("the Withdraw route is gone", async () => {
     const id = await triageReview();
-    const res = await request(app).post(url(id, "withdraw")).send({});
-    assert.equal(res.status, 409);
-    assert.equal(res.body.code, "NOT_WITHDRAWABLE");
+    assert.equal((await request(app).post(url(id, "withdraw")).send({})).status, 404);
     assert.equal((await reviewRow(id)).status, "pending");
   });
 });

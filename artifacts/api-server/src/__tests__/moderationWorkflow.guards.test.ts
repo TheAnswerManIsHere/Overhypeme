@@ -5,10 +5,11 @@
  *  - concept_review counts as an unresolved submission stage,
  *  - canApproveVisualConcept gates concept_review only,
  *  - canProductionApprove stays production_review-only,
- *  - canReject: a submission is triage_pending-only,
+ *  - canReject: any step until the fact goes live (PLAN_FACT_LIFECYCLE_REBUILD.md item 13),
  *  - canProvisionallyApprove includes concept_review.
  */
 
+import { reviewReasonEnum } from "@workspace/db/schema";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
@@ -21,6 +22,7 @@ import {
   canApproveVisualConcept,
   canProductionApprove,
   canReject,
+  REJECTION_REASON_VALUES,
 } from "@workspace/api-zod";
 
 describe("moderationWorkflow — concept_review stage", () => {
@@ -48,13 +50,21 @@ describe("moderationWorkflow — concept_review stage", () => {
     assert.equal(canProductionApprove("concept_review", "pending"), false);
   });
 
-  it("canReject: a submission can't be rejected past triage", () => {
-    assert.equal(canReject("triage_pending", "pending"), true);
-    assert.equal(canReject("prep_pending", "pending"), false);
-    assert.equal(canReject("prep_failed", "pending"), false);
-    assert.equal(canReject("concept_review", "pending"), false);
-    assert.equal(canReject("production_review", "pending"), false);
+  it("canReject: every step until the fact goes live, never a resolved review", () => {
+    for (const stage of ["triage_pending", "prep_pending", "prep_failed", "concept_review", "production_review"] as const) {
+      assert.equal(canReject(stage, "pending"), true, stage);
+    }
+    for (const stage of ["triage_rejected", "production_rejected", "production_approved"] as const) {
+      assert.equal(canReject(stage, "pending"), false, stage);
+    }
     assert.equal(canReject("triage_pending", "rejected"), false);
+    assert.equal(canReject("production_review", "approved"), false);
+  });
+
+  it("the rejection reasons and the review_reason enum are one list", () => {
+    // lib/db cannot import api-zod, so the enum repeats the list; this keeps
+    // the two copies from drifting.
+    assert.deepEqual([...reviewReasonEnum.enumValues], [...REJECTION_REASON_VALUES]);
   });
 
   it("canProvisionallyApprove: re-prep allowed from concept_review", () => {

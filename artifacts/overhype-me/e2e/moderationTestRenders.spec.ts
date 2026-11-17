@@ -109,6 +109,10 @@ test.describe("Admin · moderation · Test Renders per gag", () => {
     await expect(page.getByTestId("approve-for-production")).toBeDisabled();
     await cards.nth(1).getByTestId("gag-undo").click();
 
+    // Reject is on every step (PLAN_FACT_LIFECYCLE_REBUILD.md item 13), with its reason picker.
+    await expect(page.getByRole("button", { name: "Reject", exact: true })).toBeVisible();
+    await expect(page.locator("option", { hasText: "Couldn't make it work visually" })).toHaveCount(1);
+
     await page.getByTestId("approve-for-production").click();
     await expect.poll(() => server.approvals().length).toBe(1);
     expect((server.approvals()[0] as { hashtags: string[] }).hashtags).toContain("forklift");
@@ -125,5 +129,6 @@ test.describe("Admin · moderation · Test Renders per gag", () => {
     await expect(hint).toBeVisible();
     await expect(hint).toContainText("Each save draws one paid male test render");
     await expect(hint).not.toContainText("spends nothing");
+    await expect(page.getByRole("button", { name: "Reject", exact: true }), "Reject is on the Gags step too").toBeVisible();
   });
 });

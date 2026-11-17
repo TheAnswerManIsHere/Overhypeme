@@ -132,6 +132,10 @@ describe("buildReviewRejectedEmail – reason label", () => {
       reason: "offensive",
       expectedLabel: "Offensive — this fact contains content that violates our standards.",
     },
+    {
+      reason: "visual",
+      expectedLabel: "Couldn't make it work visually — we couldn't turn this one into a picture that does it justice.",
+    },
   ] as const;
 
   for (const { reason, expectedLabel } of REASONS) {

@@ -17,6 +17,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
 import express, { type Express } from "express";
+import { assertCanRunGagRenders, GagError } from "../lib/gags/gagStore";
 import request from "supertest";
 
 import { db, factGagsTable } from "@workspace/db";
@@ -740,7 +741,7 @@ describe("POST /admin/reviews/:id/reject", () => {
     assert.equal(after.reviewedById, adminId);
     const actions = await db.select({ action: adminActionsTable.action, actorId: adminActionsTable.actorId, detail: adminActionsTable.detail })
       .from(adminActionsTable).where(eq(adminActionsTable.reviewId, r.id));
-    assert.deepEqual(actions, [{ action: "reject", actorId: adminId, detail: { reason: "spam", adminNote: "doesn't fit", stage: "triage_pending" } }]);
+    assert.deepEqual(actions, [{ action: "reject", actorId: adminId, detail: { reason: "spam", adminNote: "doesn't fit", stage: "triage_pending", gagsDiscarded: 0 } }]);
   });
 });
 
@@ -1095,33 +1096,96 @@ describe("PATCH /admin/reviews/:id (draft autosave)", () => {
   });
 });
 
-describe("reject past triage is blocked", () => {
-  it("409s a first-time submission's reject once triage has passed (stays pending, untouched)", async () => {
+describe("reject from every step (PLAN_FACT_LIFECYCLE_REBUILD.md item 13)", () => {
+  async function seedPastTriage(stage: "prep_pending" | "prep_failed" | "concept_review" | "production_review") {
     const submitterId = await createTestUser();
     const [staging] = await db.insert(factsTable).values({
       text: "{NAME} does a thing", submittedById: submitterId, isActive: false, enrichment: VALID_APPROVAL_ENRICHMENT,
+      enrichmentStatus: stage === "prep_pending" ? "pending" : "ok",
     }).returning();
     await addGag(staging.id);
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} does a thing", submittedById: submitterId, status: "pending",
-      workflowStage: "production_review", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
+      workflowStage: stage, stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
     }).returning();
+    return { submitterId, staging, review };
+  }
+
+  for (const stage of ["prep_pending", "prep_failed", "concept_review", "production_review"] as const) {
+    it(`rejects from ${stage}: production_rejected, the gags discarded, the staging fact never live, recorded, the submitter told`, async () => {
+      const { submitterId, staging, review } = await seedPastTriage(stage);
+      const adminId = await createTestUser({ isAdmin: true });
+      const sid = await bearerForUser(adminId, { isAdmin: true });
+
+      const res = await request(makeApp())
+        .post(`/admin/reviews/${review.id}/reject`)
+        .set("authorization", `Bearer ${sid}`)
+        .send({ rejectionReason: "visual", adminNote: "no picture lands" });
+      assert.equal(res.status, 200);
+
+      const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
+      assert.equal(r.status, "rejected");
+      assert.equal(r.workflowStage, "production_rejected");
+      assert.equal(r.reason, "visual");
+      assert.equal(r.adminNote, "no picture lands");
+      assert.equal(r.productionRejectedById, adminId);
+      assert.ok(r.productionRejectedAt);
+      const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
+      assert.equal(fact.isActive, false, "the staging fact never goes live");
+      assert.equal(fact.approvedAt, null, "and is never recorded as approved");
+      if (stage === "prep_pending") assert.equal(fact.enrichmentStatus, null, "a pending enrichment is cleared");
+      const gags = await db.select().from(factGagsTable).where(eq(factGagsTable.factId, staging.id));
+      assert.equal(gags.length, 0, "the submission's gags are discarded");
+      const actions = await db.select({ action: adminActionsTable.action, actorId: adminActionsTable.actorId, factId: adminActionsTable.factId, detail: adminActionsTable.detail })
+        .from(adminActionsTable).where(eq(adminActionsTable.reviewId, review.id));
+      assert.deepEqual(actions, [{ action: "reject", actorId: adminId, factId: staging.id, detail: { reason: "visual", adminNote: "no picture lands", stage, gagsDiscarded: 1 } }]);
+      const feed = await db.select().from(activityFeedTable).where(eq(activityFeedTable.userId, submitterId));
+      assert.ok(feed.some((e) => e.actionType === "review_rejected"), "the submitter is told (the email follows the same path)");
+    });
+  }
+
+  it("waits for a gag being added and discards it too; a gag action after the rejection is refused (PR #1036 round 1)", async () => {
+    const { staging, review } = await seedPastTriage("concept_review");
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
 
-    const res = await request(makeApp())
+    // Another transaction holds the fact row, the way every gag action does,
+    // and adds a gag while Reject is waiting for it.
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    let locked!: () => void;
+    const lockTaken = new Promise<void>((r) => { locked = r; });
+    const adder = db.transaction(async (tx) => {
+      await tx.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, staging.id)).for("update");
+      locked();
+      await held;
+      await tx.insert(factGagsTable).values({ factId: staging.id, slot: 2, pendingContent: GAG });
+    });
+    await lockTaken;
+
+    let settled = false;
+    const rejecting = request(makeApp())
       .post(`/admin/reviews/${review.id}/reject`)
       .set("authorization", `Bearer ${sid}`)
-      .send({ rejectionReason: "lame", adminNote: "not strong enough" });
-    assert.equal(res.status, 409);
+      .send({ rejectionReason: "visual" })
+      .then((r) => { settled = true; return r; });
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(settled, false, "Reject waits for the fact row");
+    release();
+    await adder;
+    const res = await rejecting;
+    assert.equal(res.status, 200);
 
-    const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
-    assert.equal(r.workflowStage, "production_review", "stage is untouched — stays pending until an admin resolves it");
-    assert.equal(r.status, "pending");
-    assert.equal(r.productionRejectedById, null);
-    assert.equal(r.productionRejectedAt, null);
-    const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
-    assert.equal(fact.isActive, false, "staging fact is untouched (was never active)");
+    const gags = await db.select().from(factGagsTable).where(eq(factGagsTable.factId, staging.id));
+    assert.equal(gags.length, 0, "the gag added while Reject waited is discarded too");
+    const [action] = await db.select({ detail: adminActionsTable.detail }).from(adminActionsTable).where(eq(adminActionsTable.reviewId, review.id));
+    assert.equal((action.detail as { gagsDiscarded: number }).gagsDiscarded, 2);
+
+    await assert.rejects(
+      assertCanRunGagRenders(staging.id, 1, { adminId, reviewId: review.id }),
+      (err: unknown) => err instanceof GagError && err.code === "REVIEW_NOT_EDITABLE",
+      "a gag action after the rejection is refused",
+    );
   });
 
   it("a triage-stage reject stays triage_rejected", async () => {
@@ -1140,19 +1204,48 @@ describe("reject past triage is blocked", () => {
     assert.equal(r.workflowStage, "triage_rejected");
     assert.equal(r.productionRejectedAt, null);
   });
-});
 
-describe("POST /admin/reviews/:id/enrich (retired)", () => {
-  it("returns 410 Gone", async () => {
+  it("refuses a review that is already live, and leaves it untouched", async () => {
+    const submitterId = await createTestUser();
+    const [review] = await db.insert(pendingReviewsTable).values({
+      submittedText: "live one", submittedById: submitterId, status: "approved", workflowStage: "production_approved",
+    }).returning();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
     const res = await request(makeApp())
-      .post("/admin/reviews/123/enrich")
+      .post(`/admin/reviews/${review.id}/reject`)
       .set("authorization", `Bearer ${sid}`)
-      .send({});
-    assert.equal(res.status, 410);
-    assert.equal(res.body.code, "REVIEW_ENRICH_RETIRED");
+      .send({ rejectionReason: "lame" });
+    assert.equal(res.status, 409);
+    const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
+    assert.equal(r.workflowStage, "production_approved");
+    const actions = await db.select().from(adminActionsTable).where(eq(adminActionsTable.reviewId, review.id));
+    assert.equal(actions.length, 0);
   });
+
+  it("refuses without a reason, and leaves the gags", async () => {
+    const { staging, review } = await seedPastTriage("concept_review");
+    const adminId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+    const res = await request(makeApp())
+      .post(`/admin/reviews/${review.id}/reject`)
+      .set("authorization", `Bearer ${sid}`)
+      .send({ adminNote: "no reason given" });
+    assert.equal(res.status, 400);
+    const gags = await db.select().from(factGagsTable).where(eq(factGagsTable.factId, staging.id));
+    assert.equal(gags.length, 1);
+  });
+});
+
+describe("retired review routes are gone (Deprecated means removed)", () => {
+  for (const [method, path] of [["post", "/admin/reviews/123/enrich"], ["patch", "/admin/reviews/123/staging-enrichment"], ["post", "/admin/reviews/123/withdraw"]] as const) {
+    it(`${method.toUpperCase()} ${path} no longer exists`, async () => {
+      const adminId = await createTestUser({ isAdmin: true });
+      const sid = await bearerForUser(adminId, { isAdmin: true });
+      const res = await request(makeApp())[method](path).set("authorization", `Bearer ${sid}`).send({});
+      assert.equal(res.status, 404);
+    });
+  }
 });
 
 describe("GET /activity-feed", () => {

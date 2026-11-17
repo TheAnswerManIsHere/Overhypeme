@@ -8,7 +8,7 @@ import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage"
 import { db } from "@workspace/db";
 import {
   pendingReviewsTable, factsTable, usersTable, activityFeedTable,
-  hashtagsTable, factHashtagsTable, imagePromptAttemptsTable,
+  hashtagsTable, factHashtagsTable, imagePromptAttemptsTable, factGagsTable,
 } from "@workspace/db/schema";
 import { eq, desc, sql, and, or, ilike, count, inArray } from "drizzle-orm";
 import { requireAdmin } from "./admin";
@@ -31,6 +31,8 @@ import {
   canApproveVisualConcept,
   canProductionApprove,
   canReject,
+  REJECTION_REASON_VALUES,
+  type RejectionReason,
   SUBMISSION_TEXT_MAX_CHARS,
   SUBMISSION_TEXT_MIN_CHARS,
   REFERENCE_IDENTITY_TYPES,
@@ -69,7 +71,7 @@ import {
 import { resolveDefaultReferenceUrl, ReferenceAssetUnavailableError } from "../lib/defaultReferenceResolver";
 import { referenceAssetHealth } from "../lib/defaultReferenceResolver";
 import { logger } from "../lib/logger";
-import { editTriageWording, lockReview, WordingError, withdrawForWording } from "../lib/reviewWording";
+import { editTriageWording, lockReview, WordingError } from "../lib/reviewWording";
 import { checkDuplicateInternal } from "./ai";
 import { recordAdminAction } from "../lib/adminActions";
 
@@ -402,10 +404,10 @@ const ReviewDecisionBody = z.object({
   hashtags: z.array(z.string()).max(50).optional(),
 });
 // rejectionReason is required: it judges whether the FACT belongs in the
-// database.
+// database. adminNote is optional and reaches the submitter's email.
 const RejectBody = z.object({
   adminNote: z.string().max(500).optional(),
-  rejectionReason: z.enum(["duplicate", "spam", "offensive", "lame"]).optional(),
+  rejectionReason: z.enum(REJECTION_REASON_VALUES),
 });
 
 /**
@@ -792,7 +794,6 @@ export async function __settleSubmitDuplicateChecksForTest(): Promise<void> {
   // start while it is waiting.
   while (pendingSubmitChecks.size) await Promise.all([...pendingSubmitChecks]);
 }
-const WithdrawBody = z.object({ note: z.string().max(500).optional() });
 
 function sendWordingError(res: Response, err: unknown): boolean {
   if (err instanceof WordingError) {
@@ -840,72 +841,66 @@ router.post("/admin/reviews/:id/duplicate-check", requireAdmin, requireDuplicate
   res.json({ submittedText: current.submittedText, duplicate: await duplicateView(current) });
 });
 
-router.post("/admin/reviews/:id/withdraw", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
-  const id = parseInt(String(req.params["id"] ?? ""), 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-  const body = WithdrawBody.safeParse(req.body ?? {});
-  if (!body.success) { res.status(400).json({ error: "Invalid note." }); return; }
-  try {
-    const review = await withdrawForWording(id, req.user.id, body.data.note ?? null);
-    await recordAdminAction({ reviewId: review.id, factId: review.stagingFactId }, req.user.id, "withdraw", { note: body.data.note ?? null });
-    if (review.submittedById) {
-      await logActivity({
-        userId: review.submittedById,
-        actionType: "review_rejected",
-        message: "A moderator withdrew your submission because its wording needs replacing. You're welcome to submit the corrected wording as a new fact.",
-        metadata: { reviewId: review.id, withdrawn: true },
-      });
-    }
-    res.json({ success: true, workflowStage: review.workflowStage });
-  } catch (err) {
-    if (!sendWordingError(res, err)) throw err;
-  }
-});
-
 // ─── Reject Review (admin) ────────────────────────────────────────────────────
 
 router.post("/admin/reviews/:id/reject", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
-  const bodyParsed = RejectBody.safeParse(req.body);
+  const bodyParsed = RejectBody.safeParse(req.body ?? {});
   if (!bodyParsed.success) {
-    res.status(400).json({ error: "Invalid rejection reason. Must be one of: duplicate, spam, offensive, lame.", details: bodyParsed.error.flatten() });
+    res.status(400).json({ error: `A rejection reason is required. Must be one of: ${REJECTION_REASON_VALUES.join(", ")}.`, details: bodyParsed.error.flatten() });
     return;
   }
   const { adminNote = null, rejectionReason } = bodyParsed.data;
 
-  const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id));
-  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
-  if (review.status !== "pending") { res.status(409).json({ error: `Review already ${review.status}` }); return; }
-
-  // A submission can only be rejected during triage (Step 1). Once it clears
-  // triage, a stuck candidate (failed prep, a render that isn't working, a
-  // Visual Concept that needs work) stays pending until an admin resolves the
-  // underlying issue or withdraws it.
-  if (!canReject(review.workflowStage as ReviewWorkflowStage, review.status)) {
-    res.status(409).json({
-      error: `Cannot reject from stage ${review.workflowStage} — once triage passes, a stuck candidate stays pending until an admin resolves it.`,
-    });
-    return;
-  }
-
-  if (!rejectionReason) {
-    res.status(400).json({ error: "Rejection reason is required. Must be one of: duplicate, spam, offensive, lame." });
-    return;
-  }
-
-  await db.transaction(async (tx) => {
+  // Reject from any step before the fact goes live (plan
+  // PLAN_FACT_LIFECYCLE_REBUILD.md, oracle item 13). The review's row lock
+  // serialises it with transitions that take the review first. Approval and
+  // classification completion take the fact first, so against those one side
+  // can fail with a deadlock error and is retried by hand; the shared lock
+  // order across every transition is increment 1.2c-ii's (PR #1036 round 1).
+  const outcome = await db.transaction(async (tx) => {
+    const review = await lockReview(tx, id);
+    if (!review) return { kind: "not_found" as const };
+    if (review.status !== "pending") return { kind: "resolved" as const, status: review.status };
+    if (!canReject(review.workflowStage as ReviewWorkflowStage, review.status)) return { kind: "not_rejectable" as const, stage: review.workflowStage };
+    const atTriage = review.workflowStage === "triage_pending";
+    const now = new Date();
     await tx.update(pendingReviewsTable).set({
       status: "rejected",
-      workflowStage: "triage_rejected",
+      workflowStage: atTriage ? "triage_rejected" : "production_rejected",
       reviewedById: req.user.id,
       adminNote,
       reason: rejectionReason,
-      reviewedAt: new Date(),
+      reviewedAt: now,
+      ...(atTriage ? {} : { productionRejectedAt: now, productionRejectedById: req.user.id, productionRejectionNote: adminNote }),
     }).where(eq(pendingReviewsTable.id, id));
-    await recordAdminAction({ reviewId: id, factId: review.stagingFactId }, req.user.id, "reject", { reason: rejectionReason, adminNote, stage: review.workflowStage }, tx);
+    let gagsDiscarded = 0;
+    if (review.stagingFactId != null) {
+      // The submission's gags and their renders are discarded (1D): its
+      // staging fact was never approved and stays inactive, so nothing of it
+      // reaches members or the Facts page. The fact row is locked before its
+      // gags, the order every gag action takes (gagStore.ts), so a gag being
+      // added commits first and is deleted here, and one arriving after is
+      // refused because the review is no longer open. A render still running
+      // stores its picture on its attempt, attached to no gag: no screen lists
+      // or picks it, like the renders that finished before the rejection.
+      await tx.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, review.stagingFactId)).for("update");
+      await tx.update(factsTable)
+        .set({ enrichmentStatus: sql`CASE WHEN ${factsTable.enrichmentStatus} = 'pending' THEN NULL ELSE ${factsTable.enrichmentStatus} END` })
+        .where(eq(factsTable.id, review.stagingFactId));
+      const removed = await tx.delete(factGagsTable).where(eq(factGagsTable.factId, review.stagingFactId)).returning({ id: factGagsTable.id });
+      gagsDiscarded = removed.length;
+    }
+    await recordAdminAction({ reviewId: id, factId: review.stagingFactId }, req.user.id, "reject", { reason: rejectionReason, adminNote, stage: review.workflowStage, gagsDiscarded }, tx);
+    return { kind: "rejected" as const, review };
   });
+
+  if (outcome.kind === "not_found") { res.status(404).json({ error: "Review not found" }); return; }
+  if (outcome.kind === "resolved") { res.status(409).json({ error: `Review already ${outcome.status}` }); return; }
+  if (outcome.kind === "not_rejectable") { res.status(409).json({ error: `Cannot reject from stage ${outcome.stage}.` }); return; }
+  const review = outcome.review;
 
   if (review.submittedById) {
     const [submitter] = await db.select({ email: usersTable.email, displayName: usersTable.displayName })
@@ -1073,7 +1068,7 @@ router.post("/admin/reviews/:id/back-to-visual-concept", requireAdmin, async (re
 // with a warn) so mid-deploy autosaves don't 400 — the field is never written.
 const ReviewDraftBody = z.object({
   note: z.string().max(500).optional(),
-  reason: z.enum(["duplicate", "spam", "offensive", "lame", ""]).optional(),
+  reason: z.enum([...REJECTION_REASON_VALUES, ""]).optional(),
   enrichment: z.unknown().optional(),
 });
 
@@ -1090,11 +1085,11 @@ router.patch("/admin/reviews/:id", requireAdmin, async (req: AuthenticatedReques
   const raw = (req.body ?? {}) as Record<string, unknown>;
   const updates: {
     adminNote?: string | null;
-    reason?: "duplicate" | "spam" | "offensive" | "lame" | null;
+    reason?: RejectionReason | null;
   } = {};
   if (body.data.note !== undefined) updates.adminNote = body.data.note || null;
   if (body.data.reason !== undefined) {
-    updates.reason = (body.data.reason || null) as "duplicate" | "spam" | "offensive" | "lame" | null;
+    updates.reason = body.data.reason || null;
   }
   // Review-blob enrichment drafts are RETIRED: after provisional approval the
   // staging fact (facts.enrichment + its baseline/override layers) is the only
@@ -1113,42 +1108,6 @@ router.patch("/admin/reviews/:id", requireAdmin, async (req: AuthenticatedReques
   }
 
   res.json({ success: true });
-});
-
-// ─── Staging-enrichment whole-blob save: RETIRED ──────────────────────────────
-//
-// This endpoint used to accept the moderator's whole edited blob and
-// materialize it as a FRESH AI baseline (`materializeFromBaseline` → override
-// map wiped) — the override-history wipe the lockstep model eliminates. The
-// moderation modal now edits the staging fact through the SAME machinery as the
-// Edit Fact screen: tracked fields via PUT/DELETE
-// `/admin/facts/:stagingFactId/enrichment-overrides` (instant, per-field,
-// audited), untracked fields (visual-strategy override) via
-// `PATCH /admin/facts/:stagingFactId/enrichment` (tracked-field-guarded,
-// baseline-preserving). Kept registered (in this position, ahead of broader
-// review routes) for at least one release so stale clients fail with a clear
-// code instead of a 404.
-router.patch("/admin/reviews/:id/staging-enrichment", requireAdmin, (_req: Request, res: Response) => {
-  res.status(410).json({
-    error:
-      "Whole-blob staging enrichment saves are retired. The moderation editor persists edits through the fact override endpoints (/admin/facts/:stagingFactId/enrichment-overrides and /enrichment) automatically — reload the admin app.",
-    code: "STAGING_ENRICHMENT_RETIRED",
-  });
-});
-
-// ─── Enrichment: retired ──────────────────────────────────────────────────────
-//
-// Review-blob enrichment is retired. Production prep is fact-backed: enrichment
-// runs against the staging fact (created at provisional approval) and is re-run
-// via the fact enrichment endpoint (`/admin/facts/:id/enrich`) bound to
-// `review.stagingFactId`. This endpoint returns 410 so nothing re-introduces a
-// second, review-keyed source of enrichment truth.
-
-router.post("/admin/reviews/:id/enrich", requireAdmin, (_req: Request, res: Response) => {
-  res.status(410).json({
-    error: "Review-blob enrichment is retired. Provisionally approve the review and re-run enrichment on its staging fact.",
-    code: "REVIEW_ENRICH_RETIRED",
-  });
 });
 
 // ─── Moderation render-review tools (production_review) ────────────────────────

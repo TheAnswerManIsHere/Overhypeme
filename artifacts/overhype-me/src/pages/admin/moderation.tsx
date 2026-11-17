@@ -18,7 +18,9 @@ import {
   type FactGagsView,
   canEditWording,
   joinWithAnd,
-  canWithdraw,
+  REJECTION_REASON_VALUES,
+  REJECTION_REASON_LABELS,
+  type RejectionReason,
 } from "@workspace/api-zod";
 import {
   deriveModerationQueueState,
@@ -266,17 +268,17 @@ function ReasonBadge({ reason }: { reason: string | null }) {
       </span>
     );
   }
+  if (reason && (REJECTION_REASON_VALUES as readonly string[]).includes(reason)) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full border bg-muted text-muted-foreground border-border">
+        {REJECTION_REASON_LABELS[reason as RejectionReason]}
+      </span>
+    );
+  }
   return null;
 }
 
-const REJECTION_REASONS = [
-  { value: "duplicate", label: "Duplicate" },
-  { value: "spam",      label: "Spam" },
-  { value: "offensive", label: "Offensive" },
-  { value: "lame",      label: "Lame" },
-] as const;
-
-type RejectionReason = typeof REJECTION_REASONS[number]["value"];
+const REJECTION_REASONS = REJECTION_REASON_VALUES.map((value) => ({ value, label: REJECTION_REASON_LABELS[value] }));
 
 interface ReviewDetail extends Review {
   stagingFact: StagingFactDetail | null;
@@ -347,9 +349,7 @@ function StepIndicator({ step }: { step: WizardStep }) {
  *  - production_review   → Step 3 default (approve for production / back to gags).
  *  - resolved            → read-only summary + link to the live fact.
  *
- * Once triage passes, a candidate is never rejected again — a failed prep,
- * an unfinished gag, or a render that isn't ready just leaves it pending
- * until an admin resolves or withdraws it.
+ * Reject (with a reason) is available on every step until the fact goes live.
  */
 function ReviewModal({
   review,
@@ -624,8 +624,7 @@ function ReviewModal({
     void runAction("provisional-approve", body);
   };
   const onReject = async () => {
-    // Rejection reason (duplicate/spam/offensive/lame) judges whether the
-    // FACT belongs in the database.
+    // The rejection reason judges whether the FACT belongs in the database.
     if (!reason) { setError("Please select a rejection reason before rejecting."); return; }
     // Drain any in-flight per-field override write first so a field just
     // blurred by this click does not surface a spurious error.
@@ -725,9 +724,6 @@ function ReviewModal({
   const ideasStaleButSaved = ideasTerminalOk && detail?.visualConcepts?.current === false && hasSavedGag;
   // "Approve the gags": enabled with a saved gag AND terminal-OK ideas.
   const canApproveGag = hasSavedGag && ideasTerminalOk && !gagsUnsaved;
-  // A submission can only be rejected during triage (Step 1) — once triage
-  // passes, a stuck candidate stays pending until an admin resolves it.
-  const canRejectNow = stage === "triage_pending";
   const matchVisible = duplicateMatchShown(wording.duplicate, showClosest);
 
   // ── Sub-renders ────────────────────────────────────────────────────────────
@@ -761,10 +757,8 @@ function ReviewModal({
           text={wording.submittedText}
           originalText={wording.submittedTextOriginal}
           editable={canEditWording(stage, review.status, review.stagingFactId != null)}
-          withdrawable={canWithdraw(stage, review.status)}
           onSaved={(saved) => { duplicateCheck.supersede(); setWording(saved); setShowClosest(false); onActionDone(); }}
           onDirtyChange={setWordingDirty}
-          onWithdrawn={() => { onActionDone(); onClose(); }}
         />
         {matchVisible && <DuplicateMatchPanel view={wording.duplicate} showClosest={showClosest} />}
       </div>
@@ -773,25 +767,22 @@ function ReviewModal({
 
   const DecisionInputs = (
     <div className="space-y-4">
-      {/* Rejection Reason judges whether the FACT belongs in the database
-          (duplicate/spam/offensive/lame). */}
-      {(
-        <div>
-          <label className="block text-sm font-semibold text-foreground mb-2">
-            Rejection Reason <span className="text-muted-foreground font-normal">(required to reject)</span>
-          </label>
-          <select
-            value={reason}
-            onChange={(e) => { setReason(e.target.value as RejectionReason | ""); setError(""); }}
-            className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-          >
-            <option value="">— Select a reason —</option>
-            {REJECTION_REASONS.map((r) => (
-              <option key={r.value} value={r.value}>{r.label}</option>
-            ))}
-          </select>
-        </div>
-      )}
+      {/* Rejection Reason judges whether the FACT belongs in the database. */}
+      <div>
+        <label className="block text-sm font-semibold text-foreground mb-2">
+          Rejection Reason <span className="text-muted-foreground font-normal">(required to reject)</span>
+        </label>
+        <select
+          value={reason}
+          onChange={(e) => { setReason(e.target.value as RejectionReason | ""); setError(""); }}
+          className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+        >
+          <option value="">— Select a reason —</option>
+          {REJECTION_REASONS.map((r) => (
+            <option key={r.value} value={r.value}>{r.label}</option>
+          ))}
+        </select>
+      </div>
       <div>
         <label className="block text-sm font-semibold text-foreground mb-2">
           Admin Note{" "}
@@ -978,9 +969,7 @@ function ReviewModal({
               {stage === "prep_failed" && (
                 <p className="text-xs text-destructive mt-2 flex items-center gap-1.5">
                   <AlertTriangle className="w-3.5 h-3.5" />
-                  {canRejectNow
-                    ? "Enrichment failed after retries. Retry prep, or reject."
-                    : "Enrichment failed after retries. Retry prep — this stays pending until it succeeds."}
+                  Enrichment failed after retries. Retry prep, or reject.
                 </p>
               )}
               {isConceptReview && (
@@ -1039,17 +1028,13 @@ function ReviewModal({
               {ideasPending && (
                 <p className="text-xs text-muted-foreground flex items-center gap-1.5" data-testid="ideas-pending-note">
                   <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                  {canRejectNow
-                    ? "Visual ideas are still generating. Wait for them to finish, then retry, edit, reject, or send back to prep."
-                    : "Visual ideas are still generating. Wait for them to finish, then retry, edit, or send back to prep — this stays pending until it's resolved."}
+                  Visual ideas are still generating. Wait for them to finish, then retry, edit, reject, or send back to prep.
                 </p>
               )}
               {ideasFailed && (
                 <p className="text-xs text-destructive flex items-center gap-1.5" data-testid="ideas-failed-note">
                   <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                  {canRejectNow
-                    ? "Visual-ideas generation failed. Regenerate them (above), or reject / send back to prep."
-                    : "Visual-ideas generation failed. Regenerate them (above), or send back to prep — this stays pending until it's resolved."}
+                  Visual-ideas generation failed. Regenerate them (above), or reject / send back to prep.
                 </p>
               )}
               {visualConceptStatus == null && (
@@ -1116,8 +1101,8 @@ function ReviewModal({
             <EnrichmentSummary e={(detail?.stagingFact?.enrichment ?? review.enrichment) as FactEnrichment} />
           )}
 
-          {/* ── Decision inputs (Triage step only, and only where reject is available) ── */}
-          {!isResolved && step === "triage" && canRejectNow && DecisionInputs}
+          {/* ── Decision inputs on the Triage step (Gags and Test Renders show them beside their actions) ── */}
+          {!isResolved && step === "triage" && DecisionInputs}
 
           {/* ── Resolved: stored reason / note ── */}
           {isResolved && (review.reason || review.adminNote) && (
@@ -1163,12 +1148,10 @@ function ReviewModal({
 
             {!isResolved && step === "triage" && stage === "prep_pending" && (
               <div className="flex flex-wrap gap-3">
-                {canRejectNow && (
-                  <Button variant="outline" onClick={onReject} isLoading={loading}
-                    className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                    <XCircle className="w-4 h-4" /> Reject (cancels prep)
-                  </Button>
-                )}
+                <Button variant="outline" onClick={onReject} isLoading={loading}
+                  className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
+                  <XCircle className="w-4 h-4" /> Reject (cancels prep)
+                </Button>
                 <Button variant="outline" onClick={onClose} disabled={loading}>Close</Button>
               </div>
             )}
@@ -1179,12 +1162,10 @@ function ReviewModal({
                   className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2">
                   <RefreshCw className="w-4 h-4" /> Retry Prep
                 </Button>
-                {canRejectNow && (
-                  <Button variant="outline" onClick={onReject} isLoading={loading}
-                    className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                    <XCircle className="w-4 h-4" /> Reject
-                  </Button>
-                )}
+                <Button variant="outline" onClick={onReject} isLoading={loading}
+                  className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
+                  <XCircle className="w-4 h-4" /> Reject
+                </Button>
                 <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
               </div>
             )}
@@ -1196,22 +1177,18 @@ function ReviewModal({
                   className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2">
                   {isConceptReview ? "Continue to Gags" : "Continue to Test Renders"} <ChevronRight className="w-4 h-4" />
                 </Button>
-                {canRejectNow && (
-                  <Button variant="outline" onClick={onReject} isLoading={loading}
-                    className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                    <XCircle className="w-4 h-4" /> Reject
-                  </Button>
-                )}
+                <Button variant="outline" onClick={onReject} isLoading={loading}
+                  className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
+                  <XCircle className="w-4 h-4" /> Reject
+                </Button>
                 <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
               </div>
             )}
 
-            {/* Step 2 (Visual Concept): approve the gag (unlocks renders). A
-                candidate that's stuck here stays pending until an admin fixes
-                the Visual Concept; it is never rejected past triage. */}
+            {/* Step 2 (Visual Concept): approve the gag (unlocks renders), or reject. */}
             {!isResolved && step === "concept" && isConceptReview && (
               <div className="space-y-3">
-                {canRejectNow && DecisionInputs}
+                {DecisionInputs}
                 <div className="flex flex-wrap gap-3">
                   <Button variant="outline" onClick={() => setStep("triage")} disabled={loading} className="gap-2">
                     <ChevronLeft className="w-4 h-4" /> Back to Triage
@@ -1223,12 +1200,10 @@ function ReviewModal({
                     data-testid="approve-visual-gag">
                     <Wand2 className="w-4 h-4" /> Approve the Gags
                   </Button>
-                  {canRejectNow && (
-                    <Button variant="outline" onClick={onReject} isLoading={loading}
-                      className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                      <XCircle className="w-4 h-4" /> Reject
-                    </Button>
-                  )}
+                  <Button variant="outline" onClick={onReject} isLoading={loading}
+                    className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
+                    <XCircle className="w-4 h-4" /> Reject
+                  </Button>
                   <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
                 </div>
                 {!canApproveGag && (
@@ -1249,9 +1224,7 @@ function ReviewModal({
             {/* Step 3 (Test Renders): approve for production. */}
             {!isResolved && step === "render" && isProductionReview && (
               <div className="space-y-3">
-                {/* A candidate stuck on a bad render stays pending until an
-                    admin fixes it; it is never rejected past triage. */}
-                {canRejectNow && DecisionInputs}
+                {DecisionInputs}
                 <div className="flex flex-wrap gap-3">
                   <Button variant="outline" onClick={() => void onBackToVisualConcept()} isLoading={loading} disabled={loading}
                     className="gap-2" data-testid="back-to-visual-concept">
@@ -1263,12 +1236,10 @@ function ReviewModal({
                     data-testid="approve-for-production">
                     <Rocket className="w-4 h-4" /> Approve for Production
                   </Button>
-                  {canRejectNow && (
-                    <Button variant="outline" onClick={onReject} isLoading={loading}
-                      className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                      <XCircle className="w-4 h-4" /> Reject
-                    </Button>
-                  )}
+                  <Button variant="outline" onClick={onReject} isLoading={loading}
+                    className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
+                    <XCircle className="w-4 h-4" /> Reject
+                  </Button>
                   <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
                 </div>
                 {!canApproveProduction && (

@@ -24,7 +24,7 @@
  */
 import { eq, sql } from "drizzle-orm";
 import { db, factsTable, pendingReviewsTable } from "@workspace/db";
-import { canEditWording, canWithdraw, SUBMISSION_TEXT_MAX_CHARS, SUBMISSION_TEXT_MIN_CHARS, type ReviewWorkflowStage } from "@workspace/api-zod";
+import { canEditWording, SUBMISSION_TEXT_MAX_CHARS, SUBMISSION_TEXT_MIN_CHARS, type ReviewWorkflowStage } from "@workspace/api-zod";
 import { normalizeFactTemplateForPendingReview } from "./normalizeFactTemplateForStorage";
 import { runDetector, storedDuplicateColumns, type DuplicateDetector } from "./duplicateVerdict";
 
@@ -32,7 +32,7 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export class WordingError extends Error {
   constructor(
-    readonly code: "REVIEW_NOT_FOUND" | "WORDING_LOCKED" | "WORDING_INVALID" | "NOT_WITHDRAWABLE",
+    readonly code: "REVIEW_NOT_FOUND" | "WORDING_LOCKED" | "WORDING_INVALID",
     message: string,
     readonly status = 409,
   ) {
@@ -65,7 +65,7 @@ function assertAtTriage(review: { status: string; workflowStage: string; staging
   if (!canEditWording(review.workflowStage as ReviewWorkflowStage, review.status, review.stagingFactId != null)) {
     throw new WordingError(
       "WORDING_LOCKED",
-      "The wording is locked: it can only be edited at triage, before the submission is accepted. Withdraw the submission and submit the corrected wording as a new fact.",
+      "The wording is locked: it can only be edited at triage, before the submission is accepted. Reject the submission and submit the corrected wording as a new fact.",
     );
   }
 }
@@ -102,42 +102,6 @@ export async function editTriageWording(
       // The new wording's duplicate verdict, replaced with the wording.
       ...storedDuplicateColumns(match),
     }).where(eq(pendingReviewsTable.id, reviewId)).returning();
-    return updated!;
-  });
-}
-
-/**
- * Withdraw a submission past triage because its wording needs
- * replacing. Terminal: the review leaves the queue and its staging fact can
- * never go live. The corrected wording is submitted as a new fact.
- */
-export async function withdrawForWording(reviewId: number, adminId: string, note: string | null): Promise<typeof pendingReviewsTable.$inferSelect> {
-  return db.transaction(async (tx) => {
-    const review = await lockReview(tx, reviewId);
-    if (!review) throw new WordingError("REVIEW_NOT_FOUND", "Review not found.", 404);
-    if (!canWithdraw(review.workflowStage as ReviewWorkflowStage, review.status)) {
-      throw new WordingError(
-        "NOT_WITHDRAWABLE",
-        "Withdraw applies from acceptance until production approval. At triage, edit the wording or reject the submission.",
-      );
-    }
-    const now = new Date();
-    const [updated] = await tx.update(pendingReviewsTable).set({
-      status: "rejected",
-      workflowStage: "production_rejected",
-      withdrawnAt: now,
-      withdrawnBy: adminId,
-      reviewedById: adminId,
-      reviewedAt: now,
-      productionRejectedAt: now,
-      productionRejectedById: adminId,
-      productionRejectionNote: note?.trim() || "Withdrawn: wording needs replacing.",
-    }).where(eq(pendingReviewsTable.id, reviewId)).returning();
-    if (review.stagingFactId != null) {
-      await tx.update(factsTable)
-        .set({ wordingWithdrawnAt: now, isActive: false, enrichmentStatus: sql`CASE WHEN ${factsTable.enrichmentStatus} = 'pending' THEN NULL ELSE ${factsTable.enrichmentStatus} END` })
-        .where(eq(factsTable.id, review.stagingFactId));
-    }
     return updated!;
   });
 }

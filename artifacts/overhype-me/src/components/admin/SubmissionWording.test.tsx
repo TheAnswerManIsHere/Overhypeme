@@ -25,7 +25,6 @@ const base = {
   label: "Submitted Fact",
   onSaved: () => {},
   onDirtyChange: () => {},
-  onWithdrawn: () => {},
 };
 
 describe("SubmissionWording", () => {
@@ -34,7 +33,7 @@ describe("SubmissionWording", () => {
     const calls = stubFetch(200, saved);
     const onSaved = vi.fn();
     const onDirtyChange = vi.fn();
-    render(<SubmissionWording {...base} editable withdrawable={false} onSaved={onSaved} onDirtyChange={onDirtyChange} />);
+    render(<SubmissionWording {...base} editable onSaved={onSaved} onDirtyChange={onDirtyChange} />);
 
     fireEvent.change(screen.getByTestId("submission-wording-input"), { target: { value: saved.submittedText } });
     expect(onDirtyChange).toHaveBeenLastCalledWith(true);
@@ -49,7 +48,7 @@ describe("SubmissionWording", () => {
   it("locks the box while a save is in flight, so typing can't be lost to the saved wording", async () => {
     let answer!: (v: unknown) => void;
     vi.stubGlobal("fetch", vi.fn(() => new Promise((r) => { answer = r; })) as unknown as typeof fetch);
-    render(<SubmissionWording {...base} editable withdrawable={false} />);
+    render(<SubmissionWording {...base} editable />);
     const box = screen.getByTestId("submission-wording-input") as HTMLTextAreaElement;
     fireEvent.change(box, { target: { value: "{NAME} counted to infinity. Twice." } });
     fireEvent.click(screen.getByTestId("submission-wording-save"));
@@ -60,7 +59,7 @@ describe("SubmissionWording", () => {
 
   it("shows the server's refusal and keeps the edit", async () => {
     stubFetch(422, { error: "The wording must be between 10 and 2000 characters." });
-    render(<SubmissionWording {...base} editable withdrawable={false} />);
+    render(<SubmissionWording {...base} editable />);
     fireEvent.change(screen.getByTestId("submission-wording-input"), { target: { value: "short" } });
     fireEvent.click(screen.getByTestId("submission-wording-save"));
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", "The wording must be between 10 and 2000 characters.");
@@ -68,24 +67,14 @@ describe("SubmissionWording", () => {
   });
 
   it("once accepted, the wording is read-only and the wording as submitted is shown beside an edited one", () => {
-    render(<SubmissionWording {...base} originalText="{NAME} counts to infinity, twice." editable={false} withdrawable={false} />);
+    render(<SubmissionWording {...base} originalText="{NAME} counts to infinity, twice." editable={false} />);
     expect(screen.queryByTestId("submission-wording-input")).toBeNull();
     expect(screen.getByTestId("submission-wording-locked")).toBeTruthy();
     expect(screen.getByTestId("submission-wording-original").textContent).toContain("{NAME} counts to infinity, twice.");
+    // Withdraw is gone: a wording that needs replacing is rejected (Reject is on every step).
+    // Withdraw is gone: a wording that needs replacing is rejected (Reject is on every step).
     expect(screen.queryByTestId("submission-withdraw")).toBeNull();
-  });
-
-  it("Withdraw asks first, then posts to the withdraw route and hands back", async () => {
-    const calls = stubFetch(200, { success: true, workflowStage: "production_rejected" });
-    const onWithdrawn = vi.fn();
-    render(<SubmissionWording {...base} editable={false} withdrawable onWithdrawn={onWithdrawn} />);
-
-    fireEvent.click(screen.getByTestId("submission-withdraw"));
-    expect(calls).toHaveLength(0);
-    fireEvent.change(screen.getByPlaceholderText("What needs replacing (optional, internal)"), { target: { value: "Reads backwards." } });
-    fireEvent.click(screen.getByTestId("submission-withdraw-confirm-button"));
-
-    await waitFor(() => expect(onWithdrawn).toHaveBeenCalled());
-    expect(calls[0]).toEqual({ url: "/api/admin/reviews/7/withdraw", body: { note: "Reads backwards." } });
+    expect(screen.getByTestId("submission-wording-locked").textContent).toContain("reject the submission");
+    expect(screen.getByTestId("submission-wording-locked").textContent).toContain("reject the submission");
   });
 });
