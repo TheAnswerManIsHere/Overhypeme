@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Decide whether this session's context should move to a new session, and if so make it survive the move. Use when David says /handoff, "let's start a fresh session", "should we hand this off", or when a session that finished one thing is about to start something else. First judges whether a handoff is actually needed and stops if it isn't. When it is, externalizes the session's load-bearing context onto the workstream issue and delivers a copy-pasteable prompt for the new session. NOT for durable end-of-feature learnings (that's /document) and NOT the cross-tool docs/handoff/ folder.
+description: Decide whether this session's context should move to a new session, and if so make it survive the move. Use when David says /handoff, "let's start a fresh session", "should we hand this off", or when a session that finished one thing is about to start something else. First judges whether a handoff is actually needed and stops if it isn't. When it is, externalizes the session's load-bearing context onto the workstream issue, writes the prompt for the new session, and starts that session itself with the prompt — falling back to a copy-pasteable prompt only where it cannot. NOT for durable end-of-feature learnings (that's /document) and NOT the cross-tool docs/handoff/ folder.
 ---
 
 <!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
@@ -126,7 +126,9 @@ before Step 4 writes anything:
 This repo is public and an issue body is public. Run the
 [canonical disclosure check](../../../docs/ai-context/workstream-tracking.md#what-must-never-happen)
 before writing to an issue. A handoff that fails it stays on the private path
-— deliver the prompt in chat only and say plainly that nothing was persisted.
+— nothing is written to the issue, and I say plainly that nothing was
+persisted there. Step 5 still starts the new session: its prompt goes to the
+session, not to GitHub, so the check does not bar it.
 
 ## Step 4 — Persist to the workstream issue
 
@@ -177,11 +179,45 @@ The handoff comment is a fixed shape:
 *Settled* and *Ruled out* are the two that earn their keep: without them a
 cold session re-derives a closed decision and presents it as a fresh idea.
 
-## Step 5 — Deliver the prompt
+## Step 5 — Write the prompt, and start the new session with it
 
-One fenced code block in chat, one per destination session. Multiple
-destinations get multiple blocks — never a merged prompt, which guarantees
-the new session loads context for work it isn't doing.
+**When the verdict is hand off, I start the new session myself** (David,
+2026-11-17: *"Can we update the skill so that when it decides to hand off it
+just does it?"*). Until then this step ended on a prompt for him to paste
+into a session he opened by hand — not a decision anyone made, but a skill
+written as though a session could not start another.
+
+One prompt per destination session. Multiple destinations get multiple
+prompts and multiple sessions — never a merged prompt, which guarantees the
+new session loads context for work it isn't doing.
+
+**Starting it:** `create_session`, from the `claude-code-remote` tools (load
+them with `ToolSearch` if they are deferred), once per destination, with:
+
+- `prompt` — the prompt below, exactly as written;
+- `source_url` — the destination repository's clone URL, so the new session
+  starts with it checked out (for work in another repository, that
+  repository, which is why item 3's attach step opens with its own
+  condition: the session checks its checkout and skips it);
+- `title` — what the destination work is, in the `retitle` skill's form.
+
+Everything else is left to inherit. The tool's own schema, as read
+2026-11-17: `environment_id` *"Defaults to the calling session's
+environment"*; `model` *"Defaults to the calling session's model"*;
+`permission_mode` *"omit to inherit it"*; and `effort` *"not inherited from
+this session. Omit it to use the default."* A model or effort is never set
+here, since that is David's (`claude-core.md`, *Model, cost, and routing*).
+The call *"Returns the new session's ID and status"*; the id and the title
+are what this session reports.
+
+The prompt is also shown in chat, as one fenced code block per destination:
+it is the record of what the new session was told, and the fallback below.
+
+**Where I cannot start it** — no `create_session` tool (a local terminal, a
+Remote Control session), or the call is refused or fails — the step ends as
+it always did: the prompt in chat for him to paste, and Step 6's 🛑. A
+refusal is reported in one line with what it said, never retried in another
+shape.
 
 **Write it for a reader with zero context and no access to this
 conversation.** Three authoring rules that follow from that:
@@ -212,7 +248,8 @@ The block carries these seven, in order:
    repository other than the new session's primary one** — the attach step,
    named as the first action after that sign-in, and by its full tool name:
 
-   > Right after the Astra sign-in, before anything else, attach the repo: call
+   > Right after the Astra sign-in, if this session was not started with
+   > `<owner>/<repo>` checked out, attach it before anything else: call
    > `mcp__Claude_Code_Remote__add_repo` with owner `<owner>`, repo `<repo>`,
    > access `<read|push>`. Run the clone command it returns, then call
    > `mcp__Claude_Code_Remote__register_repo_root` with the clone path. If that
@@ -254,15 +291,26 @@ watching that the new session now owns, disarm any scheduled wake, and state
 in one line what this session is still on the hook for — normally nothing.
 An abandoned subscription is worse than none, because it looks like coverage.
 
-Then report: the issue written, the prompt, and the one-line verdict from
-Step 1. This hands the turn back to David with its plain-English summary
-(`claude-core.md`, *A reversible choice proceeds, and every hand-back says what it did*, rule 2). The new session is his to open, so
-the hand-off waits on him and is written as a 🛑 banner — opening the new
-session with the prompt above — which is what rings his phone by the alert
-hook (`claude-core.md`, interaction rule 6). Step 1's verdict also runs unasked at
-every unit of work's close, inside the build report's *Session* section
-(`claude-core.md`, *Watching the PRs I open*), as the *hand off* branch of
-the `archive` skill's three-valued verdict.
+Then report: the issue written, the prompt, the new session's title and id,
+and the one-line verdict from Step 1. This hands the turn back to David with
+its plain-English summary (`claude-core.md`, *A reversible choice proceeds,
+and every hand-back says what it did*, rule 2).
+
+**A session I started rings nothing from here.** Its own first act is the
+Astra sign-in (item 3 of the prompt), which is a 🛑 in *that* session and
+rings him by the alert hook (`claude-core.md`, interaction rule 6) from the
+place that actually needs him; a banner here too would ring him twice for
+one thing. The summary says the new session is running and that this one
+has nothing left — `/archive` is his when he wants it, since only an
+explicit `/archive` archives. **Where Step 5 fell back** to a pasted
+prompt, the hand-off waits on him, and the hand-back is a 🛑 banner —
+opening the new session with the prompt above — as before.
+
+Step 1's verdict also runs unasked at every unit of work's close, inside the
+build report's *Session* section (`claude-core.md`, *Watching the PRs I
+open*), as the *hand off* branch of the `archive` skill's three-valued
+verdict; a *hand off* there runs Steps 2–6, starting the session, after the
+report.
 
 ## Model tier
 
