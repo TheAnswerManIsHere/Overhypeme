@@ -17,12 +17,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { db, factsTable, factGagsTable, pool } from "@workspace/db";
+import { db, factsTable, factGagsTable, usersTable, pool } from "@workspace/db";
 import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 import { eq, inArray, like } from "drizzle-orm";
 
 import {
   activateFact,
+  recordFirstApproval,
   ConceptMissingError,
   ActivationConflictError,
 } from "../lib/factActivation.js";
@@ -35,8 +36,17 @@ async function cleanup() {
   if (rows.length) await db.delete(factsTable).where(inArray(factsTable.id, rows.map((r) => r.id)));
 }
 
-before(cleanup);
-after(cleanup);
+const ADMIN = `${PREFIX}admin`;
+const OTHER_ADMIN = `${PREFIX}admin2`;
+
+before(async () => {
+  await cleanup();
+  await db.insert(usersTable).values([{ id: ADMIN }, { id: OTHER_ADMIN }]).onConflictDoNothing();
+});
+after(async () => {
+  await cleanup();
+  await db.delete(usersTable).where(inArray(usersTable.id, [ADMIN, OTHER_ADMIN]));
+});
 
 /**
  * An inactive fact, with an approved gag unless `gag` says otherwise: "approved"
@@ -64,6 +74,23 @@ describe("activateFact — the sole activation chokepoint", () => {
     await db.transaction((tx) => activateFact(tx, { factId: id, expectedText: text }));
     const [row] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, id));
     assert.equal(row.isActive, true);
+  });
+
+  it("records the first approval, and a second never rewrites it", async () => {
+    const text = `${PREFIX}approval-record`;
+    const id = await insertInactive(text);
+    await db.transaction(async (tx) => {
+      await activateFact(tx, { factId: id, expectedText: text });
+      await recordFirstApproval(tx, id, ADMIN);
+    });
+    const read = async () => (await db.select({ at: factsTable.approvedAt, by: factsTable.approvedById, source: factsTable.approvalSource })
+      .from(factsTable).where(eq(factsTable.id, id)))[0];
+    const first = await read();
+    assert.ok(first.at, "approved_at is set");
+    assert.equal(first.by, ADMIN);
+    assert.equal(first.source, "moderator");
+    await db.transaction((tx) => recordFirstApproval(tx, id, OTHER_ADMIN));
+    assert.deepEqual(await read(), first, "the first approval stays on record");
   });
 
   it("throws ConceptMissingError and does NOT activate a fact with only a pending (never approved) gag", async () => {

@@ -45,6 +45,7 @@ import { resolveReviewCycleEnrichment, resolveSavedCoreSceneForReview, createTri
 import { prepareFirstTimeStagingPrep, ensureFirstTimeStagingPrepJobs } from "../lib/firstTimeStagingPrep";
 import {
   activateFact,
+  recordFirstApproval,
   ConceptMissingError,
   ActivationConflictError,
   hasApprovedGag,
@@ -70,6 +71,7 @@ import { referenceAssetHealth } from "../lib/defaultReferenceResolver";
 import { logger } from "../lib/logger";
 import { editTriageWording, lockReview, WordingError, withdrawForWording } from "../lib/reviewWording";
 import { checkDuplicateInternal } from "./ai";
+import { recordAdminAction } from "../lib/adminActions";
 
 // Re-export the plan-generator test seam (owned by the shared preview helper).
 // Approval no longer runs any synchronous planner call — its renderability
@@ -573,6 +575,7 @@ async function approveForProduction(
       // ConceptMissingError / ActivationConflictError —
       // never activates on failure.
       await activateFact(tx, { factId: stagingFact.id, expectedText: validatedText, expectedEnrichment: stagingFact.enrichment });
+      await recordFirstApproval(tx, stagingFact.id, req.user.id);
 
       const reviewed = await tx.update(pendingReviewsTable).set({
         status: "approved",
@@ -596,6 +599,7 @@ async function approveForProduction(
 
       // The moderator-curated list resolved + gated (non-empty) above.
       await attachHashtags(tx, stagingFact.id, finalTags);
+      await recordAdminAction({ factId: stagingFact.id, reviewId }, req.user.id, "approve_for_production", { hashtags: finalTags, adminNote }, tx);
     });
   } catch (err) {
     if (err instanceof ActivationConflictError) {
@@ -748,6 +752,7 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
         adminNote,
       });
       stagingFactId = factId;
+      await recordAdminAction({ factId, reviewId: review.id }, req.user.id, "provisional_approval", { adminNote }, tx);
     });
   } catch (err) {
     if (err instanceof ReviewNoLongerEligible) {
@@ -804,6 +809,7 @@ router.post("/admin/reviews/:id/wording", requireAdmin, async (req: Authenticate
   if (!body.success) { res.status(400).json({ error: "The wording is required." }); return; }
   try {
     const review = await editTriageWording(id, body.data.text, req.user.id, detectorFor(req));
+    await recordAdminAction({ reviewId: id, factId: review.stagingFactId }, req.user.id, "wording_edit", { text: review.submittedText, original: review.submittedTextOriginal });
     // The new wording's verdict, so the screen redraws its duplicate line.
     res.json({
       success: true,
@@ -830,6 +836,7 @@ router.post("/admin/reviews/:id/duplicate-check", requireAdmin, requireDuplicate
   const view = await duplicateView(review);
   if (!needsDuplicateCheck(review, view)) { res.json({ submittedText: review.submittedText, duplicate: view }); return; }
   const current = (await checkReviewDuplicate(id, detectorFor(req))) ?? review;
+  await recordAdminAction({ reviewId: id, factId: current.stagingFactId }, (req as AuthenticatedRequest).user?.id, "duplicate_check", { outcome: current.duplicateOutcome ?? null });
   res.json({ submittedText: current.submittedText, duplicate: await duplicateView(current) });
 });
 
@@ -840,6 +847,7 @@ router.post("/admin/reviews/:id/withdraw", requireAdmin, async (req: Authenticat
   if (!body.success) { res.status(400).json({ error: "Invalid note." }); return; }
   try {
     const review = await withdrawForWording(id, req.user.id, body.data.note ?? null);
+    await recordAdminAction({ reviewId: review.id, factId: review.stagingFactId }, req.user.id, "withdraw", { note: body.data.note ?? null });
     if (review.submittedById) {
       await logActivity({
         userId: review.submittedById,
@@ -887,14 +895,17 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
     return;
   }
 
-  await db.update(pendingReviewsTable).set({
-    status: "rejected",
-    workflowStage: "triage_rejected",
-    reviewedById: req.user.id,
-    adminNote,
-    reason: rejectionReason,
-    reviewedAt: new Date(),
-  }).where(eq(pendingReviewsTable.id, id));
+  await db.transaction(async (tx) => {
+    await tx.update(pendingReviewsTable).set({
+      status: "rejected",
+      workflowStage: "triage_rejected",
+      reviewedById: req.user.id,
+      adminNote,
+      reason: rejectionReason,
+      reviewedAt: new Date(),
+    }).where(eq(pendingReviewsTable.id, id));
+    await recordAdminAction({ reviewId: id, factId: review.stagingFactId }, req.user.id, "reject", { reason: rejectionReason, adminNote, stage: review.workflowStage }, tx);
+  });
 
   if (review.submittedById) {
     const [submitter] = await db.select({ email: usersTable.email, displayName: usersTable.displayName })
@@ -973,14 +984,19 @@ router.post("/admin/reviews/:id/approve-visual-concept", requireAdmin, async (re
   // moved the row leaves this WHERE unmatched, so it returns no row → 409. This,
   // not the async queue, is the double-click / concurrency guard because the force
   // render enqueue below carries no dedupe key.
-  const advancedRows = await db.update(pendingReviewsTable)
-    .set({ workflowStage: "production_review" })
-    .where(and(
-      eq(pendingReviewsTable.id, id),
-      eq(pendingReviewsTable.status, "pending"),
-      eq(pendingReviewsTable.workflowStage, "concept_review"),
-    ))
-    .returning({ id: pendingReviewsTable.id });
+  const stagingFactId = review.stagingFactId;
+  const advancedRows = await db.transaction(async (tx) => {
+    const rows = await tx.update(pendingReviewsTable)
+      .set({ workflowStage: "production_review" })
+      .where(and(
+        eq(pendingReviewsTable.id, id),
+        eq(pendingReviewsTable.status, "pending"),
+        eq(pendingReviewsTable.workflowStage, "concept_review"),
+      ))
+      .returning({ id: pendingReviewsTable.id });
+    if (rows.length > 0) await recordAdminAction({ reviewId: id, factId: stagingFactId }, req.user.id, "gag_approval", {}, tx);
+    return rows;
+  });
   if (advancedRows.length === 0) {
     res.status(409).json({
       error: "This review already advanced past the Visual Concept step.",
@@ -1018,7 +1034,7 @@ router.post("/admin/reviews/:id/back-to-visual-concept", requireAdmin, async (re
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
   const [review] = await db
-    .select({ workflowStage: pendingReviewsTable.workflowStage, status: pendingReviewsTable.status })
+    .select({ workflowStage: pendingReviewsTable.workflowStage, status: pendingReviewsTable.status, stagingFactId: pendingReviewsTable.stagingFactId })
     .from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
   if (!(review.status === "pending" && review.workflowStage === "production_review")) {
@@ -1026,14 +1042,18 @@ router.post("/admin/reviews/:id/back-to-visual-concept", requireAdmin, async (re
     return;
   }
 
-  const rows = await db.update(pendingReviewsTable)
-    .set({ workflowStage: "concept_review" })
-    .where(and(
-      eq(pendingReviewsTable.id, id),
-      eq(pendingReviewsTable.status, "pending"),
-      eq(pendingReviewsTable.workflowStage, "production_review"),
-    ))
-    .returning({ id: pendingReviewsTable.id });
+  const rows = await db.transaction(async (tx) => {
+    const moved = await tx.update(pendingReviewsTable)
+      .set({ workflowStage: "concept_review" })
+      .where(and(
+        eq(pendingReviewsTable.id, id),
+        eq(pendingReviewsTable.status, "pending"),
+        eq(pendingReviewsTable.workflowStage, "production_review"),
+      ))
+      .returning({ id: pendingReviewsTable.id });
+    if (moved.length > 0) await recordAdminAction({ reviewId: id, factId: review.stagingFactId }, req.user.id, "back_to_gags", {}, tx);
+    return moved;
+  });
   if (rows.length === 0) {
     res.status(409).json({ error: "This review is no longer at Test Renders." });
     return;
@@ -1264,6 +1284,7 @@ router.post("/admin/reviews/:id/render", requireAdmin, async (req: Authenticated
     { reviewId: id, stagingFactId: review.stagingFactId, adminId: req.user.id, attemptId, renderJobId, referenceIdentityType },
     "[moderation] review render enqueued",
   );
+  await recordAdminAction({ reviewId: id, factId: review.stagingFactId }, req.user.id, "test_renders_requested", { attemptId, referenceIdentityType, lookStyleId: body.lookStyleId ?? null });
   res.status(202).json({ renderJobId, attemptId });
 });
 
@@ -1401,6 +1422,7 @@ router.post("/admin/reviews/:id/visual-concepts/regenerate", requireAdmin, async
     moderatorDraftScene: draft,
     moderatorDraftBubbles: draftBubbles,
   });
+  await recordAdminAction({ reviewId: id, factId: review.stagingFactId }, req.user.id, "gag_ideas_requested", { withDraft: draft != null });
   logger.info({ reviewId: id, hasDraft: draft != null, adminId: req.user.id }, "[moderation] visual concepts regenerate");
   res.status(202).json({ success: true, visualConceptStatus: "pending" });
 });
@@ -1427,11 +1449,16 @@ router.put("/admin/reviews/:id/humor-note", requireAdmin, async (req: Authentica
   if (review.stagingFactId == null) { res.status(409).json({ error: "Review has no staging fact." }); return; }
 
   const approvedAt = new Date();
-  const [saved] = await db
-    .update(factsTable)
-    .set({ humorNote: parsed.data.text, humorNoteApprovedBy: req.user.id, humorNoteApprovedAt: approvedAt })
-    .where(eq(factsTable.id, review.stagingFactId))
-    .returning({ humorNote: factsTable.humorNote });
+  const stagingFactId = review.stagingFactId;
+  const [saved] = await db.transaction(async (tx) => {
+    const rows = await tx
+      .update(factsTable)
+      .set({ humorNote: parsed.data.text, humorNoteApprovedBy: req.user.id, humorNoteApprovedAt: approvedAt })
+      .where(eq(factsTable.id, stagingFactId))
+      .returning({ humorNote: factsTable.humorNote });
+    if (rows.length > 0) await recordAdminAction({ reviewId: id, factId: stagingFactId }, req.user.id, "humor_note_save", { text: parsed.data.text }, tx);
+    return rows;
+  });
   if (!saved) { res.status(404).json({ error: "Fact not found" }); return; }
   logger.info({ reviewId: id, factId: review.stagingFactId, adminId: req.user.id }, "[moderation] humor note saved");
   res.json({ humorNote: { text: saved.humorNote, approvedBy: req.user.id, approvedAt: approvedAt.toISOString() } });

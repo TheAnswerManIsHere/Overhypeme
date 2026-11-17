@@ -60,6 +60,9 @@ async function toPre0143(): Promise<void> {
   await db.execute(sql`UPDATE fact_gags SET approved_carried_over = true
      WHERE approved_content IS NOT NULL AND approved_example_attempt_id IS NULL AND NOT approved_carried_over`);
   await db.execute(sql.raw(`
+    -- 0153 dropped these two; 0143 ran while they existed (as 0139 made them).
+    ALTER TABLE fact_gags ADD COLUMN IF NOT EXISTS pending_review_id integer REFERENCES pending_reviews(id) ON DELETE SET NULL;
+    ALTER TABLE fact_gags ADD COLUMN IF NOT EXISTS pending_remove boolean NOT NULL DEFAULT false;
     DROP TRIGGER IF EXISTS fact_gags_example_set ON fact_gags;
     DROP TABLE IF EXISTS fact_gag_examples;
     DROP FUNCTION IF EXISTS enforce_gag_example_set();
@@ -198,6 +201,12 @@ describe("migration 0143: a gag's examples, one per kind", () => {
   after(async () => {
     await db.execute(sql.raw(MIGRATION_SQL));
     await cleanup();
+    // And back to the structure every later migration leaves (0153's drops).
+    await db.execute(sql.raw(`
+      ALTER TABLE fact_gags DROP CONSTRAINT IF EXISTS fact_gags_pending_ops_owned;
+      ALTER TABLE fact_gags DROP COLUMN IF EXISTS pending_remove;
+      ALTER TABLE fact_gags DROP COLUMN IF EXISTS pending_review_id;
+    `));
   });
 
   describe("the runner first", () => {

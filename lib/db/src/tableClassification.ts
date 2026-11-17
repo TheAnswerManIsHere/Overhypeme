@@ -132,6 +132,7 @@ export const TABLE_CLASSIFICATION: Readonly<Record<string, TableEntry>> = {
 
   // ── Product data ──────────────────────────────────────────────────────────
   activity_feed: { class: "product" },
+  admin_actions: { class: "product" },
   comments: { class: "product" },
   enrichment_override_history: { class: "product" },
   comparison_cells: { class: "product" },

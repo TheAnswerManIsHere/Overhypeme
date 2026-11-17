@@ -29,7 +29,7 @@ import { logger } from "../../lib/logger";
 import { memeKey } from "../../lib/storageKeys";
 import { includedTables, primaryKey, quoteIdent, sqlColumnRules, sqlName } from "./allowlist";
 import type { ExportManifest, Row } from "./export";
-import { journalHead } from "./journal";
+import { journalHead, migrationSql } from "./journal";
 import { RETIRED_ADMIN_CONFIG_KEYS } from "../../lib/retirementLosses";
 import { objectPathOf, type MediaPlaceholder } from "./media";
 import { fixtureRetirement, retireRows, withoutRetired, type FixtureRetirement } from "./retired";
@@ -158,6 +158,13 @@ export async function loadFixtureRows(
         [seq],
       );
     }
+    // 0152 again, whole: the fixture predates its columns, so its facts get the
+    // "ever approved" backfill a migrated database would hold (allowlist:
+    // "drop"). Every other statement in it is a no-op on a migrated database.
+    // Its ALTERs refuse a table with pending trigger events, and the rows just
+    // loaded queued the deferred live-fact trigger: those checks run first.
+    await client.query("SET CONSTRAINTS ALL IMMEDIATE");
+    await client.query(migrationSql("0152_admin_actions_and_ever_approved"));
     await client.query(
       `SELECT setval('membership_source_state_seq', GREATEST(COALESCE((SELECT max(source_state_as_of) FROM public.membership_entitlements), 0), 1), (SELECT count(*) > 0 FROM public.membership_entitlements))`,
     );
