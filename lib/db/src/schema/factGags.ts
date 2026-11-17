@@ -133,3 +133,30 @@ export type FactGagExample = typeof factGagExamplesTable.$inferSelect;
 
 export type FactGag = typeof factGagsTable.$inferSelect;
 export type InsertFactGag = typeof factGagsTable.$inferInsert;
+
+/**
+ * The fold's archive (migration 0146, plan docs/plans/PLAN_GAG_DIRECT_RENDER.md,
+ * E): one row per gag version the fold converted, holding the content before
+ * and after, so a conversion can be reversed. Append-only; `gag_id` and
+ * `fact_id` are records with no foreign key (as comparison_panels.gag_id).
+ */
+export const factGagFoldArchiveTable = pgTable(
+  "fact_gag_fold_archive",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    gagId: bigint("gag_id", { mode: "number" }).notNull(),
+    factId: integer("fact_id").notNull(),
+    stage: varchar("stage", { length: 16 }).notNull().$type<"approved" | "pending">(),
+    originalContent: jsonb("original_content").notNull(),
+    foldedContent: jsonb("folded_content").notNull(),
+    moved: jsonb("moved").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    revertedAt: timestamp("reverted_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("IDX_fact_gag_fold_archive_gag").on(t.gagId, t.stage),
+    check("fact_gag_fold_archive_stage", sql`(${t.stage})::text = ANY ((ARRAY['approved'::character varying, 'pending'::character varying])::text[])`),
+  ],
+);
+
+export type FactGagFoldArchive = typeof factGagFoldArchiveTable.$inferSelect;

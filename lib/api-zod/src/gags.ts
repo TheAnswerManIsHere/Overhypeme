@@ -190,3 +190,42 @@ export interface FactGagsView {
   gags: GagView[];
   maxGags: number;
 }
+
+// ─── The fold and cast fill (plan PLAN_GAG_DIRECT_RENDER.md, E) ─────────────
+
+export type GagFoldStage = "approved" | "pending";
+/** nothing to fold · the fold would convert it · listed for a moderator · converted by an earlier run. */
+export type GagFoldState = "nothing" | "would_convert" | "listed" | "already_converted";
+/** extracted for the scene as it is · never read · read from an earlier scene · the reading failed or left a speaker unbound. */
+export type GagCastState = "extracted" | "missing" | "stale" | "failed";
+
+export interface GagFoldVersionReport {
+  gagId: number;
+  factId: number;
+  slot: number;
+  stage: GagFoldStage;
+  fold: GagFoldState;
+  cast: GagCastState;
+  /** Why a moderator must convert it, or why its cast is missing. */
+  reasons: string[];
+  /** The latest job for this version, when one ran or is queued. */
+  job: { status: string; error: string | null } | null;
+}
+
+/** The fold's report, which is also its dry run: computed from the gags as they are now, writing nothing. */
+export interface GagFoldReport {
+  versions: number;
+  fold: Record<GagFoldState, number>;
+  cast: Record<GagCastState, number>;
+  jobs: { queued: number; running: number };
+  /** Versions listed for a moderator: the fold will not convert them. Must be empty before the switch. */
+  forModerator: GagFoldVersionReport[];
+  /** Versions with no current cast. Must be empty before the switch. */
+  castMissing: GagFoldVersionReport[];
+}
+
+export interface GagFoldStartResponse {
+  requested: number;
+  queued: number;
+  deduped: number;
+}
