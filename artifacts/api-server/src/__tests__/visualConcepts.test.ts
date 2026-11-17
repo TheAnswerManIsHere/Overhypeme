@@ -32,6 +32,7 @@ import {
   validateAndSanitizeCandidateConcepts,
   type GenerateVisualConceptsInput,
 } from "../lib/visualConcepts/generator.js";
+import { VIOLENCE_RULE } from "../lib/imagePrompt/violenceRule.js";
 
 const ENRICHMENT: FactEnrichment = {
   primaryArchetype: "superhuman_physical_feat",
@@ -146,15 +147,16 @@ describe("buildVisualConceptsUserMessage — the gag-writer request (PLAN_GAG_GE
     assert.match(msg, /"Shark Week" refers to Discovery's Shark Week: annual shark programming/);
     assert.match(msg, /"Earth" means the planet Earth\./);
     assert.match(msg, /JOKE MECHANISM:\nsuperhuman physical feat, force scaled action/);
-    assert.match(msg, /LIMITS:\nViolence: Allowed \(strong\)/);
+    assert.ok(msg.includes(`LIMITS:\nViolence: ${VIOLENCE_RULE}`), "the one violence rule, word for word (PLAN_GAG_DIRECT_RENDER.md, B)");
     for (const banned of ["visualizationExamples", "Visualization examples", "taxonomyConfidence", "overhypeFit", "i2i default", "t2i fallback", "OUTPUT CONTRACT"]) {
       assert.ok(!msg.includes(banned), `no ${banned}`);
     }
   });
 
-  it("passes a moderator's soften and no-text policy through", () => {
+  it("passes a moderator's no-text policy through; the violence line is the one rule whatever the stored policy says", () => {
     const msg = buildVisualConceptsUserMessage(input({ renderPolicy: { supportingText: { mode: "forbid" }, violence: { mode: "soften", intensity: "strong" } } as never }));
-    assert.match(msg, /Violence: Reduce explicit violent consequences/);
+    assert.ok(msg.includes(`Violence: ${VIOLENCE_RULE}`), msg);
+    assert.doesNotMatch(msg, /Reduce explicit violent consequences/);
     assert.match(msg, /Text in the picture: No signs, labels or other words/);
   });
 

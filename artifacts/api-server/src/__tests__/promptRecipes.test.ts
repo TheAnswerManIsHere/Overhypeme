@@ -58,7 +58,9 @@ describe("prompt recipe versions", () => {
     assert.equal(res.status, 200);
     const identity = res.body.pieces.find((p: { key: string }) => p.key === "identity.person");
     assert.equal(identity.baseline, BASELINE_PIECES["identity.person"]);
-    assert.ok(res.body.pieces.find((p: { key: string; policy: boolean }) => p.key === "violence.allow").policy);
+    assert.ok(res.body.pieces.find((p: { key: string; policy: boolean }) => p.key === "text.overlay").policy);
+    // The violence rule is no recipe piece: no version may reword or drop it (PLAN_GAG_DIRECT_RENDER.md, B).
+    assert.equal(res.body.pieces.find((p: { key: string }) => p.key === "violence.allow"), undefined);
     const fam = res.body.families.find((f: { family: string }) => f.family === FAMILY);
     assert.equal(fam.liveVersionId, null);
     assert.equal(fam.engines.length, 2);
@@ -73,15 +75,15 @@ describe("prompt recipe versions", () => {
   });
 
   it("saves numbered versions, never editing one, and refuses malformed, over-budget or unchanged wording", async () => {
-    const bad = await save({ "constraints.duplicate": "Never clone them." });
+    const bad = await save({ "composition.captionSpace": "Leave room for the caption." });
     assert.equal(bad.status, 409);
-    assert.ok(bad.body.problems.some((p: string) => /must contain \{subject\}/.test(p)));
+    assert.ok(bad.body.problems.some((p: string) => /must contain \{side\}/.test(p)));
 
-    const long = await save({ "identity.person": "x".repeat(1400), "constraints.crowd": `{subject} ${"x".repeat(1400)}`, "constraints.causal": "x".repeat(1400) });
+    const long = await save({ "identity.person": "x".repeat(1400), "style.photoreal": "x".repeat(1400), "text.incidental": "x".repeat(1400), "text.overlay": `${"x".repeat(1400)} {forbidden}` });
     assert.equal(long.status, 409, "a recipe that cannot leave room for every valid moderator scene is refused");
     assert.ok(long.body.problems.some((p: string) => /too long for the prompt/.test(p)), JSON.stringify(long.body));
 
-    const balloons = await save({ "bubbles.speech": `${"y".repeat(1000)} {who} {text}` });
+    const balloons = await save({ "bubbles.speech": `${"y".repeat(1400)} {who} {text}` });
     assert.equal(balloons.status, 409, "balloon wording is counted once per balloon, at the most balloons a fact may have");
 
     const v1 = await save({ "identity.person": "Use the photo as the person's face." }, "shorter identity");
@@ -108,11 +110,11 @@ describe("promotion", () => {
     assert.equal((await liveRecipeVersionIds([FAMILY, OTHER])).get(OTHER), null, "another family is untouched");
     assert.equal((await liveRecipeVersionIdsForEngines([`${FAMILY}-i2i`])).get(`${FAMILY}-i2i`), v.body.version.id, "every engine of the family");
 
-    const policy = await save({ "violence.allow": "Show the action, no gore." }, "policy");
+    const policy = await save({ "text.incidental": "Keep background text unreadable." }, "policy");
     const unconfirmed = await promote({ versionId: policy.body.version.id });
     assert.equal(unconfirmed.status, 409);
     assert.equal(unconfirmed.body.needsPolicyConfirmation, true);
-    assert.deepEqual(unconfirmed.body.changedPolicy, ["violence.allow"]);
+    assert.deepEqual(unconfirmed.body.changedPolicy, ["text.incidental"]);
     assert.equal((await liveRecipeVersionIds([FAMILY])).get(FAMILY), v.body.version.id, "a refused promotion writes nothing");
     const confirmed = await promote({ versionId: policy.body.version.id, confirmPolicy: true });
     assert.equal(confirmed.status, 200);

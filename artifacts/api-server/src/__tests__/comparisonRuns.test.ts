@@ -1,10 +1,11 @@
 // Launch Phase 8, increments 2b and 3: the comparison's runs against the test
 // database, with every paid call faked. Pricing does not gate a run (David,
 // 2026-11-07, decisions.md); what is tested is that each paid call happens
-// once and is recorded.
+// once and is recorded. Preparation makes no paid call since the planner was
+// removed (plan PLAN_GAG_DIRECT_RENDER.md, D): it compiles the panel's gag.
 // Seeds two engine families under a `t-cr-` prefix (GPT, token-billed; FLUX,
-// flat), registered as code definitions, one enriched fact, and a set
-// of two panels (i2i_female_default and i2i_male_default, unstyled) — four cells.
+// flat), registered as code definitions, one enriched fact with one gag, and a
+// set of two panels (i2i_female_default and i2i_male_default, unstyled) — four cells.
 import { describe, it, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -27,9 +28,9 @@ import { and, eq, inArray, like } from "drizzle-orm";
 
 import adminComparisonRouter from "../routes/adminComparison.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
-import { makeStubPlan, VALID_ENRICHMENT } from "./helpers/stubPlanner.js";
+import { VALID_ENRICHMENT } from "./helpers/stubPlanner.js";
+import { withCast } from "./helpers/gagCast.js";
 import { ALL_ENGINES } from "../lib/engines/index.js";
-import { __setPlanGeneratorForTest } from "../lib/imagePrompt/preview.js";
 import { __setReferenceFalUploadForTest } from "../lib/defaultReferenceResolver.js";
 import { createComparisonSet } from "../lib/comparison/sets.js";
 import { __setComparisonFalForTest, type ComparisonFal } from "../lib/comparison/transport.js";
@@ -44,9 +45,8 @@ import {
   reprepareFailedPanel,
   rerunCell,
   retryCellStorage,
-  __setCastExtractorForTest,
 } from "../lib/comparison/runs.js";
-import { llmMaxRetriesInScope } from "../lib/utilityLLM.js";
+import { EMPTY_VISUAL_STRATEGY_OVERRIDE, PATH_COMPARISON_RETIRED_MESSAGE } from "@workspace/api-zod";
 import { testEngineRow } from "./helpers/testEngines.js";
 import { clearTestEngineDefinitions } from "../lib/engineInterpreter.js";
 
@@ -59,6 +59,9 @@ const SOURCES: Array<[string, string]> = [
 const engineIds: string[] = [];
 let adminId = "";
 let factId = 0;
+let baseGagId = 0;
+/** The fact's one gag (slot 1, a pending version): what every panel without a chosen gag draws. */
+const BASE_GAG = withCast({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "{NAME} hoists a mountain overhead like a barbell." });
 
 // Fakes: every submission, status and result, the reference upload and the store.
 let submissions: Array<{ endpointId: string; input: Record<string, unknown> }> = [];
@@ -83,8 +86,6 @@ const isGptEditRequest = (requestId: string) => {
   const s = submissionOf(requestId);
   return !!s && s.endpointId.includes("gpt") && s.endpointId.includes("edit");
 };
-/** The retry count the planner call ran under, per preparation. */
-let plannerRetries: Array<number | undefined> = [];
 
 // One wrapper scopes the file-level hooks to this file: with test isolation off,
 // a root-level beforeEach would install this file's fakes for every other file
@@ -101,7 +102,8 @@ before(async () => {
   await db.insert(usersTable).values({ id: adminId, email: `${adminId}@test.local`, membershipTier: "legendary", isAdmin: true });
   const [fact] = await db.insert(factsTable).values({ text: `${P} {NAME} lifts a mountain`, isActive: false, enrichment: VALID_ENRICHMENT as never }).returning({ id: factsTable.id });
   factId = fact!.id;
-
+  const [gag] = await db.insert(factGagsTable).values({ factId, slot: 1, pendingContent: BASE_GAG as never }).returning({ id: factGagsTable.id });
+  baseGagId = gag!.id;
 });
 
 after(async () => {
@@ -109,11 +111,10 @@ after(async () => {
   __setComparisonFalForTest(null);
   __setReferenceFalUploadForTest(null);
   __setComparisonImageStoreForTest(null);
-  __setPlanGeneratorForTest(null);
-  __setCastExtractorForTest(null);
   CELL_POLL.intervalMs = 3_000;
   await db.delete(asyncJobsTable).where(inArray(asyncJobsTable.queue, [COMPARISON_PREPARE_QUEUE, COMPARISON_RENDER_QUEUE]));
   await db.delete(comparisonSetsTable).where(like(comparisonSetsTable.label, `${P}%`));
+  await db.delete(factGagsTable).where(eq(factGagsTable.factId, factId));
   await db.delete(factsTable).where(eq(factsTable.id, factId));
   clearTestEngineDefinitions();
   await db.delete(usersTable).where(eq(usersTable.id, adminId));
@@ -122,7 +123,7 @@ after(async () => {
 /**
  * Every fake is installed before each test, not once per file: the sharded
  * runner loads all test files into one process, and another file's cleanup
- * resets the shared planner seam between this file's hook and its tests.
+ * resets a shared seam between this file's hook and its tests.
  */
 function installFakes(): void {
   __allowComparisonDispatchInCiForTest(true);
@@ -132,15 +133,10 @@ function installFakes(): void {
     if (failStore) throw new Error("bucket unavailable");
     return `/objects/comparison/cell-${cell.id}.png`;
   });
-  __setPlanGeneratorForTest(async (input) => {
-    plannerRetries.push(llmMaxRetriesInScope());
-    void input;
-    return makeStubPlan("human_identity_i2i", "A protagonist lifts a mountain.") as never;
-  });
   CELL_POLL.intervalMs = 0;
 }
 
-beforeEach(() => { submissions = []; statusScript = []; failStore = false; failNextGptEdit = false; plannerRetries = []; installFakes(); });
+beforeEach(() => { submissions = []; statusScript = []; failStore = false; failNextGptEdit = false; installFakes(); });
 
 async function newSet(label: string, imageSize?: "comparison" | "final"): Promise<number> {
   const { setId } = await createComparisonSet({
@@ -218,6 +214,7 @@ describe("starting a comparison run", () => {
     const rows = await reservations(res.body.run.id);
     assert.equal(rows.length, 2);
     assert.ok(rows.every((r) => r.kind === "planner" && r.state === "reserved"));
+    assert.ok(rows.every((r) => Number(r.boundUsd) === 0), "a preparation makes no paid call, so reserves nothing");
     const panels = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId));
     assert.ok(panels.every((p) => p.state === "preparing"));
     const jobs = await db.select().from(asyncJobsTable).where(eq(asyncJobsTable.queue, COMPARISON_PREPARE_QUEUE));
@@ -240,13 +237,18 @@ async function renderPayloads(runId: number) {
 
 
 describe("a comparison run end to end, with fakes", () => {
-  it("prepares the panels once, without SDK retries, and settles each planner call at its bound", async () => {
+  it("prepares the panels with no paid call: each compiles the fact's gag directly and releases its $0 reservation", async () => {
     const setId = await newSet("e2e");
     const prep = await start(setId, "prepare");
     await drain(prep.body.run.id);
     const panels = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId));
     assert.ok(panels.every((p) => p.state === "prepared"), JSON.stringify(panels.map((p) => [p.state, p.error])));
-    assert.deepEqual(plannerRetries, [0, 0], "every planner call runs with the SDK's retries off");
+    for (const p of panels) {
+      assert.ok((p.compileArgs as { direct?: unknown }).direct, "the gag is frozen for each cell to compile");
+      assert.deepEqual(p.gagCast, { cast: BASE_GAG.cast }, "the gag's stored cast, as it reached the prompt");
+      assert.equal(p.visualPlan ?? null, null, "no plan is made");
+      assert.equal(p.gagId, null, "an engine set with no gag chosen draws the fact's default gag");
+    }
     // What a second-edition panel is judged against is frozen with it (plan PLAN_PROMPT_TUNER.md, B).
     assert.ok(panels.every((p) => typeof p.frozenFactText === "string" && p.frozenFactText.length > 0 && !p.frozenFactText.includes("{")), JSON.stringify(panels.map((p) => p.frozenFactText)));
     const edit = panels.find((p) => p.imageMode === "i2i")!;
@@ -256,26 +258,23 @@ describe("a comparison run end to end, with fakes", () => {
     for (const [scenario, name, pronouns] of [["i2i_female_default", "Raena Franklin", "she/her"], ["i2i_male_default", "David Franklin", "he/him"]] as const) {
       const panel = panels.find((p) => p.scenarioKey === scenario)!;
       assert.match(String(panel.frozenFactText), new RegExp(name), `${scenario}: the frozen fact text`);
-      const subject = (panel.compileArgs as { renderedSubject: { name: string; pronouns: string } }).renderedSubject;
+      const subject = (panel.compileArgs as { direct: { renderedSubject: { name: string; pronouns: string } } }).direct.renderedSubject;
       assert.deepEqual(subject, { name, pronouns }, `${scenario}: the subject every cell compiles with`);
     }
     assert.deepEqual(uploadedTypes.slice(-1), ["image/jpeg"]); // the resized reference
     for (const r of await reservations(prep.body.run.id)) {
-      assert.equal(r.state, "settled");
-      assert.equal(r.settledUsd, r.boundUsd, "OpenAI reports no per-request bill: the bound is recorded");
+      assert.equal(r.state, "released", "nothing was spent");
+      assert.equal(Number(r.boundUsd), 0);
     }
     const [prepRun] = await db.select().from(comparisonRunsTable).where(eq(comparisonRunsTable.id, prep.body.run.id));
     assert.equal(prepRun!.state, "done");
   });
 
   it("freezes the fact's approved gag, rendered for the panel's subject, so a later edit changes nothing", async () => {
-    const { EMPTY_VISUAL_STRATEGY_OVERRIDE } = await import("@workspace/api-zod");
-    const gag = { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "{NAME} hoists a mountain overhead like a barbell." };
-    const [row] = await db.insert(factGagsTable).values({ factId, slot: 1, pendingContent: gag as never }).returning({ id: factGagsTable.id });
     try {
       const setId = await newSet("gag");
       await drain((await start(setId, "prepare")).body.run.id);
-      await db.update(factGagsTable).set({ pendingContent: { ...gag, coreSceneOverride: "{NAME} does something else." } as never }).where(eq(factGagsTable.id, row!.id));
+      await db.update(factGagsTable).set({ pendingContent: withCast({ ...BASE_GAG, coreSceneOverride: "{NAME} does something else." }) as never }).where(eq(factGagsTable.id, baseGagId));
       const panels = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId));
       assert.ok(panels.length > 0 && panels.every((p) => p.state === "prepared"), JSON.stringify(panels.map((p) => [p.state, p.error])));
       for (const p of panels) {
@@ -283,7 +282,7 @@ describe("a comparison run end to end, with fakes", () => {
         assert.doesNotMatch(String(p.frozenGag), /\{NAME\}/, "rendered for the panel's subject");
       }
     } finally {
-      await db.delete(factGagsTable).where(eq(factGagsTable.id, row!.id));
+      await db.update(factGagsTable).set({ pendingContent: BASE_GAG as never }).where(eq(factGagsTable.id, baseGagId));
     }
   });
 
@@ -357,7 +356,7 @@ describe("a comparison run end to end, with fakes", () => {
     assert.equal(resumed!.vendorResultUrl, "https://vendor.test/req-existing.png");
   });
 
-  it("never repeats a paid call whose outcome a restart left unknown", async () => {
+  it("never repeats a paid call whose outcome a restart left unknown (a panel left mid-planner-call before the switch, and a submission)", async () => {
     const setId = await newSet("ambiguous");
     const prep = await start(setId, "prepare");
     const prepJobs = (await db.select().from(asyncJobsTable).where(eq(asyncJobsTable.queue, COMPARISON_PREPARE_QUEUE)))
@@ -366,7 +365,6 @@ describe("a comparison run end to end, with fakes", () => {
     // A restart after the planner call began.
     await db.update(comparisonPanelsTable).set({ state: "planning" }).where(eq(comparisonPanelsTable.id, prepJobs[0]!.panelId));
     await preparePanel(prepJobs[0]!);
-    assert.deepEqual(plannerRetries, [], "no planner call was made");
     const [panel] = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.id, prepJobs[0]!.panelId));
     assert.equal(panel!.state, "failed");
     assert.match(String(panel!.error), /interrupted during the planner call/);
@@ -497,11 +495,9 @@ describe("a prompt comparison", () => {
         engineFamilies: [FAMILIES.gpt], kind: "prompt", recipeVersionIds: [null, v!.id],
       }, adminId);
       assert.equal(cells, 2, "one cell per version on the family's one edit engine");
-      const plannerCalls = plannerRetries.length;
       await drain((await start(setId, "prepare")).body.run.id);
-      assert.equal(plannerRetries.length - plannerCalls, 1, "the scene is written once for the panel");
       const [panel] = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId));
-      assert.ok(panel!.compileArgs, "the scene is frozen with the panel");
+      assert.ok((panel!.compileArgs as { direct?: unknown }).direct, "the gag is frozen once with the panel, shared by every version");
       const sent = submissions.length;
       await drain((await start(setId, "render")).body.run.id);
       assert.equal(submissions.length - sent, 2);
@@ -510,7 +506,7 @@ describe("a prompt comparison", () => {
       const tuned = drawn.find((c) => c.recipeVersionId === v!.id)!;
       assert.match(String(tuned.promptText), /IDENTITY & REFERENCE: Use the photo as the person's face, exactly\./);
       assert.doesNotMatch(String(baseline.promptText), /face, exactly/);
-      assert.equal(String(baseline.promptText).replace(/IDENTITY & REFERENCE: .*? SUBJECT/, ""), String(tuned.promptText).replace(/IDENTITY & REFERENCE: .*? SUBJECT/, ""), "only the wording differs");
+      assert.equal(String(baseline.promptText).replace(/IDENTITY & REFERENCE: .*? ADDITIONAL DETAILS/, ""), String(tuned.promptText).replace(/IDENTITY & REFERENCE: .*? ADDITIONAL DETAILS/, ""), "only the wording differs");
       assert.ok(submissions.slice(sent).some((s) => String(s.input["prompt"]).includes("face, exactly")), "the tuned prompt is what was sent");
 
       const { getJudgedResults } = await import("../lib/comparison/judging.js");
@@ -579,115 +575,82 @@ describe("a prompt comparison", () => {
   });
 });
 
-// Pictures drawn straight from the approved gag, increment 1 (plan
-// docs/plans/PLAN_GAG_DIRECT_RENDER.md, A): a path set draws each chosen gag
-// twice per engine, by the planned path and by the direct path, from the same
-// frozen gag, photo, look and size; only the path differs, and nothing of it
-// reaches the judge.
-describe("a planned-versus-direct comparison", () => {
+// Chosen gags (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md, Q11: 1): every
+// picture is drawn straight from one gag; a set may name the gags it draws,
+// one panel per chosen gag. The planned-versus-direct "path" set is retired
+// with the planner (D): there is one render path.
+describe("chosen gags", () => {
   const scene = "{NAME} drives {POSS} mom home from the hospital; mom grips the dashboard.";
-  const bubbles = [{ type: "speech", entity: "mom", text: "Slow down, {NAME}!" }];
+  const bubbles = [{ type: "speech" as const, entity: "mom", text: "Slow down, {NAME}!" }];
+  const MOM = { label: "mom", description: "the older woman in the passenger seat" };
   let gagA = 0;
   let gagB = 0;
-  let castCalls: Array<{ scene: string; speakers: string[] }> = [];
 
   before(async () => {
-    const { EMPTY_VISUAL_STRATEGY_OVERRIDE } = await import("@workspace/api-zod");
-    const [a] = await db.insert(factGagsTable).values({ factId, slot: 1, pendingContent: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: scene, bubbles } as never }).returning({ id: factGagsTable.id });
-    const [b] = await db.insert(factGagsTable).values({ factId, slot: 2, pendingContent: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "{NAME} parallel-parks a hospital bed.", bubbles: [] } as never }).returning({ id: factGagsTable.id });
+    const [a] = await db.insert(factGagsTable).values({ factId, slot: 2, pendingContent: { ...withCast({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: scene, bubbles }), cast: [MOM] } as never }).returning({ id: factGagsTable.id });
+    const [b] = await db.insert(factGagsTable).values({ factId, slot: 3, pendingContent: withCast({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "{NAME} parallel-parks a hospital bed.", bubbles: [] }) as never }).returning({ id: factGagsTable.id });
     gagA = a!.id;
     gagB = b!.id;
   });
   after(async () => {
-    await db.delete(comparisonSetsTable).where(like(comparisonSetsTable.label, `${P} path%`));
+    await db.delete(comparisonSetsTable).where(like(comparisonSetsTable.label, `${P} chosen%`));
     await db.delete(factGagsTable).where(inArray(factGagsTable.id, [gagA, gagB]));
   });
-  beforeEach(() => {
-    castCalls = [];
-    __setCastExtractorForTest(async (input) => {
-      castCalls.push({ scene: input.scene, speakers: input.bubbles.map((b) => b.entity) });
-      const speakers = input.bubbles.map((b) => b.entity).filter((e) => e !== "subject");
-      return {
-        cast: speakers.filter((s) => s !== "nurse").map((label) => ({ label, description: "the older woman in the passenger seat" })),
-        unboundSpeakers: speakers.filter((s) => s === "nurse"),
-        extraction: { promptVersion: "v1", extractedAt: new Date().toISOString(), sourceKey: "v1:0:00000000" },
-      };
-    });
-  });
 
-  async function pathSet(label: string, gagIds?: number[]) {
+  async function chosenSet(label: string, gagIds?: number[]) {
     return createComparisonSet({
-      label: `${P} path ${label}`, round: 1, factIds: [factId], scenarioKeys: ["i2i_male_default"], lookStyleIds: ["none"],
-      engineFamilies: [FAMILIES.gpt], kind: "path", ...(gagIds ? { gagIds } : {}),
+      label: `${P} chosen ${label}`, round: 1, factIds: [factId], scenarioKeys: ["i2i_male_default"], lookStyleIds: ["none"],
+      engineFamilies: [FAMILIES.gpt], ...(gagIds ? { gagIds } : {}),
     }, adminId);
   }
 
-  it("lays out one panel per chosen gag and one picture per path, defaulting to the fact's lowest gag", async () => {
-    const both = await pathSet("layout", [gagA, gagB]);
-    assert.deepEqual([both.panels, both.cells], [2, 4]);
-    const panels = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, both.setId));
-    assert.deepEqual(panels.map((p) => p.gagId).sort(), [gagA, gagB].sort());
-    const cells = await db.select().from(comparisonCellsTable).where(inArray(comparisonCellsTable.panelId, panels.map((p) => p.id)));
-    assert.deepEqual(cells.map((c) => c.renderPath).sort(), ["direct", "direct", "planned", "planned"]);
-    const dflt = await pathSet("default");
-    const [panel] = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, dflt.setId));
-    assert.equal(panel!.gagId, gagA, "a fact with no gag chosen draws its lowest live gag, named on the panel");
-    const refused = await pathSet("foreign", [999_999_999]).then(() => null, (e: Error) => e);
-    assert.match(String(refused?.message), /not a live gag/);
+  it("refuses a path set at creation, naming why", async () => {
+    const refused = await createComparisonSet({
+      label: `${P} chosen path`, round: 1, factIds: [factId], scenarioKeys: ["i2i_male_default"], lookStyleIds: ["none"],
+      engineFamilies: [FAMILIES.gpt], kind: "path", gagIds: [gagA],
+    }, adminId).then(() => null, (e: Error) => e);
+    assert.ok(refused, "a path set is not made");
+    assert.ok(String((refused as { reasons?: string[] }).reasons ?? refused.message).includes(PATH_COMPARISON_RETIRED_MESSAGE), String(refused));
   });
 
-  it("freezes the gag's cast and bubbles; the direct picture is the gag alone and the planned one keeps the planner", async () => {
-    const { setId } = await pathSet("draw", [gagA]);
+  it("lays out one panel per chosen gag on an engine set, and refuses a gag that is not the fact's", async () => {
+    const both = await chosenSet("layout", [gagA, gagB]);
+    assert.deepEqual([both.panels, both.cells], [2, 2]);
+    const panels = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, both.setId));
+    assert.deepEqual(panels.map((p) => p.gagId).sort(), [gagA, gagB].sort());
+    const refused = await chosenSet("foreign", [999_999_999]).then(() => null, (e: Error) => e);
+    assert.match(String((refused as { reasons?: string[] } | null)?.reasons ?? refused?.message), /not a live gag/);
+  });
+
+  it("freezes the chosen gag's cast and bubbles and draws the gag alone", async () => {
+    const { setId } = await chosenSet("draw", [gagA]);
     await drain((await start(setId, "prepare")).body.run.id);
-    assert.equal(castCalls.length, 1, "one cast call per panel");
-    assert.deepEqual(castCalls[0]!.speakers, ["mom"]);
     const [panel] = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId));
     assert.equal(panel!.state, "prepared", String(panel!.error ?? panel!.skipReason));
-    assert.deepEqual((panel!.gagCast as { cast: unknown }).cast, [{ label: "mom", description: "the older woman in the passenger seat" }]);
+    assert.deepEqual((panel!.gagCast as { cast: unknown }).cast, [MOM]);
     const expected = panel!.frozenBubbles as Array<{ speaker: string; text: string }>;
     assert.equal(expected[0]!.speaker, "mom");
     assert.doesNotMatch(expected[0]!.text, /\{NAME\}/, "rendered for the panel's subject");
 
     await drain((await start(setId, "render")).body.run.id);
-    const cells = await db.select().from(comparisonCellsTable).where(eq(comparisonCellsTable.panelId, panel!.id));
-    const direct = cells.find((c) => c.renderPath === "direct")!;
-    const planned = cells.find((c) => c.renderPath === "planned")!;
-    assert.match(String(direct.promptText), /mom: the older woman in the passenger seat\./);
-    assert.match(String(direct.promptText), /as comedy, without intense gore/);
-    assert.doesNotMatch(String(direct.promptText), /A protagonist lifts a mountain/, "nothing the planner wrote");
-    assert.notEqual(planned.promptText, direct.promptText);
+    const [cell] = await db.select().from(comparisonCellsTable).where(eq(comparisonCellsTable.panelId, panel!.id));
+    assert.match(String(cell!.promptText), /mom: the older woman in the passenger seat\./);
+    assert.match(String(cell!.promptText), /as comedy, without intense gore/);
+    assert.match(String(cell!.promptText), /drives his mom home from the hospital/);
+    assert.doesNotMatch(String(cell!.promptText), /hoists a mountain/, "the chosen gag, not the fact's default");
 
-    const { getBlindSet, getJudgedResults } = await import("../lib/comparison/judging.js");
+    const { getBlindSet } = await import("../lib/comparison/judging.js");
     const blind = await getBlindSet(setId);
-    const shown = blind!.panels[0]!;
-    assert.deepEqual(shown.bubbles?.map((b) => b.speaker), ["mom"]);
-    assert.doesNotMatch(JSON.stringify(shown), /planned|direct/, "the judge never learns the path");
-    const results = await getJudgedResults([setId]);
-    assert.equal(results!.kind, "path");
-    assert.ok(Object.keys(results!.byCase).length === 1, "results are reported per case");
-    assert.deepEqual(results!.pictures.map((p) => p.renderPath).sort(), ["direct", "planned"]);
+    assert.deepEqual(blind!.panels[0]!.bubbles?.map((b) => b.speaker), ["mom"]);
   });
 
-  it("skips a panel whose scene does not show a bubble's speaker, naming the speaker", async () => {
-    const { EMPTY_VISUAL_STRATEGY_OVERRIDE } = await import("@workspace/api-zod");
-    await db.update(factGagsTable).set({ pendingContent: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "{NAME} parallel-parks a hospital bed.", bubbles: [{ type: "speech", entity: "nurse", text: "Bye!" }] } as never }).where(eq(factGagsTable.id, gagB));
-    const { setId } = await pathSet("unbound", [gagB]);
-    const calls = plannerRetries.length;
+  it("skips a panel whose gag cannot be drawn as it stands (its cast was not read from its scene), naming why", async () => {
+    await db.update(factGagsTable).set({ pendingContent: { ...withCast({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "{NAME} parallel-parks a hospital bed.", bubbles: [] }), coreSceneOverride: "{NAME} parallel-parks an ambulance." } as never }).where(eq(factGagsTable.id, gagB));
+    const { setId } = await chosenSet("stale", [gagB]);
     await drain((await start(setId, "prepare")).body.run.id);
     const [panel] = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId));
     assert.equal(panel!.state, "skipped");
-    assert.match(String(panel!.skipReason), /"nurse"/);
-    assert.equal(plannerRetries.length, calls, "no planner call is made for a gag that cannot be drawn");
-  });
-
-  it("fails a panel whose cast call fails, never treating it as an empty cast", async () => {
-    __setCastExtractorForTest(async () => { throw new Error("model unavailable"); });
-    const { setId } = await pathSet("castfail", [gagA]);
-    await drain((await start(setId, "prepare")).body.run.id);
-    const [panel] = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId));
-    assert.equal(panel!.state, "failed");
-    assert.match(String(panel!.error), /cast failed: model unavailable/);
-    assert.equal(panel!.gagCast, null);
+    assert.match(String(panel!.skipReason), /cast was not read from its scene/);
   });
 });
 });

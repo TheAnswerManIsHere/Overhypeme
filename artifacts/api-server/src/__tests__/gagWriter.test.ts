@@ -65,8 +65,8 @@ describe("migration 0137 points the gag generator at GPT-6 Astra", () => {
       assert.equal(settings.model, "gpt-6-astra");
       // The effort is the code's (decisions.md 2026-11-14).
       assert.equal(settings.reasoningEffort, "medium");
-      const planner = engineById("openai-visual-planner");
-      assert.equal(planner?.endpointId, "gpt-5.5", "the render planner's engine is unchanged");
+      // The render planner's engine left the catalogue with the planner (PLAN_GAG_DIRECT_RENDER.md, D).
+      assert.equal(engineById("openai-visual-planner"), null, "the render planner's engine is gone");
     });
   }
 });

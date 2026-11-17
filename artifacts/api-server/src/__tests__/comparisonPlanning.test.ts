@@ -12,7 +12,7 @@ import { COMPARISON_DEFAULT_FAMILIES, COMPARISON_ROUND_PRESETS } from "@workspac
 import { ALL_ENGINES } from "../lib/engines/index.js";
 import { toEngineRecord } from "../lib/engines/engineRecord.js";
 import { ComparisonLayoutError, deriveComparisonLayout } from "../lib/comparison/layout.js";
-import { cellBoundUsd, panelPreparationBoundUsd, planRun, type WorkItem } from "../lib/comparison/admission.js";
+import { cellBoundUsd, planRun, type WorkItem } from "../lib/comparison/admission.js";
 
 const catalogue = ALL_ENGINES.filter((e) => e.kind === "image").map((e) => toEngineRecord(e));
 
@@ -67,39 +67,16 @@ describe("run admission", () => {
   const items = (n: number, bound: number, prefix = "cell"): WorkItem[] =>
     Array.from({ length: n }, (_, i) => ({ ref: `${prefix}:${i}`, label: `${prefix} ${i}`, boundUsd: bound }));
 
-  // The shipped planner: gpt-5.5, 2,800 visible tokens, temperature 0.4.
-  const SHIPPED = { model: "gpt-5.5", maxTokens: 2800, temperature: 0.4 };
-
-  it("a panel's preparation reserves two planner calls at the ceiling the request sends ($0.768)", () => {
-    // (2,800 + 8,000 reasoning headroom) × $30/M + 12,000 input × $5/M = $0.384 a call.
-    assert.ok(Math.abs(panelPreparationBoundUsd(SHIPPED) - 0.768) < 1e-9, String(panelPreparationBoundUsd(SHIPPED)));
-  });
-
-  it("a raised planner token ceiling raises the bound", () => {
-    const raised = { ...SHIPPED, maxTokens: 6000 };
-    assert.ok(Math.abs(panelPreparationBoundUsd(raised) - 0.96) < 1e-9, String(panelPreparationBoundUsd(raised)));
-  });
-
-  it("a planner request without reasoning headroom is priced from its own ceiling", () => {
-    // GPT-6 at reasoning effort "none" sends max_completion_tokens = maxTokens, no headroom.
-    const bound = panelPreparationBoundUsd({ model: "gpt-6-luna", maxTokens: 512, temperature: 0.4, reasoningEffort: "none" });
-    assert.ok(Math.abs(bound - 2 * (512 * 0.5 + 12_000 * 0.1) / 1_000_000) < 1e-12, String(bound));
-  });
-
-  it("a planner model with no price refuses rather than guessing", () => {
-    assert.throws(() => panelPreparationBoundUsd({ ...SHIPPED, model: "no-such-model" }), /no price for the planner model "no-such-model"/);
-  });
-
   it("an engine without a price model has no bound", () => {
     assert.throws(() => cellBoundUsd(null), /never admitted/);
   });
 
   // David, 2026-11-07: "Ignore pricing entirely." No allowance or week limits a run.
   it("takes every pending item, with no allowance or week limit, and records the worst case", () => {
-    const plan = planRun(items(15, panelPreparationBoundUsd(SHIPPED), "panel"));
+    const plan = planRun(items(15, 0.5, "cell"));
     assert.equal(plan.admitted, true);
     assert.equal(plan.items.length, 15);
-    assert.ok(Math.abs(plan.boundUsd - 11.52) < 1e-9, String(plan.boundUsd)); // 15 × 0.768, above the old $5
+    assert.ok(Math.abs(plan.boundUsd - 7.5) < 1e-9, String(plan.boundUsd)); // 15 × 0.5, above the old $5
     const big = planRun([{ ref: "cell:1", label: "rendering cell 1 (x)", boundUsd: 6 }]);
     assert.equal(big.admitted, true, "an item above the old $5 allowance is no longer refused");
   });
