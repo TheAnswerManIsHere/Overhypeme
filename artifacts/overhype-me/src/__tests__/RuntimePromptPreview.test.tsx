@@ -147,20 +147,14 @@ describe("RuntimePromptPreview", () => {
     expect(screen.getByTestId("rpp-error").textContent).toMatch(/Backfill enrichment/i);
   });
 
-  it("renders the visual plan debug JSON when toggled", async () => {
+  it("shows no planner panel: no visual-plan debug and no planner provenance (the planner was removed, plan PLAN_GAG_DIRECT_RENDER.md, D)", async () => {
     render(<RuntimePromptPreview factId={42} />);
     expand();
     fireEvent.click(screen.getByTestId("rpp-generate"));
     await waitFor(() => expect(screen.getByTestId("rpp-compiled-prompt")).toBeTruthy());
-
-    fireEvent.click(screen.getByTestId("rpp-toggle-visual-plan"));
-    const planText = screen.getByTestId("rpp-visual-plan").textContent ?? "";
-    expect(planText).toContain("sceneConcept");
-    // The new concrete visual-contract fields are surfaced too.
-    expect(planText).toContain("coreScene");
-    expect(planText).toContain("subjectDetails");
-    expect(planText).toContain("environment");
-    expect(planText).toContain("lightingAndStyle");
+    for (const id of ["rpp-toggle-visual-plan", "rpp-visual-plan", "rpp-planner-provenance", "rpp-planner-fallback"]) {
+      expect(screen.queryByTestId(id)).toBeNull();
+    }
   });
 
   it("renders the per-component prompt breakdown when present", async () => {
@@ -235,46 +229,6 @@ describe("RuntimePromptPreview", () => {
     expect(within(core).getByTestId("rpp-moderator-chip").textContent).toMatch(/moderator/i);
     // Non-moderator sections carry no chip.
     expect(within(screen.getByTestId("rpp-breakdown-section-subject_details")).queryByTestId("rpp-moderator-chip")).toBeNull();
-  });
-
-  it("shows planner provenance for a dedicated-engine plan and a loud banner on fallback", async () => {
-    const provenance = (fallbackReason: string | null) => ({
-      compiledPrompt: {
-        prompt: "PROMPT TEXT",
-        imagePrompt: "COMPILED IMAGE PROMPT TEXT",
-        negativePrompt: "",
-        diagnostics: {
-          removedPlannerProseSentences: [],
-          warnings: [],
-          plannerProvenance: {
-            configuredEngineId: "openai-visual-planner",
-            resolvedEngineId: fallbackReason ? null : "openai-visual-planner",
-            model: fallbackReason ? null : "gpt-5.5",
-            reasoningEffort: fallbackReason ? null : "xhigh",
-            timeoutMs: 180000,
-            fallbackReason,
-          },
-        },
-      },
-    });
-
-    installFetch({ previewBody: previewResponse(provenance(null)) });
-    const { unmount } = render(<RuntimePromptPreview factId={42} />);
-    expand();
-    fireEvent.click(screen.getByTestId("rpp-generate"));
-    await waitFor(() => expect(screen.getByTestId("rpp-planner-provenance")).toBeTruthy());
-    expect(screen.getByTestId("rpp-planner-provenance").textContent).toContain("gpt-5.5");
-    expect(screen.getByTestId("rpp-planner-provenance").textContent).toContain("xhigh");
-    unmount();
-    localStorage.clear();
-
-    installFetch({ previewBody: previewResponse(provenance("engine_inactive")) });
-    render(<RuntimePromptPreview factId={43} />);
-    expand();
-    fireEvent.click(screen.getByTestId("rpp-generate"));
-    await waitFor(() => expect(screen.getByTestId("rpp-planner-fallback")).toBeTruthy());
-    expect(screen.getByTestId("rpp-planner-fallback").textContent).toMatch(/FALLBACK/);
-    expect(screen.getByTestId("rpp-planner-fallback").textContent).toContain("engine_inactive");
   });
 
   it("renders the moderator core-scene warnings as amber diagnostics", async () => {

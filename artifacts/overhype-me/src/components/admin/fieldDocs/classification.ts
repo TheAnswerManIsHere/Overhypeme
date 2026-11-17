@@ -351,7 +351,7 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
       CLASSIFIER_PROMPT,
       {
         path: "artifacts/api-server/src/lib/taxonomyHealth/index.ts",
-        symbol: "computeTaxonomyHealth",
+        symbol: "evaluateFactTaxonomyHealth",
         note: "The questionable/reject health flags and needs_admin_review gating.",
       },
     ],

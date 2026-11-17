@@ -65,15 +65,17 @@ export interface VisualConceptHashInputs {
 }
 
 /**
- * The classification fields the gag writer's request carries, and so the ones
- * whose edit marks its ideas out of date: the archetype and subtype (its
- * subtype guidance), the modifiers (retired text/logo modifiers left out, as
- * inert legacy data), literalness and complexity, cultural references and
- * semantic entities, and the fact's gag content (its derived cast left out:
- * the writer is shown scenes and bubbles). The fact character list is not
- * read by the writer (PLAN_BUBBLE_SPEAKERS.md, F) and stays out. This was the
- * render projection minus the character list until the switch; its values
- * are unchanged, so no stored idea goes out of date by the split.
+ * The classification fields whose edit marks the gag writer's ideas out of
+ * date. The writer's request reads the archetype and subtype (its subtype
+ * guidance), the cultural references and the semantic entities
+ * (`buildVisualConceptsUserMessage`), and the fact's gag content (its
+ * derived cast left out: the writer is shown scenes and bubbles). The
+ * modifiers (retired text/logo modifiers left out), literalness and
+ * complexity are NOT read by the writer; they stay in this hash only because
+ * it was the render projection minus the character list until the switch,
+ * and keeping its values unchanged means no stored idea goes out of date by
+ * the split. The fact character list is not read by the writer
+ * (PLAN_BUBBLE_SPEAKERS.md, F) and stays out.
  */
 function writerAffectingEnrichment(e: FactEnrichment): Record<string, unknown> {
   const ov = e.visualPromptStrategyOverride ?? null;

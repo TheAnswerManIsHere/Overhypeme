@@ -269,6 +269,7 @@ export const KNOWN_MODIFIER_DOCS = {
   official_setting: settingDoc(
     "formal/ceremonial",
     '"{NAME} was sworn in as everyone\'s emergency contact" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
+    '"{NAME} was sworn in as everyone\'s emergency contact" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
   ),
   professional_context: {
     meaning:
@@ -282,57 +283,71 @@ export const KNOWN_MODIFIER_DOCS = {
   domestic_setting: settingDoc(
     "home/domestic",
     '"{NAME}\'s houseplants water themselves out of respect" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
+    '"{NAME}\'s houseplants water themselves out of respect" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
   ),
   office_setting: settingDoc(
     "office",
+    '"The office printer works only for {NAME}" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
     '"The office printer works only for {NAME}" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
   ),
   school_setting: settingDoc(
     "school",
     '"Teachers ask {NAME} for hall passes" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
+    '"Teachers ask {NAME} for hall passes" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
   ),
   hospital_setting: settingDoc(
     "hospital/medical",
+    '"Doctors check {NAME}\'s pulse to calibrate their watches" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
     '"Doctors check {NAME}\'s pulse to calibrate their watches" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
   ),
   courtroom_setting: settingDoc(
     "courtroom",
     '"{NAME} was called as an expert witness on being impressive" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
+    '"{NAME} was called as an expert witness on being impressive" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
   ),
   airport_setting: settingDoc(
     "airport",
+    '"TSA waves {NAME} through with applause" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
     '"TSA waves {NAME} through with applause" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
   ),
   gym_setting: settingDoc(
     "gym",
     '"The gym renamed leg day after {NAME}" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
+    '"The gym renamed leg day after {NAME}" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
   ),
   bar_setting: settingDoc(
     "bar",
+    '"Bartenders tip {NAME}" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
     '"Bartenders tip {NAME}" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
   ),
   battlefield_setting: settingDoc(
     "battlefield",
     '"{NAME} won the battle by showing up" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
+    '"{NAME} won the battle by showing up" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
   ),
   technology_setting: settingDoc(
     "tech/data-center",
+    '"Servers cool down when {NAME} logs on" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
     '"Servers cool down when {NAME} logs on" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
   ),
   underwater_setting: settingDoc(
     "underwater",
     '"Sharks have a {NAME} Week" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
+    '"Sharks have a {NAME} Week" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
   ),
   space_setting: settingDoc(
     "outer-space",
+    '"{NAME} waved at the ISS and it waved back" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
     '"{NAME} waved at the ISS and it waved back" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
   ),
   outdoor_nature_setting: settingDoc(
     "outdoor/nature",
     '"Mountains adjust their height for {NAME}\'s photos" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
+    '"Mountains adjust their height for {NAME}\'s photos" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
   ),
   city_setting: settingDoc(
     "urban/city",
+    '"Traffic lights turn green when {NAME} approaches" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
     '"Traffic lights turn green when {NAME} approaches" → a label only; the picture follows the gag\'s scene, so say it there if it should show.',
   ),
   avoid_weapons_focus: {

@@ -263,7 +263,6 @@ export const VISUAL_STRATEGY_FIELD_DOCS: FieldDoc[] = [
     sourceRefs: [OVERRIDE_SCHEMA, COMPILER, STALE_HASH],
     authoredStatus: "code-derived",
   },
-,
   {
     key: "vso.coreSceneOverride",
     label: "Visual Concept (Core Scene)",
@@ -302,7 +301,6 @@ export const VISUAL_STRATEGY_FIELD_DOCS: FieldDoc[] = [
     sourceRefs: [OVERRIDE_SCHEMA, COMPILER, STALE_HASH],
     authoredStatus: "code-derived",
   },
-,
   {
     key: "vso.bubbles",
     label: "Speech & Thought Bubbles",

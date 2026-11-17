@@ -30,13 +30,13 @@ behavior; David's spot-check is requested.
 - [Visual Strategy Override](#visual-strategy-override)
   - [Visual Strategy Override](#visual-strategy-override)
   - [Visual Concept (Core Scene)](#visual-concept-core-scene)
+  - [Speech & Thought Bubbles](#speech-thought-bubbles)
   - [Moderator Intent (admin-only, not rendered)](#moderator-intent-admin-only-not-rendered)
   - [Subject Depiction Mode](#subject-depiction-mode)
   - [Subject Depiction Description](#subject-depiction-description)
   - [Required Visual Details](#required-visual-details)
   - [Forbidden Visual Details](#forbidden-visual-details)
   - [Scene Role Assignments](#scene-role-assignments)
-  - [Speech & Thought Bubbles](#speech-thought-bubbles)
   - [Composition Guidance](#composition-guidance)
   - [Extra Prompt Details (any style)](#extra-prompt-details-any-style)
   - [Do-Not-Render Additions](#do-not-render-additions)
@@ -69,15 +69,15 @@ behavior; David's spot-check is requested.
 
 *The joke's MECHANISM — the single most important classification on this form.*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Advisory only — read by the gag writer, never by the picture prompt
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** field-label
 
 **What it is**
 
 The primary archetype classifies HOW the fact's joke works (its mechanism), not what it is superficially about. The classifier's own rule: "Classify by the joke mechanism, not by superficial topic" — a moon fact caused by a sneeze is a superhuman physical feat with an astronomical-consequence modifier, not a cosmic category.
 
-There are 11 archetypes, each with its own hand-authored visual strategy. Getting this wrong sends the renderer down the wrong strategy entirely, so it is the first thing to check when a test render misses the joke.
+There are 11 archetypes. The gag writer is told the archetype and subtype as the JOKE MECHANISM when it drafts gag ideas, so getting this wrong skews the ideas it proposes. It does not reach the picture itself: a picture is drawn from the approved gag.
 
 **How the AI sets it**
 
@@ -87,73 +87,71 @@ A deterministic repair guard also runs after classification: a low-confidence te
 
 **How it affects the render**
 
-Selects the authored visual strategy template: the archetype's strategyBlock, core visual goal, i2i/t2i defaults, locked rules, and visualization examples are injected verbatim into the image-prompt planner under "AUTHORED VISUAL STRATEGY (apply this — do not improvise)".
+Read by the gag writer when it drafts gag ideas: it is the first half of the JOKE MECHANISM block in the writer's message. It does not reach the picture prompt, which is drawn only from the approved gag. The render-time planner that used to inject the archetype's strategy template was removed when pictures started being drawn straight from the gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md).
 
-Also echoed into the planner's TAXONOMY block marked "FIXED — DO NOT reclassify", and the plan validator requires the plan to keep this archetype.
-
-Editing it flips existing test renders stale — rerun them to see the new strategy.
+Editing it marks the stored gag ideas out of date (the writer's freshness check) so they can be redrafted. It never marks a render out of date.
 
 **Values (11)**
 
 - `superhuman_physical_feat` — Use when a real physical action is exaggerated to impossible force, scale, speed, endurance, precision, sensory ability, or consequence. This is also where redundant-mechanism jokes belong: when a tool or weapon's normal mechanism (an explosion, a gunshot) happens AFTER the subject's power already achieved the result, classify here (with the normal_function_rendered_unnecessary modifier), NOT as temporal inversion.
-  - *Render:* Selects the superhuman-feat strategy: a grounded cinematic scene showing the recognizable action AND its impossible consequence in the same image, with concrete visual proof (cracked ground, shockwaves, motion trails, scale contrast). Locked rule: "Show a real physical action and its impossible physical consequence in the same image whenever possible. Preserve the face, exaggerate the legend." The only archetype with its own authored t2i fallback; its six visualization examples are fully authored (including the canonical grenade redundant-mechanism example).
+  - *Render:* No longer applied to a picture directly — the gag writer is told the archetype as the joke mechanism, and the render planner that read the authored strategy was removed. The strategy this archetype used to select: a grounded cinematic scene showing the recognizable action AND its impossible consequence in the same image, with concrete visual proof (cracked ground, shockwaves, motion trails, scale contrast). Locked rule: "Show a real physical action and its impossible physical consequence in the same image whenever possible. Preserve the face, exaggerate the legend." The only archetype with its own authored t2i fallback; its six visualization examples are fully authored (including the canonical grenade redundant-mechanism example).
   - *Example:* "{NAME} once threw a grenade and killed 50 people, then it exploded." → the throw is the impossible force; the grenade is staged intact and unexploded in flight.
 - `object_logic_impossibility` — Use when the object, tool, material, medium, or semantic object logic makes the action impossible — the joke is that the thing itself cannot logically support what the subject did with it (slamming a revolving door, strangling with a cordless phone).
-  - *Render:* Selects the object-logic strategy: make the contradiction visually legible — show what the object is and why the result should be impossible, with the subject confident and in control. Uniquely has frame-selection guidance (direct_action / implied_aftermath / object_transformation / target_reaction). Locked rule: when the action is less funny to show directly, show the impossible aftermath and let the viewer infer the cause. Its five visualization examples are fully authored.
+  - *Render:* No longer applied to a picture directly — the gag writer is told the archetype as the joke mechanism, and the render planner that read the authored strategy was removed. The strategy this archetype used to select: make the contradiction visually legible — show what the object is and why the result should be impossible, with the subject confident and in control. Uniquely has frame-selection guidance (direct_action / implied_aftermath / object_transformation / target_reaction). Locked rule: when the action is less funny to show directly, show the impossible aftermath and let the viewer infer the cause. Its five visualization examples are fully authored.
   - *Example:* "{NAME} can slam a revolving door." → the rotating mechanism is clearly visible, yet impossibly slammed shut; {NAME} stands beside it, casual and powerful.
 - `environmental_obedience_immunity` — Use when nature, weather, darkness, water, fire, gravity, or another natural/environmental force avoids, obeys, yields to, personifies itself around, or fails to affect the subject. Per the mechanism-not-topic rule, a sun-blinking fact lands here (personified natural force), not in any cosmic category.
-  - *Render:* Selects the environmental strategy: make the force visually obvious (enough rain/darkness/fire/wind that the viewer knows what is being defied) and show it reacting to the subject. Locked rule: "Show the environment reacting to the subject, not the subject reacting to the environment." Its visualization examples are marked authoring-pending in the strategy file (fact stubs without prose).
+  - *Render:* No longer applied to a picture directly — the gag writer is told the archetype as the joke mechanism, and the render planner that read the authored strategy was removed. The strategy this archetype used to select: make the force visually obvious (enough rain/darkness/fire/wind that the viewer knows what is being defied) and show it reacting to the subject. Locked rule: "Show the environment reacting to the subject, not the subject reacting to the environment." Its visualization examples are marked authoring-pending in the strategy file (fact stubs without prose).
   - *Example:* "Rain avoids {NAME}." → a downpour drenches the whole street while the rain visibly parts around a dry, unbothered {NAME}.
 - `authority_threat_reversal` — Use when a normal power, danger, authority, role, predator, institution, or responsibility relationship is inverted — the subject is normally the subordinate one, but the authority/threat now responds to them. The prompt's canonical example: a baby driving their mother home is this archetype (social role reversal), not a physics joke.
-  - *Render:* Selects the reversal strategy: show who normally has power and make the inversion legible through body language, deference, ceremony, or fear. Per-subtype treatments diverge: social reversals stage grounded human comedy, institutional ones use official settings/procedure, predator ones show the threat recoiling or submitting. Locked rule: show the normal power relationship, then make the reversal visually obvious. Examples are marked authoring-pending (stubs, though the "Sharks have a {NAME} Week" stub carries an authored Shark Week cultural-reference annotation).
+  - *Render:* No longer applied to a picture directly — the gag writer is told the archetype as the joke mechanism, and the render planner that read the authored strategy was removed. The strategy this archetype used to select: show who normally has power and make the inversion legible through body language, deference, ceremony, or fear. Per-subtype treatments diverge: social reversals stage grounded human comedy, institutional ones use official settings/procedure, predator ones show the threat recoiling or submitting. Locked rule: show the normal power relationship, then make the reversal visually obvious. Examples are marked authoring-pending (stubs, though the "Sharks have a {NAME} Week" stub carries an authored Shark Week cultural-reference annotation).
   - *Example:* "A baby drove {NAME}'s mother home." → a realistic car interior where the impossibility is who holds the driver's role, not the physics.
 - `temporal_causality_inversion` — Use ONLY when the humor depends on impossible event order, time reversal, retrocausality, or an effect clearly occurring before its cause — broken time, sequence, process order, history, age, or reversibility. Critical disambiguation: "then" does NOT automatically mean temporal inversion. If a normal mechanism (grenade exploding, gun firing) happens after the result but the joke is that the subject's power made it unnecessary, that is a redundant mechanism → classify as superhuman_physical_feat (or the relevant power archetype) with normal_function_rendered_unnecessary instead. Before choosing this, ask: is the joke primarily about impossible time order, or did the subject's power simply beat the normal mechanism?
-  - *Render:* Selects the temporal strategy: show the broken sequence so the viewer understands what should have happened first — before/after contrast, frozen action, reversed motion cues, impossible age relationships. The strategy block itself repeats the warning to never stage redundant-mechanism facts (e.g. the grenade) as an explosion before the throw. Locked rule: "Show the broken sequence." Examples are marked authoring-pending (fact stubs only).
+  - *Render:* No longer applied to a picture directly — the gag writer is told the archetype as the joke mechanism, and the render planner that read the authored strategy was removed. The strategy this archetype used to select: show the broken sequence so the viewer understands what should have happened first — before/after contrast, frozen action, reversed motion cues, impossible age relationships. The strategy block itself repeats the warning to never stage redundant-mechanism facts (e.g. the grenade) as an explosion before the throw. Locked rule: "Show the broken sequence." Examples are marked authoring-pending (fact stubs only).
   - *Example:* "{NAME} finished the race before it started." → {NAME} calmly crossing the finish line while the starting gun is still being raised behind them.
 - `presence_induced_reaction_aura` — Use when the subject does little or nothing, but people, objects, opportunities, conflicts, crowds, or situations react because of their presence, reputation, aura, or tiny gesture. The prompt's disambiguation example: a bar fight ending because the subject raises an eyebrow is this archetype, not temporal inversion.
-  - *Render:* Selects the aura strategy: contrast the subject's minimal, composed action against an exaggerated reaction around them — and the subject must look like this is normal, never confused by it. Locked rule: "The subject barely acts. The world reacts." Examples are marked authoring-pending (fact stubs only).
+  - *Render:* No longer applied to a picture directly — the gag writer is told the archetype as the joke mechanism, and the render planner that read the authored strategy was removed. The strategy this archetype used to select: contrast the subject's minimal, composed action against an exaggerated reaction around them — and the subject must look like this is normal, never confused by it. Locked rule: "The subject barely acts. The world reacts." Examples are marked authoring-pending (fact stubs only).
   - *Example:* "A bar fight ends when {NAME} raises an eyebrow." → brawlers frozen mid-swing, all eyes on {NAME}'s single raised eyebrow.
 - `logic_formal_impossibility` — Use when the fact violates formal logic, math, infinity, probability, rules, games, paradox, or formal language. Per the mechanism-not-topic rule, counting to infinity is a logic/formal impossibility, not physical scale.
-  - *Render:* Selects the formal-logic strategy: a symbolic scene where the broken rule feels physically real (impossible geometry, paradoxical objects, infinite loops, collapsing probability), with concise supporting numbers/symbols/equations explicitly permitted when they make the rule funnier to read. Locked rule: turn the formal impossibility into a physical visual metaphor. Examples are marked authoring-pending (though the pi-PIN stub carries partial authored guidance: show four crisp digits, never long streams of pi).
+  - *Render:* No longer applied to a picture directly — the gag writer is told the archetype as the joke mechanism, and the render planner that read the authored strategy was removed. The strategy this archetype used to select: a symbolic scene where the broken rule feels physically real (impossible geometry, paradoxical objects, infinite loops, collapsing probability), with concise supporting numbers/symbols/equations explicitly permitted when they make the rule funnier to read. Locked rule: turn the formal impossibility into a physical visual metaphor. Examples are marked authoring-pending (though the pi-PIN stub carries partial authored guidance: show four crisp digits, never long streams of pi).
   - *Example:* "{NAME} counted to infinity. Twice." → an endless symbolic number-scape resolving around a calm {NAME}, rather than someone mouthing numbers.
 - `intellectual_omniscience` — Use when the subject knows, predicts, solves, remembers, understands, or deduces something impossible — knowledge that should be hidden, unavailable, unwritten, or unknowable.
-  - *Render:* Selects the omniscience strategy: show the knowledge barrier AND the subject's effortless access to it (sealed vaults, future reflections, overwhelmed experts) — never ordinary studying or hacking. Locked rule: "The subject knows what cannot be known, and the image must show why that knowledge should have been impossible." Examples are marked authoring-pending (though the "knows Victoria's secret" stub carries an authored brand cultural-reference annotation).
+  - *Render:* No longer applied to a picture directly — the gag writer is told the archetype as the joke mechanism, and the render planner that read the authored strategy was removed. The strategy this archetype used to select: show the knowledge barrier AND the subject's effortless access to it (sealed vaults, future reflections, overwhelmed experts) — never ordinary studying or hacking. Locked rule: "The subject knows what cannot be known, and the image must show why that knowledge should have been impossible." Examples are marked authoring-pending (though the "knows Victoria's secret" stub carries an authored brand cultural-reference annotation).
   - *Example:* "{NAME} knows what the Magic 8 Ball will say before it's shaken." → the answer already visible to {NAME} while the ball sits untouched.
 - `technology_system_reaction` — Use when machines, apps, computers, passwords, AI, digital systems, networks, devices, or software react to, obey, defer to, or fail against the subject.
-  - *Render:* Selects the technology strategy: the system must visibly change behavior because the subject is present (gates opening, screens changing state, robots pausing, AI deferring) — never a passive background prop or ordinary computer use. Concise supporting UI text/status messages are permitted when they help the reaction read. Locked rule: "The system reacts to the subject. Technology becomes the subordinate user." Examples are marked authoring-pending (fact stubs only).
+  - *Render:* No longer applied to a picture directly — the gag writer is told the archetype as the joke mechanism, and the render planner that read the authored strategy was removed. The strategy this archetype used to select: the system must visibly change behavior because the subject is present (gates opening, screens changing state, robots pausing, AI deferring) — never a passive background prop or ordinary computer use. Concise supporting UI text/status messages are permitted when they help the reaction read. Locked rule: "The system reacts to the subject. Technology becomes the subordinate user." Examples are marked authoring-pending (fact stubs only).
   - *Example:* "{NAME}'s chess computer resigns while unplugged." → a dead, unplugged machine displaying its resignation to a calm {NAME}.
 - `intrinsic_legendary_attribute` — Use when the subject has an impossible built-in trait, aura, body feature, biological property, personal field, possession, or metaphorical property made physical — the impossibility is part of who they are, not something they did.
-  - *Render:* Selects the intrinsic-attribute strategy: make the impossible property feel intrinsic to the subject (body detail, aura, shadow, personal objects, the world's reaction), enhancing their mythic status rather than reading as a random external event; metaphorical facts get converted into a concrete visual form. Locked rule: "The subject is not just legendary because of what they do. Something about them is inherently impossible." Examples are marked authoring-pending (fact stubs only).
+  - *Render:* No longer applied to a picture directly — the gag writer is told the archetype as the joke mechanism, and the render planner that read the authored strategy was removed. The strategy this archetype used to select: make the impossible property feel intrinsic to the subject (body detail, aura, shadow, personal objects, the world's reaction), enhancing their mythic status rather than reading as a random external event; metaphorical facts get converted into a concrete visual form. Locked rule: "The subject is not just legendary because of what they do. Something about them is inherently impossible." Examples are marked authoring-pending (fact stubs only).
   - *Example:* "Under {NAME}'s beard is another fist." → the body feature itself is the impossible legend.
 - `mundane_act_made_legendary` — Use when an ordinary everyday action, task, habit, errand, work activity, food/drink activity, or social behavior is treated as absurdly epic, mythic, dominant, or legendary.
-  - *Render:* Selects the mundane-made-legendary strategy: keep the ordinary act clearly visible and specific (the comedy dies if it becomes generic hero imagery), then elevate it through staging, lighting, reactions, and ceremony. Locked rule: "Make the ordinary act visible, then stage it like a legendary event." Examples are marked authoring-pending (fact stubs only).
+  - *Render:* No longer applied to a picture directly — the gag writer is told the archetype as the joke mechanism, and the render planner that read the authored strategy was removed. The strategy this archetype used to select: keep the ordinary act clearly visible and specific (the comedy dies if it becomes generic hero imagery), then elevate it through staging, lighting, reactions, and ceremony. Locked rule: "Make the ordinary act visible, then stage it like a legendary event." Examples are marked authoring-pending (fact stubs only).
   - *Example:* "{NAME} doesn't prepare for demos. Demos prepare for {NAME}." → an ordinary work task staged like a world-changing ceremony.
 
 **Examples**
 
 - **Scenario:** "{NAME} once threw a grenade and killed 50 people, then it exploded."
   - **Input:** primaryArchetype: superhuman_physical_feat (NOT temporal_causality_inversion)
-  - **Outcome:** The superhuman-feat strategy stages the throw as the overwhelming force with the explosion redundant — the canonical redundant-mechanism example from the classifier prompt.
+  - **Outcome:** The gag writer is told the mechanism is a superhuman physical feat, so its ideas stage the throw as the overwhelming force with the explosion redundant — the canonical redundant-mechanism example from the classifier prompt.
 - **Scenario:** "{NAME} sneezed and the moon left orbit."
   - **Input:** primaryArchetype: superhuman_physical_feat + modifier astronomical_consequence
   - **Outcome:** Classified by mechanism (a physical act at impossible scale), not topic (space) — no cosmic archetype exists.
 - **Scenario:** "A baby drove {NAME}'s mother home."
   - **Input:** primaryArchetype: authority_threat_reversal, subtype social_role_reversal
-  - **Outcome:** The reversal strategy stages grounded human comedy — the wrong person holding the role — rather than physics.
+  - **Outcome:** The gag writer is told the mechanism is a social role reversal, so its ideas stage grounded human comedy — the wrong person holding the role — rather than physics.
 
 **Sources**
 
 - `artifacts/api-server/src/lib/factEnrichmentConfig.ts` `FACT_ENRICHMENT_SYSTEM_DEFAULT` — The classifier system prompt — the authoritative definition of what the AI is told this field means.
-- `artifacts/api-server/src/lib/imagePrompt/generator.ts` `buildImagePromptUserMessage` — Where the enrichment is injected into the image-prompt planner message (the TAXONOMY block is marked FIXED — DO NOT reclassify).
-- `lib/api-zod/src/visualPromptStrategies.ts` `getVisualPromptStrategy` — The 11 authored per-archetype strategy templates the archetype selects between.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — fields listed here flip render-scenario tiles stale when edited.
+- `artifacts/api-server/src/lib/visualConcepts/generator.ts` `buildVisualConceptsUserMessage` — Where the gag writer's message gets the archetype and subtype (the JOKE MECHANISM block) and the reference/entity meanings. Modifiers, literalness and complexity are not put in the message.
+- `artifacts/api-server/src/lib/visualConcepts/inputHash.ts` `writerAffectingEnrichment` — The gag writer's freshness projection: editing a field listed here marks the stored gag ideas out of date. It is not a render hash.
+- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection: it hashes only the gag's scene, bubbles and cast entries, so no classification field flips a render stale.
 
 ### Mechanism Subtype
 
-*The archetype's refinement — picks the one-sentence visual principle the planner must apply.*
+*The archetype's refinement — picks the one-sentence visual principle the gag writer is shown.*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Advisory only — read by the gag writer, never by the picture prompt
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** field-label
 
 **What it is**
@@ -166,214 +164,216 @@ The classifier picks the subtype from the allowed list for its chosen archetype,
 
 **How it affects the render**
 
-Injects the subtype's authored one-sentence visual principle into the planner as "Subtype guidance for {subtype}: …" — e.g. strength_scaled_action → "Show the subject physically controlling an impossibly massive object while looking confident and in control."
+Read by the gag writer: the subtype's authored one-sentence visual principle (from getSubtypeGuidance) follows the archetype in the JOKE MECHANISM block of its message — e.g. strength_scaled_action → "Show the subject physically controlling an impossibly massive object while looking confident and in control." It does not reach the picture prompt, which is drawn only from the approved gag.
 
-Echoed in the planner's FIXED taxonomy block; editing flips test renders stale.
+Editing it marks the stored gag ideas out of date. It never marks a render out of date.
 
 **Values (60)**
 
 - `force_scaled_action` — A physical action (a throw, punch, kick, impact) whose FORCE is exaggerated to impossible scale — the environment takes the hit. Also the home of redundant-mechanism weapon facts (with the normal_function_rendered_unnecessary modifier).
-  - *Render:* Planner receives the principle: "Show force radiating outward from the action into the environment."
+  - *Render:* The gag writer receives the principle: "Show force radiating outward from the action into the environment."
   - *Example:* "When {NAME} does pushups, they don't push themselves up — they push the Earth down." → the ground visibly compresses beneath their hands.
 - `strength_scaled_action` — Lifting, carrying, holding, or manipulating something impossibly massive — raw strength is the exaggerated dimension.
-  - *Render:* Planner receives the principle: "Show the subject physically controlling an impossibly massive object while looking confident and in control."
+  - *Render:* The gag writer receives the principle: "Show the subject physically controlling an impossibly massive object while looking confident and in control."
   - *Example:* "{NAME} can bench press a house." → a real-scale house lifted like a barbell, {NAME} calm, never crushed or struggling.
 - `speed_scaled_action` — Movement or action performed at impossible speed.
-  - *Render:* Planner receives the principle: "Show motion trails, displaced air, afterimages, or environmental blur while keeping the subject visually recognizable."
+  - *Render:* The gag writer receives the principle: "Show motion trails, displaced air, afterimages, or environmental blur while keeping the subject visually recognizable."
   - *Example:* "{NAME} once ran a marathon in a single stride." → motion trails and displaced air across the whole course, {NAME} crisp and recognizable at the center.
 - `endurance_scaled_action` — The subject outlasts anything — effort, exhaustion, or wear simply never reaches them; the world gives out first.
-  - *Render:* Planner receives the principle: "Show the world, equipment, or environment exhausted while the subject remains composed and powerful."
+  - *Render:* The gag writer receives the principle: "Show the world, equipment, or environment exhausted while the subject remains composed and powerful."
   - *Example:* "{NAME} doesn't get tired on the treadmill. The treadmill gets tired of {NAME}." → a smoking, slumped treadmill; {NAME} composed and barely sweating.
 - `precision_scaled_action` — Impossible accuracy, trajectory, or perfection of a physical action.
-  - *Render:* Planner receives the principle: "Show the impossible trajectory or perfect result clearly enough that the precision is obvious."
+  - *Render:* The gag writer receives the principle: "Show the impossible trajectory or perfect result clearly enough that the precision is obvious."
   - *Example:* "{NAME} threw a baseball around the world and caught it from behind." → a glowing curved motion trail wrapping the horizon back into {NAME}'s glove.
 - `sensory_scaled_action` — A sense (sight, hearing, smell, touch, taste) operating at impossible range or resolution.
-  - *Render:* Planner receives the principle: "Represent sensory power as a physical cinematic effect while keeping the subject central."
+  - *Render:* The gag writer receives the principle: "Represent sensory power as a physical cinematic effect while keeping the subject central."
   - *Example:* "{NAME} can hear WiFi." → visible signal waves bending toward {NAME}'s ear as a physical cinematic effect.
 - `ordinary_action_extreme_consequence` — A completely normal action (a sneeze, a step, a clap) produces a wildly disproportionate physical consequence — the moon-sneeze fact is the canonical case (classified by mechanism, not by its space topic).
-  - *Render:* Planner receives the principle: "Make the ordinary action clear, then show the consequence at a wildly exaggerated scale."
+  - *Render:* The gag writer receives the principle: "Make the ordinary action clear, then show the consequence at a wildly exaggerated scale."
   - *Example:* "When {NAME} sneezes, the moon changes orbit." → a casual sneeze in the foreground, a shockwave into the night sky, the moon subtly displaced.
 - `mechanical_contradiction` — The object's mechanism physically cannot do what the fact claims (you cannot slam a door that revolves).
-  - *Render:* Planner receives the principle: "Make the object's normal mechanism visible, then show it behaving in the impossible way."
+  - *Render:* The gag writer receives the principle: "Make the object's normal mechanism visible, then show it behaving in the impossible way."
   - *Example:* "{NAME} can slam a revolving door." → the rotating mechanism still visible, but bent into a hard-stopped, slammed position.
 - `semantic_instrument_contradiction` — The tool's defining property (its NAME says what it can't do) contradicts the action — a cordless phone used for something that requires a cord.
-  - *Render:* Planner receives the principle: "Show the impossible tool clearly and show the result or aftermath that should be impossible for that tool."
+  - *Render:* The gag writer receives the principle: "Show the impossible tool clearly and show the result or aftermath that should be impossible for that tool."
   - *Example:* "{NAME} can strangle someone with a cordless phone." → {NAME} holds a clearly cordless handset; the impossible aftermath is visible nearby, cause left to inference.
 - `material_state_contradiction` — A material behaves in a state it cannot hold — vapor stacked like bricks, liquid folded like cloth.
-  - *Render:* Planner receives the principle: "Turn the impossible material property into a clear physical visual."
+  - *Render:* The gag writer receives the principle: "Turn the impossible material property into a clear physical visual."
   - *Example:* "{NAME} can stack fog." → translucent slabs of fog held in a neat stack, still misty at the edges so the impossibility reads.
 - `medium_contradiction` — The surrounding medium (water, vacuum, fire) should make the action impossible, yet it succeeds inside that medium.
-  - *Render:* Planner receives the principle: "Make the hostile medium obvious, then show the impossible action succeeding inside that medium."
+  - *Render:* The gag writer receives the principle: "Make the hostile medium obvious, then show the impossible action succeeding inside that medium."
   - *Example:* "{NAME} can start a fire underwater." → a bright flame burning fully submerged, bubbles and refracted light proving the water is real.
 - `target_nature_contradiction` — The TARGET's own nature makes the result impossible — drowning a fish, sunburning a shadow.
-  - *Render:* Planner receives the principle: "Show the target reacting in a way that contradicts what it naturally is."
+  - *Render:* The gag writer receives the principle: "Show the target reacting in a way that contradicts what it naturally is."
   - *Example:* "{NAME} can drown a fish." → the fish visibly overwhelmed by the very water it should thrive in, {NAME} standing confidently by.
 - `object_agency_inversion` — The object becomes the actor — it does the work, takes the initiative, or acts on its own because of the subject.
-  - *Render:* Planner receives the principle: "Show the object taking the active role while the subject remains calm and in control."
+  - *Render:* The gag writer receives the principle: "Show the object taking the active role while the subject remains calm and in control."
   - *Example:* "The punching bag hits itself so {NAME} doesn't have to." → the bag mid-swing against itself while {NAME} watches, arms crossed.
 - `environmental_immunity` — An environmental condition affects everything and everyone — except the subject, who is untouched.
-  - *Render:* Planner receives the principle: "Show the environmental condition affecting the surrounding world while the subject remains untouched."
+  - *Render:* The gag writer receives the principle: "Show the environmental condition affecting the surrounding world while the subject remains untouched."
   - *Example:* "{NAME} walks through blizzards in a t-shirt." → the whole street buried and frozen while {NAME} strolls through untouched.
 - `environmental_agency_inversion` — The natural force and the subject swap roles — the force becomes the affected party, victim, or subordinate ("Water gets {NAME}" instead of {NAME} getting wet).
-  - *Render:* Planner receives the principle: "Show the environmental force behaving like it is the affected party, victim, or subordinate."
+  - *Render:* The gag writer receives the principle: "Show the environmental force behaving like it is the affected party, victim, or subordinate."
   - *Example:* "Water gets {NAME}." → water recoiling, cowering, or drenched-looking around a dominant, dry {NAME}.
 - `environmental_control_interface` — The subject operates a natural force like a device — switching darkness off, adjusting gravity, dialing the wind.
-  - *Render:* Planner receives the principle: "Make the abstract force feel physically controllable."
+  - *Render:* The gag writer receives the principle: "Make the abstract force feel physically controllable."
   - *Example:* "{NAME} turns the dark off." → {NAME}'s hand on a physical switch as darkness visibly drains out of the scene.
 - `environmental_retreat_obedience` — The force actively avoids, parts around, or clears a path for the subject, as if obeying them.
-  - *Render:* Planner receives the principle: "Show the force parting, bending, clearing, or retreating around the subject."
+  - *Render:* The gag writer receives the principle: "Show the force parting, bending, clearing, or retreating around the subject."
   - *Example:* "Rain avoids {NAME}." → a heavy downpour with a visible dry corridor bending around {NAME}.
 - `personified_natural_force` — A natural force behaves like a person around the subject — the sun blinking is the classifier prompt's canonical case (this, not a cosmic category).
-  - *Render:* Planner receives the principle: "Give the natural force a readable reaction while keeping it cinematic and not overly cartoonish unless style calls for it."
+  - *Render:* The gag writer receives the principle: "Give the natural force a readable reaction while keeping it cinematic and not overly cartoonish unless style calls for it."
   - *Example:* "The sun blinked when it saw {NAME}." → the sun given a readable, cinematic reaction — dimming mid-blink — over an unbothered {NAME}.
 - `social_role_reversal` — An everyday social role or responsibility is held by the wrong person — the baby driving {NAME}'s mother home is the canonical example.
-  - *Render:* Planner receives the principle: "Stage realistically so the humor comes from the wrong person holding authority or responsibility."
+  - *Render:* The gag writer receives the principle: "Stage realistically so the humor comes from the wrong person holding authority or responsibility."
   - *Example:* "Baby {NAME} drives their mom home from the hospital." → grounded, realistic car interior; the joke is entirely who is behind the wheel.
 - `institutional_authority_reversal` — An institution (school, court, security, the law) submits to or reverses its normal role toward the subject.
-  - *Render:* Planner receives the principle: "Use official environments and procedural symbols to show the institution submitting or reversing its normal role."
+  - *Render:* The gag writer receives the principle: "Use official environments and procedural symbols to show the institution submitting or reversing its normal role."
   - *Example:* "{NAME}'s teachers raised their hands when they had questions." → a classroom where the adult teacher raises a hand toward school-age {NAME}.
 - `predator_danger_reversal` — Something normally dangerous (a predator, Death, a threat) treats the subject as the real threat, authority, or spectacle.
-  - *Render:* Planner receives the principle: "Show the normally dangerous thing reacting as if the subject is the real threat, authority, or spectacle."
+  - *Render:* The gag writer receives the principle: "Show the normally dangerous thing reacting as if the subject is the real threat, authority, or spectacle."
   - *Example:* "Sharks have a {NAME} Week." → sharks gathered as the rapt audience around a screen showing {NAME} — the Shark Week framing reversed, no real network logos.
 - `pure_timeline_inversion` — The timeline itself is impossible — ages, birth order, or event order contradict history. Only for genuine time-order jokes, never redundant-mechanism facts.
-  - *Render:* Planner receives the principle: "Show one clear contradiction in timeline, age, sequence, or event order."
+  - *Render:* The gag writer receives the principle: "Show one clear contradiction in timeline, age, sequence, or event order."
   - *Example:* "{NAME} was born before their parents." → one clear, readable age/timeline contradiction staged in a single frame.
 - `pre_cause_consequence` — The effect exists before its cause has happened. Careful: if the cause still happens later but is merely redundant (the grenade that explodes after the kill), that is superhuman_physical_feat with normal_function_rendered_unnecessary, NOT this.
-  - *Render:* Planner receives the principle: "Show the cause still pending while the effect is already visible."
+  - *Render:* The gag writer receives the principle: "Show the cause still pending while the effect is already visible."
   - *Example:* "The punching bag was bruised before {NAME} hit it." → the bruise already there while {NAME}'s first punch is still mid-air.
 - `reverse_process_entropy_reversal` — A normally irreversible process runs backward for the subject — unscrambling eggs, un-squeezing toothpaste.
-  - *Render:* Planner receives the principle: "Show the completed mess or changed state reassembling into its earlier form."
+  - *Render:* The gag writer receives the principle: "Show the completed mess or changed state reassembling into its earlier form."
   - *Example:* "{NAME} can unscramble an egg." → the scrambled egg visibly reassembling into a pristine whole egg in {NAME}'s hand.
 - `surrender` — Conflict, opposition, or enemies simply give up because the subject is present.
-  - *Render:* Planner receives the principle: "Show the subject calm and still while others visibly give up or submit."
+  - *Render:* The gag writer receives the principle: "Show the subject calm and still while others visibly give up or submit."
   - *Example:* "Battlefield conflict stops when {NAME} arrives." → both sides lowering weapons the moment {NAME} steps into frame, calm and still.
 - `awe_deference` — People or the environment treat the subject as naturally, unquestionably important — reverence without any threat.
-  - *Render:* Planner receives the principle: "Show people or environment treating the subject as naturally important."
+  - *Render:* The gag writer receives the principle: "Show people or environment treating the subject as naturally important."
   - *Example:* "Rooms stand up when {NAME} walks in." → an entire room rising in spontaneous deference while {NAME} strolls through as if it's normal.
 - `prestige_transfer` — Mere contact with or acknowledgment from the subject confers status on someone or something else.
-  - *Render:* Planner receives the principle: "Show brief contact with the subject transferring status."
+  - *Render:* The gag writer receives the principle: "Show brief contact with the subject transferring status."
   - *Example:* "A pat on the back from {NAME} is resume-worthy." → someone proudly framing the moment of the pat like a diploma.
 - `world_waits_for_subject` — Events, opportunities, or the world itself pause and wait for the subject rather than proceeding without them.
-  - *Render:* Planner receives the principle: "Show the world paused, prepared, or expectant around the subject."
+  - *Render:* The gag writer receives the principle: "Show the world paused, prepared, or expectant around the subject."
   - *Example:* "Opportunity waits for {NAME}." → opportunity personified standing patiently at {NAME}'s door, hand raised but not knocking, while {NAME} finishes their coffee.
 - `object_obsession` — An object is emotionally or socially fixated on the subject — devotion inverted from user-to-thing into thing-to-subject.
-  - *Render:* Planner receives the principle: "Show an object emotionally or socially fixated on the subject."
+  - *Render:* The gag writer receives the principle: "Show an object emotionally or socially fixated on the subject."
   - *Example:* "{NAME}'s phone is addicted to them." → the phone straining toward {NAME}, screen lighting up with longing notifications.
 - `respectful_refusal` — A nuisance, pest, or obstacle voluntarily declines to bother the subject, out of respect.
-  - *Render:* Planner receives the principle: "Show a nuisance or obstacle voluntarily holding back."
+  - *Render:* The gag writer receives the principle: "Show a nuisance or obstacle voluntarily holding back."
   - *Example:* "Mosquitoes refuse to bite {NAME}." → a swarm hovering at a respectful distance, one almost bowing, while {NAME} lounges unbitten.
 - `tiny_gesture_massive_reaction` — A minimal gesture (a raised eyebrow, a nod) triggers a massive response — the eyebrow-ends-the-bar-fight fact is the classifier prompt's canonical case.
-  - *Render:* Planner receives the principle: "Make the tiny gesture visible and the reaction huge."
+  - *Render:* The gag writer receives the principle: "Make the tiny gesture visible and the reaction huge."
   - *Example:* "A bar fight ends when {NAME} raises an eyebrow." → the eyebrow clearly readable in the frame; the entire brawl frozen because of it.
 - `infinity_impossibility` — The fact completes, exceeds, or manipulates infinity — the canonical "counted to infinity, twice" territory.
-  - *Render:* Planner receives the principle: "Visualize completed infinity, infinite loops, or impossible scale through cinematic metaphor."
+  - *Render:* The gag writer receives the principle: "Visualize completed infinity, infinite loops, or impossible scale through cinematic metaphor."
   - *Example:* "{NAME} counted to infinity. Twice." → a cinematic infinite number-scape visibly completed — twice — around a calm {NAME}.
 - `probability_impossibility` — An outcome that probability makes impossible, not just unlikely — a seven on a six-sided die.
-  - *Render:* Planner receives the principle: "Show the impossible outcome with enough context that the probability rule is obvious (e.g. a seven on a six-sided die)."
+  - *Render:* The gag writer receives the principle: "Show the impossible outcome with enough context that the probability rule is obvious (e.g. a seven on a six-sided die)."
   - *Example:* "{NAME} rolled a seven on a six-sided die." → the die large and legible with seven pips, its six-sidedness clearly readable.
 - `rule_system_impossibility` — A game or defined rule system is beaten in a way its own rules make impossible.
-  - *Render:* Planner receives the principle: "Show the impossible game/system state in a way that makes the rule legible."
+  - *Render:* The gag writer receives the principle: "Show the impossible game/system state in a way that makes the rule legible."
   - *Example:* "{NAME} can win Connect Four in three moves." → the board state itself shows the impossible win, legible to anyone who knows the game.
 - `paradox_or_undefined_impossibility` — A logical paradox or mathematically undefined operation — divide-by-zero and square-circle facts land here.
-  - *Render:* Planner receives the principle: "Use paradoxical objects or impossible geometry; covers divide-by-zero and undefined-state cases."
+  - *Render:* The gag writer receives the principle: "Use paradoxical objects or impossible geometry; covers divide-by-zero and undefined-state cases."
   - *Example:* "{NAME} can divide by zero." → reality rendered as impossible geometry gracefully resolving around {NAME} instead of erroring.
 - `formal_language_impossibility` — A formal-language, notation, or symbol-system rule is broken — like knowing the LAST four digits of pi, which has no last digits.
-  - *Render:* Planner receives the principle: "Visualize the broken language/syntax rule through a symbolic concrete scene." (The authored pi-PIN example adds: showing four crisp digits is encouraged; never render long streams of pi.)
+  - *Render:* The gag writer receives the principle: "Visualize the broken language/syntax rule through a symbolic concrete scene." (The authored pi-PIN example adds: showing four crisp digits is encouraged; never render long streams of pi.)
   - *Example:* "{NAME}'s PIN is the last four digits of pi." → a keypad showing four crisp digits, the joke concrete without walls of pi.
 - `hidden_knowledge` — The subject knows secrets, mysteries, confidential truths, or inaccessible information.
-  - *Render:* Planner receives the principle: "Secrets, mysteries, confidential truths, inaccessible information." — stage the barrier and the subject's effortless access.
+  - *Render:* The gag writer receives the principle: "Secrets, mysteries, confidential truths, inaccessible information." — stage the barrier and the subject's effortless access.
   - *Example:* "{NAME} knows Victoria's secret." → elegant fashion-boutique secret-keeping visual language (the brand is the joke), no real logos.
 - `future_prediction` — The subject knows future answers, outcomes, or random results before they happen.
-  - *Render:* Planner receives the principle: "Future answers, outcomes, or random results known early."
+  - *Render:* The gag writer receives the principle: "Future answers, outcomes, or random results known early."
   - *Example:* "{NAME} knows what the Magic 8 Ball will say before it's shaken." → the ball untouched, its answer already reflected in {NAME}'s knowing look.
 - `impossible_problem_solving` — The subject solves problems before they are available, posed, or solvable.
-  - *Render:* Planner receives the principle: "Problems solved before available or solvable."
+  - *Render:* The gag writer receives the principle: "Problems solved before available or solvable."
   - *Example:* "{NAME} solves the crossword before the clues are printed." → a completed grid beside a printing press still producing the blank puzzle.
 - `memory_omniscience` — Impossible memory — remembering the future, the unwitnessed, or the forgotten.
-  - *Render:* Planner receives the principle: "Impossible memories, future memories, forgotten or unwitnessed events."
+  - *Render:* The gag writer receives the principle: "Impossible memories, future memories, forgotten or unwitnessed events."
   - *Example:* "{NAME} remembers tomorrow." → tomorrow rendered as a crisp photograph already in {NAME}'s album.
 - `strategic_omniscience` — The subject knows entire strategies, opponents' moves, or plans before they unfold.
-  - *Render:* Planner receives the principle: "Entire strategies, opponent moves, or plans known ahead."
+  - *Render:* The gag writer receives the principle: "Entire strategies, opponent moves, or plans known ahead."
   - *Example:* "{NAME} knows your next move before you do." → the opponent's undecided move already marked and countered on {NAME}'s side of the board.
 - `secret_mastery` — The subject has mastered hidden systems, elite knowledge, forbidden techniques, or secret skills.
-  - *Render:* Planner receives the principle: "Hidden systems, elite knowledge, forbidden techniques, secret skills."
+  - *Render:* The gag writer receives the principle: "Hidden systems, elite knowledge, forbidden techniques, secret skills."
   - *Example:* "{NAME} knows the secret menu before the restaurant opens." → staff stunned as {NAME} orders from a menu no one has written yet.
 - `security_system_submission` — Access-control systems (passwords, locks, checkpoints, logins) unlock, grant access, or submit to the subject.
-  - *Render:* Planner receives the principle: "Access systems unlock, grant access, or submit."
+  - *Render:* The gag writer receives the principle: "Access systems unlock, grant access, or submit."
   - *Example:* "The system logs itself in for {NAME}." → a login screen visibly completing itself as {NAME} approaches, no keys touched.
 - `device_obedience` — Hardware anticipates, obeys, or serves the subject like a loyal attendant.
-  - *Render:* Planner receives the principle: "Hardware anticipates, obeys, or serves."
+  - *Render:* The gag writer receives the principle: "Hardware anticipates, obeys, or serves."
   - *Example:* "The printer apologizes to {NAME} first." → a printer displaying a contrite status message before {NAME} even reaches it.
 - `software_permission_inversion` — The normal permission flow is inverted — the software asks the subject for permission instead of the reverse.
-  - *Render:* Planner receives the principle: "App or software asks the subject for permission."
+  - *Render:* The gag writer receives the principle: "App or software asks the subject for permission."
   - *Example:* "Apps ask {NAME} for permission." → a phone screen with a permission dialog politely addressed to {NAME}, Allow/Deny buttons awaiting their verdict.
 - `ai_deference` — AI or robots treat the subject as the higher intelligence, deferring to their judgment.
-  - *Render:* Planner receives the principle: "AI or robots treat the subject as higher intelligence."
+  - *Render:* The gag writer receives the principle: "AI or robots treat the subject as higher intelligence."
   - *Example:* "AI asks {NAME} for permission to think." → a glowing AI interface in a visibly deferential waiting state, cursor paused for {NAME}'s nod.
 - `machine_intimidation` — A machine reacts to the subject with defeat, hesitation, or submission — beaten without a contest.
-  - *Render:* Planner receives the principle: "Machine reacts with defeat, hesitation, or submission."
+  - *Render:* The gag writer receives the principle: "Machine reacts with defeat, hesitation, or submission."
   - *Example:* "{NAME}'s chess computer resigns while unplugged." → the machine dark and unplugged, yet its resignation unmistakably displayed.
 - `network_system_reaction` — Large-scale digital infrastructure — networks, servers, the internet itself — responds to the subject.
-  - *Render:* Planner receives the principle: "Large-scale networks, servers, or infrastructure respond."
+  - *Render:* The gag writer receives the principle: "Large-scale networks, servers, or infrastructure respond."
   - *Example:* "The servers stand at attention when {NAME} walks in." → whole server racks lighting up in synchronized salute as {NAME} enters the data center.
 - `body_feature_impossibility` — A body feature (beard, fist, jawline, eyes, hands) has an impossible legendary property.
-  - *Render:* Planner receives the principle: "Beard, fist, jawline, eyes, hands, or other body feature with an impossible legendary property."
+  - *Render:* The gag writer receives the principle: "Beard, fist, jawline, eyes, hands, or other body feature with an impossible legendary property."
   - *Example:* "Under {NAME}'s beard is another fist." → the impossible feature staged as a natural, mythic part of {NAME}'s body.
 - `aura_property` — An invisible personal quality (confidence, charisma, presence) manifests as a visible aura, field, or atmosphere.
-  - *Render:* Planner receives the principle: "Invisible quality represented as aura, field, atmosphere, or distortion."
+  - *Render:* The gag writer receives the principle: "Invisible quality represented as aura, field, atmosphere, or distortion."
   - *Example:* "{NAME}'s confidence has its own gravitational pull." → a visible field around {NAME} that bends light and pulls loose objects inward.
 - `biological_impossibility` — A biological property, bodily output, or life-sign (tears, blood, breath, heartbeat, fingerprints, DNA, voice) has an impossible legendary effect.
-  - *Render:* Planner receives the principle: "Biological property, bodily output, biometric marker, or life-sign with an impossible legendary effect (tears, blood, breath, heartbeat, fingerprints, DNA, voice)."
+  - *Render:* The gag writer receives the principle: "Biological property, bodily output, biometric marker, or life-sign with an impossible legendary effect (tears, blood, breath, heartbeat, fingerprints, DNA, voice)."
   - *Example:* "{NAME}'s tears cure disease. They have never cried." → the miraculous property implied and mythic, the composure intact.
 - `metaphor_made_physical` — A common phrase or figure of speech is literally, physically true of the subject.
-  - *Render:* Planner receives the principle: "Common phrase becomes physically true."
+  - *Render:* The gag writer receives the principle: "Common phrase becomes physically true."
   - *Example:* "When {NAME} speaks, their words carry weight." → spoken words rendered as heavy physical objects visibly bowing the table they land on.
 - `personal_effect_field` — The immediate space around the subject behaves differently from the rest of the world.
-  - *Render:* Planner receives the principle: "Immediate space around the subject behaves differently."
+  - *Render:* The gag writer receives the principle: "Immediate space around the subject behaves differently."
   - *Example:* "WiFi is stronger within ten feet of {NAME}." → full signal bars blooming on every device inside a visible radius around {NAME}.
 - `legendary_possession` — An ordinary possession has impossible properties purely because it belongs to the subject.
-  - *Render:* Planner receives the principle: "Ordinary possession has impossible properties because it belongs to the subject."
+  - *Render:* The gag writer receives the principle: "Ordinary possession has impossible properties because it belongs to the subject."
   - *Example:* "{NAME}'s sunglasses block the sun from seeing them." → ordinary sunglasses, but it is the sun squinting and failing to make {NAME} out.
 - `domestic_task_mythologized` — A household chore is treated as a legendary act.
-  - *Render:* Planner receives the principle: "Household chore becomes legendary."
+  - *Render:* The gag writer receives the principle: "Household chore becomes legendary."
   - *Example:* "Dust surrenders before {NAME} even starts vacuuming." → the chore staged like a decisive victory, vacuum readable, dust in visible retreat.
 - `ordinary_errand_mythologized` — A normal errand (shopping, mail, returns) becomes ceremonial or mythic.
-  - *Render:* Planner receives the principle: "Normal errand becomes ceremonial or mythic."
+  - *Render:* The gag writer receives the principle: "Normal errand becomes ceremonial or mythic."
   - *Example:* "Grocery carts steer perfectly straight for {NAME}." → a supermarket aisle staged like a ceremonial procession, the everyday errand still clearly readable.
 - `food_drink_ritualized` — Food, drink, or cooking becomes a ritual, interrogation, or act of command.
-  - *Render:* Planner receives the principle: "Food, drink, or cooking becomes a ritual, interrogation, or act of command."
+  - *Render:* The gag writer receives the principle: "Food, drink, or cooking becomes a ritual, interrogation, or act of command."
   - *Example:* "Coffee beans confess to {NAME}." → a morning brew staged like an interrogation scene, beans under the lamp, {NAME} calmly in command.
 - `commute_travel_mythologized` — Driving, parking, commuting, flying, or travel is treated as legendary.
-  - *Render:* Planner receives the principle: "Driving, parking, commuting, flying, or travel is treated as legendary."
+  - *Render:* The gag writer receives the principle: "Driving, parking, commuting, flying, or travel is treated as legendary."
   - *Example:* "The curb moves over for {NAME} when they parallel park." → the curb itself visibly shifting to make room, the ordinary parking maneuver staged like an event.
 - `social_habit_mythologized` — A normal greeting or social habit becomes a ceremony.
-  - *Render:* Planner receives the principle: "Normal greeting or social habit becomes a ceremony."
+  - *Render:* The gag writer receives the principle: "Normal greeting or social habit becomes a ceremony."
   - *Example:* "Hands apply for the privilege of being shaken by {NAME}." → a formal application line of outstretched hands, the humble handshake turned ceremonial.
 - `work_task_mythologized` — An ordinary professional task is treated as absurdly overhyped.
-  - *Render:* Planner receives the principle: "Ordinary professional task becomes overhyped."
+  - *Render:* The gag writer receives the principle: "Ordinary professional task becomes overhyped."
   - *Example:* "{NAME} doesn't prepare for demos. Demos prepare for {NAME}." → the demo setup arranging and rehearsing itself while {NAME} arrives, composed and worthy of it.
 
 **Examples**
 
 - **Scenario:** "{NAME} bench-presses the Earth." (superhuman_physical_feat)
   - **Input:** subtype: strength_scaled_action
-  - **Outcome:** Planner receives: "Show the subject physically controlling an impossibly massive object while looking confident and in control."
+  - **Outcome:** The gag writer's JOKE MECHANISM block carries: "Show the subject physically controlling an impossibly massive object while looking confident and in control."
 - **Scenario:** "{NAME} rolled a seven on a six-sided die." (logic_formal_impossibility)
   - **Input:** subtype: probability_impossibility
-  - **Outcome:** Planner shows the impossible outcome with enough context that the broken probability rule is obvious.
+  - **Outcome:** The gag writer is told to show the impossible outcome with enough context that the broken probability rule is obvious.
 
 **Sources**
 
 - `artifacts/api-server/src/lib/factEnrichmentConfig.ts` `FACT_ENRICHMENT_SYSTEM_DEFAULT` — The classifier system prompt — the authoritative definition of what the AI is told this field means.
-- `lib/api-zod/src/visualPromptStrategies.ts` `getSubtypeGuidance` — The per-subtype principle sentences injected into the planner.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — fields listed here flip render-scenario tiles stale when edited.
+- `lib/api-zod/src/visualPromptStrategies.ts` `getSubtypeGuidance` — The per-subtype principle sentences the gag writer is shown.
+- `artifacts/api-server/src/lib/visualConcepts/generator.ts` `buildVisualConceptsUserMessage` — Where the gag writer's message gets the archetype and subtype (the JOKE MECHANISM block) and the reference/entity meanings. Modifiers, literalness and complexity are not put in the message.
+- `artifacts/api-server/src/lib/visualConcepts/inputHash.ts` `writerAffectingEnrichment` — The gag writer's freshness projection: editing a field listed here marks the stored gag ideas out of date. It is not a render hash.
+- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection: it hashes only the gag's scene, bubbles and cast entries, so no classification field flips a render stale.
 
 ### Depiction Style
 
 *How literally vs. symbolically the fact should be depicted.*
 
-- **Effect:** Advisory only — AI-planner context, no fixed compiler directive
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Advisory only — read by the gag writer, never by the picture prompt
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** field-label
 
 **What it is**
@@ -386,49 +386,47 @@ The classifier judges whether the fact CAN be shown literally (most physical fea
 
 **How it affects the render**
 
-Advisory to the planner: it is echoed in the TAXONOMY block so the scene-writing AI weighs it, but no deterministic compiler directive keys off it — the authored archetype strategy and modifiers do the hard steering.
-
-Despite being advisory, it IS part of the render-input hash — editing it flips test renders stale so you can rerun and compare.
+Not read by the picture, and not put in the gag writer's message — it is a recorded label. It is only part of the gag writer's freshness check, so editing it marks the stored gag ideas out of date. It never marks a render out of date.
 
 **Values (5)**
 
 - `literal_dramatization` — The fact should be depicted directly, as if it literally happened — the scene shows the impossible thing itself, dramatized cinematically.
-  - *Render:* The planner writes a scene that stages the fact as a real event. Most physical-feat and reversal facts land here.
+  - *Render:* Not read by the gag writer or the picture; it is a label. In practice this is the rating most physical-feat and reversal facts get: the fact is staged as a real event.
   - *Example:* "{NAME} bench-presses a bus" → a scene of the subject actually lifting a bus, full cinematic staging.
 - `symbolic_abstraction` — The fact is too conceptual to show literally and needs symbolic visual language — the image represents the idea, not the event.
-  - *Render:* The planner leans on symbols, scale metaphors, and abstract staging instead of a literal event. Common for logic/infinity facts.
+  - *Render:* Not read by the gag writer or the picture; it is a label. Common for logic/infinity facts, which need symbols or scale metaphors rather than a literal event.
   - *Example:* "{NAME} counted to infinity. Twice." → an endless number-scape receding past the horizon rather than a person counting.
 - `metaphorical_visualization` — The fact should become a concrete visual metaphor — a phrase or concept made physically true in the image.
-  - *Render:* The planner picks one clear metaphor and renders it as a real object/scene (a 'metaphor made physical').
+  - *Render:* Not read by the gag writer or the picture; it is a label for facts that become one clear metaphor made physical.
   - *Example:* "{NAME}'s handshake seals deals" → a literal wax-seal stamp pressed by a handshake onto a giant contract.
 - `grounded_roleplay` — The fact should be staged as a realistic human/social scene — the comedy comes from people behaving impossibly, not from physics.
-  - *Render:* The planner keeps the scene physically plausible and puts the impossibility in the social roles and reactions (e.g. authority reversals).
+  - *Render:* Not read by the gag writer or the picture; it is a label for facts whose impossibility lives in the social roles and reactions (e.g. authority reversals).
   - *Example:* "A baby drove {NAME}'s mother home" → a realistic car interior; the impossibility is who's driving, not the physics.
 - `mixed` — The fact needs both literal and symbolic elements to land.
-  - *Render:* The planner combines a literal core event with symbolic supporting elements; expect a busier scene.
+  - *Render:* Not read by the gag writer or the picture; it is a label for facts that need a literal core event plus symbolic supporting elements.
   - *Example:* "{NAME} argued with gravity and won" → a literal courtroom (roleplay) with gravity personified as a defeated force (symbolic).
 
 **Examples**
 
 - **Scenario:** "{NAME} counted to infinity. Twice."
   - **Input:** visualLiteralness: symbolic_abstraction
-  - **Outcome:** The planner reaches for symbolic visual language (endless recursion imagery) instead of a person mouthing numbers.
+  - **Outcome:** Recorded as a label only; the gag the moderator approves decides whether the picture is symbolic (endless recursion imagery) or a person mouthing numbers.
 - **Scenario:** "A baby drove {NAME}'s mother home."
   - **Input:** visualLiteralness: grounded_roleplay
-  - **Outcome:** The planner keeps physics realistic and puts the impossibility in the social roles.
+  - **Outcome:** Recorded as a label only; the approved gag decides the staging.
 
 **Sources**
 
 - `artifacts/api-server/src/lib/factEnrichmentConfig.ts` `FACT_ENRICHMENT_SYSTEM_DEFAULT` — The classifier system prompt — the authoritative definition of what the AI is told this field means.
-- `artifacts/api-server/src/lib/imagePrompt/generator.ts` `buildImagePromptUserMessage` — Where the enrichment is injected into the image-prompt planner message (the TAXONOMY block is marked FIXED — DO NOT reclassify).
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — fields listed here flip render-scenario tiles stale when edited.
+- `artifacts/api-server/src/lib/visualConcepts/inputHash.ts` `writerAffectingEnrichment` — The gag writer's freshness projection: editing a field listed here marks the stored gag ideas out of date. It is not a render hash.
+- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection: it hashes only the gag's scene, bubbles and cast entries, so no classification field flips a render stale.
 
 ### Visualization Difficulty
 
 *The AI's rating of how hard this fact is to visualize.*
 
-- **Effect:** Advisory only — AI-planner context, no fixed compiler directive
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Advisory only — read by the gag writer, never by the picture prompt
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** field-label
 
 **What it is**
@@ -441,20 +439,20 @@ The classifier rates difficulty per its prompt definitions: low = straightforwar
 
 **How it affects the render**
 
-Advisory to the planner only — no compiler directive branches on it. Treat 'high' as a cue to inspect test renders closely and reach for a Visual Strategy Override when the AI's interpretation misses.
+Not read by the picture, and not put in the gag writer's message. Treat 'high' as a cue to inspect the gag's test renders closely and tighten its scene when the picture misses.
 
-In the render-input hash: editing it flips test renders stale.
+Only part of the gag writer's freshness check: editing it marks the stored gag ideas out of date, never a render.
 
 **Values (3)**
 
 - `low` — Straightforward visual representation — the fact translates to an image with no interpretation needed.
-  - *Render:* No special handling; the planner stages it directly.
+  - *Render:* No effect on the picture or the gag writer's message; editing it only marks stored gag ideas out of date.
   - *Example:* "{NAME} lifts a car" → one subject, one car, one action.
 - `medium` — Needs interpretation but has clear visual anchors — the AI has to make a staging choice, but the ingredients are obvious.
-  - *Render:* The planner picks an interpretation; the test renders are worth a quick sanity check.
+  - *Render:* No effect on the picture or the gag writer's message; editing it only marks stored gag ideas out of date. Worth a quick look at the gag's test renders.
   - *Example:* "Sharks have a {NAME} Week" → needs the 'sharks as audience' inversion, but sharks + TV are clear anchors.
 - `high` — Abstract, wordplay-heavy, ambiguous, or hard to make visually clear. The admin UI surfaces a 'Hard to visualize' warning for these.
-  - *Render:* Advisory to the planner only — but treat it as a signal to review the test renders closely and consider a Visual Strategy Override if the AI's interpretation misses.
+  - *Render:* No effect on the picture or the gag writer's message — but treat it as a signal to review the gag's test renders closely and to tighten the gag's scene if the picture misses.
   - *Example:* "{NAME} divided by zero and survived" → no natural image; expect symbolic staging and check it actually reads.
 
 **Examples**
@@ -466,8 +464,8 @@ In the render-input hash: editing it flips test renders stale.
 **Sources**
 
 - `artifacts/api-server/src/lib/factEnrichmentConfig.ts` `FACT_ENRICHMENT_SYSTEM_DEFAULT` — The classifier system prompt — the authoritative definition of what the AI is told this field means.
-- `artifacts/api-server/src/lib/imagePrompt/generator.ts` `buildImagePromptUserMessage` — Where the enrichment is injected into the image-prompt planner message (the TAXONOMY block is marked FIXED — DO NOT reclassify).
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — fields listed here flip render-scenario tiles stale when edited.
+- `artifacts/api-server/src/lib/visualConcepts/inputHash.ts` `writerAffectingEnrichment` — The gag writer's freshness projection: editing a field listed here marks the stored gag ideas out of date. It is not a render hash.
+- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection: it hashes only the gag's scene, bubbles and cast entries, so no classification field flips a render stale.
 
 ### Overhype Fit
 
@@ -489,7 +487,7 @@ The classifier applies the core product rule from its system prompt: strong = cl
 
 NOT compiled into the prompt — this is a quality/approval gate. Taxonomy Health raises a warning for 'questionable' and an error for 'reject' (both mark the fact needs_admin_review), and the value is a filterable projected column in the admin fact list.
 
-It is NOT in the render-input hash, so editing it does not flip test renders stale (the compiled prompt doesn't depend on it).
+It is NOT in the render-input hash, so editing it does not flip test renders stale (the prompt doesn't depend on it).
 
 **Values (3)**
 
@@ -512,7 +510,7 @@ It is NOT in the render-input hash, so editing it does not flip test renders sta
 **Sources**
 
 - `artifacts/api-server/src/lib/factEnrichmentConfig.ts` `FACT_ENRICHMENT_SYSTEM_DEFAULT` — The classifier system prompt — the authoritative definition of what the AI is told this field means.
-- `artifacts/api-server/src/lib/taxonomyHealth/index.ts` `computeTaxonomyHealth` — The questionable/reject health flags and needs_admin_review gating.
+- `artifacts/api-server/src/lib/taxonomyHealth/index.ts` `evaluateFactTaxonomyHealth` — The questionable/reject health flags and needs_admin_review gating.
 
 ### Adult-Mode Compatibility
 
@@ -581,7 +579,7 @@ Written by the classifier alongside the rating; empty when there is nothing to e
 
 **How it affects the render**
 
-None — human-only. Never enters the planner message or the compiled prompt, and it is explicitly EXCLUDED from the render-input hash, so editing it does not flip test renders stale.
+None — human-only. Never enters the gag writer's message or the compiled prompt, and it is explicitly EXCLUDED from the render-input hash, so editing it does not flip test renders stale.
 
 **Examples**
 
@@ -592,21 +590,21 @@ None — human-only. Never enters the planner message or the compiled prompt, an
 **Sources**
 
 - `artifacts/api-server/src/lib/factEnrichmentConfig.ts` `FACT_ENRICHMENT_SYSTEM_DEFAULT` — The classifier system prompt — the authoritative definition of what the AI is told this field means.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — fields listed here flip render-scenario tiles stale when edited.
+- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection: it hashes only the gag's scene, bubbles and cast entries, so no classification field flips a render stale.
 
 ### Render Modifiers
 
-*Flags that steer the image — most as planner context, a few as structural compiler signals.*
+*Flags the classifier records about the fact. They do not steer the picture: it is drawn from the approved gag.*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Advisory only — read by the gag writer, never by the picture prompt
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** field-label
 
 **What it is**
 
-A list of flags from a known catalog (custom values allowed) that mark rendering, identity, setting, and safety constraints. They work in two tiers: MOST are serialized into the planner's TAXONOMY block as context (the frontier planner reads them and they can shape the plan, but nothing guarantees the effect); a SMALL set have a deterministic compiler effect (see renderImpact).
+A list of flags from a known catalog (custom values allowed) that mark rendering, identity, setting, and safety constraints. They are a record of what the classifier saw. They do not reach any picture prompt: until pictures started being drawn straight from the gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md) a few of them acted as structural compiler signals (subject binding, no-clones, violence relevance, failure-mode guards); that effect was removed.
 
-Unknown (custom) modifiers render as amber chips. They carry no fixed directive — the prompt planner sees them as raw context only, so their effect depends on the AI's interpretation.
+Unknown (custom) modifiers render as amber chips. Like the known ones they carry no directive anywhere.
 
 **How the AI sets it**
 
@@ -614,181 +612,177 @@ The classifier prefers known modifiers from its catalog and may add a custom one
 
 **How it affects the render**
 
-Most modifiers are planner-context only: they inform the frontier planner (which, steered by the moderator's Visual concept, owns the scene) but there is no fixed directive guaranteeing the effect. See the per-value docs below.
+None on the picture. A picture's prompt is built only from the approved gag's scene, bubbles and cast plus fixed wording that is the same for every fact, so no modifier changes it. Age changes and "one subject, no clones" are now the gag writer's job, stated in the gag's scene.
 
-Structural signals (guaranteed compiler effect): age/life-stage modifiers (baby_child_version, older_self_version, age_transform, …) drive the SUBJECT BINDING section so the subject IS the transformed person (never a separate generic baby/elder beside them); avoid_duplicate_subject drives the single-instance binding; crowd_reaction / clear_causal_relationship / subject_object_reversal drive conservative failure-mode guards.
-
-Three modifiers (cinematic_aftermath, projectile_impact_power, action_comedy) also mark the fact violence-relevant, which permits the default violence-allow line in the prompt.
-
-Editing modifiers flips test renders stale (except the inert legacy text/logo names, which are filtered out of the render hash).
+The gag writer's message does not list modifiers either. They are part of its freshness check only: editing them marks the stored gag ideas out of date (the inert legacy text/logo names are filtered out of that check). They never mark a render out of date.
 
 **Values (49)**
 
 - `single_subject_focus` *(authored — verify)* — Composition flag: the image should center on the subject alone, with no competing characters sharing the spotlight.
-  - *Render:* No fixed compiler directive, so no guaranteed effect — but it IS passed to the AI planner as taxonomy context and can nudge the composition toward a solo subject; the archetype strategy and scene still decide the actual framing. (Contrast avoid_duplicate_subject, which DOES have a structural compiler effect.)
-  - *Example:* "{NAME} is the gym's entire membership" → nudges the planner to keep the frame centered on the subject alone; not a guaranteed rule.
+  - *Render:* No effect on the picture: the compiler does not read it and the gag writer's message does not list it. It is recorded on the fact and is part of the gag writer's freshness check only (editing it marks stored gag ideas out of date). If the picture should show it, say it in the gag's scene.
+  - *Example:* "{NAME} is the gym's entire membership" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `identity_strict` *(authored — verify)* — Identity-policy flag: the subject's recognizable likeness should be preserved strictly — the joke fails if the rendered person doesn't clearly read as the reference photo's person.
-  - *Render:* No compiler directive or identity policy keys off this flag, so it has no guaranteed effect — actual likeness preservation is owned by the subject render mode and the SUBJECT BINDING machinery. It is still passed to the AI planner as taxonomy context (a soft hint that likeness matters), but nothing enforces it.
-  - *Example:* "{NAME} was recognized from space" → signals strict likeness matters, but today the likeness guarantee comes from the render mode, not this flag.
+  - *Render:* No effect on the picture: no compiler directive or identity policy keys off this flag, and the gag writer's message does not list it. Likeness preservation is owned by the subject render mode and the fixed identity wording every picture carries.
+  - *Example:* "{NAME} was recognized from space" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `identity_essence_only` *(authored — verify)* — Identity-policy flag: strict likeness may be relaxed — the render only needs to carry the subject's essence (build, hair, vibe), e.g. through a heavy transformation or symbolic treatment.
-  - *Render:* Like identity_strict, no compiler directive or identity policy branches on it, so no guaranteed effect. It still reaches the AI planner as taxonomy context (a soft hint that the likeness may be relaxed), but nothing enforces it.
-  - *Example:* "{NAME} turned into pure motivation" → signals the render may keep only the subject's essence through the transformation; nothing in the compiler enforces it.
+  - *Render:* No effect on the picture: like identity_strict, nothing in the compiler or the gag writer's message reads it. It is recorded on the fact and takes part only in the gag writer's freshness check.
+  - *Example:* "{NAME} turned into pure motivation" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `face_prominent` *(authored — verify)* — Framing flag: the joke depends on the subject's face and expression reading clearly, so the face must be framed large and unobstructed.
-  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render.
-  - *Example:* "{NAME}'s wink restarted the power grid" → nudges the planner toward prominent, clear face framing so the expression can carry the joke.
+  - *Render:* No effect on the picture: the compiler does not read it and the gag writer's message does not list it. It is recorded on the fact and is part of the gag writer's freshness check only (editing it marks stored gag ideas out of date). If the picture should show it, say it in the gag's scene.
+  - *Example:* "{NAME}'s wink restarted the power grid" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `full_body_needed` *(authored — verify)* — Framing flag: the joke needs the whole body visible (a pose, a feat, a stance) — a chest-up crop would lose it.
-  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render.
-  - *Example:* "{NAME} deadlifts a city bus" → nudges the planner toward full-body framing so the stance and lift read.
+  - *Render:* No effect on the picture: the compiler does not read it and the gag writer's message does not list it. It is recorded on the fact and is part of the gag writer's freshness check only (editing it marks stored gag ideas out of date). If the picture should show it, say it in the gag's scene.
+  - *Example:* "{NAME} deadlifts a city bus" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `age_transform` — The fact requires the subject rendered at a different age or life stage than the reference photo — the generic form of the baby/older variants below.
-  - *Render:* Drives the compiler's deterministic SUBJECT BINDING section, which fuses the subject identity with the transformed life stage as ONE entity — human-identity renders get "The transformed X IS {subject} — the same person de-aged or aged, not a second person."; non-human and t2i renders get equivalent single-entity life-stage wording — plus anti-split strict constraints (no separate generic baby/elder, no original-age copy left in frame). This is the SOLE compiled owner of age transforms; the modifier also reaches the planner as TAXONOMY context.
-  - *Example:* "{NAME} was born flexing" → the subject is rendered at the fact's implied age — the same person, with no original-age copy left in frame.
+  - *Render:* No effect on the picture any more. Age transforms used to drive a SUBJECT BINDING section (the subject IS the transformed person, never a second generic baby/elder) plus anti-split constraints; that code was removed when pictures started being drawn straight from the gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md). The gag writer owns age handling now: the de-aging or aging has to be written into the gag's scene.
+  - *Example:* "{NAME} was born flexing" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `baby_child_version` — The fact describes the subject as a baby or young child — the reference person must be de-aged, not accompanied by a random infant.
-  - *Render:* Drives the compiler's deterministic SUBJECT BINDING section, which fuses the subject identity with the transformed life stage as ONE entity — human-identity renders get "The transformed X IS {subject} — the same person de-aged or aged, not a second person."; non-human and t2i renders get equivalent single-entity life-stage wording — plus anti-split strict constraints (no separate generic baby/elder, no original-age copy left in frame). This is the SOLE compiled owner of age transforms; the modifier also reaches the planner as TAXONOMY context.
-  - *Example:* "{NAME} as a baby negotiated their own bedtime" → the reference adult is de-aged into the baby; no separate generic baby, no adult left in frame.
-- `infant_version` — A finer-grained age stage than baby_child_version: the fact needs the subject rendered specifically as a newborn/infant. The compiler renders it distinctly; the classifier's suggestion catalog doesn't list it, so it's typically moderator-added.
-  - *Render:* Drives the compiler's deterministic SUBJECT BINDING section, which fuses the subject identity with the transformed life stage as ONE entity — human-identity renders get "The transformed X IS {subject} — the same person de-aged or aged, not a second person."; non-human and t2i renders get equivalent single-entity life-stage wording — plus anti-split strict constraints (no separate generic baby/elder, no original-age copy left in frame). This is the SOLE compiled owner of age transforms; the modifier also reaches the planner as TAXONOMY context.
-  - *Example:* "{NAME} filed taxes from the womb" → the reference subject is de-aged to a newborn/infant; no separate generic baby, no adult left in frame.
-- `child_version` — A finer-grained age stage than baby_child_version: the fact needs the subject rendered specifically as a young child (past infancy). The compiler renders it distinctly; the classifier's suggestion catalog doesn't list it, so it's typically moderator-added.
-  - *Render:* Drives the compiler's deterministic SUBJECT BINDING section, which fuses the subject identity with the transformed life stage as ONE entity — human-identity renders get "The transformed X IS {subject} — the same person de-aged or aged, not a second person."; non-human and t2i renders get equivalent single-entity life-stage wording — plus anti-split strict constraints (no separate generic baby/elder, no original-age copy left in frame). This is the SOLE compiled owner of age transforms; the modifier also reaches the planner as TAXONOMY context.
-  - *Example:* "{NAME} won a Nobel Prize in third grade" → the reference subject de-aged to a young child; no separate generic child, no adult left in frame.
+  - *Render:* No effect on the picture any more. Age transforms used to drive a SUBJECT BINDING section (the subject IS the transformed person, never a second generic baby/elder) plus anti-split constraints; that code was removed when pictures started being drawn straight from the gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md). The gag writer owns age handling now: the de-aging or aging has to be written into the gag's scene.
+  - *Example:* "{NAME} as a baby negotiated their own bedtime" → a label only; the picture follows the gag's scene, so say it there if it should show.
+- `infant_version` — A finer-grained age stage than baby_child_version: the fact needs the subject rendered specifically as a newborn/infant. The compiler used to render it distinctly (that effect was removed); the classifier's suggestion catalog doesn't list it, so it's typically moderator-added.
+  - *Render:* No effect on the picture any more. Age transforms used to drive a SUBJECT BINDING section (the subject IS the transformed person, never a second generic baby/elder) plus anti-split constraints; that code was removed when pictures started being drawn straight from the gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md). The gag writer owns age handling now: the de-aging or aging has to be written into the gag's scene.
+  - *Example:* "{NAME} filed taxes from the womb" → a label only; the picture follows the gag's scene, so say it there if it should show.
+- `child_version` — A finer-grained age stage than baby_child_version: the fact needs the subject rendered specifically as a young child (past infancy). The compiler used to render it distinctly (that effect was removed); the classifier's suggestion catalog doesn't list it, so it's typically moderator-added.
+  - *Render:* No effect on the picture any more. Age transforms used to drive a SUBJECT BINDING section (the subject IS the transformed person, never a second generic baby/elder) plus anti-split constraints; that code was removed when pictures started being drawn straight from the gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md). The gag writer owns age handling now: the de-aging or aging has to be written into the gag's scene.
+  - *Example:* "{NAME} won a Nobel Prize in third grade" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `older_self_version` — The fact describes the subject as a much older version of themselves — the same person aged, not an unrelated elderly extra.
-  - *Render:* Drives the compiler's deterministic SUBJECT BINDING section, which fuses the subject identity with the transformed life stage as ONE entity — human-identity renders get "The transformed X IS {subject} — the same person de-aged or aged, not a second person."; non-human and t2i renders get equivalent single-entity life-stage wording — plus anti-split strict constraints (no separate generic baby/elder, no original-age copy left in frame). This is the SOLE compiled owner of age transforms; the modifier also reaches the planner as TAXONOMY context.
-  - *Example:* "At 90, {NAME} still outruns ambulances" → the reference subject rendered elderly — same face aged, not a random senior beside a young {NAME}.
+  - *Render:* No effect on the picture any more. Age transforms used to drive a SUBJECT BINDING section (the subject IS the transformed person, never a second generic baby/elder) plus anti-split constraints; that code was removed when pictures started being drawn straight from the gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md). The gag writer owns age handling now: the de-aging or aging has to be written into the gag's scene.
+  - *Example:* "At 90, {NAME} still outruns ambulances" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `grounded_realism` *(authored — verify)* — Staging flag: keep physics and rendering realistic — the impossibility should live in what's happening (roles, outcomes), not in cartoon physics or surreal style.
-  - *Render:* No fixed compiler directive, so no guaranteed effect — but it reaches the AI planner as taxonomy context and reinforces what a grounded_roleplay literalness rating already tells the planner; the authored strategy and scene prose do the real steering.
-  - *Example:* "A baby drove {NAME}'s mother home" → nudges the planner toward a realistic car interior with the impossibility in who's driving.
+  - *Render:* No effect on the picture: the compiler does not read it and the gag writer's message does not list it. It is recorded on the fact and is part of the gag writer's freshness check only (editing it marks stored gag ideas out of date). If the picture should show it, say it in the gag's scene.
+  - *Example:* "A baby drove {NAME}'s mother home" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `mock_heroic` *(authored — verify)* — The comedy comes from treating something trivial with epic gravitas — the subject should be staged like a monument to a mundane act.
-  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render.
-  - *Example:* "{NAME} plugged in a USB right on the first try" → nudges the planner to stage the trivial act with an exaggerated heroic pose, cape-in-the-wind energy.
+  - *Render:* No effect on the picture: the compiler does not read it and the gag writer's message does not list it. It is recorded on the fact and is part of the gag writer's freshness check only (editing it marks stored gag ideas out of date). If the picture should show it, say it in the gag's scene.
+  - *Example:* "{NAME} plugged in a USB right on the first try" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `action_comedy` — The fact is an action joke — energetic, slapstick, physical comedy staging suits it better than solemn cinematics.
-  - *Render:* The staging idea reaches the planner as TAXONOMY context (no deterministic staging directive). Its firm effect is that it marks the fact violence-relevant: under the default "allow" violence policy the compiler emits the permission line "When the fact explicitly requires violence, death, weapons, or destruction, depict the action and consequences clearly without gratuitous gore." (an explicit moderator soften/suppress override still wins).
-  - *Example:* "{NAME} fought the office printer and won" → the slapstick staging is a planner hint; the fact is also treated as violence-relevant so the action can be depicted clearly.
+  - *Render:* No effect on the picture any more. It used to mark the fact violence-relevant for the compiler; that check was removed when pictures started being drawn straight from the gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md). Every picture now carries the one fixed violence sentence (comedic violence and its consequences shown clearly, without intense gore), whatever the modifiers say.
+  - *Example:* "{NAME} fought the office printer and won" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `cinematic_aftermath` — The funniest frame is AFTER the action — the crater, the dust, the stunned onlookers — rather than the action itself.
-  - *Render:* The staging idea reaches the planner as TAXONOMY context (no deterministic staging directive). Its firm effect is that it marks the fact violence-relevant: under the default "allow" violence policy the compiler emits the permission line "When the fact explicitly requires violence, death, weapons, or destruction, depict the action and consequences clearly without gratuitous gore." (an explicit moderator soften/suppress override still wins).
-  - *Example:* "{NAME} high-fived a mountain" → the aftermath staging (crater, settling dust, awed onlookers) is a planner hint; the fact is also marked violence-relevant.
+  - *Render:* No effect on the picture any more. It used to mark the fact violence-relevant for the compiler; that check was removed when pictures started being drawn straight from the gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md). Every picture now carries the one fixed violence sentence (comedic violence and its consequences shown clearly, without intense gore), whatever the modifiers say.
+  - *Example:* "{NAME} high-fived a mountain" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `symbolic_abstraction_required` *(authored — verify)* — The fact cannot be shown literally at all — it demands symbolic visual language (the modifier-flag counterpart of the symbolic_abstraction literalness rating).
-  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render.
-  - *Example:* "{NAME} counted to infinity. Twice." → nudges the planner toward symbolic rendering — endless number-scapes, not a person mouthing numbers.
+  - *Render:* No effect on the picture: the compiler does not read it and the gag writer's message does not list it. It is recorded on the fact and is part of the gag writer's freshness check only (editing it marks stored gag ideas out of date). If the picture should show it, say it in the gag's scene.
+  - *Example:* "{NAME} counted to infinity. Twice." → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `metaphorical_visualization` *(authored — verify)* — The joke should land as one concrete visual metaphor — a phrase made physically true in the image (the modifier-flag counterpart of the same-named literalness rating).
-  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render.
-  - *Example:* "{NAME}'s handshake seals deals" → nudges the planner toward one clear metaphor (a literal wax seal pressed by a handshake).
+  - *Render:* No effect on the picture: the compiler does not read it and the gag writer's message does not list it. It is recorded on the fact and is part of the gag writer's freshness check only (editing it marks stored gag ideas out of date). If the picture should show it, say it in the gag's scene.
+  - *Example:* "{NAME}'s handshake seals deals" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `clear_causal_relationship` — The joke is a cause→effect gag, and it only lands if the viewer instantly sees which action caused which consequence.
-  - *Render:* Drives a conservative failure-mode guard in STRICT CONSTRAINTS via failureModeConstraints ("Show the cause and its effect together in the frame so the causal link is legible, not an unrelated aftermath."). The staging idea also reaches the planner as TAXONOMY context; there is no positive prose directive.
-  - *Example:* "{NAME} clapped and the thunder answered" → the compiler guards that clap and thundercrack read as cause-and-effect, not an unrelated aftermath.
+  - *Render:* No effect on the picture any more. It used to add a failure-mode guard ("show the cause and its effect together") to the strict constraints; that guard was removed when pictures started being drawn straight from the gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md). Make the cause and effect legible in the gag's scene.
+  - *Example:* "{NAME} clapped and the thunder answered" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `crowd_reaction` — Witnesses are part of the joke — the scene needs a visible crowd whose reaction sells how impressive the subject is.
-  - *Render:* Drives a conservative crowd focus/relationship guard pack in STRICT CONSTRAINTS via failureModeConstraints (keeping the crowd a reacting background, not competing with the subject). The 'include a crowd' idea itself reaches the planner as TAXONOMY context; there is no positive prose directive.
-  - *Example:* "{NAME} parallel-parked on the first attempt" → the planner may add a gasping crowd; the compiler guards keep them a reacting background, not co-stars.
+  - *Render:* No effect on the picture any more. It used to add a crowd focus/relationship guard to the strict constraints; that guard was removed when pictures started being drawn straight from the gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md). Describe the crowd, and who it reacts to, in the gag's scene.
+  - *Example:* "{NAME} parallel-parked on the first attempt" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `environmental_reaction` *(authored — verify)* — The environment itself should visibly respond to the subject — nature, buildings, or weather reacting is the punchline's proof.
-  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render.
-  - *Example:* "{NAME} whispered and the forest leaned in" → nudges the planner toward trees bending toward the subject; the environment as reacting witness.
+  - *Render:* No effect on the picture: the compiler does not read it and the gag writer's message does not list it. It is recorded on the fact and is part of the gag writer's freshness check only (editing it marks stored gag ideas out of date). If the picture should show it, say it in the gag's scene.
+  - *Example:* "{NAME} whispered and the forest leaned in" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `object_transformation` *(authored — verify)* — An object changes state because of the subject, and the change itself must be legible — best shown mid-transformation.
-  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render.
-  - *Example:* "{NAME} stared at coal until it became a diamond" → nudges the planner to show the coal mid-morph into diamond so the change is legible.
+  - *Render:* No effect on the picture: the compiler does not read it and the gag writer's message does not list it. It is recorded on the fact and is part of the gag writer's freshness check only (editing it marks stored gag ideas out of date). If the picture should show it, say it in the gag's scene.
+  - *Example:* "{NAME} stared at coal until it became a diamond" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `technology_reaction` *(authored — verify)* — Devices and machines visibly respond to the subject — screens, routers, robots reacting is the gag's evidence.
-  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render.
-  - *Example:* "WiFi gets stronger when {NAME} walks by" → nudges the planner toward routers and phones visibly lighting up in response.
-- `official_setting` *(authored — verify)* — Setting flag: the fact implies a formal, official, or ceremonial venue — a swearing-in, a podium, a state occasion.
-  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the formal/ceremonial setting.
-  - *Example:* "{NAME} was sworn in as everyone's emergency contact" → suggests a ceremonial venue to the planner; the authored strategy still writes the scene.
+  - *Render:* No effect on the picture: the compiler does not read it and the gag writer's message does not list it. It is recorded on the fact and is part of the gag writer's freshness check only (editing it marks stored gag ideas out of date). If the picture should show it, say it in the gag's scene.
+  - *Example:* "WiFi gets stronger when {NAME} walks by" → a label only; the picture follows the gag's scene, so say it there if it should show.
+- `official_setting` *(authored — verify)* — "{NAME} was sworn in as everyone's emergency contact" → a label only; the picture follows the gag's scene, so say it there if it should show.
+  - *Render:* No effect on the picture: setting/location flags are not read by the compiler or put in the gag writer's message. The gag's scene decides the environment, so say the formal/ceremonial setting there if the picture needs it.
+  - *Example:* "{NAME} was sworn in as everyone's emergency contact" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `professional_context` *(authored — verify)* — Context flag: the fact lives in a professional/expert domain (consultants, doctors, engineers at work). Also an adult-suitability signal — professional contexts are on the classifier's adult-incompatible list.
-  - *Render:* No fixed compiler directive — passed to the AI prompt planner as taxonomy context only; the authored strategy and scene decide the actual staging. Its firmer role is taxonomy/safety context (adult-suitability review), not the compiled prompt.
-  - *Example:* "{NAME} closed the deal by nodding" → hints at a professional environment; also the kind of context that keeps adult mode off the table.
-- `domestic_setting` *(authored — verify)* — Setting flag: the fact plays out at home — kitchens, living rooms, household life.
-  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the home/domestic setting.
-  - *Example:* "{NAME}'s houseplants water themselves out of respect" → suggests a home interior to the planner; informative, not enforced.
-- `office_setting` *(authored — verify)* — Setting flag: the fact plays out in an office — desks, meetings, office equipment.
-  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the office setting.
-  - *Example:* "The office printer works only for {NAME}" → hints office context; the scene prose decides the actual set dressing.
-- `school_setting` *(authored — verify)* — Setting flag: the fact involves school — classrooms, teachers, hallways. (School context also makes the fact adult-incompatible per the adult-suitability rules.)
-  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the school setting.
-  - *Example:* "Teachers ask {NAME} for hall passes" → suggests a school scene; separately, school context blocks adult mode.
-- `hospital_setting` *(authored — verify)* — Setting flag: the fact involves a hospital or medical environment. (Medical vulnerability is also on the adult-incompatible list.)
-  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the hospital/medical setting.
-  - *Example:* "Doctors check {NAME}'s pulse to calibrate their watches" → suggests a medical scene to the planner; nothing is compiled from the flag itself.
-- `courtroom_setting` *(authored — verify)* — Setting flag: the fact stages a courtroom — judges, benches, gavels, legal theater.
-  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the courtroom setting.
-  - *Example:* "{NAME} was called as an expert witness on being impressive" → courtroom staging suggested; the archetype strategy still owns the scene.
-- `airport_setting` *(authored — verify)* — Setting flag: the fact plays out in an airport — terminals, security, gates.
-  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the airport setting.
-  - *Example:* "TSA waves {NAME} through with applause" → airport context hinted to the planner; not a compiled constraint.
-- `gym_setting` *(authored — verify)* — Setting flag: the fact lives in a gym — weights, racks, mirrors, workout culture.
-  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the gym setting.
-  - *Example:* "The gym renamed leg day after {NAME}" → gym environment suggested; the planned scene determines what actually appears.
-- `bar_setting` *(authored — verify)* — Setting flag: the fact plays out in a bar or pub environment.
-  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the bar setting.
-  - *Example:* "Bartenders tip {NAME}" → bar context hinted; advisory to the planner only.
-- `battlefield_setting` *(authored — verify)* — Setting flag: the fact stages combat-scale territory — battlefields, war-movie scenery. (Violence permission is separate: it comes from the violence policy and the violence-relevance modifiers, not this flag.)
-  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the battlefield setting.
-  - *Example:* "{NAME} won the battle by showing up" → battlefield scenery hinted; whether violence is depicted is governed elsewhere.
-- `technology_setting` *(authored — verify)* — Setting flag: the fact lives among technology — server rooms, labs, screens, gadgets.
-  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the tech/data-center setting.
-  - *Example:* "Servers cool down when {NAME} logs on" → data-center environment suggested to the planner; informative only.
-- `underwater_setting` *(authored — verify)* — Setting flag: the scene is underwater — ocean depths, marine life.
-  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the underwater setting.
-  - *Example:* "Sharks have a {NAME} Week" → underwater staging hinted; the archetype strategy still writes the actual scene.
-- `space_setting` *(authored — verify)* — Setting flag: the scene is in space — orbit, spacecraft, cosmic backdrops.
-  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the outer-space setting.
-  - *Example:* "{NAME} waved at the ISS and it waved back" → space backdrop suggested; not a compiled directive (contrast celestial_object, a load-bearing prop the planner is told to render).
-- `outdoor_nature_setting` *(authored — verify)* — Setting flag: the fact plays out in nature — mountains, forests, open landscapes.
-  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the outdoor/nature setting.
-  - *Example:* "Mountains adjust their height for {NAME}'s photos" → outdoor nature scenery hinted to the planner.
-- `city_setting` *(authored — verify)* — Setting flag: the fact lives in an urban environment — streets, skylines, traffic.
-  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the urban/city setting.
-  - *Example:* "Traffic lights turn green when {NAME} approaches" → city-street staging suggested; advisory only.
+  - *Render:* No effect on the picture: nothing compiles it and the gag writer's message does not list it. Its firmer role is taxonomy/safety context (adult-suitability review). It also takes part in the gag writer's freshness check.
+  - *Example:* "{NAME} closed the deal by nodding" → a label only; the picture follows the gag's scene, so say it there if it should show.
+- `domestic_setting` *(authored — verify)* — "{NAME}'s houseplants water themselves out of respect" → a label only; the picture follows the gag's scene, so say it there if it should show.
+  - *Render:* No effect on the picture: setting/location flags are not read by the compiler or put in the gag writer's message. The gag's scene decides the environment, so say the home/domestic setting there if the picture needs it.
+  - *Example:* "{NAME}'s houseplants water themselves out of respect" → a label only; the picture follows the gag's scene, so say it there if it should show.
+- `office_setting` *(authored — verify)* — "The office printer works only for {NAME}" → a label only; the picture follows the gag's scene, so say it there if it should show.
+  - *Render:* No effect on the picture: setting/location flags are not read by the compiler or put in the gag writer's message. The gag's scene decides the environment, so say the office setting there if the picture needs it.
+  - *Example:* "The office printer works only for {NAME}" → a label only; the picture follows the gag's scene, so say it there if it should show.
+- `school_setting` *(authored — verify)* — "Teachers ask {NAME} for hall passes" → a label only; the picture follows the gag's scene, so say it there if it should show.
+  - *Render:* No effect on the picture: setting/location flags are not read by the compiler or put in the gag writer's message. The gag's scene decides the environment, so say the school setting there if the picture needs it.
+  - *Example:* "Teachers ask {NAME} for hall passes" → a label only; the picture follows the gag's scene, so say it there if it should show.
+- `hospital_setting` *(authored — verify)* — "Doctors check {NAME}'s pulse to calibrate their watches" → a label only; the picture follows the gag's scene, so say it there if it should show.
+  - *Render:* No effect on the picture: setting/location flags are not read by the compiler or put in the gag writer's message. The gag's scene decides the environment, so say the hospital/medical setting there if the picture needs it.
+  - *Example:* "Doctors check {NAME}'s pulse to calibrate their watches" → a label only; the picture follows the gag's scene, so say it there if it should show.
+- `courtroom_setting` *(authored — verify)* — "{NAME} was called as an expert witness on being impressive" → a label only; the picture follows the gag's scene, so say it there if it should show.
+  - *Render:* No effect on the picture: setting/location flags are not read by the compiler or put in the gag writer's message. The gag's scene decides the environment, so say the courtroom setting there if the picture needs it.
+  - *Example:* "{NAME} was called as an expert witness on being impressive" → a label only; the picture follows the gag's scene, so say it there if it should show.
+- `airport_setting` *(authored — verify)* — "TSA waves {NAME} through with applause" → a label only; the picture follows the gag's scene, so say it there if it should show.
+  - *Render:* No effect on the picture: setting/location flags are not read by the compiler or put in the gag writer's message. The gag's scene decides the environment, so say the airport setting there if the picture needs it.
+  - *Example:* "TSA waves {NAME} through with applause" → a label only; the picture follows the gag's scene, so say it there if it should show.
+- `gym_setting` *(authored — verify)* — "The gym renamed leg day after {NAME}" → a label only; the picture follows the gag's scene, so say it there if it should show.
+  - *Render:* No effect on the picture: setting/location flags are not read by the compiler or put in the gag writer's message. The gag's scene decides the environment, so say the gym setting there if the picture needs it.
+  - *Example:* "The gym renamed leg day after {NAME}" → a label only; the picture follows the gag's scene, so say it there if it should show.
+- `bar_setting` *(authored — verify)* — "Bartenders tip {NAME}" → a label only; the picture follows the gag's scene, so say it there if it should show.
+  - *Render:* No effect on the picture: setting/location flags are not read by the compiler or put in the gag writer's message. The gag's scene decides the environment, so say the bar setting there if the picture needs it.
+  - *Example:* "Bartenders tip {NAME}" → a label only; the picture follows the gag's scene, so say it there if it should show.
+- `battlefield_setting` *(authored — verify)* — "{NAME} won the battle by showing up" → a label only; the picture follows the gag's scene, so say it there if it should show.
+  - *Render:* No effect on the picture: setting/location flags are not read by the compiler or put in the gag writer's message. The gag's scene decides the environment, so say the battlefield setting there if the picture needs it.
+  - *Example:* "{NAME} won the battle by showing up" → a label only; the picture follows the gag's scene, so say it there if it should show.
+- `technology_setting` *(authored — verify)* — "Servers cool down when {NAME} logs on" → a label only; the picture follows the gag's scene, so say it there if it should show.
+  - *Render:* No effect on the picture: setting/location flags are not read by the compiler or put in the gag writer's message. The gag's scene decides the environment, so say the tech/data-center setting there if the picture needs it.
+  - *Example:* "Servers cool down when {NAME} logs on" → a label only; the picture follows the gag's scene, so say it there if it should show.
+- `underwater_setting` *(authored — verify)* — "Sharks have a {NAME} Week" → a label only; the picture follows the gag's scene, so say it there if it should show.
+  - *Render:* No effect on the picture: setting/location flags are not read by the compiler or put in the gag writer's message. The gag's scene decides the environment, so say the underwater setting there if the picture needs it.
+  - *Example:* "Sharks have a {NAME} Week" → a label only; the picture follows the gag's scene, so say it there if it should show.
+- `space_setting` *(authored — verify)* — "{NAME} waved at the ISS and it waved back" → a label only; the picture follows the gag's scene, so say it there if it should show.
+  - *Render:* No effect on the picture: setting/location flags are not read by the compiler or put in the gag writer's message. The gag's scene decides the environment, so say the outer-space setting there if the picture needs it.
+  - *Example:* "{NAME} waved at the ISS and it waved back" → a label only; the picture follows the gag's scene, so say it there if it should show.
+- `outdoor_nature_setting` *(authored — verify)* — "Mountains adjust their height for {NAME}'s photos" → a label only; the picture follows the gag's scene, so say it there if it should show.
+  - *Render:* No effect on the picture: setting/location flags are not read by the compiler or put in the gag writer's message. The gag's scene decides the environment, so say the outdoor/nature setting there if the picture needs it.
+  - *Example:* "Mountains adjust their height for {NAME}'s photos" → a label only; the picture follows the gag's scene, so say it there if it should show.
+- `city_setting` *(authored — verify)* — "Traffic lights turn green when {NAME} approaches" → a label only; the picture follows the gag's scene, so say it there if it should show.
+  - *Render:* No effect on the picture: setting/location flags are not read by the compiler or put in the gag writer's message. The gag's scene decides the environment, so say the urban/city setting there if the picture needs it.
+  - *Example:* "Traffic lights turn green when {NAME} approaches" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `avoid_weapons_focus` *(authored — verify)* — Presentation constraint (not moderation): a weapon may appear if the fact requires it, but it must not be the visual centerpiece of the scene.
-  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render.
-  - *Example:* "{NAME} caught the arrow mid-flight" → nudges the planner to keep the catch the focal point and the weapon incidental, not glorified.
+  - *Render:* No effect on the picture: the compiler does not read it and the gag writer's message does not list it. It is recorded on the fact and is part of the gag writer's freshness check only (editing it marks stored gag ideas out of date). If the picture should show it, say it in the gag's scene.
+  - *Example:* "{NAME} caught the arrow mid-flight" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `avoid_gross_literalization` *(authored — verify)* — Taste constraint: a literal rendering of the fact would be gross or off-putting — the idea should be staged tastefully instead.
-  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render.
-  - *Example:* "{NAME} sweats pure espresso" → nudges the planner toward tasteful coffee-steam staging rather than a literally dripping render.
+  - *Render:* No effect on the picture: the compiler does not read it and the gag writer's message does not list it. It is recorded on the fact and is part of the gag writer's freshness check only (editing it marks stored gag ideas out of date). If the picture should show it, say it in the gag's scene.
+  - *Example:* "{NAME} sweats pure espresso" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `avoid_extra_faces` *(authored — verify)* — Focus constraint: background faces dilute the subject and risk identity confusion — keep other faces minimal so the subject stays the one clear face.
-  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render.
-  - *Example:* "{NAME} won the marathon running backwards" → nudges the planner to de-emphasize background runners so the subject is the clear face.
+  - *Render:* No effect on the picture: the compiler does not read it and the gag writer's message does not list it. It is recorded on the fact and is part of the gag writer's freshness check only (editing it marks stored gag ideas out of date). If the picture should show it, say it in the gag's scene.
+  - *Example:* "{NAME} won the marathon running backwards" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `avoid_duplicate_subject` — Anti-clone constraint: image models love to render the reference person twice — this flag pins the subject to exactly one instance.
-  - *Render:* Triggers the compiler's single-instance SUBJECT BINDING ("Render exactly one {subject} — a single instance.") and the anti-split strict constraint ("Do not duplicate, clone, or mirror {subject} anywhere in the frame.") even when no age transform applies. This is a structural compiler effect; the modifier also reaches the planner as TAXONOMY context.
-  - *Example:* "{NAME} raced their own shadow" → exactly one {NAME} in frame; the shadow is a shadow, not a second copy of the person.
+  - *Render:* No effect on the picture any more. It used to trigger the single-instance SUBJECT BINDING and the no-clone strict constraint; both were removed when pictures started being drawn straight from the gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md). Keep the subject to one copy by saying so in the gag's scene.
+  - *Example:* "{NAME} raced their own shadow" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `astronomical_consequence` *(authored — verify)* — The fact's consequence is planetary/cosmic scale — the image must stage that scale, not shrink it to a local effect.
-  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render.
-  - *Example:* "{NAME} sneezed and the moon left orbit" → nudges the planner to stage the departing moon huge and dramatic, not a dot in the sky.
+  - *Render:* No effect on the picture: the compiler does not read it and the gag writer's message does not list it. It is recorded on the fact and is part of the gag writer's freshness check only (editing it marks stored gag ideas out of date). If the picture should show it, say it in the gag's scene.
+  - *Example:* "{NAME} sneezed and the moon left orbit" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `celestial_object` *(authored — verify)* — A specific celestial body (planet, moon, star) is a load-bearing prop in the joke and must be clearly rendered in frame.
-  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render.
-  - *Example:* "The moon waves back at {NAME}" → nudges the planner toward a clearly rendered moon in frame, not just a vague night sky.
+  - *Render:* No effect on the picture: the compiler does not read it and the gag writer's message does not list it. It is recorded on the fact and is part of the gag writer's freshness check only (editing it marks stored gag ideas out of date). If the picture should show it, say it in the gag's scene.
+  - *Example:* "The moon waves back at {NAME}" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `subject_object_reversal` — The joke inverts the normal actor/acted-on relationship — the object does to the subject what the subject would normally do to it.
-  - *Render:* Drives a conservative failure-mode guard in STRICT CONSTRAINTS via failureModeConstraints (keeping the reversed roles legible so the object clearly acts on the subject). The reversal idea also reaches the planner as TAXONOMY context; there is no positive prose directive.
-  - *Example:* "The dumbbells ask {NAME} for a lighter set" → the compiler guards that the equipment clearly reads as the one acting toward the subject.
+  - *Render:* No effect on the picture any more. It used to add a failure-mode guard keeping the reversed roles legible; that guard was removed when pictures started being drawn straight from the gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md). Make the object's action on the subject clear in the gag's scene.
+  - *Example:* "The dumbbells ask {NAME} for a lighter set" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `normal_function_rendered_unnecessary` — Redundant-mechanism jokes: the subject's impossible power accomplishes the result BEFORE an object/tool/weapon's normal mechanism is needed — the mechanism may still fire afterward, but comically redundantly. Explicitly NOT a temporal/causality inversion (the canonical example: "threw a grenade and killed 50 people, then it exploded").
-  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render. (This modifier's main job is taxonomy: it marks the redundant-mechanism pattern so the fact is not misclassified as a temporal/causality inversion.)
-  - *Example:* "{NAME} threw a grenade and killed 50 people, then it exploded" → the planner should stage the throw as the devastating force and keep the grenade's own explosion visibly late and redundant.
+  - *Render:* No effect on the picture: the compiler does not read it and the gag writer's message does not list it. It is recorded on the fact and is part of the gag writer's freshness check only (editing it marks stored gag ideas out of date). If the picture should show it, say it in the gag's scene. (This modifier's main job is taxonomy: it marks the redundant-mechanism pattern so the fact is not misclassified as a temporal/causality inversion.)
+  - *Example:* "{NAME} threw a grenade and killed 50 people, then it exploded" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `projectile_impact_power` — A thrown/launched object carries impossible force — the image needs visual evidence of that power (shockwave, trail, impact path).
-  - *Render:* The staging idea reaches the planner as TAXONOMY context (no deterministic staging directive). Its firm effect is that it marks the fact violence-relevant: under the default "allow" violence policy the compiler emits the permission line "When the fact explicitly requires violence, death, weapons, or destruction, depict the action and consequences clearly without gratuitous gore." (an explicit moderator soften/suppress override still wins).
-  - *Example:* "{NAME}'s paper airplane broke the sound barrier" → the shockwave/motion-trail idea is a planner hint; the fact is also marked violence-relevant.
+  - *Render:* No effect on the picture any more. It used to mark the fact violence-relevant for the compiler; that check was removed when pictures started being drawn straight from the gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md). Every picture now carries the one fixed violence sentence (comedic violence and its consequences shown clearly, without intense gore), whatever the modifiers say.
+  - *Example:* "{NAME}'s paper airplane broke the sound barrier" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `brand_context` *(authored — verify)* — Context flag: the joke depends on a brand or company reference. Pairs with the culturalReferences brand_reference entries; brands are also on the adult-suitability incompatible list.
-  - *Render:* No fixed compiler directive — taxonomy context for the planner only; it tells downstream consumers the joke leans on a brand. Real brand MARKS never render regardless: the always-on overlay-text exclusion bans logos and brand marks on every image.
-  - *Example:* "A rental company sends {NAME} thank-you flowers" → flags the brand dependency for the planner and reviewers; brand marks are already banned platform-wide.
+  - *Render:* No effect on the picture: nothing compiles it. It tells reviewers the joke leans on a brand. Real brand MARKS never render regardless: the always-on overlay-text exclusion bans logos and brand marks on every image.
+  - *Example:* "A rental company sends {NAME} thank-you flowers" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `workplace_context` *(authored — verify)* — Context flag: the fact assumes workplace framing — bosses, HR, coworkers, office politics. Workplace context is also on the classifier's adult-incompatible list, so this doubles as a safety signal.
-  - *Render:* No fixed compiler directive — the token reaches the AI prompt planner as taxonomy context only; the authored strategy and scene own the staging. Its more concrete role is taxonomy/adult-suitability context, not the compiled prompt.
-  - *Example:* "HR studies {NAME}'s emails as literature" → workplace framing flagged for the planner and for adult-suitability review; nothing is compiled from it.
+  - *Render:* No effect on the picture: nothing compiles it and the gag writer's message does not list it. Its more concrete role is taxonomy/adult-suitability context.
+  - *Example:* "HR studies {NAME}'s emails as literature" → a label only; the picture follows the gag's scene, so say it there if it should show.
 - `audience_inside_reference` *(authored — verify)* — Context flag: the joke's audience exists INSIDE the reference — the in-scene watchers/consumers belong to the referenced format or world (e.g. the sharks watching "{NAME} Week"), and the joke collapses if who-is-watching-whom gets lost.
-  - *Render:* No fixed compiler directive — planner context only, alerting the scene-writing AI to preserve the audience inversion; the authored strategy and the planned scene determine whether it actually survives into the prompt.
-  - *Example:* "Sharks have a {NAME} Week" → the sharks ARE the audience; this flag tells the planner not to flatten that into people watching sharks.
+  - *Render:* No effect on the picture: the compiler does not read it and the gag writer's message does not list it. It is recorded on the fact and is part of the gag writer's freshness check only (editing it marks stored gag ideas out of date). If the picture should show it, say it in the gag's scene.
+  - *Example:* "Sharks have a {NAME} Week" → a label only; the picture follows the gag's scene, so say it there if it should show.
 
 **Examples**
 
 - **Scenario:** "{NAME} as a baby negotiated their own bedtime." — render shows an adult plus a random baby.
   - **Input:** Add modifier: "baby_child_version"
-  - **Outcome:** The compiler emits a SUBJECT BINDING section fusing the subject with the transformed life stage as ONE entity ("the same person de-aged… no separate generic baby, no adult version left in frame"), plus anti-split strict constraints. The modifier also reaches the planner as context.
+  - **Outcome:** Nothing in the picture changes: the modifier is not read by the compiler any more. Fix the render by writing the de-aging into the gag's scene ("{NAME}, de-aged into a baby — the same person, not a second one"); the scene reaches the prompt verbatim.
 - **Scenario:** A render keeps drawing readable gibberish signage, but the scene has NO text that should appear.
-  - **Input:** In the Visual Strategy Override, set Supporting-text policy → forbid.
-  - **Outcome:** STRICT CONSTRAINTS emits "Avoid readable in-scene text unless required by a higher-priority instruction." (Incidental background gibberish is already steered clean by an always-on guard; a full ban is this moderator override — the old no_readable_text modifier was retired.)
+  - **Input:** Say in the gag's scene that there are no signs or lettering.
+  - **Outcome:** Every picture already carries fixed wording excluding overlay text and steering incidental background text non-readable; anything stronger goes in the scene. (The supporting-text override and the old no_readable_text modifier are both retired.)
 - **Scenario:** You add a custom modifier "sepia_flashback".
   - **Input:** modifiers: [..., "sepia_flashback"] (amber chip)
-  - **Outcome:** No fixed directive exists — the planner sees the token as context and may or may not honor it. Check the test render.
+  - **Outcome:** Nothing reads it for the picture; it is recorded on the fact and takes part in the gag writer's freshness check only.
 
 **Sources**
 
-- `artifacts/api-server/src/lib/imagePrompt/generator.ts` `buildImagePromptContextBlocks` — Where modifiers are serialized into the planner's TAXONOMY context block.
 - `artifacts/api-server/src/lib/factEnrichmentConfig.ts` `FACT_ENRICHMENT_SYSTEM_DEFAULT` — The classifier system prompt — the authoritative definition of what the AI is told this field means.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — fields listed here flip render-scenario tiles stale when edited.
+- `artifacts/api-server/src/lib/visualConcepts/inputHash.ts` `writerAffectingEnrichment` — The gag writer's freshness projection: editing a field listed here marks the stored gag ideas out of date. It is not a render hash.
+- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection: it hashes only the gag's scene, bubbles and cast entries, so no classification field flips a render stale.
 
 ### Final hashtags — these ship on approval
 
@@ -879,13 +873,13 @@ None — never enters the render pipeline, and explicitly excluded from the rend
 **Sources**
 
 - `artifacts/api-server/src/lib/factEnrichmentConfig.ts` `FACT_ENRICHMENT_SYSTEM_DEFAULT` — The classifier system prompt — the authoritative definition of what the AI is told this field means.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — fields listed here flip render-scenario tiles stale when edited.
+- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection: it hashes only the gag's scene, bubbles and cast entries, so no classification field flips a render stale.
 
 ### AI Classification Confidence
 
 *The classifier's 0–1 confidence in its own archetype/subtype call. Read-only.*
 
-- **Effect:** Advisory only — AI-planner context, no fixed compiler directive
+- **Effect:** Advisory only — read by the gag writer, never by the picture prompt
 - **Editor surface:** field-label
 
 **What it is**
@@ -900,7 +894,7 @@ Emitted by the classifier with each classification; the deterministic redundant-
 
 **How it affects the render**
 
-Advisory only: echoed to the planner as context, never compiled, and explicitly excluded from the render-input hash.
+Advisory only: a record of the classifier's own confidence; it reaches no prompt, and it is excluded from the render-input hash.
 
 **Examples**
 
@@ -933,7 +927,7 @@ Written by admins (and appended to by the repair guard). The classifier itself s
 
 **How it affects the render**
 
-None — human-only. Never enters the planner or compiled prompt; excluded from the render-input hash, so editing it never flips renders stale.
+None — human-only. Never enters the gag writer's message or the compiled prompt; excluded from the render-input hash, so editing it never flips renders stale.
 
 **Examples**
 
@@ -943,369 +937,122 @@ None — human-only. Never enters the planner or compiled prompt; excluded from 
 
 **Sources**
 
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — fields listed here flip render-scenario tiles stale when edited.
+- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection: it hashes only the gag's scene, bubbles and cast entries, so no classification field flips a render stale.
 
 ## Visual Strategy Override
 
 ### Visual Strategy Override
 
-*Moderator art-direction merged into the compiled prompt's labeled sections — it corrects the AI plan, never replaces it.*
+*The gag's content: its scene and its speech/thought bubbles are what a picture is drawn from. The old "More art direction" controls are retired.*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
+- **Effect:** Render-affecting — reaches the picture prompt (the gag's scene and bubbles)
 - **Staleness:** Editing re-flags render scenarios as stale.
 - **Editor surface:** panel-level
 
 **What it is**
 
-A per-fact, style-agnostic override object a human moderator edits to correct or sharpen the AI's visual strategy WITHOUT hand-editing the brittle final engine prompt. It is stored inside the enrichment blob (enrichment.visualPromptStrategyOverride) and merged into the deterministic compiler's labeled sections at render time — so the final prompt still adapts to subject, pronouns, reference image, style, render mode, aspect ratio, and the render policy.
-
-Activation is presence-based — there is no enable toggle. Each populated sub-field merges into its own compiled section on its own; a field left blank simply contributes nothing. An override whose every field is empty compiles identically to having no override at all, so clearing a field is how you 'turn it off'.
+The per-gag content object a moderator edits: the scene (Visual Concept) and the speech/thought bubbles. It is stored with the gag, and a picture's prompt is built only from it (plus the gag's cast, read from the scene by an AI step when the gag is saved) and fixed wording that is the same for every fact.
 
 Write plain English — don't hand-type tokens. Each rendered-text field just needs the subject's name written naturally ("David laughs", not "{NAME} laughs"); on Save the system auto-tokenizes every changed field through the same tokenizer fact submission uses, and shows you the tokenized result right there so you can verify it and correct it before it persists. Chips ({NAME}, {NAME_POSSESSIVE}, {SUBJ}, and the other pronoun tokens) remain in the toolbar as an expert escape hatch, but authoring no longer requires them. Name ONLY the main subject in your prose; refer to every other character by role ("the mother", "a bystander") — the tokenizer only replaces the subject's name and pronouns, so a second named character would be left literal.
 
-The violence policy override here is the ONLY thing that can suppress violent depiction — the auto-sanitizing modifiers were retired, and the planner is told the render policy 'is the ONLY layer that may suppress; do not self-censor beyond it'.
+The eleven "More art direction" fields (moderator intent, subject depiction, required/forbidden details, role assignments, composition guidance, extra prompt details, do-not-render additions, the supporting-text and violence overrides, notes for the moderator) are retired: no longer accepted on save and never read. Any live value was folded into the gag's scene text first.
 
 **How the AI sets it**
 
-Authored by moderators only — the AI never generates it. The save path stamps server-owned provenance (updatedBy/updatedAt, shown as 'Last edited …' at the panel's foot), and the whole object is preserved verbatim across re-classification, so re-running enrichment never wipes your art direction.
+Authored by moderators, or picked from the gag writer's candidate ideas (the AI never writes it straight into a picture). The save path stamps server-owned provenance (updatedBy/updatedAt).
 
 **How it affects the render**
 
-The Visual Concept (CORE SCENE) LEADS the compiled prompt; every other section is operational or additive. Each sub-field lands in its own compiled section: subject realization → SUBJECT REALIZATION (required); required details → REQUIRED VISUAL DETAILS (required); forbidden/negative entries → 'Do not …' lines in STRICT CONSTRAINTS (required); role bindings → ROLE DETAILS (additive — only what the Concept didn't already state); composition guidance → COMPOSITION; style-agnostic additions → ADDITIONAL DETAILS. Required-priority sections always survive the engine's char budget, so moderator intent is never silently dropped.
+The scene is the CORE SCENE section of the prompt, verbatim; the bubbles become the SPEECH & THOUGHT BUBBLES section, with speaker bindings written from the gag's cast. Everything else in the prompt is fixed wording: identity, a filler line for details the scene leaves unstated, style, and one fixed violence sentence.
 
-The override MERGES into the AI's plan — it never replaces it. Anything you don't specify still comes from the AI plan and the authored archetype strategy.
+Nothing about the fact's AI classification (archetype, modifiers, literalness, references, characters) is added to the picture. There is no render-time AI planner and no other modifier- or classification-driven compiler wording; both were removed when pictures started being drawn straight from the gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md).
 
-The whole override object is in the render-input hash, so ANY edit (including admin-only fields) flips render-scenario tiles stale.
+Editing the scene or a bubble flips render-scenario tiles stale; the render-input hash covers only the gag's scene, bubbles and cast entries.
 
 **Examples**
 
-- **Scenario:** The AI's plan is 90% right but keeps adding a second adult subject next to the baby version.
-  - **Input:** Forbidden Visual Details: ["a separate adult version of the subject"].
-  - **Outcome:** "Do not add a separate adult version of the subject." lands in STRICT CONSTRAINTS; everything else in the AI plan is untouched — no toggle to flip, the filled field applies on its own.
-- **Scenario:** You want to back out a one-off experiment.
-  - **Input:** Clear the fields you added (leave them blank).
-  - **Outcome:** With nothing populated, the override contributes nothing — renders behave as if it never existed. Presence, not a toggle, is what activates each field.
-- **Scenario:** You write a Required Visual Detail naming the subject in plain English.
-  - **Input:** Required Visual Details: ["David's face on the statue"]
+- **Scenario:** A render keeps missing a detail the gag depends on.
+  - **Input:** Add the detail to the Visual Concept (scene) text.
+  - **Outcome:** The scene reaches the prompt verbatim, so the detail is drawn; there is no separate required-details field to fill any more.
+- **Scenario:** You write a scene naming the subject in plain English.
+  - **Input:** Visual Concept: "David's face on the statue"
   - **Outcome:** Click Save — the system tokenizes it to "{NAME_POSSESSIVE} face on the statue" and shows you the result. Tokens resolve per render; a plain name persisted as-is would leak into every other user's render, which is exactly what auto-tokenize prevents.
 
 **Sources**
 
-- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The override's schema: field shapes, list caps, token canonicalization/validation on save, and the admin-only fields excluded from rendering.
-- `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `compile` — The deterministic Nano Banana 2 compiler — where each override sub-field is merged into a labeled prompt section.
-- `artifacts/api-server/src/lib/imagePrompt/generator.ts` `buildImagePromptUserMessage` — The planner-side RENDER POLICY block — 'the ONLY layer that may suppress; do not self-censor beyond it'.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — it includes visualPromptStrategyOverride WHOLESALE, so editing any part of the override flips render-scenario tiles stale.
+- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The gag content's schema: field shapes, list caps and token canonicalization/validation on save.
+- `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `compileDirect` — The one compile entry point: a picture's prompt is the gag's scene, its bubbles and its cast plus fixed wording that is the same for every fact.
+- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection: it hashes only the gag's scene, bubbles and cast entries, so editing either flips render-scenario tiles stale.
 
 ### Visual Concept (Core Scene)
 
 *Describe the picture in plain English, naming only the subject — on Save the system tokenizes it and shows you the result.*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
+- **Effect:** Render-affecting — reaches the picture prompt (the gag's scene and bubbles)
 - **Staleness:** Editing re-flags render scenarios as stale.
 - **Editor surface:** field-label
 
 **What it is**
 
-The moderator-authored scene: 2–4 plain-language sentences describing exactly what the image shows (subject, action, setting, objects, composition). When non-empty, it is AUTHORITATIVE — the planner LLM is directed to realize exactly this scene (not invent its own), and the compiler emits it as the CORE SCENE section at required priority, never compressed under the char budget.
+The moderator-authored scene: 2–4 plain-language sentences describing exactly what the image shows (subject, action, setting, objects, composition). It is the whole of what the picture shows: the compiler emits it as the CORE SCENE section at required priority, never compressed under the char budget, and nothing about the fact's classification is added to it.
 
 Write it in plain English, naming the subject naturally ("David leans against the bar"). On Save the system tokenizes it (the same tokenizer fact submission uses) and shows the tokenized result in the field so you can verify it before it persists — the field is still editable afterward. Name ONLY the main subject; refer to any other character by role ("the bartender", "a passerby"), never by name, since the tokenizer won't recognize a second name as personalizable. Capped at 1500 characters: it is a scene brief, not a full prompt.
 
-Also surfaced as the prominent 'Visual concept — describe the picture' card in moderation visual review; both surfaces edit this same field. Typing a non-empty concept auto-enables the override.
+Also surfaced as the prominent 'Visual concept — describe the picture' card in moderation visual review; both surfaces edit this same field.
 
 **How the AI sets it**
 
-Authored by moderators only — the AI never writes it. Preserved verbatim across re-classification like the rest of the override.
+Authored by moderators, or picked from the gag writer's candidate ideas. Preserved verbatim across re-classification.
 
 **How it affects the render**
 
-Replaces the AI plan's coreScene as the CORE SCENE section (required, non-compressible, marked MODERATOR in the prompt breakdown).
+Is the CORE SCENE section, verbatim (required, non-compressible, marked MODERATOR in the prompt breakdown). The prompt's other sections are fixed wording, including a line telling the engine to choose plausible details for whatever the scene leaves unstated.
 
-The compiler still owns identity/reference/text-policy language: engine instructions written here ('preserve the face', 'no readable text') are stripped, with a visible warning in the prompt diagnostics. A concept that consists ONLY of such instructions falls back to the AI scene with a loud warning — never a silently empty scene.
-
-The planner LLM also receives it as a hard directive, so subjectDetails/environment/lighting are planned to support THIS scene.
+The compiler still owns identity/reference/text-policy language: engine instructions written here ('preserve the face', 'no readable text') are rendered as written but raise a warning in the prompt diagnostics, since they duplicate wording the compiler already supplies. A scene is required: the picture cannot be drawn without one.
 
 **Examples**
 
 - **Scenario:** The AI keeps missing the scale gag in a participation-trophy fact.
   - **Input:** Visual concept: "David triumphantly holds a participation trophy the size of a grain of rice, photographed like a championship victory."
-  - **Outcome:** Click Save — the field shows "{NAME} triumphantly holds a participation trophy the size of a grain of rice, photographed like a championship victory." CORE SCENE is exactly that sentence (token-resolved per render), the planner fleshes out supporting detail around it, and it survives the char budget uncompressed.
+  - **Outcome:** Click Save — the field shows "{NAME} triumphantly holds a participation trophy the size of a grain of rice, photographed like a championship victory." CORE SCENE is exactly that sentence (token-resolved per render), the engine fills in unstated detail around it, and it survives the char budget uncompressed.
 - **Scenario:** You write engine instructions instead of a scene.
   - **Input:** Visual concept: "Preserve the uploaded face and do not show readable text."
-  - **Outcome:** Both clauses are compiler-owned and stripped; the diagnostics warn that the concept emptied out and the AI scene was used instead. Rewrite as visible scene description.
+  - **Outcome:** Both clauses are compiler-owned wording; the diagnostics warn about them. Rewrite as visible scene description.
 - **Scenario:** Your prose names a second character ("David and Alex raced go-karts").
   - **Input:** Visual concept: "David and Alex raced go-karts around the office."
   - **Outcome:** Tokenizes to "{NAME} and Alex raced go-karts around the office." — only David becomes {NAME}; Alex stays a literal name in the compiled prompt. Rewrite as "David raced a coworker around go-karts in the office" to avoid a hardcoded second name.
 
 **Sources**
 
-- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The override's schema: field shapes, list caps, token canonicalization/validation on save, and the admin-only fields excluded from rendering.
-- `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `compile` — The deterministic Nano Banana 2 compiler — where each override sub-field is merged into a labeled prompt section.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — it includes visualPromptStrategyOverride WHOLESALE, so editing any part of the override flips render-scenario tiles stale.
-
-### Moderator Intent (admin-only, not rendered)
-
-*WHY you overrode — a note for humans; never compiled into any prompt.*
-
-- **Effect:** Human-only — never leaves the admin UI
-- **Staleness:** Editing re-flags render scenarios as stale.
-- **Editor surface:** field-label
-
-**What it is**
-
-Free text explaining the intent behind the override, for yourself and other admins. It is explicitly excluded from the rendered text fields — the compiler never emits it, and it is not a token-insert target (tokens in it are neither needed nor validated).
-
-**How the AI sets it**
-
-Written by moderators; the AI never touches it.
-
-**How it affects the render**
-
-None on the compiled prompt — it never leaves the admin UI.
-
-HONEST CAVEAT: the render-input hash includes the override object WHOLESALE, so editing this field DOES flip render-scenario tiles stale even though no compiled prompt changes because of it. Re-running the flagged scenarios will produce byte-identical prompts.
-
-**Examples**
-
-- **Scenario:** You pinned an unusual subject realization.
-  - **Input:** Moderator Intent: "AI kept rendering a realistic baby — pinning adult-head composite per David's note 6/30."
-  - **Outcome:** The next admin understands the override; the engine prompt is unaffected (but tiles flag stale due to the wholesale hash).
-
-**Sources**
-
-- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The override's schema: field shapes, list caps, token canonicalization/validation on save, and the admin-only fields excluded from rendering.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — it includes visualPromptStrategyOverride WHOLESALE, so editing any part of the override flips render-scenario tiles stale.
-
-### Subject Depiction Mode
-
-*Pin HOW the subject is physically realized in the image — human, transformed, object, symbolic — when the AI keeps getting it wrong.*
-
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
-- **Editor surface:** field-label
-
-**What it is**
-
-A mode dropdown that pins the subject's physical realization. The default use_ai_plan keeps the AI's own subject treatment; any other mode requires a description (the editor warns when it's empty) — because only the DESCRIPTION is compiled, never the mode name itself.
-
-**How the AI sets it**
-
-Moderator-chosen after reviewing test renders. Pick the mode that names your intent, then write the description as a complete instruction (see the per-value docs).
-
-**How it affects the render**
-
-When a mode other than use_ai_plan is set with a non-empty description, the description is emitted as the required-priority "SUBJECT REALIZATION" section, placed right after SUBJECT BINDING so it leads the visual prose.
-
-It ADDS to (never replaces) the compiler-owned SUBJECT BINDING / anti-split guards; if your realization conflicts with a default guard (e.g. you WANT a realistic full de-age), express the conflict via Forbidden Visual Details.
-
-**Values (8)**
-
-- `use_ai_plan` — The default — keep the AI plan's subject realization untouched. The rest of the override (details, roles, policies) still applies.
-  - *Render:* No SUBJECT REALIZATION section is emitted at all; the AI's own subject treatment (plus the compiler's SUBJECT BINDING) stands.
-  - *Example:* The AI already renders the subject correctly; you only need to forbid one stray detail — leave this on use_ai_plan.
-- `normal_human` *(authored — verify)* — Pin the subject as an ordinary human at their normal age and form — no transformation, object-ification, or symbolism.
-  - *Render:* Your description (e.g. "{NAME} as a normal adult human, unchanged") is compiled verbatim into the required SUBJECT REALIZATION section, overriding an AI plan that kept transforming the subject.
-  - *Example:* The AI keeps turning the subject into a giant for a strength fact — pin normal_human with "{NAME} at normal human scale".
-- `age_transformed_human` *(authored — verify)* — The subject rendered as the SAME recognizable person at a different life stage (baby, child, elderly).
-  - *Render:* Your description states the target life stage; it ADDS to (never replaces) the compiler's own SUBJECT BINDING / anti-split guards, which already fuse identity with the transformed age.
-  - *Example:* "{NAME} de-aged into a toddler, same recognizable face" for a "{NAME} as a baby…" fact.
-- `adult_head_on_transformed_body` *(authored — verify)* — The deliberately absurd composite: the subject's recognizable adult head/face kept on a transformed (e.g. baby) body.
-  - *Render:* Your description spells out the composite so the engine doesn't 'fix' it into either a full adult or a full baby. Pair with forbiddenVisualDetails to block a realistic full de-age if the AI keeps producing one.
-  - *Example:* "{NAME}'s adult head, unchanged, on a newborn-sized swaddled body" — the classic meme-composite realization.
-- `subject_as_object` *(authored — verify)* — The subject realized as a THING — a statue, a mountain, a constellation, a product — rather than a figure in the scene.
-  - *Render:* Your description defines the object and how it still reads as the subject (engraving, silhouette, likeness). Compiled into the required SUBJECT REALIZATION section.
-  - *Example:* "{NAME} rendered as a colossal marble statue in the town square, face clearly recognizable" for a legacy/monument fact.
-- `nonhuman_transformation` *(authored — verify)* — The subject transformed into a non-human being — an animal, a mythical creature, a force of nature.
-  - *Render:* Your description states the creature and which identity cues survive the transformation; it is compiled into the required SUBJECT REALIZATION section.
-  - *Example:* "{NAME} as a lion with {NAME_POSSESSIVE} distinctive hair color in the mane" for an apex-predator fact.
-- `symbolic_or_implied` *(authored — verify)* — The subject is not literally shown — their presence is implied by evidence, symbols, or the scene's reaction to them.
-  - *Render:* Your description defines the implication (empty throne, awed crowd looking off-frame, aftermath). Compiled into the required SUBJECT REALIZATION section.
-  - *Example:* "{NAME} is off-frame; show only the crowd shielding their eyes from a blinding glow at the doorway" for an ineffable-presence fact.
-- `custom` *(authored — verify)* — None of the named modes fit — the description carries the entire realization spec.
-  - *Render:* Exactly like the other non-default modes: only the description text is compiled (the mode name itself never reaches the engine), so write the description as a complete, self-contained instruction.
-  - *Example:* A half-photo/half-blueprint split-render of the subject that no named mode covers — describe it fully under custom.
-
-**Examples**
-
-- **Scenario:** "{NAME} as a baby ran the boardroom" — the AI renders a realistic baby, losing the recognizable face.
-  - **Input:** mode: adult_head_on_transformed_body, description: "{NAME}'s recognizable adult head on a baby's body in a tiny suit"
-  - **Outcome:** The prompt gains "SUBJECT REALIZATION: {NAME}'s recognizable adult head on a baby's body in a tiny suit." (token resolved per render) at required priority.
-- **Scenario:** You set a mode but leave the description blank.
-  - **Input:** mode: subject_as_object, description: ""
-  - **Outcome:** Nothing is emitted (the section needs a description) and the editor warns 'Subject realization mode is set but its description is empty.'
-
-**Sources**
-
-- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The override's schema: field shapes, list caps, token canonicalization/validation on save, and the admin-only fields excluded from rendering.
-- `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `compile` — The deterministic Nano Banana 2 compiler — where each override sub-field is merged into a labeled prompt section.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — it includes visualPromptStrategyOverride WHOLESALE, so editing any part of the override flips render-scenario tiles stale.
-
-### Subject Depiction Description
-
-*The actual compiled text of the SUBJECT REALIZATION section — write it as a complete instruction.*
-
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
-- **Editor surface:** field-label
-
-**What it is**
-
-The token-aware text that IS the SUBJECT REALIZATION section. The mode dropdown categorizes your intent, but this description is the only part the engine ever sees — so it must fully state the realization on its own.
-
-**How the AI sets it**
-
-Moderator-authored. Token chips insert {NAME}/{NAME_POSSESSIVE}/pronoun tokens at the caret; name-token variants are canonicalized on save and unknown tokens rejected.
-
-**How it affects the render**
-
-Emitted verbatim (tokens resolved, terminal punctuation normalized) as the required "SUBJECT REALIZATION" section — required priority means it survives the char budget.
-
-Skipped entirely when the mode is use_ai_plan or the description is blank.
-
-**Examples**
-
-- **Scenario:** Pinning a symbolic realization.
-  - **Input:** "{NAME} is off-frame; the crowd stares upward at a silhouette blotting out the sun"
-  - **Outcome:** That sentence leads the prompt's realization, steering the whole scene composition.
-
-**Sources**
-
-- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The override's schema: field shapes, list caps, token canonicalization/validation on save, and the admin-only fields excluded from rendering.
-- `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `compile` — The deterministic Nano Banana 2 compiler — where each override sub-field is merged into a labeled prompt section.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — it includes visualPromptStrategyOverride WHOLESALE, so editing any part of the override flips render-scenario tiles stale.
-
-### Required Visual Details
-
-*Concrete things that MUST be visible — each entry becomes part of a required prompt section.*
-
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
-- **Editor surface:** field-label
-
-**What it is**
-
-A list (max 40 entries) of concrete, visible details the render must include. Token-aware. Write each entry as a noun-y visual ('{NAME}'s recognizable face on a newborn body'), not intent commentary.
-
-**How the AI sets it**
-
-Moderator-authored, typically after a test render omitted something load-bearing for the joke.
-
-**How it affects the render**
-
-Entries are joined into the required-priority "REQUIRED VISUAL DETAILS" section (each entry a clause, "; "-separated), placed right after SUBJECT DETAILS. Required priority means the engine char budget can never drop them.
-
-They also seed the compiler's de-dupe haystack, so later sections don't repeat them.
-
-**Examples**
-
-- **Scenario:** The joke needs the trophy shelf visible but renders keep cropping it.
-  - **Input:** Required Visual Details: ["a shelf crowded with gold trophies behind {NAME}"]
-  - **Outcome:** "REQUIRED VISUAL DETAILS: a shelf crowded with gold trophies behind {NAME}." (token resolved) — guaranteed to survive budgeting.
-
-**Sources**
-
-- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The override's schema: field shapes, list caps, token canonicalization/validation on save, and the admin-only fields excluded from rendering.
-- `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `compile` — The deterministic Nano Banana 2 compiler — where each override sub-field is merged into a labeled prompt section.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — it includes visualPromptStrategyOverride WHOLESALE, so editing any part of the override flips render-scenario tiles stale.
-
-### Forbidden Visual Details
-
-*Things that must NOT appear — each entry becomes a "Do not …" line in STRICT CONSTRAINTS.*
-
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
-- **Editor surface:** field-label
-
-**What it is**
-
-A list (max 40 entries) of visuals to ban. Each entry is normalized into a negative constraint: an entry not already phrased negatively gets a 'Do not ' prefix (entries starting with Do not/Don't/Avoid/Never/No are kept as-is, never double-prefixed).
-
-**How the AI sets it**
-
-Moderator-authored — the standard fix for a recurring wrong element in test renders, and the sanctioned way to override a default compiler guard you disagree with.
-
-**How it affects the render**
-
-Normalized entries join the required-priority STRICT CONSTRAINTS section (after the compiler's own supporting-text, violence, and anti-split constraints), so they always survive the char budget.
-
-**Examples**
-
-- **Scenario:** Renders keep adding a second adult next to the de-aged subject.
-  - **Input:** Forbidden Visual Details: ["a separate adult version of the subject"]
-  - **Outcome:** "Do not a separate adult version of the subject." — better: write it verb-first ("show a separate adult version of the subject") so the prefixed line reads "Do not show a separate adult version of the subject."
-- **Scenario:** An entry already phrased as a negative.
-  - **Input:** ["Never show the subject's back to camera"]
-  - **Outcome:** Kept as-is: "Never show the subject's back to camera." — no double "Do not" prefix.
-
-**Sources**
-
-- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The override's schema: field shapes, list caps, token canonicalization/validation on save, and the admin-only fields excluded from rendering.
-- `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `compile` — The deterministic Nano Banana 2 compiler — where each override sub-field is merged into a labeled prompt section.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — it includes visualPromptStrategyOverride WHOLESALE, so editing any part of the override flips render-scenario tiles stale.
-
-### Scene Role Assignments
-
-*Who is who in the scene — your bindings REPLACE the AI's secondary-character casting. Entity is a label ("subject" or a role); Visual Role is plain English that gets tokenized on Save.*
-
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
-- **Editor surface:** field-label
-
-**What it is**
-
-A list (max 20) of entity → visual-role pairs. The entity is a plain label — "subject" or a relationship/type label ("mother", "crowd/victims") — never a personalization token: typing the subject's own name auto-normalizes to "subject" on Save, and a stray {NAME}/{SUBJ}-style token typed here is rejected as an error (both client-side and as a hard server-side rule) since this field identifies WHO, not prose to render. The visual role is what that entity concretely is/does in the frame, written in plain English — it IS token-capable and gets auto-tokenized on Save just like the Visual Concept.
-
-**How the AI sets it**
-
-Moderator-authored when the AI casts roles wrongly — the classic failure being a secondary character drifting into the subject's central action.
-
-**How it affects the render**
-
-When ANY binding is present, your bindings take precedence over the AI plan's secondaryCharacters wholesale: the 'subject' entity's role becomes the subject's role-in-scene, and every other entity becomes a secondary character.
-
-They are compiled into the ROLE DETAILS section as ADDITIVE clauses — but the Visual Concept (CORE SCENE) now LEADS the prompt and carries the scene, so ROLE DETAILS only surfaces a role the Concept did not already state (redundant ones are dropped). A role that already names the subject is emitted as-is (never doubled to "<Name> is <Name> …"); a bare role gets a "<subject> is <role>" clause. Negatives belong in Forbidden Visual Details, not here.
-
-Rows with an empty entity or role are skipped (the editor warns).
-
-**Examples**
-
-- **Scenario:** "A baby drove David's mother home." — renders keep putting the subject behind the wheel.
-  - **Input:** Role Bindings: "David" (entity) → "the astonished passenger" (visual role), "baby" → "the tiny driver gripping the wheel"
-  - **Outcome:** Click Save: the entity "David" normalizes to "subject" (it matched the subject's name); the visual role tokenizes to "the astonished passenger" (no name in it, nothing changes) and "the tiny driver gripping the wheel" for baby. Result: "ROLE DETAILS: {NAME} is the astonished passenger. baby is the tiny driver gripping the wheel." (emitted only if the Visual Concept did not already cast these roles) — replacing the AI's own casting.
-- **Scenario:** You accidentally type a token directly into the entity field.
-  - **Input:** entity: "{NAME}"
-  - **Outcome:** Save blocks with a clear error on that row (red-bordered) — entity is a label like "subject" or "mother", never a token. Type the plain name or role instead; a real subject name there auto-collapses to "subject".
-
-**Sources**
-
-- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The override's schema: field shapes, list caps, token canonicalization/validation on save, and the admin-only fields excluded from rendering.
-- `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `compile` — The deterministic Nano Banana 2 compiler — where each override sub-field is merged into a labeled prompt section.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — it includes visualPromptStrategyOverride WHOLESALE, so editing any part of the override flips render-scenario tiles stale.
+- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The gag content's schema: field shapes, list caps and token canonicalization/validation on save.
+- `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `compileDirect` — The one compile entry point: a picture's prompt is the gag's scene, its bubbles and its cast plus fixed wording that is the same for every fact.
+- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection: it hashes only the gag's scene, bubbles and cast entries, so editing either flips render-scenario tiles stale.
 
 ### Speech & Thought Bubbles
 
-*Make a character in the scene speak or think an exact line — a balloon rendered into the image with the text lettered verbatim. Pick who says it from the dropdown — the subject, the fact's characters, or this gag's Scene Role Assignments; shorter text renders more reliably.*
+*Make a character in the scene speak or think an exact line — a balloon rendered into the image with the text lettered verbatim. Pick who says it from the dropdown — the subject or a character from this gag's cast; shorter text renders more reliably.*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
+- **Effect:** Render-affecting — reaches the picture prompt (the gag's scene and bubbles)
 - **Staleness:** Editing re-flags render scenarios as stale.
 - **Editor surface:** field-label
 
 **What it is**
 
-A list (max 4; 1–2 works best) of bubbles: a type (Speech = tailed balloon; Thought = cloud with a trail of circles), WHO it belongs to (picked from a dropdown of the subject, the fact's Characters — shown as "Alex's mom" — and this gag's Scene Role Assignments; the bubble stores the plain label, e.g. "mom", and a speaker saved earlier that is on none of those lists is kept as it is), and the exact text to letter (max 80 characters, soft warning at 60 — legibility drops with length). Text is token-capable ({NAME} etc.) and is whitespace-normalized on Save; what you see saved is exactly what the engine is asked to letter.
+A list (max 4; 1–2 works best) of bubbles: a type (Speech = tailed balloon; Thought = cloud with a trail of circles), WHO it belongs to (picked from a dropdown of the subject, the characters in this gag's cast, which an AI step reads from the scene when the gag is saved, shown read-only; the bubble stores the plain label, e.g. "mom", and a speaker saved earlier that is on none of those lists is kept as it is), and the exact text to letter (max 80 characters, soft warning at 60 — legibility drops with length). Text is token-capable ({NAME} etc.) and is whitespace-normalized on Save; what you see saved is exactly what the engine is asked to letter.
 
 **How the AI sets it**
 
-Moderator-authored, or proposed by the AI Visual-ideas generator when the fact contains a literal quote — picking an idea fills these rows (draft-only; Save still applies).
+Moderator-authored, or proposed by the gag writer when the fact contains a literal quote — picking an idea fills these rows (draft-only; Save still applies).
 
 **How it affects the render**
 
-Each bubble compiles to one deterministic directive in the required SPEECH & THOUGHT BUBBLES section (stored order preserved, never de-duplicated or compressed). Explicit bubbles render even when the supporting-text policy is "forbid" — moderator intent wins; overlay/caption text stays forbidden as ever.
+Each bubble compiles to one deterministic directive in the required SPEECH & THOUGHT BUBBLES section (stored order preserved, never de-duplicated or compressed). Bubbles always render; overlay/caption text stays excluded as ever.
 
 Bubbles have their own prompt-budget pool: if the combined directives exceed it, Save fails with a bubble-specific error — shorten the text or remove a bubble. Nothing is silently dropped.
 
-For a speaker other than the subject, the planner must include that character under exactly the picked label, and the compiler opens the section with a short line tying the label to who they are in the picture ("mom: the woman in the passenger seat.") — so the balloon has someone to point at even when the scene describes her without naming her, or the gag's Scene Role Assignments leave her out.
+For a speaker other than the subject, the compiler opens the section with a short line tying the label to who they are in the picture, written from the gag's stored cast ("mom: the woman in the passenger seat.") — so the balloon has someone to point at even when the scene describes her without naming her.
 
-A speaker the picture still ends up without renders its directive anyway, but the model may add, ignore, or misattribute that character — the preview shows a warning; confirm the render.
+A speaker with no cast entry renders its directive anyway, but the model may add, ignore, or misattribute that character — the preview shows a warning; confirm the render.
 
 **Examples**
 
@@ -1315,245 +1062,435 @@ A speaker the picture still ends up without renders its directive anyway, but th
 
 **Sources**
 
-- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The override's schema: field shapes, list caps, token canonicalization/validation on save, and the admin-only fields excluded from rendering.
-- `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `compile` — The deterministic Nano Banana 2 compiler — where each override sub-field is merged into a labeled prompt section.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — it includes visualPromptStrategyOverride WHOLESALE, so editing any part of the override flips render-scenario tiles stale.
+- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The gag content's schema: field shapes, list caps and token canonicalization/validation on save.
+- `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `compileDirect` — The one compile entry point: a picture's prompt is the gag's scene, its bubbles and its cast plus fixed wording that is the same for every fact.
+- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection: it hashes only the gag's scene, bubbles and cast entries, so editing either flips render-scenario tiles stale.
+
+### Moderator Intent (admin-only, not rendered)
+
+*Retired. A note for humans about why you overrode; it never reached a prompt.*
+
+- **Effect:** Human-only — never leaves the admin UI
+- **Staleness:** Editing does not re-flag render scenarios.
+- **Editor surface:** field-label
+
+**What it is**
+
+Retired. A note for humans about why you overrode; it never reached a prompt. It was one of the eleven "More art direction" controls that left the moderation screen and the pipeline when pictures started being drawn straight from the approved gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md).
+
+**How the AI sets it**
+
+No longer accepted on save: a save carrying a value here is refused. Stored content keeps parsing, and any live value was folded into the gag's scene text first. Nothing reads it.
+
+**How it affects the render**
+
+None. A picture's prompt is built only from the approved gag's scene, its bubbles and its cast, plus fixed wording that is the same for every fact. This field is never read, and editing it never marks a render out of date.
+
+**Examples**
+
+- **Scenario:** You want what this field used to do for one gag.
+  - **Input:** Say it in the gag's scene text.
+  - **Outcome:** The scene reaches the prompt verbatim, so a detail written there is drawn; this retired field would have been ignored.
+
+**Sources**
+
+- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The gag content's schema: field shapes, list caps and token canonicalization/validation on save.
+- `lib/api-zod/src/visualStrategyOverride.ts` `retiredArtDirectionFields` — Names the retired "More art direction" fields: a save carrying a value in any of them is refused, and stored values are never read.
+
+### Subject Depiction Mode
+
+*Retired. It used to pin how the subject was physically realized (human, transformed, object, symbolic).*
+
+- **Effect:** Human-only — never leaves the admin UI
+- **Staleness:** Editing does not re-flag render scenarios.
+- **Editor surface:** field-label
+
+**What it is**
+
+Retired. It used to pin how the subject was physically realized (human, transformed, object, symbolic). It was one of the eleven "More art direction" controls that left the moderation screen and the pipeline when pictures started being drawn straight from the approved gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md).
+
+**How the AI sets it**
+
+No longer accepted on save: a save carrying a value here is refused. Stored content keeps parsing, and any live value was folded into the gag's scene text first. Nothing reads it.
+
+**How it affects the render**
+
+None. A picture's prompt is built only from the approved gag's scene, its bubbles and its cast, plus fixed wording that is the same for every fact. This field is never read, and editing it never marks a render out of date.
+
+**Values (8)**
+
+- `use_ai_plan` — The old default — leave the subject's realization to the AI plan. There is no AI plan any more, so this is simply the state of every gag.
+  - *Render:* Retired: no longer accepted on save and never read. Pictures are drawn only from the approved gag's scene, bubbles and cast, so this value changes nothing in the prompt. (Removed when pictures started being drawn straight from the gag; plan docs/plans/PLAN_GAG_DIRECT_RENDER.md.)
+  - *Example:* Retired: say it in the gag's scene text instead.
+- `normal_human` *(authored — verify)* — Pin the subject as an ordinary human at their normal age and form — no transformation, object-ification, or symbolism.
+  - *Render:* Retired: no longer accepted on save and never read. Pictures are drawn only from the approved gag's scene, bubbles and cast, so this value changes nothing in the prompt. (Removed when pictures started being drawn straight from the gag; plan docs/plans/PLAN_GAG_DIRECT_RENDER.md.)
+  - *Example:* Retired: say it in the gag's scene text instead.
+- `age_transformed_human` *(authored — verify)* — The subject rendered as the SAME recognizable person at a different life stage (baby, child, elderly).
+  - *Render:* Retired: no longer accepted on save and never read. Pictures are drawn only from the approved gag's scene, bubbles and cast, so this value changes nothing in the prompt. (Removed when pictures started being drawn straight from the gag; plan docs/plans/PLAN_GAG_DIRECT_RENDER.md.)
+  - *Example:* Retired: say it in the gag's scene text instead.
+- `adult_head_on_transformed_body` *(authored — verify)* — The deliberately absurd composite: the subject's recognizable adult head/face kept on a transformed (e.g. baby) body.
+  - *Render:* Retired: no longer accepted on save and never read. Pictures are drawn only from the approved gag's scene, bubbles and cast, so this value changes nothing in the prompt. (Removed when pictures started being drawn straight from the gag; plan docs/plans/PLAN_GAG_DIRECT_RENDER.md.)
+  - *Example:* Retired: say it in the gag's scene text instead.
+- `subject_as_object` *(authored — verify)* — The subject realized as a THING — a statue, a mountain, a constellation, a product — rather than a figure in the scene.
+  - *Render:* Retired: no longer accepted on save and never read. Pictures are drawn only from the approved gag's scene, bubbles and cast, so this value changes nothing in the prompt. (Removed when pictures started being drawn straight from the gag; plan docs/plans/PLAN_GAG_DIRECT_RENDER.md.)
+  - *Example:* Retired: say it in the gag's scene text instead.
+- `nonhuman_transformation` *(authored — verify)* — The subject transformed into a non-human being — an animal, a mythical creature, a force of nature.
+  - *Render:* Retired: no longer accepted on save and never read. Pictures are drawn only from the approved gag's scene, bubbles and cast, so this value changes nothing in the prompt. (Removed when pictures started being drawn straight from the gag; plan docs/plans/PLAN_GAG_DIRECT_RENDER.md.)
+  - *Example:* Retired: say it in the gag's scene text instead.
+- `symbolic_or_implied` *(authored — verify)* — The subject is not literally shown — their presence is implied by evidence, symbols, or the scene's reaction to them.
+  - *Render:* Retired: no longer accepted on save and never read. Pictures are drawn only from the approved gag's scene, bubbles and cast, so this value changes nothing in the prompt. (Removed when pictures started being drawn straight from the gag; plan docs/plans/PLAN_GAG_DIRECT_RENDER.md.)
+  - *Example:* Retired: say it in the gag's scene text instead.
+- `custom` *(authored — verify)* — None of the named modes fit — the description carries the entire realization spec.
+  - *Render:* Retired: no longer accepted on save and never read. Pictures are drawn only from the approved gag's scene, bubbles and cast, so this value changes nothing in the prompt. (Removed when pictures started being drawn straight from the gag; plan docs/plans/PLAN_GAG_DIRECT_RENDER.md.)
+  - *Example:* Retired: say it in the gag's scene text instead.
+
+**Examples**
+
+- **Scenario:** You want what this field used to do for one gag.
+  - **Input:** Say it in the gag's scene text.
+  - **Outcome:** The scene reaches the prompt verbatim, so a detail written there is drawn; this retired field would have been ignored.
+
+**Sources**
+
+- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The gag content's schema: field shapes, list caps and token canonicalization/validation on save.
+- `lib/api-zod/src/visualStrategyOverride.ts` `retiredArtDirectionFields` — Names the retired "More art direction" fields: a save carrying a value in any of them is refused, and stored values are never read.
+
+### Subject Depiction Description
+
+*Retired. It used to be the text of the SUBJECT REALIZATION prompt section.*
+
+- **Effect:** Human-only — never leaves the admin UI
+- **Staleness:** Editing does not re-flag render scenarios.
+- **Editor surface:** field-label
+
+**What it is**
+
+Retired. It used to be the text of the SUBJECT REALIZATION prompt section. It was one of the eleven "More art direction" controls that left the moderation screen and the pipeline when pictures started being drawn straight from the approved gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md).
+
+**How the AI sets it**
+
+No longer accepted on save: a save carrying a value here is refused. Stored content keeps parsing, and any live value was folded into the gag's scene text first. Nothing reads it.
+
+**How it affects the render**
+
+None. A picture's prompt is built only from the approved gag's scene, its bubbles and its cast, plus fixed wording that is the same for every fact. This field is never read, and editing it never marks a render out of date.
+
+**Examples**
+
+- **Scenario:** You want what this field used to do for one gag.
+  - **Input:** Say it in the gag's scene text.
+  - **Outcome:** The scene reaches the prompt verbatim, so a detail written there is drawn; this retired field would have been ignored.
+
+**Sources**
+
+- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The gag content's schema: field shapes, list caps and token canonicalization/validation on save.
+- `lib/api-zod/src/visualStrategyOverride.ts` `retiredArtDirectionFields` — Names the retired "More art direction" fields: a save carrying a value in any of them is refused, and stored values are never read.
+
+### Required Visual Details
+
+*Retired. It used to list details every render had to show.*
+
+- **Effect:** Human-only — never leaves the admin UI
+- **Staleness:** Editing does not re-flag render scenarios.
+- **Editor surface:** field-label
+
+**What it is**
+
+Retired. It used to list details every render had to show. It was one of the eleven "More art direction" controls that left the moderation screen and the pipeline when pictures started being drawn straight from the approved gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md).
+
+**How the AI sets it**
+
+No longer accepted on save: a save carrying a value here is refused. Stored content keeps parsing, and any live value was folded into the gag's scene text first. Nothing reads it.
+
+**How it affects the render**
+
+None. A picture's prompt is built only from the approved gag's scene, its bubbles and its cast, plus fixed wording that is the same for every fact. This field is never read, and editing it never marks a render out of date.
+
+**Examples**
+
+- **Scenario:** You want what this field used to do for one gag.
+  - **Input:** Say it in the gag's scene text.
+  - **Outcome:** The scene reaches the prompt verbatim, so a detail written there is drawn; this retired field would have been ignored.
+
+**Sources**
+
+- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The gag content's schema: field shapes, list caps and token canonicalization/validation on save.
+- `lib/api-zod/src/visualStrategyOverride.ts` `retiredArtDirectionFields` — Names the retired "More art direction" fields: a save carrying a value in any of them is refused, and stored values are never read.
+
+### Forbidden Visual Details
+
+*Retired. It used to list details every render had to avoid.*
+
+- **Effect:** Human-only — never leaves the admin UI
+- **Staleness:** Editing does not re-flag render scenarios.
+- **Editor surface:** field-label
+
+**What it is**
+
+Retired. It used to list details every render had to avoid. It was one of the eleven "More art direction" controls that left the moderation screen and the pipeline when pictures started being drawn straight from the approved gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md).
+
+**How the AI sets it**
+
+No longer accepted on save: a save carrying a value here is refused. Stored content keeps parsing, and any live value was folded into the gag's scene text first. Nothing reads it.
+
+**How it affects the render**
+
+None. A picture's prompt is built only from the approved gag's scene, its bubbles and its cast, plus fixed wording that is the same for every fact. This field is never read, and editing it never marks a render out of date.
+
+**Examples**
+
+- **Scenario:** You want what this field used to do for one gag.
+  - **Input:** Say it in the gag's scene text.
+  - **Outcome:** The scene reaches the prompt verbatim, so a detail written there is drawn; this retired field would have been ignored.
+
+**Sources**
+
+- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The gag content's schema: field shapes, list caps and token canonicalization/validation on save.
+- `lib/api-zod/src/visualStrategyOverride.ts` `retiredArtDirectionFields` — Names the retired "More art direction" fields: a save carrying a value in any of them is refused, and stored values are never read.
+
+### Scene Role Assignments
+
+*Retired. It used to say who was who among the secondary characters; the gag's cast now does this job, read from the scene when the gag is saved.*
+
+- **Effect:** Human-only — never leaves the admin UI
+- **Staleness:** Editing does not re-flag render scenarios.
+- **Editor surface:** field-label
+
+**What it is**
+
+Retired. It used to say who was who among the secondary characters; the gag's cast now does this job, read from the scene when the gag is saved. It was one of the eleven "More art direction" controls that left the moderation screen and the pipeline when pictures started being drawn straight from the approved gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md).
+
+**How the AI sets it**
+
+No longer accepted on save: a save carrying a value here is refused. Stored content keeps parsing, and any live value was folded into the gag's scene text first. Nothing reads it.
+
+**How it affects the render**
+
+None. A picture's prompt is built only from the approved gag's scene, its bubbles and its cast, plus fixed wording that is the same for every fact. This field is never read, and editing it never marks a render out of date.
+
+**Examples**
+
+- **Scenario:** You want what this field used to do for one gag.
+  - **Input:** Say it in the gag's scene text.
+  - **Outcome:** The scene reaches the prompt verbatim, so a detail written there is drawn; this retired field would have been ignored.
+
+**Sources**
+
+- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The gag content's schema: field shapes, list caps and token canonicalization/validation on save.
+- `lib/api-zod/src/visualStrategyOverride.ts` `retiredArtDirectionFields` — Names the retired "More art direction" fields: a save carrying a value in any of them is refused, and stored values are never read.
 
 ### Composition Guidance
 
-*Framing/camera/layout directives folded into the COMPOSITION section.*
+*Retired. It used to add framing and camera advice to the COMPOSITION section.*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Human-only — never leaves the admin UI
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** field-label
 
 **What it is**
 
-A list (max 20) of composition directives — framing, camera angle, subject placement, negative space. Token-aware.
+Retired. It used to add framing and camera advice to the COMPOSITION section. It was one of the eleven "More art direction" controls that left the moderation screen and the pipeline when pictures started being drawn straight from the approved gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md).
 
 **How the AI sets it**
 
-Moderator-authored, layered after the AI plan's own framing + camera + caption-negative-space directives.
+No longer accepted on save: a save carrying a value here is refused. Stored content keeps parsing, and any live value was folded into the gag's scene text first. Nothing reads it.
 
 **How it affects the render**
 
-Entries are appended to the COMPOSITION section (high priority — included while the char budget allows, after all required sections are safe).
+None. A picture's prompt is built only from the approved gag's scene, its bubbles and its cast, plus fixed wording that is the same for every fact. This field is never read, and editing it never marks a render out of date.
 
 **Examples**
 
-- **Scenario:** Renders keep centering the subject when the joke needs scale contrast.
-  - **Input:** Composition Guidance: ["low-angle wide shot; {NAME} tiny in the lower third against the colossal object"]
-  - **Outcome:** The directive joins the COMPOSITION section after the AI plan's framing/camera lines.
+- **Scenario:** You want what this field used to do for one gag.
+  - **Input:** Say it in the gag's scene text.
+  - **Outcome:** The scene reaches the prompt verbatim, so a detail written there is drawn; this retired field would have been ignored.
 
 **Sources**
 
-- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The override's schema: field shapes, list caps, token canonicalization/validation on save, and the admin-only fields excluded from rendering.
-- `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `compile` — The deterministic Nano Banana 2 compiler — where each override sub-field is merged into a labeled prompt section.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — it includes visualPromptStrategyOverride WHOLESALE, so editing any part of the override flips render-scenario tiles stale.
+- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The gag content's schema: field shapes, list caps and token canonicalization/validation on save.
+- `lib/api-zod/src/visualStrategyOverride.ts` `retiredArtDirectionFields` — Names the retired "More art direction" fields: a save carrying a value in any of them is refused, and stored values are never read.
 
 ### Extra Prompt Details (any style)
 
-*Extra scene text that must work under EVERY visual style — compiled as ADDITIONAL DETAILS.*
+*Retired. It used to add extra detail lines to the prompt.*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Human-only — never leaves the admin UI
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** field-label
 
 **What it is**
 
-A list (max 20) of free-form prompt additions that hold under any look/style the render is later given (photoreal, cartoon, painterly). Don't put style words here — style comes from the separate style system. Token-aware.
+Retired. It used to add extra detail lines to the prompt. It was one of the eleven "More art direction" controls that left the moderation screen and the pipeline when pictures started being drawn straight from the approved gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md).
 
 **How the AI sets it**
 
-Moderator-authored for content that doesn't fit the more specific fields (details, roles, composition).
+No longer accepted on save: a save carrying a value here is refused. Stored content keeps parsing, and any live value was folded into the gag's scene text first. Nothing reads it.
 
 **How it affects the render**
 
-Compiled into the "ADDITIONAL DETAILS" section, placed after ENVIRONMENT at high priority and compressible — under extreme budget pressure it is trimmed sentence-by-sentence before being dropped (unlike the required override sections). Prefer Required Visual Details for anything that must survive unconditionally.
+None. A picture's prompt is built only from the approved gag's scene, its bubbles and its cast, plus fixed wording that is the same for every fact. This field is never read, and editing it never marks a render out of date.
 
 **Examples**
 
-- **Scenario:** The scene needs weather that isn't a required element.
-  - **Input:** Style-Agnostic Prompt Additions: ["a light drizzle glossing every surface"]
-  - **Outcome:** "ADDITIONAL DETAILS: a light drizzle glossing every surface." — included while budget allows, style-neutral.
+- **Scenario:** You want what this field used to do for one gag.
+  - **Input:** Say it in the gag's scene text.
+  - **Outcome:** The scene reaches the prompt verbatim, so a detail written there is drawn; this retired field would have been ignored.
 
 **Sources**
 
-- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The override's schema: field shapes, list caps, token canonicalization/validation on save, and the admin-only fields excluded from rendering.
-- `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `compile` — The deterministic Nano Banana 2 compiler — where each override sub-field is merged into a labeled prompt section.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — it includes visualPromptStrategyOverride WHOLESALE, so editing any part of the override flips render-scenario tiles stale.
+- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The gag content's schema: field shapes, list caps and token canonicalization/validation on save.
+- `lib/api-zod/src/visualStrategyOverride.ts` `retiredArtDirectionFields` — Names the retired "More art direction" fields: a save carrying a value in any of them is refused, and stored values are never read.
 
 ### Do-Not-Render Additions
 
-*Exclusions — but Nano Banana 2 has NO negative-prompt parameter, so these become prose "Do not …" constraints.*
+*Retired. It used to add 'do not draw' lines to the strict constraints.*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Human-only — never leaves the admin UI
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** field-label
 
 **What it is**
 
-A list (max 20) of exclusion entries. Despite the name, the target engine has no negative-prompt API parameter (the plan validator forces compiledPrompt.negativePrompt empty) — so every entry is turned into a prose constraint inside the positive prompt.
+Retired. It used to add 'do not draw' lines to the strict constraints. It was one of the eleven "More art direction" controls that left the moderation screen and the pipeline when pictures started being drawn straight from the approved gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md).
 
 **How the AI sets it**
 
-Moderator-authored. Functionally these merge with Forbidden Visual Details; use whichever framing reads clearer for the exclusion.
+No longer accepted on save: a save carrying a value here is refused. Stored content keeps parsing, and any live value was folded into the gag's scene text first. Nothing reads it.
 
 **How it affects the render**
 
-Each entry is normalized into a "Do not …" line (same no-double-prefix rule as Forbidden Visual Details) and appended to the required-priority STRICT CONSTRAINTS section — guaranteed to survive the char budget. Nothing is ever sent through a negative-prompt channel, because none exists.
+None. A picture's prompt is built only from the approved gag's scene, its bubbles and its cast, plus fixed wording that is the same for every fact. This field is never read, and editing it never marks a render out of date.
 
 **Examples**
 
-- **Scenario:** Renders keep adding lens flare.
-  - **Input:** Negative Prompt Additions: ["add lens flare or bloom effects"]
-  - **Outcome:** "Do not add lens flare or bloom effects." appears in STRICT CONSTRAINTS as prose — the engine has no negative-prompt parameter to receive it any other way.
+- **Scenario:** You want what this field used to do for one gag.
+  - **Input:** Say it in the gag's scene text.
+  - **Outcome:** The scene reaches the prompt verbatim, so a detail written there is drawn; this retired field would have been ignored.
 
 **Sources**
 
-- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The override's schema: field shapes, list caps, token canonicalization/validation on save, and the admin-only fields excluded from rendering.
-- `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `compile` — The deterministic Nano Banana 2 compiler — where each override sub-field is merged into a labeled prompt section.
-- `lib/api-zod/src/imagePromptGeneration.ts` `validateImagePromptPlan` — Rule 16: compiledPrompt.negativePrompt must be empty for nano_banana_2 — exclusions must be positive prose.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — it includes visualPromptStrategyOverride WHOLESALE, so editing any part of the override flips render-scenario tiles stale.
+- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The gag content's schema: field shapes, list caps and token canonicalization/validation on save.
+- `lib/api-zod/src/visualStrategyOverride.ts` `retiredArtDirectionFields` — Names the retired "More art direction" fields: a save carrying a value in any of them is refused, and stored values are never read.
 
 ### Override supporting-text policy
 
-*Governs IN-WORLD readable text (signs, titles, scoreboards) — overlay/caption text is always excluded regardless.*
+*Retired. It used to override the policy for readable in-scene text; the prompt now carries fixed text rules for every picture.*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Human-only — never leaves the admin UI
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** field-label
 
 **What it is**
 
-An optional policy override (checkbox + mode + guidance) for in-world readable text. Two distinct text layers exist: the meme caption/fact text is composited OUTSIDE the image and is ALWAYS excluded from the render (the compiler unconditionally emits the overlay-text exclusion — no captions, watermarks, logos, brand marks baked in); this policy governs only text living inside the scene.
-
-When the checkbox is off, the default policy (allow) applies. Guidance is token-aware.
+Retired. It used to override the policy for readable in-scene text; the prompt now carries fixed text rules for every picture. It was one of the eleven "More art direction" controls that left the moderation screen and the pipeline when pictures started being drawn straight from the approved gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md).
 
 **How the AI sets it**
 
-Moderator-set. The editor warns when mode=require has no guidance — required text must be described.
+No longer accepted on save: a save carrying a value here is refused. Stored content keeps parsing, and any live value was folded into the gag's scene text first. Nothing reads it.
 
 **How it affects the render**
 
-Compiled into the required-priority STRICT CONSTRAINTS section per mode (see the per-value docs). Independently, an always-on incidental-text guard keeps background signage non-readable while yielding to any intentional in-scene text, so you only need mode=forbid to fully suppress text the scene would otherwise want. If the AI planner picked concrete supportingTextElements, those render regardless of mode — the planner's scene content is the strongest signal.
+None. A picture's prompt is built only from the approved gag's scene, its bubbles and its cast, plus fixed wording that is the same for every fact. This field is never read, and editing it never marks a render out of date.
 
 **Values (3)**
 
 - `allow` — In-world readable text (signs, TV titles, scoreboards, documents) is permitted but not requested.
-  - *Render:* The compiler adds no in-world-text directive of its own unless the planner picked explicit supportingTextElements or your guidance is set — unnecessary text is not encouraged. Two lines are always emitted regardless: the narrow overlay-text exclusion (no captions/watermarks/logos baked in) and an always-on incidental-text guard that steers background signage non-readable while YIELDING to any intentional in-scene text.
-  - *Example:* allow + guidance 'a TV title reading "{NAME} Week"' → the guidance line is emitted so the title card appears; the incidental-text guard yields to it.
+  - *Render:* Retired: no longer accepted on save and never read. Pictures are drawn only from the approved gag's scene, bubbles and cast, so this value changes nothing in the prompt. (Removed when pictures started being drawn straight from the gag; plan docs/plans/PLAN_GAG_DIRECT_RENDER.md.)
+  - *Example:* Retired: say it in the gag's scene text instead.
 - `forbid` — In-world readable text should be avoided in this scene.
-  - *Render:* Emits the literal line: "Avoid readable in-scene text unless required by a higher-priority instruction." into STRICT CONSTRAINTS (alongside the always-on incidental-text guard). This is the way to fully suppress in-scene text — it replaces the retired no_readable_text modifier. Exception: if the planner selected concrete supportingTextElements, those still render (the planner's scene content is the strongest signal).
-  - *Example:* A scene should have NO readable text at all → forbid emits the avoid line and cleans the scene of readable text.
+  - *Render:* Retired: no longer accepted on save and never read. Pictures are drawn only from the approved gag's scene, bubbles and cast, so this value changes nothing in the prompt. (Removed when pictures started being drawn straight from the gag; plan docs/plans/PLAN_GAG_DIRECT_RENDER.md.)
+  - *Example:* Retired: say it in the gag's scene text instead.
 - `require` — The joke NEEDS readable in-world text (a title card, a scoreboard, a headline) — make the engine show it.
-  - *Render:* Emits: "SUPPORTING TEXT: Readable in-scene text is required in this scene. Show it clearly: {your guidance}." (or the guidance-less variant). The editor warns when require is set without guidance — the engine can't require unspecified text.
-  - *Example:* "Sharks have a {NAME} Week" → require + guidance 'a TV title card reading "{NAME} Week"'.
+  - *Render:* Retired: no longer accepted on save and never read. Pictures are drawn only from the approved gag's scene, bubbles and cast, so this value changes nothing in the prompt. (Removed when pictures started being drawn straight from the gag; plan docs/plans/PLAN_GAG_DIRECT_RENDER.md.)
+  - *Example:* Retired: say it in the gag's scene text instead.
 
 **Examples**
 
-- **Scenario:** "Sharks have a {NAME} Week" — the joke needs the title card readable.
-  - **Input:** mode: require, guidance: 'a TV title card reading "{NAME} Week"'
-  - **Outcome:** "SUPPORTING TEXT: Readable in-scene text is required in this scene. Show it clearly: a TV title card reading "{NAME} Week"." (token resolved per render).
-- **Scenario:** Gibberish signage keeps appearing.
-  - **Input:** mode: forbid
-  - **Outcome:** "Avoid readable in-scene text unless required by a higher-priority instruction." joins STRICT CONSTRAINTS.
+- **Scenario:** You want what this field used to do for one gag.
+  - **Input:** Say it in the gag's scene text.
+  - **Outcome:** The scene reaches the prompt verbatim, so a detail written there is drawn; this retired field would have been ignored.
 
 **Sources**
 
-- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The override's schema: field shapes, list caps, token canonicalization/validation on save, and the admin-only fields excluded from rendering.
-- `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `compile` — The deterministic Nano Banana 2 compiler — where each override sub-field is merged into a labeled prompt section.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — it includes visualPromptStrategyOverride WHOLESALE, so editing any part of the override flips render-scenario tiles stale.
+- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The gag content's schema: field shapes, list caps and token canonicalization/validation on save.
+- `lib/api-zod/src/visualStrategyOverride.ts` `retiredArtDirectionFields` — Names the retired "More art direction" fields: a save carrying a value in any of them is refused, and stored values are never read.
 
 ### Override violence policy
 
-*The ONLY control that can suppress violent depiction — default is allow at strong intensity.*
+*Retired. It used to soften or suppress violence per fact; every picture now carries the one fixed violence sentence.*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Human-only — never leaves the admin UI
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** field-label
 
 **What it is**
 
-An optional policy override (checkbox + mode + intensity + guidance) for how much of the fact's violence/consequences the scene depicts. The checkbox scaffold defaults to allow + strong — the platform default that depicts what the fact requires, including bodies/casualties, without gratuitous gore.
-
-This override is the ONLY violence suppressor in the pipeline: the auto-sanitizing modifiers were retired, and the planner is explicitly told the render policy 'is the ONLY layer that may suppress; do not self-censor beyond it'.
+Retired. It used to soften or suppress violence per fact; every picture now carries the one fixed violence sentence. It was one of the eleven "More art direction" controls that left the moderation screen and the pipeline when pictures started being drawn straight from the approved gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md).
 
 **How the AI sets it**
 
-Moderator-set, typically to soften/suppress a fact whose default renders are too grisly for its context. Guidance (token-aware) refines or, under allow, replaces the default directive line.
+No longer accepted on save: a save carrying a value here is refused. Stored content keeps parsing, and any live value was folded into the gag's scene text first. Nothing reads it.
 
 **How it affects the render**
 
-suppress emits the literal compiler line: "Do not depict violence, injury, or death directly; represent consequences symbolically or through environmental damage."
-
-soften emits: "Soften violent consequences; avoid graphic injury and visible death unless explicitly required by a higher-priority instruction."
-
-allow emits the permission line only when the fact is violence-relevant (a violence modifier — cinematic_aftermath, projectile_impact_power, action_comedy — or violent lexicon in the fact/plan): "When the fact explicitly requires violence, death, weapons, or destruction, depict the action and consequences clearly without gratuitous gore." Your guidance text replaces it when set.
-
-All of it lands in the required-priority STRICT CONSTRAINTS section; the planner separately receives a matching RENDER POLICY block so scene planning and compilation agree. Intensity is planner-side context under allow (see the per-value docs) — the compiler never emits "graphic"-flavored language.
+None. A picture's prompt is built only from the approved gag's scene, its bubbles and its cast, plus fixed wording that is the same for every fact. This field is never read, and editing it never marks a render out of date.
 
 **Values (8)**
 
-- `allow` — The platform default — depict the violence/consequences the fact requires, without gratuitous gore.
-  - *Render:* When the fact is violence-relevant (violence modifiers or violent lexicon), the compiler emits the permission line: "When the fact explicitly requires violence, death, weapons, or destruction, depict the action and consequences clearly without gratuitous gore." Your guidance text, if set, replaces that line. The planner separately receives violence=ALLOW with the intensity and "Do NOT add your own sanitizing or content-suppression language."
-  - *Example:* "{NAME} threw a grenade and killed 50 people…" → the aftermath (bodies included) is depicted, not sanitized away.
+- `allow` — The old default — depict the violence/consequences the fact requires, without gratuitous gore. Every picture now carries one fixed sentence saying much the same.
+  - *Render:* Retired: no longer accepted on save and never read. Pictures are drawn only from the approved gag's scene, bubbles and cast, so this value changes nothing in the prompt. (Removed when pictures started being drawn straight from the gag; plan docs/plans/PLAN_GAG_DIRECT_RENDER.md.)
+  - *Example:* Retired: say it in the gag's scene text instead.
 - `soften` — Deliberately reduce explicit violent consequences while keeping the action.
-  - *Render:* Emits the literal line: "Soften violent consequences; avoid graphic injury and visible death unless explicitly required by a higher-priority instruction." The planner receives violence=SOFTEN with matching language.
-  - *Example:* An action fact whose test renders came out too grisly for the meme tone → soften keeps the explosion, loses the gore.
+  - *Render:* Retired: no longer accepted on save and never read. Pictures are drawn only from the approved gag's scene, bubbles and cast, so this value changes nothing in the prompt. (Removed when pictures started being drawn straight from the gag; plan docs/plans/PLAN_GAG_DIRECT_RENDER.md.)
+  - *Example:* Retired: say it in the gag's scene text instead.
 - `suppress` — Deliberately avoid depicting violence at all — consequences become symbolic/environmental.
-  - *Render:* Emits the literal line: "Do not depict violence, injury, or death directly; represent consequences symbolically or through environmental damage." This moderator override is the ONLY thing that suppresses violent depiction — the retired auto-softening modifiers no longer exist.
-  - *Example:* A combat fact rendered for a context where no injury should be visible → suppress swaps casualties for cratered ground and dust.
+  - *Render:* Retired: no longer accepted on save and never read. Pictures are drawn only from the approved gag's scene, bubbles and cast, so this value changes nothing in the prompt. (Removed when pictures started being drawn straight from the gag; plan docs/plans/PLAN_GAG_DIRECT_RENDER.md.)
+  - *Example:* Retired: say it in the gag's scene text instead.
 - `nonviolent` *(authored — verify)* — No violent content at all — the scene should carry zero violence even under an allow mode.
-  - *Render:* Planner context only: the intensity is echoed in the planner's violence=ALLOW line to calibrate how much consequence the scene stages. For a hard guarantee of no violence, use mode=suppress instead — intensity alone emits no compiler directive.
-  - *Example:* A gentle fact that trips the violence lexicon incidentally — nonviolent tells the planner to keep the scene entirely peaceful.
+  - *Render:* Retired: no longer accepted on save and never read. Pictures are drawn only from the approved gag's scene, bubbles and cast, so this value changes nothing in the prompt. (Removed when pictures started being drawn straight from the gag; plan docs/plans/PLAN_GAG_DIRECT_RENDER.md.)
+  - *Example:* Retired: say it in the gag's scene text instead.
 - `mild` *(authored — verify)* — Cartoon-level, consequence-light action — impacts and tumbles without injury.
-  - *Render:* Planner context only (echoed in the violence=ALLOW line); no deterministic compiler directive branches on it.
-  - *Example:* A slapstick fact → mild keeps the punch visible but nobody visibly hurt.
+  - *Render:* Retired: no longer accepted on save and never read. Pictures are drawn only from the approved gag's scene, bubbles and cast, so this value changes nothing in the prompt. (Removed when pictures started being drawn straight from the gag; plan docs/plans/PLAN_GAG_DIRECT_RENDER.md.)
+  - *Example:* Retired: say it in the gag's scene text instead.
 - `moderate` *(authored — verify)* — Real action-movie consequences implied — destruction and danger, but no explicit casualties.
-  - *Render:* Planner context only (echoed in the violence=ALLOW line); no deterministic compiler directive branches on it.
-  - *Example:* A building-toppling fact → moderate shows wreckage and fleeing crowds, not bodies.
-- `strong` — The platform default. Per the code comment: the platform default is "strong" (visible death, bodies, explosions, weapons, action aftermath, without gratuitous gore).
-  - *Render:* The default intensity in every render policy and in the override's checkbox scaffold. The planner's default line is violence=ALLOW (strong), which explicitly permits the bodies/casualties the fact calls for.
-  - *Example:* "{NAME} killed 50 people with a grenade throw" → strong depicts the casualties the fact describes, non-gratuitously.
+  - *Render:* Retired: no longer accepted on save and never read. Pictures are drawn only from the approved gag's scene, bubbles and cast, so this value changes nothing in the prompt. (Removed when pictures started being drawn straight from the gag; plan docs/plans/PLAN_GAG_DIRECT_RENDER.md.)
+  - *Example:* Retired: say it in the gag's scene text instead.
+- `strong` — The old default. Per the code comment: the default was "strong" (visible death, bodies, explosions, weapons, action aftermath, without gratuitous gore).
+  - *Render:* Retired: no longer accepted on save and never read. Pictures are drawn only from the approved gag's scene, bubbles and cast, so this value changes nothing in the prompt. (Removed when pictures started being drawn straight from the gag; plan docs/plans/PLAN_GAG_DIRECT_RENDER.md.)
+  - *Example:* Retired: say it in the gag's scene text instead.
 - `graphic` — Per the code comment: "graphic" is FUTURE-COMPATIBLE only (a future adult/NSFW mode may use it). It is never selected or encouraged by default.
-  - *Render:* No current pipeline behavior selects or amplifies it — the compiler never emits "graphic"-flavored language. It exists so a future adult/NSFW mode has a schema slot; do not use it today.
-  - *Example:* None today — selecting it renders like strong; the value is reserved for a future mode.
+  - *Render:* Retired: no longer accepted on save and never read. Pictures are drawn only from the approved gag's scene, bubbles and cast, so this value changes nothing in the prompt. (Removed when pictures started being drawn straight from the gag; plan docs/plans/PLAN_GAG_DIRECT_RENDER.md.)
+  - *Example:* Retired: say it in the gag's scene text instead.
 
 **Examples**
 
-- **Scenario:** "{NAME} once threw a grenade and killed 50 people, then it exploded." — a render context where no bodies should be visible.
-  - **Input:** mode: suppress
-  - **Outcome:** "Do not depict violence, injury, or death directly; represent consequences symbolically or through environmental damage." — cratered ground instead of casualties.
-- **Scenario:** The same fact rendered normally.
-  - **Input:** No override (default allow + strong)
-  - **Outcome:** The fact is violence-relevant, so the allow permission line is emitted and the aftermath is depicted as the fact calls for.
+- **Scenario:** You want what this field used to do for one gag.
+  - **Input:** Say it in the gag's scene text.
+  - **Outcome:** The scene reaches the prompt verbatim, so a detail written there is drawn; this retired field would have been ignored.
 
 **Sources**
 
-- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The override's schema: field shapes, list caps, token canonicalization/validation on save, and the admin-only fields excluded from rendering.
-- `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `compile` — The deterministic Nano Banana 2 compiler — where each override sub-field is merged into a labeled prompt section.
-- `artifacts/api-server/src/lib/imagePrompt/generator.ts` `buildImagePromptUserMessage` — The planner-side RENDER POLICY block — 'the ONLY layer that may suppress; do not self-censor beyond it'.
-- `lib/api-zod/src/renderPolicyEnums.ts` `VIOLENCE_INTENSITY_VALUES` — The intensity ladder + the strong-is-default / graphic-is-future-only comment.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — it includes visualPromptStrategyOverride WHOLESALE, so editing any part of the override flips render-scenario tiles stale.
+- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The gag content's schema: field shapes, list caps and token canonicalization/validation on save.
+- `lib/api-zod/src/visualStrategyOverride.ts` `retiredArtDirectionFields` — Names the retired "More art direction" fields: a save carrying a value in any of them is refused, and stored values are never read.
+- `artifacts/api-server/src/lib/imagePrompt/violenceRule.ts` `VIOLENCE_RULE` — The one fixed violence sentence every picture's prompt carries; no setting changes it.
 
 ## References & Scene Entities
 
 ### Cultural / Inside References
 
-*Outside-context dependencies the joke relies on — with a materiality gate deciding which ones the render MUST honor.*
+*Outside-context dependencies the joke relies on — told to the gag writer as WHAT THE REFERENCES MEAN, with a materiality gate deciding which it states as settled.*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Advisory only — read by the gag writer, never by the picture prompt
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** section-level
 
 **What it is**
 
 The list of outside-context dependencies detected during enrichment: knowledge the joke relies on that isn't obvious from the literal words — a brand, a workplace/professional context, an idiom, wordplay, mechanism knowledge, or an inside reference. A fact with no such dependency has an empty list (there is deliberately no 'none' type).
 
-Each row is fully editable, and the per-row 'Research Reference' tool can verify a reference and stamp research metadata (researchConfidence, sources, notes, ambiguity warnings) that both the admin and the planner see.
+Each row is fully editable, and the per-row 'Research Reference' tool can verify a reference and stamp research metadata (researchConfidence, sources, notes, ambiguity warnings) that both the admin and the gag writer's materiality check see.
 
-References inform HOW to render the joke; they never change the archetype/subtype — the taxonomy classifies the mechanism, references flesh out the rendering.
+References inform the gag writer how the joke works; they never change the archetype/subtype — the taxonomy classifies the mechanism, references flesh out the meaning. They do not reach the picture prompt directly.
 
 **How the AI sets it**
 
@@ -1561,49 +1498,47 @@ The classifier emits them under its cultural-reference rules, with the canonical
 
 **How it affects the render**
 
-Every reference (with research context when present) is injected into the planner's PER-FACT CULTURAL REFERENCES block, each marked material=true/false. The MATERIALITY GATE: a reference is material when researchConfidence is "high", OR confidence ≥ 0.8 AND it is not flagged for admin review. Ambiguous/review-flagged references are context only — never forced (they may be wrong).
+Every reference is listed in the gag writer's message under WHAT THE REFERENCES MEAN as `"sourcePhrase" refers to canonicalReference: explanation Visually: visualImplication`. The MATERIALITY GATE (isMaterialCulturalReference): a reference is material when researchConfidence is "high", OR confidence ≥ 0.8 AND it is not flagged for admin review. A non-material reference is still listed, marked "(tentative)" — it may be wrong.
 
-FORCE-ECHO (validator rule 15): every material reference MUST be echoed back in visualPlan.culturalReferencesUsed (sourcePhrase verbatim + canonicalReferenceUsed + visualImplicationUsed + effectOnVisualPlan, all non-empty). A miss triggers one corrective retry re-asking the planner with the exact requirement.
+Nothing is forced into a picture. The render-time planner that force-echoed material references into the visual plan, and the compiler gap-fill that guaranteed their visual implication reached the prompt, were removed when pictures started being drawn straight from the gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md). The moderator-approved gag decides what is drawn.
 
-The planner is instructed to "Bake the reference's visual implication into keyVisualElements + the compiledPrompt.prompt, but never draw a real logo or brand mark." The compiler then guarantees delivery: any echoed visualImplicationUsed the prose omitted is folded into "Ensure these elements are clearly visible: …". The canonical reference and explanation are NEVER compiled — re-emitting them would leak meta-instruction and brand names (e.g. "Discovery Channel") into the engine prompt.
+Reference text never goes into a picture prompt: the prompt is built only from the approved gag, plus fixed wording that excludes logos and brand marks. Only the gag writer reads these rows.
 
-The whole collection is in the render-input hash — editing any row flips render-scenario tiles stale.
+The whole collection is in the gag writer's freshness check, so editing any row marks the stored gag ideas out of date. It is not in the render-input hash and never marks a render out of date.
 
-Pipeline: classifier detects → planner is informed → validator force-echoes material items → compiler guarantees the concrete visual reaches the engine.
+Pipeline: the classifier detects → the gag writer is told the meanings when it drafts gag ideas → a moderator approves a gag → the picture is drawn from that gag alone (no classification field reaches the picture prompt).
 
 **Examples**
 
 - **Scenario:** "Sharks have a {NAME} Week." — confidence 0.9, not flagged.
   - **Input:** cultural_reference, canonical "Shark Week", visualImplication "sharks are the audience watching the subject as spectacle"
-  - **Outcome:** Material → the plan MUST echo it, and sharks-as-audience is guaranteed visible in the render; the words 'Shark Week'/'Discovery Channel' never reach the engine.
+  - **Outcome:** Material → the gag writer states it as settled, so its ideas can use sharks-as-audience; the words 'Shark Week'/'Discovery Channel' reach a picture only if the approved gag's scene contains them.
 - **Scenario:** "{NAME} can set an ant on fire with a magnifying glass. At night." — mechanism_knowledge.
   - **Input:** visualImplication: "a magnifying glass focusing a beam under a starry night sky — the impossible part"
-  - **Outcome:** The night-beam visual is echoed and gap-filled into the prompt so the mechanism-defiance reads.
+  - **Outcome:** The gag writer is told the night-beam visual, so its ideas can make the mechanism-defiance read.
 - **Scenario:** A brand reference at confidence 0.6 with requiresAdminReview=true.
   - **Input:** (unchanged, unresearched)
-  - **Outcome:** NOT material: the planner sees it as context but is never forced to honor it. Running Research Reference to high confidence makes it material.
+  - **Outcome:** NOT material: the gag writer still sees it, marked (tentative). Running Research Reference to high confidence makes it material.
 
 **Sources**
 
 - `artifacts/api-server/src/lib/factEnrichmentConfig.ts` `FACT_ENRICHMENT_SYSTEM_DEFAULT` — The classifier system prompt — the cultural-reference and semantic-entity/capitalization rules plus their worked examples.
 - `lib/api-zod/src/taxonomy.ts` `culturalReferenceSchema` — The reference/entity schemas: field shapes, max lengths, and the research-metadata fields.
-- `artifacts/api-server/src/lib/imagePrompt/generator.ts` `buildImagePromptUserMessage` — Where references/entities are injected into the planner message, including the materiality gate and the never-draw-a-real-logo instruction.
-- `artifacts/api-server/src/lib/imagePrompt/generator.ts` `isMaterialCulturalReference` — A reference is material when researchConfidence === "high", OR confidence >= 0.8 and it is not flagged for admin review.
-- `lib/api-zod/src/imagePromptGeneration.ts` `validateImagePromptPlan` — Rules 14/15: material entities/references MUST be echoed back in the visual plan; a violation triggers one corrective retry.
-- `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `composeKeyElementsDirective` — The compiler-side guarantee: resolved visualImplicationUsed / visualReferentUsed values the prose omitted are folded into "Ensure these elements are clearly visible: …".
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash includes culturalReferences and semanticEntities wholesale — editing any row field flips render-scenario tiles stale.
+- `artifacts/api-server/src/lib/visualConcepts/generator.ts` `buildVisualConceptsUserMessage` — Where references and material entities reach anything: the WHAT THE REFERENCES MEAN block of the gag writer's message. No picture prompt reads them.
+- `artifacts/api-server/src/lib/visualConcepts/generator.ts` `isMaterialCulturalReference` — A reference is material when researchConfidence === "high", OR confidence >= 0.8 and it is not flagged for admin review; a non-material one is shown to the gag writer as "(tentative)".
+- `artifacts/api-server/src/lib/visualConcepts/inputHash.ts` `writerAffectingEnrichment` — The gag writer's freshness projection: it includes culturalReferences and semanticEntities wholesale, so editing a row marks stored gag ideas out of date. It is not a render hash.
 
 ### Source phrase
 
-*The literal phrase in the fact that triggers the reference — also the echo-match key.*
+*The literal phrase in the fact that triggers the reference.*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Advisory only — read by the gag writer, never by the picture prompt
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** reserved
 
 **What it is**
 
-The verbatim word/phrase in the fact text that carries the reference (max 300 chars). It doubles as the reference's identity: the validator matches the plan's echo-back against it case-insensitively (falling back to the canonical reference when empty).
+The verbatim word/phrase in the fact text that carries the reference (max 300 chars). It is the quoted phrase at the start of the reference's line in the gag writer's message.
 
 **How the AI sets it**
 
@@ -1611,26 +1546,25 @@ The classifier quotes it from the fact; editable for manual-fill workflows.
 
 **How it affects the render**
 
-Shown to the planner in the reference block; for material references, the plan must echo this exact sourcePhrase in culturalReferencesUsed or the corrective retry fires.
+Shown to the gag writer as the quoted phrase its reference line starts with.
 
 **Examples**
 
 - **Scenario:** "Sharks have a {NAME} Week."
   - **Input:** sourcePhrase: "{NAME} Week"
-  - **Outcome:** The plan's culturalReferencesUsed entry must carry this sourcePhrase verbatim (case-insensitive match).
+  - **Outcome:** The gag writer's line reads: "{NAME} Week" refers to … — so it knows which words carry the reference.
 
 **Sources**
 
 - `lib/api-zod/src/taxonomy.ts` `culturalReferenceSchema` — The reference/entity schemas: field shapes, max lengths, and the research-metadata fields.
-- `lib/api-zod/src/imagePromptGeneration.ts` `validateImagePromptPlan` — Rules 14/15: material entities/references MUST be echoed back in the visual plan; a violation triggers one corrective retry.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash includes culturalReferences and semanticEntities wholesale — editing any row field flips render-scenario tiles stale.
+- `artifacts/api-server/src/lib/visualConcepts/inputHash.ts` `writerAffectingEnrichment` — The gag writer's freshness projection: it includes culturalReferences and semanticEntities wholesale, so editing a row marks stored gag ideas out of date. It is not a render hash.
 
 ### Reference type
 
 *What KIND of outside-context dependency this is.*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Advisory only — read by the gag writer, never by the picture prompt
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** repeater-enum
 
 **What it is**
@@ -1643,58 +1577,58 @@ Chosen by the classifier per its rules; the canonical examples map Shark Week �
 
 **How it affects the render**
 
-Planner context only — it labels the dependency in the reference block. The materiality gate and echo rules don't branch on type, though brand/workplace types usually arrive with requiresAdminReview=true (which does affect materiality).
+Not shown to the gag writer and not read by the picture — it labels the dependency for admins. The materiality gate doesn't branch on type, though brand/workplace types usually arrive with requiresAdminReview=true (which does affect materiality).
 
 **Values (8)**
 
 - `cultural_reference` — The joke leans on a shared cultural artifact or phenomenon — a TV show, event, meme, tradition — that isn't named literally.
-  - *Render:* The reference (with its visual implication) is injected into the planner's PER-FACT CULTURAL REFERENCES block; if material, the planner must bake the implication into the scene.
+  - *Render:* The gag writer is shown the reference and its visual implication under WHAT THE REFERENCES MEAN, so its ideas can use it. The type itself is not shown, and nothing reaches the picture except through the approved gag.
   - *Example:* "Sharks have a {NAME} Week" → cultural_reference, canonical "Shark Week" — sharks become the audience watching the subject as spectacle.
 - `brand_reference` — The joke depends on a real brand or company ("Victoria's Secret", "Apple") — typically also flagged requiresAdminReview.
-  - *Render:* Informs the planner's interpretation, but the canonical brand name is NEVER compiled into the engine prompt, and the planner is told to never draw a real logo or brand mark — only the brand's visual implication reaches the scene.
+  - *Render:* The gag writer is shown the brand and its visual implication. The picture prompt never receives the brand: it is drawn only from the approved gag, and every prompt excludes logos and brand marks.
   - *Example:* A "{NAME}'s secret" wordplay on Victoria's Secret → the scene gets the runway-glamour implication, no logo.
 - `workplace_context` — The joke needs knowledge of a specific workplace or company context the audience shares.
-  - *Render:* Planner context: the scene is staged inside the implied workplace world; usually requiresAdminReview (real workplace).
+  - *Render:* Gag writer context: its ideas can be staged inside the implied workplace world; usually requiresAdminReview (real workplace), which makes the reference tentative for the writer.
   - *Example:* "{NAME} doesn't prepare for demos, demos prepare for {NAME}. #Yardi" → the Yardi/SaaS-presales demo context.
 - `professional_domain_context` — The joke needs domain-professional knowledge (how presales demos, courtrooms, or trading floors work) rather than a specific employer.
-  - *Render:* Planner context: the scene borrows the domain's recognizable staging (demo screens, gavels, tickers) so the joke reads.
+  - *Render:* Gag writer context: its ideas can borrow the domain's recognizable staging (demo screens, gavels, tickers) so the joke reads.
   - *Example:* The same Yardi demo fact classified for its presales-demo domain rather than the employer per se.
 - `idiom_or_phrase` — The joke reuses a familiar phrase, idiom, or saying whose recognition is the hook.
-  - *Render:* Planner context: the visual implication usually literalizes the idiom; there may be no canonicalReference (empty is allowed).
+  - *Render:* Gag writer context: the visual implication usually literalizes the idiom; there may be no canonicalReference (empty is allowed).
   - *Example:* "{NAME}'s handshake seals deals" riffing on "seal the deal" → a literal wax seal in the scene.
 - `wordplay` — The joke's hook is a pun or double meaning in the words themselves.
-  - *Render:* Planner context: the scene typically needs BOTH meanings visible for the pun to land — the visual implication should say how.
+  - *Render:* Gag writer context: a good gag typically needs BOTH meanings visible for the pun to land — the visual implication should say how.
   - *Example:* A "{NAME} raised the bar" fact → a literal bar being physically raised in a gym.
 - `mechanism_knowledge` — The joke depends on knowing how something normally works, so the impossibility registers.
-  - *Render:* Planner context: the scene must show the mechanism being defied clearly enough that a viewer who knows it gets the joke.
+  - *Render:* Gag writer context: a good gag shows the mechanism being defied clearly enough that a viewer who knows it gets the joke.
   - *Example:* "{NAME} can set an ant on fire with a magnifying glass. At night." → magnifying glasses focus SUNlight; nighttime breaks the mechanism.
 - `inside_reference` — The joke references something only a specific in-group (a friend circle, a team, a community) will recognize.
-  - *Render:* Planner context: often low-confidence and requiresAdminReview — the AI can't verify an inside joke, so a human should confirm the implication.
+  - *Render:* Gag writer context: often low-confidence and requiresAdminReview — the AI can't verify an inside joke, so the writer is told it is tentative and a human should confirm the implication.
   - *Example:* A fact riffing on a submitter's group chat catchphrase — flagged for review because the AI is guessing at the referent.
 
 **Examples**
 
 - **Scenario:** The Yardi demo fact.
   - **Input:** referenceType: professional_domain_context
-  - **Outcome:** The planner reads the joke through the SaaS-presales-demo lens when staging the scene.
+  - **Outcome:** Recorded as a label only; the gag writer sees the reference's explanation and visual implication, not the type.
 
 **Sources**
 
 - `artifacts/api-server/src/lib/factEnrichmentConfig.ts` `FACT_ENRICHMENT_SYSTEM_DEFAULT` — The classifier system prompt — the cultural-reference and semantic-entity/capitalization rules plus their worked examples.
 - `lib/api-zod/src/taxonomy.ts` `culturalReferenceSchema` — The reference/entity schemas: field shapes, max lengths, and the research-metadata fields.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash includes culturalReferences and semanticEntities wholesale — editing any row field flips render-scenario tiles stale.
+- `artifacts/api-server/src/lib/visualConcepts/inputHash.ts` `writerAffectingEnrichment` — The gag writer's freshness projection: it includes culturalReferences and semanticEntities wholesale, so editing a row marks stored gag ideas out of date. It is not a render hash.
 
 ### Canonical reference
 
-*The reference's canonical name — planner context that NEVER reaches the engine prompt.*
+*The reference's canonical name — read by the gag writer; never part of a picture prompt.*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Advisory only — read by the gag writer, never by the picture prompt
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** reserved
 
 **What it is**
 
-The canonical name/source of the reference (e.g. "Shark Week", "Victoria's Secret"; max 300 chars). May be empty when no single canonical name exists (common for idioms). Also the echo-match fallback when sourcePhrase is empty.
+May be empty when no single canonical name exists (common for idioms). It appears in the gag writer's reference line as what the phrase refers to.
 
 **How the AI sets it**
 
@@ -1702,26 +1636,26 @@ Named by the classifier; the Research Reference tool corrects/confirms it.
 
 **How it affects the render**
 
-Planner context only — and deliberately NEVER compiled into the engine prompt: emitting it would leak brand names into the render. Only the reference's concrete visual implication travels; the planner is told never to draw a real logo or brand mark.
+Read by the gag writer ("… refers to canonicalReference …"), and deliberately never part of a picture prompt, which is built only from the approved gag. Brand names reach a picture only if the gag's scene says them, and logos and brand marks are always excluded.
 
 **Examples**
 
 - **Scenario:** Shark Week reference on a live render.
   - **Input:** canonicalReference: "Shark Week"
-  - **Outcome:** The planner knows exactly which phenomenon is meant; the engine prompt contains sharks-as-audience visuals but never the words 'Shark Week'.
+  - **Outcome:** The gag writer knows exactly which phenomenon is meant; the picture prompt contains sharks-as-audience visuals only if the approved gag's scene does.
 
 **Sources**
 
 - `lib/api-zod/src/taxonomy.ts` `culturalReferenceSchema` — The reference/entity schemas: field shapes, max lengths, and the research-metadata fields.
-- `artifacts/api-server/src/lib/imagePrompt/generator.ts` `buildImagePromptUserMessage` — Where references/entities are injected into the planner message, including the materiality gate and the never-draw-a-real-logo instruction.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash includes culturalReferences and semanticEntities wholesale — editing any row field flips render-scenario tiles stale.
+- `artifacts/api-server/src/lib/visualConcepts/generator.ts` `buildVisualConceptsUserMessage` — Where references and material entities reach anything: the WHAT THE REFERENCES MEAN block of the gag writer's message. No picture prompt reads them.
+- `artifacts/api-server/src/lib/visualConcepts/inputHash.ts` `writerAffectingEnrichment` — The gag writer's freshness projection: it includes culturalReferences and semanticEntities wholesale, so editing a row marks stored gag ideas out of date. It is not a render hash.
 
 ### Explanation
 
-*The plain-language joke mechanism the reference enables — planner context, never compiled.*
+*The plain-language joke mechanism the reference enables — read by the gag writer, never part of a picture prompt.*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Advisory only — read by the gag writer, never by the picture prompt
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** reserved
 
 **What it is**
@@ -1734,31 +1668,31 @@ Written by the classifier; directly editable per the admin workflow.
 
 **How it affects the render**
 
-Read by the planner when interpreting the fact, but never compiled into the engine prompt — an 'explaining the joke' line is meta-instruction the image engine can't use.
+Read by the gag writer (it follows the reference in the writer's message), but never part of a picture prompt — an 'explaining the joke' line is meta-instruction the image engine can't use.
 
 **Examples**
 
 - **Scenario:** The magnifying-glass fact.
   - **Input:** explanation: "Magnifying glasses need sunlight to burn; doing it at night is the impossibility."
-  - **Outcome:** The planner stages the mechanism-defiance; the sentence itself never reaches the engine.
+  - **Outcome:** The gag writer sees why the mechanism-defiance is funny; the sentence itself never reaches the picture prompt.
 
 **Sources**
 
 - `lib/api-zod/src/taxonomy.ts` `culturalReferenceSchema` — The reference/entity schemas: field shapes, max lengths, and the research-metadata fields.
-- `artifacts/api-server/src/lib/imagePrompt/generator.ts` `buildImagePromptUserMessage` — Where references/entities are injected into the planner message, including the materiality gate and the never-draw-a-real-logo instruction.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash includes culturalReferences and semanticEntities wholesale — editing any row field flips render-scenario tiles stale.
+- `artifacts/api-server/src/lib/visualConcepts/generator.ts` `buildVisualConceptsUserMessage` — Where references and material entities reach anything: the WHAT THE REFERENCES MEAN block of the gag writer's message. No picture prompt reads them.
+- `artifacts/api-server/src/lib/visualConcepts/inputHash.ts` `writerAffectingEnrichment` — The gag writer's freshness projection: it includes culturalReferences and semanticEntities wholesale, so editing a row marks stored gag ideas out of date. It is not a render hash.
 
 ### Visual implication
 
-*THE load-bearing field: how the reference should change the rendered scene — this is what actually reaches the engine.*
+*THE load-bearing field: how the reference should change the scene — shown to the gag writer after "Visually:".*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Advisory only — read by the gag writer, never by the picture prompt
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** reserved
 
 **What it is**
 
-How the reference should change the visual interpretation of the scene (max 800 chars). Write it as a CONCRETE visual ('sharks are the audience watching the subject as spectacle'), not analysis — for a material reference this text, as echoed by the planner, is what the render is guaranteed to contain.
+the gag writer reads it as the visual consequence of the reference. It reaches a picture only if the approved gag's scene carries it.
 
 **How the AI sets it**
 
@@ -1766,31 +1700,29 @@ Written by the classifier and refined by admins/research — the single most ren
 
 **How it affects the render**
 
-For material references the planner must echo it as visualImplicationUsed and bake it into keyVisualElements + the prompt. If the prose still omitted it, the compiler gap-fills it into "Ensure these elements are clearly visible: …" — so the implication reaches the engine while brand names never do.
+Shown to the gag writer after "Visually:" in its reference line. It is not put into any picture prompt and nothing gap-fills it: the render-time planner and the compiler's gap-fill were removed when pictures started being drawn straight from the gag.
 
 **Examples**
 
 - **Scenario:** Shark Week reference.
   - **Input:** visualImplication: "sharks are the audience watching the subject as spectacle"
-  - **Outcome:** Sharks-on-couches-watching-TV staging is forced into the plan and guaranteed visible in the compiled prompt.
+  - **Outcome:** The gag writer's ideas can stage sharks on couches watching TV; whether the picture shows it depends on the approved gag.
 - **Scenario:** A vague implication.
   - **Input:** visualImplication: "make it feel like the TV event"
-  - **Outcome:** Weak — nothing concrete to gap-fill. Rewrite it as a visible thing the scene must contain.
+  - **Outcome:** Weak — nothing concrete for the gag writer to stage. Rewrite it as a visible thing a gag can contain.
 
 **Sources**
 
 - `lib/api-zod/src/taxonomy.ts` `culturalReferenceSchema` — The reference/entity schemas: field shapes, max lengths, and the research-metadata fields.
-- `artifacts/api-server/src/lib/imagePrompt/generator.ts` `buildImagePromptUserMessage` — Where references/entities are injected into the planner message, including the materiality gate and the never-draw-a-real-logo instruction.
-- `lib/api-zod/src/imagePromptGeneration.ts` `validateImagePromptPlan` — Rules 14/15: material entities/references MUST be echoed back in the visual plan; a violation triggers one corrective retry.
-- `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `composeKeyElementsDirective` — The compiler-side guarantee: resolved visualImplicationUsed / visualReferentUsed values the prose omitted are folded into "Ensure these elements are clearly visible: …".
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash includes culturalReferences and semanticEntities wholesale — editing any row field flips render-scenario tiles stale.
+- `artifacts/api-server/src/lib/visualConcepts/generator.ts` `buildVisualConceptsUserMessage` — Where references and material entities reach anything: the WHAT THE REFERENCES MEAN block of the gag writer's message. No picture prompt reads them.
+- `artifacts/api-server/src/lib/visualConcepts/inputHash.ts` `writerAffectingEnrichment` — The gag writer's freshness projection: it includes culturalReferences and semanticEntities wholesale, so editing a row marks stored gag ideas out of date. It is not a render hash.
 
 ### Confidence
 
 *0–1: how confident the AI is that this reference is the joke's actual hook — half of the materiality gate.*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Advisory only — read by the gag writer, never by the picture prompt
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** reserved
 
 **What it is**
@@ -1803,26 +1735,26 @@ Emitted by the classifier per reference; admins adjust it when they know better.
 
 **How it affects the render**
 
-Materiality gate input: confidence ≥ 0.8 (with requiresAdminReview false) makes the reference material — force-echoed into the plan and guaranteed in the render. Below the bar (unless researchConfidence is high) it is planner context only.
+Materiality gate input: confidence ≥ 0.8 (with requiresAdminReview false) makes the reference material — the gag writer states it as settled. Below the bar (unless researchConfidence is high) it is listed as (tentative).
 
 **Examples**
 
 - **Scenario:** A correct reference sitting at 0.7.
   - **Input:** You raise confidence to 0.9 (review unchecked).
-  - **Outcome:** It crosses the gate: the next plan MUST echo it, and its visual implication is guaranteed in the prompt.
+  - **Outcome:** It crosses the gate: the gag writer now states it as settled instead of marking it tentative.
 
 **Sources**
 
 - `lib/api-zod/src/taxonomy.ts` `culturalReferenceSchema` — The reference/entity schemas: field shapes, max lengths, and the research-metadata fields.
-- `artifacts/api-server/src/lib/imagePrompt/generator.ts` `isMaterialCulturalReference` — A reference is material when researchConfidence === "high", OR confidence >= 0.8 and it is not flagged for admin review.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash includes culturalReferences and semanticEntities wholesale — editing any row field flips render-scenario tiles stale.
+- `artifacts/api-server/src/lib/visualConcepts/generator.ts` `isMaterialCulturalReference` — A reference is material when researchConfidence === "high", OR confidence >= 0.8 and it is not flagged for admin review; a non-material one is shown to the gag writer as "(tentative)".
+- `artifacts/api-server/src/lib/visualConcepts/inputHash.ts` `writerAffectingEnrichment` — The gag writer's freshness projection: it includes culturalReferences and semanticEntities wholesale, so editing a row marks stored gag ideas out of date. It is not a render hash.
 
 ### Requires admin review
 
-*Human sanity-check flag — while set, the reference can't be forced into renders (unless research verified it).*
+*Human sanity-check flag — while set, the gag writer is told the reference is tentative (unless research verified it).*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Advisory only — read by the gag writer, never by the picture prompt
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** reserved
 
 **What it is**
@@ -1835,33 +1767,33 @@ Classifier-set per its rules; you uncheck it once you've confirmed the reference
 
 **How it affects the render**
 
-It blocks materiality: a flagged reference is never force-echoed regardless of confidence — EXCEPT when researchConfidence is "high" (verified research overrides the flag). Unchecking it (with confidence ≥ 0.8) makes the reference material.
+It blocks materiality: a flagged reference is listed as (tentative) regardless of confidence — EXCEPT when researchConfidence is "high" (verified research overrides the flag). Unchecking it (with confidence ≥ 0.8) makes the reference material.
 
 **Examples**
 
 - **Scenario:** A Yardi workplace reference, confidence 0.85, flagged for review.
   - **Input:** You confirm it and uncheck the box.
-  - **Outcome:** The reference becomes material — future plans must honor it.
+  - **Outcome:** The reference becomes material — the gag writer states it as settled.
 
 **Sources**
 
 - `artifacts/api-server/src/lib/factEnrichmentConfig.ts` `FACT_ENRICHMENT_SYSTEM_DEFAULT` — The classifier system prompt — the cultural-reference and semantic-entity/capitalization rules plus their worked examples.
-- `artifacts/api-server/src/lib/imagePrompt/generator.ts` `isMaterialCulturalReference` — A reference is material when researchConfidence === "high", OR confidence >= 0.8 and it is not flagged for admin review.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash includes culturalReferences and semanticEntities wholesale — editing any row field flips render-scenario tiles stale.
+- `artifacts/api-server/src/lib/visualConcepts/generator.ts` `isMaterialCulturalReference` — A reference is material when researchConfidence === "high", OR confidence >= 0.8 and it is not flagged for admin review; a non-material one is shown to the gag writer as "(tentative)".
+- `artifacts/api-server/src/lib/visualConcepts/inputHash.ts` `writerAffectingEnrichment` — The gag writer's freshness projection: it includes culturalReferences and semanticEntities wholesale, so editing a row marks stored gag ideas out of date. It is not a render hash.
 
 ### Semantic Entities / Visual Referents
 
-*Capitalization-aware term disambiguations the planner must treat as the LOCKED meaning of the fact's words.*
+*Capitalization-aware term disambiguations the gag writer is told as the meaning of the fact's words.*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Advisory only — read by the gag writer, never by the picture prompt
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** section-level
 
 **What it is**
 
 The list of surface terms whose interpretation materially matters for the image — 'Earth' the planet vs 'earth' the soil being the flagship case. Casing is preserved verbatim (never normalized before interpretation; the classifier reads factTextExact), and only terms whose reading changes the image are listed — never every noun, and NEVER the fact's subject.
 
-Subject-name defense: the subject (the canonical placeholder 'Alex') is categorically not a semantic entity — the classifier is forbidden from listing it, and a deterministic strip removes it from older enrichments defensively, so it is never force-echoed or baked in. The subject's identity is owned by the personalization/rendering layer.
+Subject-name defense: the subject (the canonical placeholder 'Alex') is categorically not a semantic entity — the classifier is forbidden from listing it, and a deterministic strip removes it from older enrichments defensively, so it is never told to the gag writer as a referent. The subject's identity is owned by the personalization/rendering layer.
 
 **How the AI sets it**
 
@@ -1869,53 +1801,51 @@ The classifier applies the capitalization examples: earth/Earth (soil vs planet)
 
 **How it affects the render**
 
-Entities are injected into the planner's SEMANTIC ENTITY INTERPRETATION block, labeled "hard visual context — DO NOT override; treat as the locked meaning of the surface term in this fact".
+Entities flagged materiallyAffectsVisualPrompt are listed in the gag writer's message under WHAT THE REFERENCES MEAN as `"surfaceText" means visualReferent`, marked "(tentative)" when requiresAdminReview is set. They do not reach the picture prompt.
 
-FORCE-ECHO (validator rule 14): every entity with materiallyAffectsVisualPrompt=true MUST be echoed in visualPlan.semanticEntitiesUsed (surfaceText verbatim, non-empty visualReferentUsed + effectOnVisualPlan). A miss triggers one corrective retry.
+Nothing is forced into a picture: the render-time planner's echo-back validation and the compiler's gap-fill were removed when pictures started being drawn straight from the gag (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md).
 
-The engine never sees an "Interpret X means Y" meta line — the planner resolves the ambiguity into the concrete scene, and the compiler gap-fills any omitted visualReferentUsed into "Ensure these elements are clearly visible: …" so the resolved referent (e.g. "the planet Earth seen from orbit") is guaranteed visible.
+The engine never sees an "Interpret X means Y" meta line either: it gets only the approved gag's scene, so the resolved referent is drawn only if the gag's scene says it.
 
-Entities never change the archetype/subtype — they are render context, not taxonomy. The whole collection is in the render-input hash, so edits flip render-scenario tiles stale.
+Entities never change the archetype/subtype — they are writer context, not taxonomy. The whole collection is in the gag writer's freshness check, so edits mark stored gag ideas out of date; it is not in the render-input hash and never marks a render out of date.
 
-Pipeline: classifier detects → planner is informed → validator force-echoes material items → compiler guarantees the concrete visual reaches the engine.
+Pipeline: the classifier detects → the gag writer is told the meanings when it drafts gag ideas → a moderator approves a gag → the picture is drawn from that gag alone (no classification field reaches the picture prompt).
 
 **Examples**
 
 - **Scenario:** "{NAME} bench-presses the Earth."
   - **Input:** surfaceText "Earth", entityKind celestial_body, visualReferent "the planet Earth", materiallyAffects ✓
-  - **Outcome:** The plan must echo it; the render is guaranteed to show the planet, not a pile of soil.
+  - **Outcome:** The gag writer is told the referent is the planet, so its ideas use the planet, not a pile of soil.
 - **Scenario:** "{NAME} moved the earth with one hand."
   - **Input:** surfaceText "earth", entityKind common_noun, capitalizationSignal lowercase_common_noun, visualReferent "ground, dirt, soil, or terrain"
-  - **Outcome:** The mundane reading is locked — no planet appears.
+  - **Outcome:** The mundane reading is locked for the gag writer — its ideas use soil, not the planet.
 - **Scenario:** An old enrichment stored "Alex" as an entity.
   - **Input:** (nothing to do)
-  - **Outcome:** The defensive strip removes it before planning — the subject is never a semantic entity, so it can't be force-echoed or baked in.
+  - **Outcome:** The defensive strip removes it before the gag writer sees it — the subject is never a semantic entity.
 
 **Sources**
 
 - `artifacts/api-server/src/lib/factEnrichmentConfig.ts` `FACT_ENRICHMENT_SYSTEM_DEFAULT` — The classifier system prompt — the cultural-reference and semantic-entity/capitalization rules plus their worked examples.
 - `lib/api-zod/src/taxonomy.ts` `culturalReferenceSchema` — The reference/entity schemas: field shapes, max lengths, and the research-metadata fields.
-- `artifacts/api-server/src/lib/imagePrompt/generator.ts` `buildImagePromptUserMessage` — Where references/entities are injected into the planner message, including the materiality gate and the never-draw-a-real-logo instruction.
-- `lib/api-zod/src/imagePromptGeneration.ts` `validateImagePromptPlan` — Rules 14/15: material entities/references MUST be echoed back in the visual plan; a violation triggers one corrective retry.
-- `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `composeKeyElementsDirective` — The compiler-side guarantee: resolved visualImplicationUsed / visualReferentUsed values the prose omitted are folded into "Ensure these elements are clearly visible: …".
+- `artifacts/api-server/src/lib/visualConcepts/generator.ts` `buildVisualConceptsUserMessage` — Where references and material entities reach anything: the WHAT THE REFERENCES MEAN block of the gag writer's message. No picture prompt reads them.
 - `artifacts/api-server/src/lib/renderCanonical.ts` `stripSubjectNameSemanticEntities` — The subject-name defense: the personalized subject is never a semantic entity, even if an older enrichment stored it as one.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash includes culturalReferences and semanticEntities wholesale — editing any row field flips render-scenario tiles stale.
+- `artifacts/api-server/src/lib/visualConcepts/inputHash.ts` `writerAffectingEnrichment` — The gag writer's freshness projection: it includes culturalReferences and semanticEntities wholesale, so editing a row marks stored gag ideas out of date. It is not a render hash.
 
 ### Characters
 
-*Every person or animal the fact names besides the subject — the choices offered as a bubble's speaker.*
+*Every person or animal the fact names besides the subject — a naming hint for the cast read from a gag's scene.*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Advisory only — read by the gag writer, never by the picture prompt
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** section-level
 
 **What it is**
 
 The fact's cast, minus the subject: for "When Alex was born, he drove his mom home from the hospital" it is one character, label "mom", a person, a relation of the subject. The subject is never listed — it is always available as "Alex (the subject)".
 
-A label is exactly what a speech or thought bubble stores when this character is picked as its speaker, so it follows the bubble-speaker rules: plain text, no personalization token, never the word "subject", and unique within the list.
+The subject is never listed. A label follows the bubble-speaker rules (plain text, no personalization token, never the word "subject", and unique within the list) so it can be matched to a bubble's speaker.
 
-"Relation of the subject" decides how the speaker dropdown shows it: "Alex's mom" when ticked, "the referee" when not.
+"Relation of the subject" decides how the character is named: "Alex's mom" when ticked, "the referee" when not.
 
 **How the AI sets it**
 
@@ -1927,33 +1857,32 @@ A moderator correction replaces the whole list and survives re-enrichment, refre
 
 **How it affects the render**
 
-The planner receives the list as naming context: these are the people and animals the fact names, with their labels; if it includes any of them it must use exactly that label, and it need not include any.
+Read only by cast extraction: when a gag is saved, the AI step that reads the gag's scene for who else is in it is given these labels as naming hints (never as characters to add). The gag writer's message and the picture prompt do not receive the list.
 
-It never forces a character into a gag. Who appears is the gag's choice; a character appears because the gag's scene, its Scene Role Assignments or a bubble calls for them.
+It never forces a character into a gag. Who appears is the gag's choice; the gag's cast, read from its scene and bubbles, is what the speaker dropdown offers and what the compiler binds speakers to.
 
-In the render-input hash when non-empty, so editing the list flips that fact's render-scenario tiles stale.
+Not in the render-input hash or the gag writer's freshness check, so editing the list never marks a render or a stored gag idea out of date.
 
 **Examples**
 
 - **Scenario:** "When {NAME} was born, {SUBJ} drove {POSS} mom home from the hospital."
   - **Input:** label "mom", kind person, relation of the subject ✓
-  - **Outcome:** The bubble speaker dropdown offers "Alex (the subject)" and "Alex's mom"; a bubble from mom stores "mom".
+  - **Outcome:** Cast extraction names the character "mom" when it reads the scene, so the speaker dropdown offers "mom" from the gag's cast.
 - **Scenario:** The AI missed a character, or named one awkwardly.
   - **Input:** Add or rename the row (e.g. "mother" → "mom")
-  - **Outcome:** Saved as a correction that re-enrichment keeps. Bubbles already saved with the old label keep it and show as not in the list.
+  - **Outcome:** Saved as a correction that re-enrichment keeps. Cast extraction uses the corrected label as its naming hint the next time a gag is saved.
 
 **Sources**
 
 - `lib/api-zod/src/taxonomy.ts` `culturalReferenceSchema` — The reference/entity schemas: field shapes, max lengths, and the research-metadata fields.
-- `artifacts/api-server/src/lib/imagePrompt/generator.ts` `buildImagePromptUserMessage` — Where references/entities are injected into the planner message, including the materiality gate and the never-draw-a-real-logo instruction.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash includes culturalReferences and semanticEntities wholesale — editing any row field flips render-scenario tiles stale.
+- `artifacts/api-server/src/lib/gags/castExtraction.ts` `buildCastUserMessage` — Where the fact's character labels are used: as naming hints for the cast read from a gag's scene.
 
 ### Surface text (verbatim case)
 
-*The term exactly as it appears in the fact — casing preserved; also the echo-match key.*
+*The term exactly as it appears in the fact — casing preserved.*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Advisory only — read by the gag writer, never by the picture prompt
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** reserved
 
 **What it is**
@@ -1966,27 +1895,26 @@ Quoted by the classifier from factTextExact.
 
 **How it affects the render**
 
-For material entities, the plan's semanticEntitiesUsed must contain this surfaceText (case-insensitive match) or the corrective retry fires. Entities whose surfaceText is a raw template token (e.g. literally "{NAME}") are filtered from the required echo list — the planner sees the rendered fact and can't echo a token.
+Shown to the gag writer as the quoted term at the start of the entity's line (`"surfaceText" means …`), only for entities flagged materiallyAffectsVisualPrompt. Entities whose surfaceText is a raw template token (e.g. literally "{NAME}") are dropped by the subject-name strip before the writer sees them.
 
 **Examples**
 
 - **Scenario:** The Earth bench-press fact.
   - **Input:** surfaceText: "Earth"
-  - **Outcome:** The echo entry must carry "Earth"; the preserved capital is what justified the celestial reading.
+  - **Outcome:** The gag writer's line starts with "Earth"; the preserved capital is what justified the celestial reading.
 
 **Sources**
 
 - `artifacts/api-server/src/lib/factEnrichmentConfig.ts` `FACT_ENRICHMENT_SYSTEM_DEFAULT` — The classifier system prompt — the cultural-reference and semantic-entity/capitalization rules plus their worked examples.
 - `lib/api-zod/src/taxonomy.ts` `culturalReferenceSchema` — The reference/entity schemas: field shapes, max lengths, and the research-metadata fields.
-- `lib/api-zod/src/imagePromptGeneration.ts` `validateImagePromptPlan` — Rules 14/15: material entities/references MUST be echoed back in the visual plan; a violation triggers one corrective retry.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash includes culturalReferences and semanticEntities wholesale — editing any row field flips render-scenario tiles stale.
+- `artifacts/api-server/src/lib/visualConcepts/inputHash.ts` `writerAffectingEnrichment` — The gag writer's freshness projection: it includes culturalReferences and semanticEntities wholesale, so editing a row marks stored gag ideas out of date. It is not a render hash.
 
 ### Normalized text
 
 *The lowercase comparable form of the surface text.*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Advisory only — read by the gag writer, never by the picture prompt
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** reserved
 
 **What it is**
@@ -1999,7 +1927,7 @@ Emitted by the classifier alongside the surface text.
 
 **How it affects the render**
 
-Bookkeeping only — the planner block and the echo-match key both use surfaceText; this field exists as the case-insensitive comparable form.
+Bookkeeping only — the gag writer's message uses surfaceText; this field exists as the case-insensitive comparable form.
 
 **Examples**
 
@@ -2010,14 +1938,14 @@ Bookkeeping only — the planner block and the echo-match key both use surfaceTe
 **Sources**
 
 - `lib/api-zod/src/taxonomy.ts` `culturalReferenceSchema` — The reference/entity schemas: field shapes, max lengths, and the research-metadata fields.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash includes culturalReferences and semanticEntities wholesale — editing any row field flips render-scenario tiles stale.
+- `artifacts/api-server/src/lib/visualConcepts/inputHash.ts` `writerAffectingEnrichment` — The gag writer's freshness projection: it includes culturalReferences and semanticEntities wholesale, so editing a row marks stored gag ideas out of date. It is not a render hash.
 
 ### Entity kind
 
 *WHAT the term refers to in this fact — planet, brand, personified concept, plain object…*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Advisory only — read by the gag writer, never by the picture prompt
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** repeater-enum
 
 **What it is**
@@ -2030,42 +1958,42 @@ Chosen by the classifier per its capitalization/context rules; 'ambiguous' pairs
 
 **How it affects the render**
 
-Shown in the planner's locked-interpretation block; the concrete steering comes from visualReferent, with the kind labeling why the reading holds.
+Recorded only: not shown to the gag writer. The concrete steering comes from visualReferent; the kind labels why the reading holds.
 
 **Values (11)**
 
 - `proper_noun` *(authored — verify)* — A capitalized proper noun naming a specific thing that isn't better covered by a more specific kind.
-  - *Render:* The visual referent pins WHICH specific thing the scene shows, treated by the planner as the locked meaning of the term.
+  - *Render:* The visual referent pins WHICH specific thing is meant; the gag writer is told it as the meaning of the term (when the entity materially affects the picture).
   - *Example:* "Everest" in a climbing fact → the specific mountain, not a generic peak.
 - `common_noun` — A lowercase common noun whose everyday meaning is the right reading — recorded when it could be confused with a capitalized referent.
-  - *Render:* Locks the mundane interpretation so the planner doesn't upgrade it to the named entity.
+  - *Render:* Locks the mundane interpretation so the gag writer doesn't upgrade it to the named entity.
   - *Example:* "earth" → dirt, soil, ground, or terrain — NOT the planet.
 - `named_entity` *(authored — verify)* — A specific named person, character, work, or event (other than the fact's subject — the subject is never listed).
-  - *Render:* The planner renders the specific entity's recognizable characteristics per the visual referent.
+  - *Render:* The gag writer is told the specific entity via the visual referent, so its ideas can use its recognizable characteristics.
   - *Example:* "Godzilla" in a size fact → the famous kaiju silhouette, per its visualReferent.
 - `brand_or_cultural_reference` — The term is a brand or cultural reference ('Apple' the company, not the fruit) — usually paired with a culturalReferences entry.
-  - *Render:* Locks the brand/cultural reading for the planner; as always, no real logo or brand mark is ever drawn — only the visual implication.
+  - *Render:* Locks the brand/cultural reading for the gag writer; as always, no real logo or brand mark is ever drawn.
   - *Example:* "Apple" capitalized mid-sentence → the technology company, rendered as sleek-device context, never the logo.
 - `abstract_concept` *(authored — verify)* — An abstraction (infinity, probability, time) that has no direct physical form.
-  - *Render:* The visual referent must translate the abstraction into something showable; expect symbolic staging.
+  - *Render:* The visual referent translates the abstraction into something showable for the gag writer; expect symbolic gag ideas.
   - *Example:* "infinity" in a counting fact → an endless receding number-scape as the referent.
 - `personified_concept` — A concept treated as a character in this fact — capitalization often signals it ('Law', 'Death', 'Gravity').
-  - *Render:* The planner renders the concept as a figure per the visual referent, rather than as its abstract meaning.
+  - *Render:* The gag writer is told the concept is a figure per the visual referent, rather than its abstract meaning.
   - *Example:* "Law" capitalized as an actor in the sentence → a personified authority figure, per the classifier's Law/law example.
 - `physical_object` *(authored — verify)* — A concrete object whose specific reading matters to the joke (which kind of 'bar', which 'mouse').
-  - *Render:* Pins the object's interpretation so the scene shows the right thing.
+  - *Render:* Pins the object's interpretation so the gag writer's ideas show the right thing.
   - *Example:* "mouse" in a tech fact → the computer peripheral, not the animal.
 - `place` *(authored — verify)* — A location whose identity matters — a named place or a specific kind of setting.
-  - *Render:* The scene is staged in the pinned location per the visual referent.
+  - *Render:* The gag writer is told the pinned location via the visual referent.
   - *Example:* "Paris" → the city with recognizable landmarks, not the mythological figure.
 - `celestial_body` — A named astronomical object — the classifier's flagship capitalization case.
-  - *Render:* Locks the astronomical reading; the resolved referent (e.g. 'the planet Earth seen from orbit') is guaranteed to reach the engine prompt.
+  - *Render:* Locks the astronomical reading for the gag writer (e.g. 'the planet Earth seen from orbit').
   - *Example:* "Earth" → the planet Earth; "Sun" → the named celestial body (or a personified entity, depending on context).
 - `institution_or_system` — An institution or a system of rules ('the Law' as the legal system, 'the Church', 'the Market').
-  - *Render:* The planner stages the institution's recognizable trappings (courtrooms, trading floors) per the visual referent.
+  - *Render:* The gag writer is told the institution's identity via the visual referent, so its ideas can use the recognizable trappings (courtrooms, trading floors).
   - *Example:* "law" lowercase → legal rules generally; "Law" may indicate a title or an institution, per the classifier examples.
 - `ambiguous` — The AI could not confidently resolve the referent — the interpretation is a guess that a human should settle.
-  - *Render:* The classifier sets requiresAdminReview for ambiguous kinds; the tentative referent still informs the planner until you correct it.
+  - *Render:* The classifier sets requiresAdminReview for ambiguous kinds; the gag writer is shown the referent marked (tentative) until you correct it.
   - *Example:* A sentence-initial capitalized term with two plausible readings — the AI picks one and flags the row for review.
 
 **Examples**
@@ -2078,14 +2006,14 @@ Shown in the planner's locked-interpretation block; the concrete steering comes 
 
 - `artifacts/api-server/src/lib/factEnrichmentConfig.ts` `FACT_ENRICHMENT_SYSTEM_DEFAULT` — The classifier system prompt — the cultural-reference and semantic-entity/capitalization rules plus their worked examples.
 - `lib/api-zod/src/taxonomy.ts` `culturalReferenceSchema` — The reference/entity schemas: field shapes, max lengths, and the research-metadata fields.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash includes culturalReferences and semanticEntities wholesale — editing any row field flips render-scenario tiles stale.
+- `artifacts/api-server/src/lib/visualConcepts/inputHash.ts` `writerAffectingEnrichment` — The gag writer's freshness projection: it includes culturalReferences and semanticEntities wholesale, so editing a row marks stored gag ideas out of date. It is not a render hash.
 
 ### Capitalization signal
 
 *What the term's casing contributed to this interpretation — sentence-initial ambiguity is the classic review trigger.*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Advisory only — read by the gag writer, never by the picture prompt
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** repeater-enum
 
 **What it is**
@@ -2098,27 +2026,27 @@ The classifier uses capitalization as a strong signal but never alone; when a wo
 
 **How it affects the render**
 
-Documents the reasoning shown to the planner; the scene itself follows visualReferent. Its main operational effect is flagging the sentence-initial case for your review.
+Recorded only: not shown to the gag writer; the meaning follows visualReferent. Its main operational effect is flagging the sentence-initial case for your review.
 
 **Values (6)**
 
 - `capitalized_named_entity` — The term is capitalized mid-sentence, signaling a named entity ('Earth', 'Apple', 'Shark Week').
-  - *Render:* Supports the named-entity reading of the visual referent — capitalization is a strong signal, but never the sole basis.
+  - *Render:* Recorded only (not shown to the gag writer): it supports the named-entity reading of the visual referent — capitalization is a strong signal, never the sole basis.
   - *Example:* "…lifted Earth…" → capitalized mid-sentence → the planet.
 - `lowercase_common_noun` — The term is lowercase, signaling the everyday common-noun reading.
-  - *Render:* Supports the mundane referent (soil, fruit, sunlight) over the named entity.
+  - *Render:* Recorded only (not shown to the gag writer): it supports the mundane referent (soil, fruit, sunlight) over the named entity.
   - *Example:* "…moved the earth beneath them…" → lowercase → soil/ground.
 - `sentence_initial_ambiguous` — The term is capitalized only because it starts the sentence — casing carries NO signal, so the referent was inferred from context alone.
-  - *Render:* The classifier's rule: set this signal, set requiresAdminReview to true, and infer the referent from context. Your review decides whether the inference was right.
+  - *Render:* The classifier's rule: set this signal, set requiresAdminReview to true (so the gag writer sees the referent as tentative), and infer the referent from context. Your review decides whether the inference was right.
   - *Example:* "Earth trembled when {NAME} stepped." → sentence-initial: planet or ground? Flagged for a human call.
 - `all_caps_presentation_ignored` *(authored — verify)* — The term appears in ALL CAPS for emphasis/styling — the shouting is presentation, not a semantic signal, and was ignored.
-  - *Render:* The referent was resolved as if the term were normally cased; the caps carry no interpretation weight.
+  - *Render:* The referent was resolved as if the term were normally cased; the caps carry no interpretation weight. Recorded only.
   - *Example:* "{NAME} BENCH-PRESSED THE EARTH" → styling caps ignored; context decides planet vs ground.
 - `mixed_case_brand_or_title` *(authored — verify)* — The term's distinctive mixed casing marks a brand or title (iPhone, YouTube, eBay).
-  - *Render:* Supports the brand/title reading of the referent — with the usual no-logo rule downstream.
+  - *Render:* Recorded only (not shown to the gag writer): it supports the brand/title reading of the referent; no real logo is ever drawn.
   - *Example:* "iPhone" → the branded device category, casing itself being the tell.
 - `not_relevant` *(authored — verify)* — Capitalization played no role in this interpretation — the entry exists for a non-casing reason (pure ambiguity, cultural reference).
-  - *Render:* The visual referent stands on context alone; the casing axis is simply not part of the reasoning.
+  - *Render:* The visual referent stands on context alone; the casing axis is simply not part of the reasoning. Recorded only.
   - *Example:* An entity recorded because its wordplay reading matters, where either casing would read the same.
 
 **Examples**
@@ -2131,14 +2059,14 @@ Documents the reasoning shown to the planner; the scene itself follows visualRef
 
 - `artifacts/api-server/src/lib/factEnrichmentConfig.ts` `FACT_ENRICHMENT_SYSTEM_DEFAULT` — The classifier system prompt — the cultural-reference and semantic-entity/capitalization rules plus their worked examples.
 - `lib/api-zod/src/taxonomy.ts` `culturalReferenceSchema` — The reference/entity schemas: field shapes, max lengths, and the research-metadata fields.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash includes culturalReferences and semanticEntities wholesale — editing any row field flips render-scenario tiles stale.
+- `artifacts/api-server/src/lib/visualConcepts/inputHash.ts` `writerAffectingEnrichment` — The gag writer's freshness projection: it includes culturalReferences and semanticEntities wholesale, so editing a row marks stored gag ideas out of date. It is not a render hash.
 
 ### Visual referent
 
-*The concrete interpretation that actually steers the scene — for material entities, guaranteed to reach the engine.*
+*The concrete interpretation — the part of an entity the gag writer is actually told (after "means"), for entities flagged as materially affecting the picture.*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Advisory only — read by the gag writer, never by the picture prompt
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** reserved
 
 **What it is**
@@ -2151,27 +2079,26 @@ Resolved by the classifier from casing + context; the most render-worthy edit in
 
 **How it affects the render**
 
-The planner treats it as the locked meaning and stages the scene accordingly, echoing the resolved form as visualReferentUsed. The compiler gap-fills any omitted referent into "Ensure these elements are clearly visible: …" — the referent reaches the engine as a concrete element, never as an "interpret X as Y" meta line.
+Shown to the gag writer as `"surfaceText" means visualReferent` for entities flagged materiallyAffectsVisualPrompt, so its ideas use the resolved meaning. It is not put into any picture prompt and nothing gap-fills it: the render-time planner and the compiler's gap-fill were removed when pictures started being drawn straight from the gag.
 
 **Examples**
 
 - **Scenario:** The Earth bench-press fact.
   - **Input:** visualReferent: "the planet Earth"
-  - **Outcome:** If the prose somehow omitted the planet, the compiled prompt still gains "Ensure these elements are clearly visible: the planet Earth…".
+  - **Outcome:** The gag writer is told "Earth" means the planet, so its ideas show the planet; the picture shows it only if the approved gag's scene does.
 
 **Sources**
 
 - `lib/api-zod/src/taxonomy.ts` `culturalReferenceSchema` — The reference/entity schemas: field shapes, max lengths, and the research-metadata fields.
-- `artifacts/api-server/src/lib/imagePrompt/generator.ts` `buildImagePromptUserMessage` — Where references/entities are injected into the planner message, including the materiality gate and the never-draw-a-real-logo instruction.
-- `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `composeKeyElementsDirective` — The compiler-side guarantee: resolved visualImplicationUsed / visualReferentUsed values the prose omitted are folded into "Ensure these elements are clearly visible: …".
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash includes culturalReferences and semanticEntities wholesale — editing any row field flips render-scenario tiles stale.
+- `artifacts/api-server/src/lib/visualConcepts/generator.ts` `buildVisualConceptsUserMessage` — Where references and material entities reach anything: the WHAT THE REFERENCES MEAN block of the gag writer's message. No picture prompt reads them.
+- `artifacts/api-server/src/lib/visualConcepts/inputHash.ts` `writerAffectingEnrichment` — The gag writer's freshness projection: it includes culturalReferences and semanticEntities wholesale, so editing a row marks stored gag ideas out of date. It is not a render hash.
 
 ### Notes
 
-*The AI's reasoning for this interpretation — planner-visible context.*
+*The AI's reasoning for this interpretation — context for admins; not shown to the gag writer.*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Advisory only — read by the gag writer, never by the picture prompt
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** reserved
 
 **What it is**
@@ -2180,30 +2107,30 @@ Free-text reasoning behind the interpretation (max 800 chars; empty when there's
 
 **How the AI sets it**
 
-Written by the classifier; editable when you want to leave interpretation context for the planner and other admins.
+Written by the classifier; editable when you want to leave interpretation context for other admins.
 
 **How it affects the render**
 
-Included in the planner's entity block when non-empty (as context), but never compiled into the engine prompt.
+Recorded only: not shown to the gag writer and never part of a picture prompt.
 
 **Examples**
 
 - **Scenario:** A sentence-initial 'Sun'.
   - **Input:** notes: "Sentence-initial; context (orbits, gravity) supports the celestial reading."
-  - **Outcome:** You (and the planner) see why the celestial referent was chosen.
+  - **Outcome:** You see why the celestial referent was chosen.
 
 **Sources**
 
 - `lib/api-zod/src/taxonomy.ts` `culturalReferenceSchema` — The reference/entity schemas: field shapes, max lengths, and the research-metadata fields.
-- `artifacts/api-server/src/lib/imagePrompt/generator.ts` `buildImagePromptUserMessage` — Where references/entities are injected into the planner message, including the materiality gate and the never-draw-a-real-logo instruction.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash includes culturalReferences and semanticEntities wholesale — editing any row field flips render-scenario tiles stale.
+- `artifacts/api-server/src/lib/visualConcepts/generator.ts` `buildVisualConceptsUserMessage` — Where references and material entities reach anything: the WHAT THE REFERENCES MEAN block of the gag writer's message. No picture prompt reads them.
+- `artifacts/api-server/src/lib/visualConcepts/inputHash.ts` `writerAffectingEnrichment` — The gag writer's freshness projection: it includes culturalReferences and semanticEntities wholesale, so editing a row marks stored gag ideas out of date. It is not a render hash.
 
 ### Materially affects visual prompt
 
-*The entity's materiality switch — checked entities are FORCED into the plan (validator rule 14).*
+*The entity's materiality switch — only checked entities are told to the gag writer.*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Advisory only — read by the gag writer, never by the picture prompt
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** reserved
 
 **What it is**
@@ -2212,31 +2139,29 @@ True when changing this interpretation would materially change the rendered imag
 
 **How the AI sets it**
 
-Set by the classifier per its 'materially changes the rendered image' rule; toggle it to control enforcement.
+Set by the classifier per its 'materially changes the rendered image' rule; toggle it to control whether the gag writer is told the entity.
 
 **How it affects the render**
 
-Checked: the plan MUST echo the entity in semanticEntitiesUsed with a concrete visualReferentUsed + effectOnVisualPlan (one corrective retry on a miss), and the referent is guaranteed to reach the engine via the gap-fill. Unchecked: the entity remains locked planner context but is never forced.
+Checked: the entity is listed in the gag writer's WHAT THE REFERENCES MEAN block (`"surfaceText" means visualReferent`). Unchecked: the writer is not told about it. Nothing is forced into a picture: the echo validation and gap-fill were removed when pictures started being drawn straight from the gag.
 
 **Examples**
 
 - **Scenario:** The planet reading is essential to the joke.
   - **Input:** materiallyAffectsVisualPrompt: true
-  - **Outcome:** Every future plan must account for the planet Earth or fail validation and retry.
+  - **Outcome:** The gag writer is told what "Earth" means; an unchecked entity would not be mentioned to it at all.
 
 **Sources**
 
 - `lib/api-zod/src/taxonomy.ts` `culturalReferenceSchema` — The reference/entity schemas: field shapes, max lengths, and the research-metadata fields.
-- `lib/api-zod/src/imagePromptGeneration.ts` `validateImagePromptPlan` — Rules 14/15: material entities/references MUST be echoed back in the visual plan; a violation triggers one corrective retry.
-- `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `composeKeyElementsDirective` — The compiler-side guarantee: resolved visualImplicationUsed / visualReferentUsed values the prose omitted are folded into "Ensure these elements are clearly visible: …".
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash includes culturalReferences and semanticEntities wholesale — editing any row field flips render-scenario tiles stale.
+- `artifacts/api-server/src/lib/visualConcepts/inputHash.ts` `writerAffectingEnrichment` — The gag writer's freshness projection: it includes culturalReferences and semanticEntities wholesale, so editing a row marks stored gag ideas out of date. It is not a render hash.
 
 ### Requires admin review
 
 *Human sanity-check flag for this interpretation — auto-set for sentence-initial ambiguity and brand/ambiguous kinds.*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Advisory only — read by the gag writer, never by the picture prompt
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** reserved
 
 **What it is**
@@ -2249,26 +2174,26 @@ Classifier-set per its rules (sentence-initial capitalization always sets it); u
 
 **How it affects the render**
 
-Unlike the cultural-reference flag, it does NOT gate materiality — a flagged entity with materiallyAffectsVisualPrompt=true is still force-echoed. It is a review signal for you, carried into the planner block as context.
+Unlike the cultural-reference flag, it does NOT decide whether the entity is listed: a flagged entity with materiallyAffectsVisualPrompt=true is still told to the gag writer, marked "(tentative)".
 
 **Examples**
 
 - **Scenario:** Sentence-initial 'Earth' resolved to the planet.
   - **Input:** requiresAdminReview: true (auto)
-  - **Outcome:** You confirm or correct the referent; the enforcement behavior is unchanged either way.
+  - **Outcome:** You confirm or correct the referent; the gag writer stops seeing it as tentative once the flag is cleared.
 
 **Sources**
 
 - `artifacts/api-server/src/lib/factEnrichmentConfig.ts` `FACT_ENRICHMENT_SYSTEM_DEFAULT` — The classifier system prompt — the cultural-reference and semantic-entity/capitalization rules plus their worked examples.
 - `lib/api-zod/src/taxonomy.ts` `culturalReferenceSchema` — The reference/entity schemas: field shapes, max lengths, and the research-metadata fields.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash includes culturalReferences and semanticEntities wholesale — editing any row field flips render-scenario tiles stale.
+- `artifacts/api-server/src/lib/visualConcepts/inputHash.ts` `writerAffectingEnrichment` — The gag writer's freshness projection: it includes culturalReferences and semanticEntities wholesale, so editing a row marks stored gag ideas out of date. It is not a render hash.
 
 ### Confidence
 
 *0–1: the AI's confidence in this interpretation — informational for entities (no threshold gates on it).*
 
-- **Effect:** Render-affecting — feeds the prompt pipeline
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Effect:** Advisory only — read by the gag writer, never by the picture prompt
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** reserved
 
 **What it is**
@@ -2281,16 +2206,16 @@ Emitted by the classifier per entry.
 
 **How it affects the render**
 
-Shown to the planner in the entity block and to you in the row; use a low value as your cue to review, but it does not change enforcement.
+Recorded only: not shown to the gag writer. Use a low value as your cue to review; it changes nothing downstream.
 
 **Examples**
 
 - **Scenario:** A coin-flip interpretation.
   - **Input:** confidence: 0.55
-  - **Outcome:** Your cue to settle the reading yourself — the pipeline treats the entity the same either way.
+  - **Outcome:** Your cue to settle the reading yourself — nothing downstream treats the entity differently either way.
 
 **Sources**
 
 - `lib/api-zod/src/taxonomy.ts` `culturalReferenceSchema` — The reference/entity schemas: field shapes, max lengths, and the research-metadata fields.
-- `artifacts/api-server/src/lib/imagePrompt/generator.ts` `buildImagePromptUserMessage` — Where references/entities are injected into the planner message, including the materiality gate and the never-draw-a-real-logo instruction.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash includes culturalReferences and semanticEntities wholesale — editing any row field flips render-scenario tiles stale.
+- `artifacts/api-server/src/lib/visualConcepts/generator.ts` `buildVisualConceptsUserMessage` — Where references and material entities reach anything: the WHAT THE REFERENCES MEAN block of the gag writer's message. No picture prompt reads them.
+- `artifacts/api-server/src/lib/visualConcepts/inputHash.ts` `writerAffectingEnrichment` — The gag writer's freshness projection: it includes culturalReferences and semanticEntities wholesale, so editing a row marks stored gag ideas out of date. It is not a render hash.
