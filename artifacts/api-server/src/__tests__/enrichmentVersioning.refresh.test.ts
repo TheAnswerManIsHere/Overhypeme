@@ -48,7 +48,7 @@ import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import gagsRouter from "../routes/gags.js";
 import { bustConfigCache } from "../lib/adminConfig.js";
 
-import reviewsRouter, { __setPlanGeneratorForTest } from "../routes/reviews.js";
+import reviewsRouter from "../routes/reviews.js";
 import adminRouter from "../routes/admin.js";
 import adminImagePromptRouter from "../routes/adminImagePrompt.js";
 import { materializeEnrichment } from "../lib/factEnrichment.js";
@@ -124,85 +124,6 @@ const MANUAL_OVERRIDES = {
 
 const AI_MEME_SENTINEL = { male: ["/objects/m1.png"], female: [], neutral: [] };
 
-
-// Minimal valid plan output for the render preflight / preview compiler.
-function makePlanOutput(rating: "strong" | "poor" = "strong") {
-  return {
-    visualPlan: {
-      sceneConcept: "Alex Jordan performing a superhuman feat",
-      visualGoal: "Make the feat legible",
-      visualApproach: "Cinematic close-up",
-      archetypeApplication: {
-        primaryArchetype: "superhuman_physical_feat",
-        subtype: "force_scaled_action",
-        selectedFrame: "direct_action",
-        strategyRationale: "Authored strategy applies.",
-      },
-      coreScene: "Alex Jordan performs a superhuman feat in the foreground as onlookers react.",
-      subjectDetails: ["confident focused expression", "mid-exertion heroic pose"],
-      environment: ["dramatic stage lighting", "blurred background crowd"],
-      lightingAndStyle: "high-contrast cinematic key light",
-      keyVisualElements: ["central foreground", "dramatic lighting", "exertion pose"],
-      subjectTreatment: {
-        roleInScene: "Legendary protagonist",
-        subjectRenderMode: "human_identity_i2i",
-        identityPreservation: "human_face",
-        nonhumanSubjectTreatment: {
-          applicable: false,
-          subjectKind: "not_applicable",
-          preserveTraits: [],
-          anthropomorphicTreatment: "none",
-          doNotTransformIntoHuman: false,
-        },
-        fallbackSubjectGender: "not_applicable",
-        expressionAndPose: "Confident, focused",
-        ageLifeStageTransform: { applies: false, targetState: "" },
-      },
-      subjectFactCompatibility: {
-        rating,
-        reason: rating === "poor" ? "The fact cannot be staged on a human subject." : "Stages well.",
-        recommendedFallback: rating === "poor" ? "choose_different_fact" : "none",
-      },
-      composition: {
-        subjectFraming: "Medium close-up",
-        negativeSpace: "top",
-        cameraStyle: "Cinematic 35mm",
-        sceneReadability: "Subject is the readable element",
-      },
-      supportingTextPolicy: {
-        allowSupportingText: false,
-        supportingTextElements: [],
-        forbiddenTextTypes: [
-          "full meme captions",
-          "full fact text",
-          "hashtags",
-          "watermarks",
-          "real logos",
-          "brand marks",
-          "long explanatory paragraphs",
-        ],
-      },
-      secondaryCharacters: [],
-      semanticEntitiesUsed: [],
-      culturalReferencesUsed: [],
-      styleIntegration: "Apply cinematic style",
-      contentNotes: "SFW",
-      debugNotes: "Strategy v2",
-      targetEngine: "nano_banana_2" as const,
-      generationMode: "i2i" as const,
-    },
-    compiledPrompt: {
-      prompt: "Alex Jordan lifts a mountain over their head with one arm.",
-      negativePrompt: "",
-      engineNotes: "",
-    },
-    promptVersion: "test-prompt-v1",
-    archetypeStrategyVersion: "test-strategy-v1",
-    generatedAt: new Date("2026-01-01T00:00:00.000Z").toISOString(),
-    generatedBy: "openai" as const,
-  };
-}
-
 // ── Harness ──────────────────────────────────────────────────────────────────
 
 function makeApp(): Express {
@@ -246,12 +167,12 @@ const insertedFactIds: number[] = [];
 // A saved Visual Concept on the LIVE fact — required to save through the
 // tracked-override endpoints (PUT/DELETE /admin/facts/:id/enrichment-overrides),
 // which several tests below exercise after a write-freeze lifts.
-const LIVE_FACT_SAVED_CONCEPT = {
+const LIVE_FACT_SAVED_CONCEPT = withCast({
   version: 1 as const,
   coreSceneOverride: "{NAME} bench-presses the Earth overhead in a stadium.",
   requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
   bubbles: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
-};
+});
 
 async function seedActiveFact(opts: { text?: string } = {}): Promise<typeof factsTable.$inferSelect> {
   const { columns } = materializeEnrichment({
@@ -351,7 +272,6 @@ after(async () => {
   );
 });
 
-afterEach(() => __setPlanGeneratorForTest(null));
 
 // ── sendFactBackToReview ─────────────────────────────────────────────────────
 
@@ -625,10 +545,9 @@ describe("candidate isolation across readers", () => {
     assert.ok(candidateVersionId);
   });
 
-  it("RuntimePromptPreview: factId path reads ACTIVE; with reviewIdForRender it reads the CANDIDATE", async () => {
+  it("RuntimePromptPreview: both the fact path and the review path (reviewIdForRender) compile the fact's gag; a mismatched review is refused", async () => {
     const fact = await seedActiveFact();
     const { reviewId } = await seedReadyRefreshCycle(fact);
-    __setPlanGeneratorForTest(async () => makePlanOutput("strong") as never);
 
     const previewBody = {
       subjectRenderMode: "human_identity_i2i",
@@ -641,7 +560,10 @@ describe("candidate isolation across readers", () => {
       .set("authorization", `Bearer ${adminSid}`)
       .send({ factId: fact.id, ...previewBody });
     assert.equal(activeRes.status, 200, JSON.stringify(activeRes.body));
-    assert.deepEqual(activeRes.body.debug.culturalReferencesProvided, []);
+    // The classification reaches no prompt since the planner was removed
+    // (PLAN_GAG_DIRECT_RENDER.md, D), so neither path echoes it any more.
+    assert.equal(activeRes.body.debug, undefined);
+    assert.match(String(activeRes.body.compiledPrompt.imagePrompt), /bench-presses the Earth overhead in a stadium/);
 
     // Moderation-modal preview (review context) → the CANDIDATE.
     const candidateRes = await request(makeApp())
@@ -649,7 +571,7 @@ describe("candidate isolation across readers", () => {
       .set("authorization", `Bearer ${adminSid}`)
       .send({ factId: fact.id, reviewIdForRender: reviewId, ...previewBody });
     assert.equal(candidateRes.status, 200, JSON.stringify(candidateRes.body));
-    assert.equal(candidateRes.body.debug.culturalReferencesProvided?.[0]?.sourcePhrase, "Shark Week");
+    assert.match(String(candidateRes.body.compiledPrompt.imagePrompt), /bench-presses the Earth overhead in a stadium/);
 
     // A stale client mixing a review with someone else's fact is refused.
     const mismatch = await request(makeApp())
@@ -715,7 +637,6 @@ describe("refresh approve → promote", () => {
       .where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
     await authorConceptForCycle(reviewId, candidateVersionId);
 
-    __setPlanGeneratorForTest(async () => makePlanOutput("strong") as never);
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/approve-for-production`)
       .set("authorization", `Bearer ${adminSid}`)
@@ -787,7 +708,6 @@ describe("refresh approve → promote", () => {
     await assert.rejects(db.update(factsTable).set({ text: "{NAME} bench-presses the Moon." }).where(eq(factsTable.id, fact.id)), "the database refuses the edit itself");
     await db.update(factEnrichmentVersionsTable).set({ factTextHash: "stale-hash" }).where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
 
-    __setPlanGeneratorForTest(async () => makePlanOutput("strong") as never);
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/approve-for-production`)
       .set("authorization", `Bearer ${adminSid}`)
@@ -960,7 +880,6 @@ describe("processing signature stamping (PR3)", () => {
     // (Author the required Visual Concept AFTER the signature assertions above, so those
     // read the classify-time stamp; the concept save doesn't re-stamp the engine revision.)
     await authorConceptForCycle(reviewId, candidateVersionId);
-    __setPlanGeneratorForTest(async () => makePlanOutput("strong") as never);
     const approve = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/approve-for-production`)
       .set("authorization", `Bearer ${adminSid}`)

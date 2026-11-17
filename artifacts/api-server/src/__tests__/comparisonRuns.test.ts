@@ -28,7 +28,7 @@ import { and, eq, inArray, like } from "drizzle-orm";
 
 import adminComparisonRouter from "../routes/adminComparison.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
-import { VALID_ENRICHMENT } from "./helpers/stubPlanner.js";
+import { VALID_ENRICHMENT } from "./helpers/validEnrichment.js";
 import { withCast } from "./helpers/gagCast.js";
 import { ALL_ENGINES } from "../lib/engines/index.js";
 import { __setReferenceFalUploadForTest } from "../lib/defaultReferenceResolver.js";

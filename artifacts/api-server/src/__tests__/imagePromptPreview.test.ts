@@ -3,15 +3,15 @@
  * Compiled Prompt Preview).
  *
  * Mounts adminImagePromptRouter behind buildTestApp() stub auth so requireAdmin
- * runs end-to-end. The route statically imports the live (OpenAI-backed)
- * generateImagePromptPlan; we stub it via __setPlanGeneratorForTest so NO test
- * hits OpenAI. The real Nano Banana compiler still runs on the stubbed plan.
+ * runs end-to-end. Since the render planner was removed (plan
+ * docs/plans/PLAN_GAG_DIRECT_RENDER.md, D) the preview makes no model call: it
+ * compiles the fact's gag directly, exactly as a render would.
  *
  * Touches the real test DB. Seeds facts under id range / userIds under the
  * `t-ipp-` prefix; cleanup deletes only those rows.
  */
 
-import { describe, it, before, after, afterEach } from "node:test";
+import { describe, it, before, after } from "node:test";
 import { baselineRecipeFor } from "../lib/imagePrompt/recipe.js";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -23,8 +23,9 @@ import { usersTable, factsTable, lookStylesTable } from "@workspace/db/schema";
 import type { FactEnrichment } from "@workspace/api-zod";
 import { eq, inArray, like } from "drizzle-orm";
 
-import adminImagePromptRouter, { __setPlanGeneratorForTest } from "../routes/adminImagePrompt.js";
+import adminImagePromptRouter from "../routes/adminImagePrompt.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
+import { withCast } from "./helpers/gagCast.js";
 
 const USER_PREFIX = "t-ipp-u-";
 const STYLE_PREFIX = "t-ipp-style-";
@@ -78,94 +79,8 @@ const VALID_ENRICHMENT: FactEnrichment = {
   characters: [],
 };
 
-// A full ImagePromptGenerationOutput the stubbed generator returns. The route
-// feeds output.visualPlan/compiledPrompt into the real Nano Banana compiler.
-function makeOutput(overrides: {
-  subjectRenderMode?: "human_identity_i2i" | "nonhuman_subject_i2i" | "t2i_fallback";
-  promptText?: string;
-  semanticEntitiesUsed?: Array<{ surfaceText: string; visualReferentUsed: string; effectOnVisualPlan: string }>;
-  culturalReferencesUsed?: Array<{ sourcePhrase: string; canonicalReferenceUsed: string; visualImplicationUsed: string; effectOnVisualPlan: string }>;
-  keyVisualElements?: string[];
-  secondaryCharacters?: Array<{ label: string; visualRole: string }>;
-} = {}) {
-  const mode = overrides.subjectRenderMode ?? "human_identity_i2i";
-  const generationMode = mode === "t2i_fallback" ? ("t2i" as const) : ("i2i" as const);
-  return {
-    visualPlan: {
-      sceneConcept: "David performing a superhuman feat",
-      visualGoal: "Make the feat legible",
-      visualApproach: "Cinematic close-up",
-      archetypeApplication: {
-        primaryArchetype: "superhuman_physical_feat",
-        subtype: "force_scaled_action",
-        selectedFrame: "direct_action",
-        strategyRationale: "Authored strategy applies.",
-      },
-      coreScene: "David performs a superhuman feat in the foreground as onlookers react.",
-      subjectDetails: ["confident focused expression", "mid-exertion heroic pose"],
-      environment: ["dramatic stage lighting", "blurred background crowd"],
-      lightingAndStyle: "high-contrast cinematic key light",
-      keyVisualElements: overrides.keyVisualElements ?? ["David central foreground", "dramatic lighting", "exertion pose"],
-      subjectTreatment: {
-        roleInScene: "Legendary protagonist",
-        subjectRenderMode: mode,
-        identityPreservation:
-          mode === "human_identity_i2i" ? "human_face" : mode === "nonhuman_subject_i2i" ? "nonhuman_visual_identity" : "none",
-        nonhumanSubjectTreatment: {
-          applicable: mode === "nonhuman_subject_i2i",
-          subjectKind: mode === "nonhuman_subject_i2i" ? "animal_subject" : "not_applicable",
-          preserveTraits: mode === "nonhuman_subject_i2i" ? ["fur pattern", "ear shape"] : [],
-          anthropomorphicTreatment: "none",
-          doNotTransformIntoHuman: mode === "nonhuman_subject_i2i",
-        },
-        fallbackSubjectGender: mode === "t2i_fallback" ? "female" : "not_applicable",
-        expressionAndPose: "Confident, focused",
-        ageLifeStageTransform: { applies: false, targetState: "" },
-      },
-      subjectFactCompatibility: {
-        rating: "strong",
-        reason: "Stages well on the protagonist.",
-        recommendedFallback: "none",
-      },
-      composition: {
-        subjectFraming: "Medium close-up",
-        negativeSpace: "top",
-        cameraStyle: "Cinematic 35mm",
-        sceneReadability: "Subject is the readable element",
-      },
-      supportingTextPolicy: {
-        allowSupportingText: false,
-        supportingTextElements: [],
-        forbiddenTextTypes: [
-          "full meme captions",
-          "full fact text",
-          "hashtags",
-          "watermarks",
-          "real logos",
-          "brand marks",
-          "long explanatory paragraphs",
-        ],
-      },
-      secondaryCharacters: overrides.secondaryCharacters ?? [],
-      semanticEntitiesUsed: overrides.semanticEntitiesUsed ?? [],
-      culturalReferencesUsed: overrides.culturalReferencesUsed ?? [],
-      styleIntegration: "Apply cinematic style",
-      contentNotes: "SFW",
-      debugNotes: "Strategy v2",
-      targetEngine: "nano_banana_2" as const,
-      generationMode,
-    },
-    compiledPrompt: {
-      prompt: overrides.promptText ?? "David lifts a mountain over his head with one arm.",
-      negativePrompt: "",
-      engineNotes: "",
-    },
-    promptVersion: "test-prompt-v1",
-    archetypeStrategyVersion: "test-strategy-v1",
-    generatedAt: new Date("2026-01-01T00:00:00.000Z").toISOString(),
-    generatedBy: "openai" as const,
-  };
-}
+/** The gag a fact gets when a test gives none: every preview draws one gag. */
+const DEFAULT_GAG = { version: 1, coreSceneOverride: "{NAME} lifts a mountain over {POSS} head with one arm." };
 
 async function createUser(opts: { isAdmin?: boolean } = {}): Promise<string> {
   const id = `${USER_PREFIX}${randomUUID()}`;
@@ -179,9 +94,15 @@ async function createUser(opts: { isAdmin?: boolean } = {}): Promise<string> {
   return id;
 }
 
-/** A fact; a gag in the given enrichment is stored as its slot-1 gag (fact_gags, migration 0139). */
-async function seedFact(opts: { text?: string; enrichment?: unknown } = {}): Promise<number> {
-  const { visualPromptStrategyOverride: gag, ...classification } = (opts.enrichment ?? VALID_ENRICHMENT) as Record<string, unknown>;
+/**
+ * A fact; a gag in the given enrichment is stored as its slot-1 gag (fact_gags,
+ * migration 0139), with a cast read from its own scene (`withCast`; `cast`
+ * replaces the entries). With no enrichment given the fact gets DEFAULT_GAG;
+ * `noGag` seeds none.
+ */
+async function seedFact(opts: { text?: string; enrichment?: unknown; cast?: Array<{ label: string; description: string }>; noGag?: boolean } = {}): Promise<number> {
+  const { visualPromptStrategyOverride: given, ...classification } = (opts.enrichment ?? VALID_ENRICHMENT) as Record<string, unknown>;
+  const gag = opts.noGag ? undefined : given ?? (opts.enrichment === undefined ? DEFAULT_GAG : undefined);
   const [row] = await db
     .insert(factsTable)
     .values({
@@ -191,10 +112,13 @@ async function seedFact(opts: { text?: string; enrichment?: unknown } = {}): Pro
     .returning({ id: factsTable.id });
   insertedFactIds.push(row!.id);
   // A gag always has a scene now (fact_gags CHECK); a bubble-only fixture gets a plain one.
-  if (gag) await db.insert(factGagsTable).values({
-    factId: row!.id, slot: 1,
-    pendingContent: { coreSceneOverride: "{NAME} stands in a kitchen.", ...(gag as Record<string, unknown>) },
-  });
+  if (gag) {
+    const content = withCast({ coreSceneOverride: "{NAME} stands in a kitchen.", ...(gag as Record<string, unknown>) });
+    await db.insert(factGagsTable).values({
+      factId: row!.id, slot: 1,
+      pendingContent: opts.cast ? { ...content, cast: opts.cast } : content,
+    });
+  }
   return row!.id;
 }
 
@@ -236,12 +160,7 @@ before(async () => {
 });
 
 after(async () => {
-  __setPlanGeneratorForTest(null);
   await cleanup();
-});
-
-afterEach(() => {
-  __setPlanGeneratorForTest(null);
 });
 
 function adminApp() {
@@ -291,9 +210,8 @@ describe("image-prompt preview — validation", () => {
 // ── Happy paths ─────────────────────────────────────────────────────────────
 
 describe("image-prompt preview — human i2i", () => {
-  it("renders fact text, echoes input summary + debug, preserves face", async () => {
+  it("renders fact text, echoes the input summary, preserves face, and carries no planner output", async () => {
     const factId = await seedFact();
-    __setPlanGeneratorForTest(async () => makeOutput({ subjectRenderMode: "human_identity_i2i" }) as never);
 
     const res = await request(adminApp())
       .post("/api/admin/image-prompt/preview")
@@ -311,10 +229,15 @@ describe("image-prompt preview — human i2i", () => {
     assert.equal(res.body.inputSummary.styleSource, "none");
     assert.equal(typeof res.body.inputSummary.preservePhysique, "boolean");
 
-    assert.equal(res.body.debug.primaryArchetype, "superhuman_physical_feat");
-    assert.equal(res.body.debug.subtype, "force_scaled_action");
-    assert.equal(res.body.debug.visualStrategyVersion, "test-strategy-v1");
-    assert.equal(res.body.debug.generatedBy, "openai");
+    // No planner runs since the switch (PLAN_GAG_DIRECT_RENDER.md, D): none of its output is returned.
+    for (const k of ["visualPlan", "subjectFactCompatibility", "debug", "promptVersion", "archetypeStrategyVersion"]) {
+      assert.equal(res.body[k], undefined, `no ${k}`);
+    }
+    assert.equal(
+      promptSection(String(res.body.compiledPrompt.imagePrompt), "CORE SCENE"),
+      "David Franklin lifts a mountain over his head with one arm.",
+      "the fact's gag, compiled directly",
+    );
 
     // Compiler injected the transformation-aware human identity paragraph, in
     // the wording of the engine a look-less render is routed to (GPT Image 2.6).
@@ -328,13 +251,6 @@ describe("image-prompt preview — human i2i", () => {
 describe("image-prompt preview — nonhuman i2i", () => {
   it("injects the do-not-replace-with-a-human clause", async () => {
     const factId = await seedFact();
-    __setPlanGeneratorForTest(
-      async () =>
-        makeOutput({
-          subjectRenderMode: "nonhuman_subject_i2i",
-          promptText: "An orange tabby cat heroically lifts a mountain.",
-        }) as never,
-    );
 
     const res = await request(adminApp())
       .post("/api/admin/image-prompt/preview")
@@ -347,10 +263,8 @@ describe("image-prompt preview — nonhuman i2i", () => {
 });
 
 describe("image-prompt preview — no picture without a photo", () => {
-  it("refuses the retired no-photo mode, naming why, and never plans", async () => {
+  it("refuses the retired no-photo mode, naming why", async () => {
     const factId = await seedFact();
-    let planned = false;
-    __setPlanGeneratorForTest(async () => { planned = true; return makeOutput() as never; });
 
     const res = await request(adminApp())
       .post("/api/admin/image-prompt/preview")
@@ -358,7 +272,6 @@ describe("image-prompt preview — no picture without a photo", () => {
 
     assert.equal(res.status, 400, JSON.stringify(res.body));
     assert.equal(res.body.error, "no_usable_photo");
-    assert.equal(planned, false);
   });
 });
 
@@ -368,7 +281,6 @@ describe("image-prompt preview — style source", () => {
   it("styleSource=selected_look_style with a non-empty suffix when a look style is chosen", async () => {
     const factId = await seedFact();
     const styleId = await seedStyle();
-    __setPlanGeneratorForTest(async () => makeOutput() as never);
 
     const res = await request(adminApp())
       .post("/api/admin/image-prompt/preview")
@@ -384,7 +296,6 @@ describe("image-prompt preview — style source", () => {
 
   it("styleSource=none when no look style is chosen", async () => {
     const factId = await seedFact();
-    __setPlanGeneratorForTest(async () => makeOutput() as never);
 
     const res = await request(adminApp())
       .post("/api/admin/image-prompt/preview")
@@ -398,35 +309,10 @@ describe("image-prompt preview — style source", () => {
 
 // ── Regression: entity / cultural-ref surfacing + non-mutation ───────────────
 
-describe("image-prompt preview — debug surfacing & non-mutation", () => {
-  it("echoes semanticEntitiesUsed from the plan and culturalReferencesProvided from enrichment", async () => {
-    const factId = await seedFact();
-    __setPlanGeneratorForTest(
-      async () =>
-        makeOutput({
-          semanticEntitiesUsed: [
-            { surfaceText: "Earth", visualReferentUsed: "the planet Earth", effectOnVisualPlan: "Planet visible in frame" },
-          ],
-        }) as never,
-    );
-
-    const res = await request(adminApp())
-      .post("/api/admin/image-prompt/preview")
-      .send({ factId, subjectRenderMode: "human_identity_i2i" });
-
-    assert.equal(res.status, 200, JSON.stringify(res.body));
-    assert.equal(res.body.debug.semanticEntitiesUsed.length, 1);
-    assert.equal(res.body.debug.semanticEntitiesUsed[0].surfaceText, "Earth");
-    // Cultural refs: the plan has no echo array, so we surface what was provided.
-    assert.equal(res.body.debug.culturalReferencesProvided.length, 1);
-    assert.equal(res.body.debug.culturalReferencesProvided[0].sourcePhrase, "Shark Week");
-    assert.deepEqual(res.body.debug.culturalReferencesUsed, []);
-  });
-
+describe("image-prompt preview — non-mutation", () => {
   it("does not mutate the fact's stored enrichment", async () => {
     const factId = await seedFact();
     const [before] = await db.select({ enrichment: factsTable.enrichment }).from(factsTable).where(eq(factsTable.id, factId));
-    __setPlanGeneratorForTest(async () => makeOutput() as never);
 
     await request(adminApp())
       .post("/api/admin/image-prompt/preview")
@@ -473,28 +359,38 @@ function promptSection(prompt: string, label: string): string {
 }
 
 describe("image-prompt preview — CORE SCENE source", () => {
-  it("uses the planner's coreScene when the fact has no stored Concept", async () => {
-    const factId = await seedFact();
-    __setPlanGeneratorForTest(async () => makeOutput() as never);
+  it("refuses a fact with no gag to draw, naming why (gag_scene_missing)", async () => {
+    const factId = await seedFact({ noGag: true });
 
     const res = await request(adminApp())
       .post("/api/admin/image-prompt/preview")
       .send({ factId, subjectRenderMode: "human_identity_i2i" });
 
-    assert.equal(res.status, 200, JSON.stringify(res.body));
-    assert.equal(
-      promptSection(String(res.body.compiledPrompt.imagePrompt), "CORE SCENE"),
-      "David performs a superhuman feat in the foreground as onlookers react.",
-    );
+    assert.equal(res.status, 400, JSON.stringify(res.body));
+    assert.equal(res.body.error, "gag_scene_missing");
+    assert.ok(res.body.message);
   });
 
-  it("uses the fact's saved Visual Concept, token-rendered, instead of the planner's coreScene", async () => {
+  it("refuses a gag whose cast was not read from its scene as it stands (gag_cast_not_current)", async () => {
+    const factId = await seedFact({ enrichment: overrideEnrichment({ coreSceneOverride: "{NAME} juggles moons." }) });
+    await db.update(factGagsTable)
+      .set({ pendingContent: { ...withCast({ version: 1, coreSceneOverride: "{NAME} juggles moons." }), coreSceneOverride: "{NAME} juggles planets." } })
+      .where(eq(factGagsTable.factId, factId));
+
+    const res = await request(adminApp())
+      .post("/api/admin/image-prompt/preview")
+      .send({ factId, subjectRenderMode: "human_identity_i2i" });
+
+    assert.equal(res.status, 400, JSON.stringify(res.body));
+    assert.equal(res.body.error, "gag_cast_not_current");
+  });
+
+  it("uses the fact's saved Visual Concept, token-rendered", async () => {
     const factId = await seedFact({
       enrichment: overrideEnrichment({
         coreSceneOverride: "{NAME} rides a giant rubber duck across a packed stadium.",
       }),
     });
-    __setPlanGeneratorForTest(async () => makeOutput() as never);
 
     const res = await request(adminApp())
       .post("/api/admin/image-prompt/preview")
@@ -503,17 +399,15 @@ describe("image-prompt preview — CORE SCENE source", () => {
     assert.equal(res.status, 200, JSON.stringify(res.body));
     const prompt = String(res.body.compiledPrompt.imagePrompt);
     assert.equal(promptSection(prompt, "CORE SCENE"), "David rides a giant rubber duck across a packed stadium.");
-    assert.doesNotMatch(prompt, /superhuman feat in the foreground/);
   });
 
-  it("carries both CORE SCENE and the fact's required visual detail in one prompt", async () => {
+  it("carries the CORE SCENE but no retired required visual detail an older gag still stores (PLAN_GAG_DIRECT_RENDER.md, D)", async () => {
     const factId = await seedFact({
       enrichment: overrideEnrichment({
         coreSceneOverride: "{NAME} rides a giant rubber duck across a packed stadium.",
         requiredVisualDetails: ["a scoreboard reading 9999"],
       }),
     });
-    __setPlanGeneratorForTest(async () => makeOutput() as never);
 
     const res = await request(adminApp())
       .post("/api/admin/image-prompt/preview")
@@ -522,13 +416,12 @@ describe("image-prompt preview — CORE SCENE source", () => {
     assert.equal(res.status, 200, JSON.stringify(res.body));
     const prompt = String(res.body.compiledPrompt.imagePrompt);
     assert.equal(promptSection(prompt, "CORE SCENE"), "David rides a giant rubber duck across a packed stadium.");
-    assert.equal(promptSection(prompt, "REQUIRED VISUAL DETAILS"), "a scoreboard reading 9999.");
+    assert.doesNotMatch(prompt, /REQUIRED VISUAL DETAILS|scoreboard reading 9999/);
   });
 
   it("keeps a Concept with compiler-owned language verbatim and returns the rewrite warning", async () => {
     const owned = "{NAME} rides a T-Rex through the office. Ensure {NAME}'s recognizable face is preserved.";
     const factId = await seedFact({ enrichment: overrideEnrichment({ coreSceneOverride: owned }) });
-    __setPlanGeneratorForTest(async () => makeOutput() as never);
 
     const res = await request(adminApp())
       .post("/api/admin/image-prompt/preview")
@@ -549,7 +442,6 @@ describe("image-prompt preview — CORE SCENE source", () => {
 describe("image-prompt preview — look style copy per generation mode", () => {
   it("refuses a look that does not exist with a 400, never treating it as no look", async () => {
     const factId = await seedFact();
-    __setPlanGeneratorForTest(async () => makeOutput() as never);
     const res = await request(adminApp())
       .post("/api/admin/image-prompt/preview")
       .send({ factId, subjectRenderMode: "human_identity_i2i", lookStyleId: "no-such-look-style" });
@@ -566,7 +458,6 @@ describe("image-prompt preview — stored speech & thought bubbles", () => {
         bubbles: [{ type: "speech", entity: "subject", text: "You're the man of the house now." }],
       }),
     });
-    __setPlanGeneratorForTest(async () => makeOutput() as never);
 
     const res = await request(adminApp())
       .post("/api/admin/image-prompt/preview")
@@ -584,16 +475,13 @@ describe("image-prompt preview — stored speech & thought bubbles", () => {
     );
   });
 
-  it("returns a cloud-shaped thought balloon whose trail leads to the head of the bartender", async () => {
+  it("returns a cloud-shaped thought balloon whose trail leads to the head of the bartender, bound by the gag's cast", async () => {
     const factId = await seedFact({
       enrichment: overrideEnrichment({
         bubbles: [{ type: "thought", entity: "the bartender", text: "Not again." }],
       }),
+      cast: [{ label: "the bartender", description: "polishing a glass behind the bar" }],
     });
-    __setPlanGeneratorForTest(
-      async () =>
-        makeOutput({ secondaryCharacters: [{ label: "the bartender", visualRole: "polishing a glass behind the bar" }] }) as never,
-    );
 
     const res = await request(adminApp())
       .post("/api/admin/image-prompt/preview")
@@ -615,7 +503,6 @@ describe("image-prompt preview — stored speech & thought bubbles", () => {
         bubbles: [{ type: "speech", entity: "subject", text: "{NAME} did it again!" }],
       }),
     });
-    __setPlanGeneratorForTest(async () => makeOutput() as never);
 
     const res = await request(adminApp())
       .post("/api/admin/image-prompt/preview")

@@ -12,7 +12,7 @@ import { eq, inArray, like } from "drizzle-orm";
 import { ALL_ENGINES } from "../lib/engines/index.js";
 import { createComparisonSet } from "../lib/comparison/sets.js";
 import { backfillTimings, parseTimings } from "../lib/comparison/backfillTiming.js";
-import { VALID_ENRICHMENT } from "./helpers/stubPlanner.js";
+import { VALID_ENRICHMENT } from "./helpers/validEnrichment.js";
 import { testEngineRow } from "./helpers/testEngines.js";
 import { clearTestEngineDefinitions } from "../lib/engineInterpreter.js";
 
