@@ -114,12 +114,18 @@ describe("AI settings are set in code and have no admin surface", () => {
   it("the admin API lists no AI setting, even when stale rows exist, and removes the reset and provenance routes", async () => {
     await db.delete(adminConfigTable).where(inArray(adminConfigTable.key, ALL_AI_KEYS));
     await db.insert(adminConfigTable).values(ALL_AI_KEYS.map((key) => ({ key, value: "stale stored value", dataType: "text", label: key })));
+    // A non-AI setting the list must still carry: a per-shard test database is
+    // built structure-only, so the file seeds its own rather than relying on
+    // another file having left one behind.
+    const NON_AI_KEY = `t_cop_non_ai_${randomUUID().slice(0, 8)}`;
+    await db.insert(adminConfigTable).values({ key: NON_AI_KEY, value: "1", dataType: "text", label: NON_AI_KEY });
     bustConfigCache();
     const app = createApp();
     const res = await request(app).get("/api/admin/config").set("Authorization", `Bearer ${adminSid}`);
+    await db.delete(adminConfigTable).where(eq(adminConfigTable.key, NON_AI_KEY));
     assert.equal(res.status, 200);
     const listed = (res.body as Array<{ key: string }>).map((r) => r.key);
-    assert.ok(listed.length > 0, "the list still carries the non-AI settings");
+    assert.ok(listed.includes(NON_AI_KEY), "the list still carries the non-AI settings");
     for (const key of ALL_AI_KEYS) assert.ok(!listed.includes(key), key);
     const reset = await request(app).post("/api/admin/config/fact-enrichment-system/reset-to-default").set("Authorization", `Bearer ${adminSid}`);
     assert.equal(reset.status, 404);
