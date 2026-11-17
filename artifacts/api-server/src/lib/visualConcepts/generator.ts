@@ -299,8 +299,16 @@ function conversionProblem(original: string, converted: { template: string; gram
 export const CONVERSION_FAILED_MARKER = "{CONVERSION_FAILED}";
 
 /**
+ * Tries per text before it becomes CONVERSION_FAILED_MARKER. The tokenizer is
+ * a model call, so one malformed, unconverted or failed response is usually
+ * not repeated; a single try made that one response cost the gag for good.
+ */
+export const CONVERSION_ATTEMPTS = 2;
+
+/**
  * Convert each scene and each bubble line from the stand-in name to a token
- * template; a text that cannot be converted becomes CONVERSION_FAILED_MARKER.
+ * template; a text that cannot be converted in CONVERSION_ATTEMPTS tries
+ * becomes CONVERSION_FAILED_MARKER.
  */
 export async function convertStandInName(wire: CandidateConceptsWire, tokenize: TokenizeFn = defaultTokenize): Promise<CandidateConceptsWire> {
   // A scene always names the subject, so it always converts. A bubble line
@@ -313,13 +321,15 @@ export async function convertStandInName(wire: CandidateConceptsWire, tokenize: 
       if (spokenBySubject && !STAND_IN_RE.test(textIn)) return textIn;
       if (hasNoLikelySubjectReference(textIn, [STAND_IN_NAME])) return textIn;
     }
-    try {
-      const out = await tokenize(textIn);
-      const problem = conversionProblem(textIn, out, needsSubject);
-      if (!problem) return out.template;
-      logger.warn({ problem, text: textIn }, "[visualConcepts.generator] the stand-in name could not be converted");
-    } catch (err) {
-      logger.warn({ err, text: textIn }, "[visualConcepts.generator] the tokenizer failed on a gag line");
+    for (let attempt = 1; attempt <= CONVERSION_ATTEMPTS; attempt++) {
+      try {
+        const out = await tokenize(textIn);
+        const problem = conversionProblem(textIn, out, needsSubject);
+        if (!problem) return out.template;
+        logger.warn({ problem, text: textIn, attempt, of: CONVERSION_ATTEMPTS }, "[visualConcepts.generator] the stand-in name could not be converted");
+      } catch (err) {
+        logger.warn({ err, text: textIn, attempt, of: CONVERSION_ATTEMPTS }, "[visualConcepts.generator] the tokenizer failed on a gag line");
+      }
     }
     return CONVERSION_FAILED_MARKER;
   };
