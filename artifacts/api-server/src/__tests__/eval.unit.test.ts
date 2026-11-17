@@ -38,11 +38,17 @@ describe("deriveAttemptSignature", () => {
     assert.notEqual(t2i.generationMode, i2i.generationMode);
   });
 
-  it("buckets missing planner provenance / scenario as \"unknown\"", () => {
-    const sig = deriveAttemptSignature(attempt({ compiledPrompt: null, evalScenarioKey: null, reviewRenderScenarioKey: null }));
+  it("buckets a planned attempt missing its planner provenance, and a missing scenario, as \"unknown\"", () => {
+    const sig = deriveAttemptSignature(attempt({ compiledPrompt: null, visualPlan: { a: 1 }, evalScenarioKey: null, reviewRenderScenarioKey: null }));
     assert.equal(sig.plannerModel, "unknown");
     assert.equal(sig.plannerReasoningEffort, "unknown");
     assert.equal(sig.scenarioKey, "unknown");
+  });
+
+  it("a direct attempt (no stored plan) had no planner: its planner fields read \"none\" (PLAN_GAG_DIRECT_RENDER.md, D)", () => {
+    const sig = deriveAttemptSignature(attempt({ compiledPrompt: { imagePrompt: "p" } as unknown, visualPlan: null }));
+    assert.equal(sig.plannerModel, "none");
+    assert.equal(sig.plannerReasoningEffort, "none");
   });
 
   it("reads planner model/effort from the compiled prompt diagnostics", () => {
