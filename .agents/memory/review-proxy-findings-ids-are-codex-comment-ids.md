@@ -1,0 +1,19 @@
+# The review gate matches an assessment to a round by Codex's comment ids
+
+**The gotcha.** The `id` of each finding in `review-proxy.mjs --findings-file`
+is not a free label. It is copied into the assessment's facts line
+(`findings `…``), and `scripts/review-gate.mjs` (`satisfiedAt`) matches an
+assessment to a findings round by those ids against the numeric ids of the
+review comments the Codex review owns. Label the findings `F1`, `F2` and both
+assessments are posted, read and acted on, while the required `Review gate`
+status still says "Astra and Fable missing".
+
+**The fix.** Use the review comments' numeric ids (`get_review_comments`
+gives each comment's `html_url`, ending `#discussion_r<id>`) as the finding
+ids. If the labels are already posted, edit only the facts line of each
+posted assessment to name the ids and say so on the PR: the assessment's
+creation time is unchanged, so the push-order check still sees it before the
+fix was pushed. A fresh assessment posted after the push would fail the gate
+and need David's waiver.
+
+Measured on PR #971 (compiler review, Phase 2), round 1, 2026-11-16.
