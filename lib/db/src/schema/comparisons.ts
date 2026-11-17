@@ -46,11 +46,18 @@ export const comparisonSetsTable = pgTable("comparison_sets", {
   /**
    * "engine": several engine families, each with its family's live prompt
    * wording; "prompt": one engine family and several prompt recipe versions
-   * (the prompt tuner; migration 0135).
+   * (the prompt tuner; migration 0135); "path": each engine draws the same
+   * gag by today's planned path and by the direct path (migration 0144).
    */
   kind: varchar("kind", { length: 16 }).notNull().default("engine"),
   /** A prompt set's recipe versions, 0 for the baseline; null on an engine set. */
   recipeVersionIds: jsonb("recipe_version_ids"),
+  /**
+   * A path set's chosen gags (migration 0144; plan PLAN_GAG_DIRECT_RENDER.md,
+   * A): number[], each a gag of one of the set's facts. A fact none of them
+   * belongs to draws its default gag. Null on every other set.
+   */
+  gagIds: jsonb("gag_ids"),
   /** When the admin pressed Finish (plan PLAN_EVAL_PAGE.md, D); null until then. */
   finishedAt: timestamp("finished_at", { withTimezone: true }),
   /** Generate Images' idempotency token (plan, C); unique where set. */
@@ -97,13 +104,24 @@ export const comparisonPanelsTable = pgTable("comparison_panels", {
    * panels prepared earlier, which draw `compiled_prompt` as before.
    */
   compileArgs: jsonb("compile_args"),
+  /**
+   * The one gag this panel draws (migration 0144); null on panels made
+   * earlier, which drew the fact's default gag. A record with no foreign key:
+   * the panel freezes the gag's content itself.
+   */
+  gagId: bigint("gag_id", { mode: "number" }),
+  /** The direct side's frozen cast extraction: { cast, unboundSpeakers, extraction } (migration 0144). */
+  gagCast: jsonb("gag_cast"),
+  /** The gag's bubbles as the panel expects them, rendered for its subject: { type, speaker, text }[] (migration 0144). */
+  frozenBubbles: jsonb("frozen_bubbles"),
   error: text("error"),
   /** Seeds the blind view's stable shuffle (increment 3). */
   shuffleSeed: integer("shuffle_seed").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
-  uniqueIndex("UQ_comparison_panels_identity").on(t.setId, t.factId, t.scenarioKey, t.lookStyleId),
+  // One panel per fact, scenario, look and gag (migration 0144).
+  uniqueIndex("UQ_comparison_panels_identity_gag").on(t.setId, t.factId, t.scenarioKey, t.lookStyleId, sql`(coalesce(${t.gagId}, 0))`),
 ]);
 
 export const comparisonCellsTable = pgTable("comparison_cells", {
@@ -136,11 +154,13 @@ export const comparisonCellsTable = pgTable("comparison_cells", {
   recipeVersionId: bigint("recipe_version_id", { mode: "number" }).references(() => promptRecipeVersionsTable.id, { onDelete: "restrict" }),
   /** The exact prompt text this cell sent, written before the request (migration 0135). */
   promptText: text("prompt_text"),
+  /** On a path set, "planned" or "direct": how this cell's prompt is made (migration 0144); null elsewhere. */
+  renderPath: varchar("render_path", { length: 16 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
-  // One cell per engine and prompt version (migration 0135).
-  uniqueIndex("UQ_comparison_cells_panel_engine_recipe").on(t.panelId, t.engineId, sql`(coalesce(${t.recipeVersionId}, 0))`),
+  // One cell per engine, prompt version and path (migrations 0135, 0144).
+  uniqueIndex("UQ_comparison_cells_panel_engine_recipe_path").on(t.panelId, t.engineId, sql`(coalesce(${t.recipeVersionId}, 0))`, sql`(coalesce(${t.renderPath}, ''))`),
 ]);
 
 export const comparisonRunsTable = pgTable("comparison_runs", {

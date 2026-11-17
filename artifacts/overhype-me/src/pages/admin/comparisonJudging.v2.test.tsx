@@ -28,7 +28,7 @@ function blindSet() {
     panels: [{
       panelId: 1, position: 1, factId: 11, factText: "Alex lifts a mountain", scenarioKey: "i2i_male_default",
       scenarioLabel: "Male subject (image-to-image)", lookStyleId: "none", imageMode: "i2i", faceMarkable: true,
-      styleMarkable: false, gag: "Alex holds a mountain overhead like a barbell", categories: ["visualQuality", "gagFidelity", "realism", "likeness"],
+      styleMarkable: false, gag: "Alex holds a mountain overhead like a barbell", bubbles, categories: ["visualQuality", "gagFidelity", "realism", "likeness"],
       reference: { src: "https://fal.test/ref.jpg", identityType: "male" }, prompt: null, judgeable: true, skipped: false, skipReason: null,
       waiting: null, imagesReady: 2, imagesExpected: 2, imagesMissing: 0, images: [img(A), img(B)], pick: null, judgement,
     }],
@@ -51,7 +51,9 @@ function routeFetch() {
   });
 }
 
-beforeEach(() => { judgement = null; posts = []; });
+let bubbles: Array<{ type: string; speaker: string; text: string }> | null = null;
+
+beforeEach(() => { judgement = null; posts = []; bubbles = null; });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 const CATS = ["visualQuality", "gagFidelity", "realism", "likeness"];
@@ -88,6 +90,18 @@ describe("ComparisonJudging, second edition", () => {
       bestToken: A,
       brokenTokens: [B],
     });
+  });
+
+  it("shows the bubbles the panel should show, each with its speaker, and nothing when it has none", async () => {
+    vi.stubGlobal("fetch", routeFetch());
+    const first = render(<ComparisonJudging params={{ setId: "9" }} />);
+    await screen.findByTestId("judging-gag");
+    expect(screen.queryByTestId("judging-bubbles")).toBeNull();
+    first.unmount();
+    bubbles = [{ type: "speech", speaker: "mom", text: "Put it down, Alex!" }, { type: "thought", speaker: "Alex", text: "Easy." }];
+    render(<ComparisonJudging params={{ setId: "9" }} />);
+    const shown = await screen.findAllByTestId("judging-bubble");
+    expect(shown.map((b) => b.textContent)).toEqual(["Speech from mom: “Put it down, Alex!”", "Thought from Alex: “Easy.”"]);
   });
 
   it("loads a saved judgement, and saving is offered only after a change", async () => {
