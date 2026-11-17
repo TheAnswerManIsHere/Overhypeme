@@ -574,7 +574,14 @@ function RenderTile({ kind, card, picked, canAct, readOnly, onApprove, onDraw }:
         )}
       </p>
       {card?.imageUrl ? (
-        <img src={card.imageUrl} alt={`${KIND_LABEL[kind]} render`} className="w-full rounded-sm border border-border" />
+        <>
+          <img src={card.imageUrl} alt={`${KIND_LABEL[kind]} render`} className="w-full rounded-sm border border-border" />
+          {card.engineFallback && (
+            <p className="text-[11px] text-amber-700 dark:text-amber-400" data-testid="gag-render-fallback">
+              GPT Image refused this picture; Nano Banana drew it.
+            </p>
+          )}
+        </>
       ) : (
         <p className={`text-[11px] flex items-center gap-1 ${status === "failed" ? "text-destructive" : "text-muted-foreground"}`} data-testid="gag-render-status">
           {inFlight && <Loader2 className="w-3 h-3 animate-spin" />}

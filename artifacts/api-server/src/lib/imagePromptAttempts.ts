@@ -23,6 +23,7 @@ import type {
 import { generationModeFromSubjectRenderMode } from "./sourceImageAnalysis";
 import { enqueueJob } from "./asyncJobs";
 import { lookClassOfSelection, resolveImageEngine } from "./imageEngineRouting";
+import { FROZEN_FALLBACK_KEY, freezeFallbackChoice } from "./engineFallback";
 import { isValidRenderStyleSnapshot, resolveAndFreezeRenderStyle, type ResolvedRenderStyleSnapshot } from "./imagePrompt/styleResolution";
 import { engineFamilyOf, liveRecipeVersionIdForFamily } from "./imagePrompt/recipeStore";
 
@@ -159,6 +160,10 @@ export async function buildAndEnqueueImagePromptAttempt(
   const recipeVersionId = args.recipeVersionId !== undefined
     ? args.recipeVersionId
     : await liveRecipeVersionIdForFamily(engineFamilyOf(imageEngine.id));
+  // The photoreal fallback is chosen here too, beside the routing, so a recipe
+  // promotion never changes queued work (plan PLAN_NB_FALLBACK.md).
+  const fallbackChoice = await freezeFallbackChoice(imageEngine.id);
+  if (fallbackChoice) (renderControls as unknown as Record<string, unknown>)[FROZEN_FALLBACK_KEY] = fallbackChoice;
   const renderJobId = randomUUID();
   const [attempt] = await db
     .insert(imagePromptAttemptsTable)

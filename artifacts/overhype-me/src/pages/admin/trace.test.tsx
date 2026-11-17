@@ -84,6 +84,37 @@ describe("AdminTrace", () => {
     expect(screen.getByText("req-1")).toBeTruthy();
   });
 
+  it("a picture Nano Banana drew after GPT Image refused names both engines and the refusal (plan PLAN_NB_FALLBACK.md)", async () => {
+    const m = TRACED.matches[0]!;
+    const fellBack = {
+      ...TRACED,
+      matches: [{
+        ...m,
+        record: record({ engineId: "nano-banana-2-1-edit" }),
+        engineFallback: {
+          record: { routedEngineId: "gpt-image-2-6-edit", fallbackEngineId: "nano-banana-2-1-edit", reason: "flagged by a content checker", refusedVendorRequestId: "req-refused", at: "2026-11-17T00:40:24Z" },
+          refusedRequest: { ...m.generationRequest, id: 8, engineId: "gpt-image-2-6-edit", endpointId: "openai/gpt-image-2.6/sunburst/edit" },
+        },
+      }],
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => fellBack }) as unknown as Response));
+    render(<AdminTrace />);
+    trace("1234567890123");
+    const block = await screen.findByTestId("trace-engine-fallback");
+    expect(block.textContent).toMatch(/gpt-image-2-6-edit refused this picture under its content policy, so nano-banana-2-1-edit drew it\./);
+    expect(block.textContent).toContain("flagged by a content checker");
+    expect(block.textContent).toContain("openai/gpt-image-2.6/sunburst/edit");
+    expect(block.textContent).toContain("req-refused");
+  });
+
+  it("a picture drawn by its routed engine shows no fallback block", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => TRACED }) as unknown as Response));
+    render(<AdminTrace />);
+    trace("1234567890123");
+    await screen.findByText(/Found by the record id/);
+    expect(screen.queryByTestId("trace-engine-fallback")).toBeNull();
+  });
+
   it("shows every match and says none was picked", async () => {
     const two = { ...TRACED, method: "link", matches: [TRACED.matches[0], { ...TRACED.matches[0], record: record({ id: 2, kind: "upload" }), generationRequest: null }] };
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => two }) as unknown as Response));

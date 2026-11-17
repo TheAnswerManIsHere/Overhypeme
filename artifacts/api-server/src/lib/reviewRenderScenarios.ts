@@ -68,6 +68,8 @@ import { renderPersonalized } from "./renderCanonical";
 import { enqueueJob, registerJobHandler, type EnqueueJobResult, type HandlerResult, type JobHandler } from "./asyncJobs";
 import { logger } from "./logger";
 import { attemptImageEngineId, currentRenderRouting, type ImageEngineIds } from "./imageEngineRouting";
+import { switchedFallbackOf } from "./engineFallback";
+import { liveRecipeForEngine } from "./imagePrompt/recipeStore";
 
 export const REVIEW_RENDER_PREPARE_QUEUE = "review_render_scenarios_prepare";
 
@@ -490,6 +492,16 @@ function imageUrlForAttempt(gagId: number, attempt: ImagePromptAttempt, status: 
   return gagRenderImageUrl(gagId, attempt.renderJobId);
 }
 
+/** The tile's fallback fact: only once the fallback's picture has arrived. */
+export function fallbackLineFor(
+  attempt: ImagePromptAttempt | null,
+  status: RenderScenarioStatus,
+): RenderScenarioCard["engineFallback"] {
+  const fallback = attempt ? switchedFallbackOf(attempt) : null;
+  if (!fallback || status !== "done") return null;
+  return { refusedEngineId: fallback.routedEngineId, drawnByEngineId: fallback.fallbackEngineId };
+}
+
 function cardFor(gagId: number, scenarioKey: RenderScenarioKey, attempt: ImagePromptAttempt | null): RenderScenarioCard {
   const desc = RENDER_SCENARIO_DESCRIPTORS[scenarioKey];
   const status: RenderScenarioStatus = attempt ? deriveScenarioStatus(attempt) : "missing";
@@ -508,6 +520,7 @@ function cardFor(gagId: number, scenarioKey: RenderScenarioKey, attempt: ImagePr
       : status === "failed" ? attempt.error
       : status === "blocked" ? buildRenderStatusPayload(attempt).blockReason
       : null,
+    engineFallback: fallbackLineFor(attempt, status),
     moderatorRating: attempt?.moderatorRating ?? null,
     failureTag: attempt?.failureTag ?? null,
     evalNotes: attempt?.evalNotes ?? null,
@@ -616,9 +629,15 @@ export async function getScenarioAttemptDiagnostics(
     referenceIdentityType: attempt.reviewReferenceIdentityType,
     referenceAssetVersion: attempt.reviewReferenceAssetVersion,
     actualImageEngineId: attemptImageEngineId(attempt),
-    stale: currentHash ? isAttemptStale(attempt, currentHash) : false,
+    stale: currentHash ? isAttemptStale(attempt, currentHash, await currentFallbackRecipeFor(attempt)) : false,
     status: deriveScenarioStatus(attempt),
   };
+}
+
+/** The fallback family's live recipe, for an attempt the photoreal fallback redrew; undefined otherwise. */
+async function currentFallbackRecipeFor(attempt: ImagePromptAttempt): Promise<number | null | undefined> {
+  const fallback = switchedFallbackOf(attempt);
+  return fallback ? (await liveRecipeForEngine(fallback.fallbackEngineId)).versionId : undefined;
 }
 
 // ─── Async job: prepare default renders on enrichment success ────────────────

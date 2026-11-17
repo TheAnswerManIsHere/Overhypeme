@@ -48,6 +48,19 @@ export const IMAGE_ENGINE_IDS: Readonly<Record<LookClass, Readonly<Record<Genera
   styled: { t2i: "nano-banana-2-1", i2i: "nano-banana-2-1-edit" },
 };
 
+/**
+ * The photoreal fallback (plan `docs/plans/PLAN_NB_FALLBACK.md`; David,
+ * 2026-11-17, Q12 option 2): when a photoreal engine refuses a render on
+ * content grounds, the same render is drawn once on the styled engine of the
+ * same mode, Nano Banana 2.1. Styled engines have none, and nor does the
+ * fallback engine itself.
+ */
+export function fallbackEngineIdFor(engineId: string): string | null {
+  const mode = (Object.keys(IMAGE_ENGINE_IDS.photoreal) as GenerationMode[])
+    .find((m) => IMAGE_ENGINE_IDS.photoreal[m] === engineId);
+  return mode ? IMAGE_ENGINE_IDS.styled[mode] : null;
+}
+
 /** The engines every release before migration 0123 routed to, by mode. */
 const PRE_ROUTING_IMAGE_ENGINE_IDS: Readonly<Record<GenerationMode, string>> = {
   t2i: "nano-banana-2",

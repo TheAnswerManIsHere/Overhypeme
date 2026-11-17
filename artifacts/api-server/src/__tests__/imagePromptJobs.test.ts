@@ -15,7 +15,10 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
 import { db } from "@workspace/db";
-import { usersTable, factsTable, imagePromptAttemptsTable, asyncJobsTable, promptRecipeVersionsTable } from "@workspace/db/schema";
+import { usersTable, factsTable, imagePromptAttemptsTable, asyncJobsTable, promptRecipeVersionsTable, imageProvenanceTable, imageGenerationRequestsTable } from "@workspace/db/schema";
+import type { EngineFallbackRecord } from "@workspace/db";
+import sharp from "sharp";
+import { ApiError, ValidationError } from "@fal-ai/client";
 import { eq, inArray } from "drizzle-orm";
 import type { FactEnrichment } from "@workspace/api-zod";
 
@@ -23,7 +26,15 @@ import {
   persistImagePromptPlanAndEnqueueGeneration,
   imagePromptGenerationHandler,
   IMAGE_GENERATION_QUEUE,
+  imageGenerationHandler,
 } from "../lib/imagePromptJobs.js";
+import { fal } from "../lib/falClient.js";
+import { fallbackEngineIdFor } from "../lib/imageEngineRouting.js";
+import { fallbackLineFor } from "../lib/reviewRenderScenarios.js";
+import { isAttemptStale } from "../lib/factRenderScenarios.js";
+import { buildRenderStatusPayload } from "../lib/imagePromptAttempts.js";
+import { traceIdOrLink } from "../lib/provenance/trace.js";
+import { photoBackgrounds } from "./helpers/photoBackground.js";
 import { __setUtilityLLMClientForTest } from "../lib/utilityLLM.js";
 import { defaultIdentityPolicyForRenderMode } from "@workspace/api-zod";
 
@@ -455,5 +466,245 @@ describe("image_prompt_generation handler — deterministic failures are termina
       }),
     });
     await assertTerminal(attemptId, "required_budget_overflow");
+  });
+});
+
+// ─── The photoreal fallback (plan PLAN_NB_FALLBACK.md, Issue #980) ───────────
+
+describe("image_generation — the photoreal fallback: GPT Image refuses, Nano Banana draws", () => {
+  const photos = photoBackgrounds();
+  const GPT = "openai/gpt-image-2.6/sunburst/edit";
+  const NB = "google/nano-banana-2.1/edit";
+  const REFUSAL = "The content could not be processed because it contained material flagged by a content checker.";
+  let png: Buffer;
+  const factIdsHere: number[] = [];
+
+  before(async () => {
+    photos.setUp();
+    png = await sharp({ create: { width: 32, height: 18, channels: 3, background: "#456" } }).png().toBuffer();
+  });
+  after(async () => {
+    if (factIdsHere.length) {
+      await db.delete(imageProvenanceTable).where(inArray(imageProvenanceTable.factId, factIdsHere));
+      await db.delete(imageGenerationRequestsTable).where(inArray(imageGenerationRequestsTable.factId, factIdsHere));
+    }
+    await photos.tearDown();
+  });
+
+  function refusal() {
+    return new ValidationError({ message: "Unprocessable Entity", status: 422, body: { detail: [{ loc: ["body", "prompt"], msg: REFUSAL, type: "content_policy_violation" }] } });
+  }
+
+  /**
+   * A planned photoreal attempt routed to GPT Image, with its fallback frozen as
+   * at queue time. `moderation` marks it an ephemeral moderation render; without
+   * it the attempt is member-shaped (the `final` purpose, mirrored to legacy storage).
+   */
+  async function plannedAttempt(opts: { moderation?: boolean; engine?: string; frozen?: boolean } = {}): Promise<number> {
+    installPlannerDouble();
+    const attemptId = await seedHandlerAttempt({ snapshot: handlerEnrichment({ coreSceneOverride: "{NAME} lifts a library." }) });
+    const row = await attemptRow(attemptId);
+    factIdsHere.push(row.factId);
+    const engine = opts.engine ?? "gpt-image-2-6-edit";
+    await db.update(imagePromptAttemptsTable).set({
+      actualImageEngineId: engine,
+      renderControls: {
+        ...(row.renderControls as Record<string, unknown>),
+        referenceImageUrl: "https://example.test/reference.png",
+        ...(opts.moderation ? { mirrorToLegacyStorage: false } : {}),
+        ...(opts.frozen === false || engine !== "gpt-image-2-6-edit" ? {} : { engineFallback: { engineId: "nano-banana-2-1-edit", recipeVersionId: null } }),
+      } as never,
+    }).where(eq(imagePromptAttemptsTable.id, attemptId));
+    const res = await runHandler(attemptId);
+    assert.equal(res.ok, true, JSON.stringify(res));
+    return attemptId;
+  }
+
+  /** Run the image job with fal answering per endpoint; returns the result and the endpoints called. */
+  async function draw(attemptId: number, answer: (endpoint: string, n: number) => unknown) {
+    const calls: Array<{ endpoint: string; input: Record<string, unknown> }> = [];
+    const original = fal.subscribe;
+    (fal as { subscribe: unknown }).subscribe = async (endpoint: string, o: { input: Record<string, unknown> }) => {
+      calls.push({ endpoint, input: o.input });
+      const a = answer(endpoint, calls.filter((c) => c.endpoint === endpoint).length);
+      if (a instanceof Error) throw a;
+      return a;
+    };
+    const priorKey = process.env["FAL_AI_API_KEY"];
+    process.env["FAL_AI_API_KEY"] = priorKey ?? "test-fal-key";
+    try {
+      const out = await imageGenerationHandler.run({ attemptId }, {} as never);
+      return { out, calls };
+    } finally {
+      (fal as { subscribe: unknown }).subscribe = original;
+      if (priorKey === undefined) delete process.env["FAL_AI_API_KEY"];
+      else process.env["FAL_AI_API_KEY"] = priorKey;
+    }
+  }
+  const picture = () => ({ requestId: `req-${randomUUID()}`, data: { images: [{ url: `data:image/png;base64,${png.toString("base64")}` }] } });
+
+  it("routing names a fallback for the photoreal engines only", () => {
+    assert.equal(fallbackEngineIdFor("gpt-image-2-6-edit"), "nano-banana-2-1-edit");
+    assert.equal(fallbackEngineIdFor("gpt-image-2-6"), "nano-banana-2-1");
+    assert.equal(fallbackEngineIdFor("nano-banana-2-1-edit"), null, "the styled engine, and the fallback itself, have none");
+    assert.equal(fallbackEngineIdFor("nano-banana-2-edit"), null);
+  });
+
+  it("a member-shaped render: GPT refuses once, Nano Banana draws the same scene, and every trace of the picture names Nano Banana", async () => {
+    const attemptId = await plannedAttempt();
+    const before = await attemptRow(attemptId);
+    const plannerCalls = llmCalls;
+    const { out, calls } = await draw(attemptId, (e) => (e === GPT ? refusal() : picture()));
+    assert.equal(out.ok, true, JSON.stringify(out));
+    assert.deepEqual(calls.map((c) => c.endpoint), [GPT, NB], "GPT once, no retry on it, then Nano Banana once");
+    assert.equal(llmCalls, plannerCalls, "the planner was not called again");
+
+    const after = await attemptRow(attemptId);
+    assert.equal(after.actualImageEngineId, "nano-banana-2-1-edit", "the attempt names the engine that drew it");
+    assert.equal(after.error, null);
+    assert.equal(after.errorCode, null);
+    assert.ok(after.generatedImageObjectPath);
+    const fb = after.engineFallback as EngineFallbackRecord;
+    assert.equal(fb.state, "switched");
+    assert.equal(fb.routedEngineId, "gpt-image-2-6-edit");
+    assert.equal(fb.reason, REFUSAL);
+    assert.equal(fb.fallbackEngineId, "nano-banana-2-1-edit");
+    assert.equal(fb.resolvedAtHandover, false, "the fallback frozen at queue time was used");
+    assert.ok(fb.refusedGenerationRequestId, "the refused request is linked");
+
+    // Preserved: the frozen inputs. Changed: only the recipe, prompt and engine.
+    for (const k of ["visualPlan", "renderControls", "sourceImageAnalysis", "identityPolicy", "factEnrichmentSnapshot", "renderedFactText", "generationMode", "subjectRenderMode"] as const) {
+      assert.deepEqual(after[k], before[k], `${k} is unchanged`);
+    }
+    const prompt = (after.compiledPrompt as { imagePrompt: string; referenceImageUrl?: string }).imagePrompt;
+    assert.match(prompt, /lifts a library/, "the same scene");
+    assert.equal((after.compiledPrompt as { referenceImageUrl?: string }).referenceImageUrl, "https://example.test/reference.png", "the same photo");
+    assert.equal(calls[1]!.input["prompt"], prompt, "Nano Banana received the recompiled prompt");
+    assert.deepEqual(calls[1]!.input["image_urls"] ?? calls[1]!.input["image_url"] ?? null, calls[0]!.input["image_urls"] ?? calls[0]!.input["image_url"] ?? null, "the same reference sent to both");
+
+    // Provenance: the record, its request and its prompt all name Nano Banana.
+    const [record] = await db.select().from(imageProvenanceTable).where(eq(imageProvenanceTable.attemptId, attemptId));
+    assert.ok(record);
+    assert.equal(record!.engineId, "nano-banana-2-1-edit");
+    const [request] = await db.select().from(imageGenerationRequestsTable).where(eq(imageGenerationRequestsTable.id, record!.generationRequestId!));
+    assert.equal(request!.engineId, "nano-banana-2-1-edit");
+    assert.equal(request!.endpointId, NB);
+    assert.equal((record!.snapshot as { prompt: string }).prompt, prompt);
+    const [refused] = await db.select().from(imageGenerationRequestsTable).where(eq(imageGenerationRequestsTable.id, fb.refusedGenerationRequestId!));
+    assert.equal(refused!.endpointId, GPT, "the refused request is GPT's");
+
+    // The trace reads the refusal from the record's frozen snapshot, after the attempt is gone.
+    await db.delete(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.id, attemptId));
+    const traced = await traceIdOrLink(String(record!.id));
+    const m = traced.matches[0]!;
+    assert.equal(m.record.engineId, "nano-banana-2-1-edit");
+    assert.equal(m.engineFallback?.record.routedEngineId, "gpt-image-2-6-edit");
+    assert.equal(m.engineFallback?.record.reason, REFUSAL);
+    assert.equal(m.engineFallback?.refusedRequest?.endpointId, GPT);
+  });
+
+  it("both refuse: the render ends at once, naming both refusals; one call to each engine", async () => {
+    const attemptId = await plannedAttempt({ moderation: true });
+    const { out, calls } = await draw(attemptId, () => refusal());
+    assert.equal(out.ok, false);
+    assert.equal((out as { retryable?: boolean }).retryable, false, "terminal, not retried");
+    assert.deepEqual(calls.map((c) => c.endpoint), [GPT, NB]);
+    const row = await attemptRow(attemptId);
+    assert.equal(row.errorCode, "vendor_content_refused");
+    assert.match(row.error ?? "", /gpt-image-2-6-edit refused this picture/);
+    assert.match(row.error ?? "", /refused it too/);
+    assert.equal((row.engineFallback as EngineFallbackRecord).reason, REFUSAL, "GPT's refusal stays recorded");
+  });
+
+  it("a non-content failure never falls back and is not written to the render while the queue retries", async () => {
+    const attemptId = await plannedAttempt({ moderation: true });
+    const { out, calls } = await draw(attemptId, () => new ApiError({ message: "Internal Server Error", status: 500, body: {} }));
+    assert.equal(out.ok, false);
+    assert.notEqual((out as { retryable?: boolean }).retryable, false, "retryable");
+    assert.deepEqual(calls.map((c) => c.endpoint), [GPT]);
+    const row = await attemptRow(attemptId);
+    assert.equal(row.engineFallback, null);
+    assert.equal(row.error, null, "the render still reads as rendering");
+    assert.equal(buildRenderStatusPayload(row).status, "prompt_ready");
+  });
+
+  it("a retry after the handover draws on Nano Banana; GPT is called once in total", async () => {
+    const attemptId = await plannedAttempt({ moderation: true });
+    const first = await draw(attemptId, (e) => (e === GPT ? refusal() : new ApiError({ message: "Bad Gateway", status: 502, body: {} })));
+    assert.equal(first.out.ok, false);
+    let row = await attemptRow(attemptId);
+    assert.equal((row.engineFallback as EngineFallbackRecord).state, "switched");
+    assert.equal(row.error, null, "still rendering");
+    const second = await draw(attemptId, () => picture());
+    assert.equal(second.out.ok, true, JSON.stringify(second.out));
+    assert.deepEqual([...first.calls, ...second.calls].map((c) => c.endpoint), [GPT, NB, NB]);
+    row = await attemptRow(attemptId);
+    assert.ok(row.generatedImageObjectPath);
+    assert.equal(fallbackLineFor(row, "done")?.drawnByEngineId, "nano-banana-2-1-edit", "the tile's line, once the picture is in");
+    assert.equal(fallbackLineFor(row, "rendering"), null, "and not before");
+  });
+
+  it("a refusal recorded mid-preparation resumes the preparation, never GPT", async () => {
+    const attemptId = await plannedAttempt({ moderation: true });
+    const row = await attemptRow(attemptId);
+    const record: EngineFallbackRecord = {
+      state: "preparing", routedEngineId: "gpt-image-2-6-edit", routedRecipeVersionId: null,
+      refusedGenerationRequestId: null, refusedVendorRequestId: null, reason: REFUSAL,
+      fallbackEngineId: "nano-banana-2-1-edit", fallbackRecipeVersionId: null, resolvedAtHandover: false, at: new Date().toISOString(),
+    };
+    await db.update(imagePromptAttemptsTable).set({ engineFallback: record }).where(eq(imagePromptAttemptsTable.id, row.id));
+    const { out, calls } = await draw(attemptId, () => picture());
+    assert.equal(out.ok, true, JSON.stringify(out));
+    assert.deepEqual(calls.map((c) => c.endpoint), [NB]);
+    assert.equal((await attemptRow(attemptId)).actualImageEngineId, "nano-banana-2-1-edit");
+  });
+
+  it("a fallback prompt that cannot be built ends the render with its own code, keeping GPT's refusal", async () => {
+    const attemptId = await plannedAttempt({ moderation: true });
+    // No stored scene plan: the fallback cannot be compiled.
+    await db.update(imagePromptAttemptsTable).set({ visualPlan: null }).where(eq(imagePromptAttemptsTable.id, attemptId));
+    const { out, calls } = await draw(attemptId, (e) => (e === GPT ? refusal() : picture()));
+    assert.equal((out as { retryable?: boolean }).retryable, false);
+    assert.deepEqual(calls.map((c) => c.endpoint), [GPT], "no Nano Banana call");
+    const row = await attemptRow(attemptId);
+    assert.equal(row.errorCode, "fallback_compile_failed");
+    assert.match(row.error ?? "", /refused this picture under its content policy/);
+    assert.equal((row.engineFallback as EngineFallbackRecord).state, "preparing");
+    assert.equal(row.actualImageEngineId, "gpt-image-2-6-edit", "not switched");
+  });
+
+  it("an attempt queued before fallbacks were frozen resolves its fallback at the handover, and says so", async () => {
+    const attemptId = await plannedAttempt({ moderation: true, frozen: false });
+    const { out } = await draw(attemptId, (e) => (e === GPT ? refusal() : picture()));
+    assert.equal(out.ok, true, JSON.stringify(out));
+    assert.equal(((await attemptRow(attemptId)).engineFallback as EngineFallbackRecord).resolvedAtHandover, true);
+  });
+
+  it("a styled render's content refusal behaves as before: retried, no fallback", async () => {
+    const attemptId = await plannedAttempt({ moderation: true, engine: "nano-banana-2-1-edit" });
+    const { out, calls } = await draw(attemptId, () => refusal());
+    assert.equal(out.ok, false);
+    assert.notEqual((out as { retryable?: boolean }).retryable, false);
+    assert.deepEqual(calls.map((c) => c.endpoint), [NB]);
+    assert.equal((await attemptRow(attemptId)).engineFallback, null);
+  });
+
+  it("when the queue gives up, the last failure is written to the render; a render with a picture is left alone", async () => {
+    const attemptId = await plannedAttempt({ moderation: true });
+    await imageGenerationHandler.onAbandon!({ payload: { attemptId }, lastError: "fal submit failed: Bad Gateway" } as never);
+    const row = await attemptRow(attemptId);
+    assert.equal(row.error, "fal submit failed: Bad Gateway");
+    assert.equal(buildRenderStatusPayload(row).status, "failed");
+  });
+
+  it("freshness: a fallback alone is current; a newer fallback recipe makes it stale; a GPT picture ignores the fallback's wording", () => {
+    const fb = { state: "switched", fallbackRecipeVersionId: null } as never;
+    const fellBack = { reviewRenderInputHash: "h", engineFallback: fb } as never;
+    const gptDrawn = { reviewRenderInputHash: "h", engineFallback: null } as never;
+    assert.equal(isAttemptStale(fellBack, "h", null), false);
+    assert.equal(isAttemptStale(fellBack, "h", 7), true);
+    assert.equal(isAttemptStale(fellBack, "other", null), true, "content and routing changes keep their effect");
+    assert.equal(isAttemptStale(gptDrawn, "h", 7), false);
+    assert.equal(isAttemptStale(fellBack, "h"), false, "a caller that read no fallback recipe compares the hash alone");
   });
 });
