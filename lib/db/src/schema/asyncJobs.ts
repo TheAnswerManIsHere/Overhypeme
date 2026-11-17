@@ -29,7 +29,7 @@ export const asyncJobsTable = pgTable(
     maxAttempts: integer("max_attempts").notNull().default(0),
     nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
     lastError: text("last_error"),
-    // Lease (Issue #1000, migration 0147). Stamped at claim; renewed while the
+    // Lease (Issue #1000, migration 0148). Stamped at claim; renewed while the
     // holder lives; every finish and fenced effect presents lease_token.
     claimOwner: varchar("claim_owner", { length: 64 }),
     leaseToken: varchar("lease_token", { length: 64 }),

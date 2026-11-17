@@ -40,10 +40,11 @@ import { buildTestApp } from "./helpers/buildTestApp.js";
 import { availableGags } from "../lib/gags/resolver.js";
 import { buildGagKindCards, drawGagKinds, reviewRenderScenariosPrepareHandler } from "../lib/reviewRenderScenarios.js";
 import { pendingReviewsTable } from "@workspace/db/schema";
+import { withCast } from "./helpers/gagCast.js";
 
 const RUN = randomUUID().slice(0, 8);
 const START = new Date();
-const scene = (text: string): VisualPromptStrategyOverride => ({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: text });
+const scene = (text: string): VisualPromptStrategyOverride => withCast({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: text });
 const A = scene("{NAME} lifts the moon (approved).");
 
 let adminId = "";

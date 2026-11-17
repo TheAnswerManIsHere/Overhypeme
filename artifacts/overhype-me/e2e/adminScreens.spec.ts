@@ -28,12 +28,12 @@ const SIDEBAR = [
   "Trace an image", "Taxonomy Health", "Email Queue", "Queue Health", "Features", "AI Settings", "Configuration", "Help",
 ];
 
-/** 1,500 characters dense with {NAME}: fits the box, but past the 2,000-character budget once names are filled in. */
-const OVER_BUDGET_CONCEPT = "{NAME} leaps the canyon. ".repeat(60);
+/** 2,750 characters dense with {NAME}: fits the box (3,000), but past the 3,500-character pooled budget once names are filled in. */
+const OVER_BUDGET_CONCEPT = "{NAME} leaps the canyon. ".repeat(110);
 
 /** The server's refusal sentence for an over-budget Concept, N being the worst-case filled-in length. */
 const BUDGET_SENTENCE =
-  /^The Visual Concept expands to up to (\d+) characters once names\/pronouns are filled in; the maximum is 2000\. Shorten it or use fewer personalization tokens\.$/;
+  /^The Visual Concept expands to up to (\d+) characters once names\/pronouns are filled in; the maximum is 3500\. Shorten it or use fewer personalization tokens\.$/;
 
 /** The colour Tailwind's `text-red-500` resolves to on this page, read through a probe element. */
 async function red500(page: Page): Promise<string> {
@@ -286,7 +286,7 @@ test.describe("Admin described screens", () => {
     });
     const card = await openConceptReview(page, "{NAME} leaps canyons.");
     await card.getByTestId("visual-concept-textarea").fill(OVER_BUDGET_CONCEPT);
-    await expect(card.getByText("1500/1500")).toBeVisible();
+    await expect(card.getByText(`${OVER_BUDGET_CONCEPT.length}/3000`)).toBeVisible();
 
     // The gag save (PUT /api/admin/facts/:id/gags/:gagId) reaches the real server.
     const saved = page.waitForResponse((r) => r.request().method() === "PUT" && /\/api\/admin\/facts\/98102\/gags\/\d+$/.test(r.url()));

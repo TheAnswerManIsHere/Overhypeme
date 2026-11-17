@@ -86,7 +86,7 @@ describe("isFixableEntityTokenIssue", () => {
 
   it("NEGATIVE 3: a VSO cap/length error (not the role-entity token issue) still disables Save", () => {
     const enrichment = makeEnrichment({
-      visualPromptStrategyOverride: { ...VSO, coreSceneOverride: "x".repeat(1501) },
+      visualPromptStrategyOverride: { ...VSO, coreSceneOverride: "x".repeat(3001) },
     });
     const validity = validateEnrichment(enrichment);
     expect(validity.ok).toBe(false);

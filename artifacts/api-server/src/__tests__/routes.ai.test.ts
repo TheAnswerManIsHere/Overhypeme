@@ -32,6 +32,7 @@ import type { callUtilityLLM } from "../lib/utilityLLM.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 import type { TokenizeCoreResult } from "../lib/factTokenizer.js";
+import { SCENE_RAW_MAX_CHARS } from "@workspace/api-zod";
 
 
 const USER_PREFIX = "t_routes_ai_";
@@ -300,6 +301,20 @@ describe("POST /ai/tokenize-enrichment — admin batch tokenize", () => {
       .set("authorization", `Bearer ${sid}`)
       .send({ entries: [{ path: "coreSceneOverride", value: "David leans against the bar.", kind: "prose" }] });
     assert.equal(res.status, 200);
+  });
+
+  it("takes a scene as long as the scene cap allows, and refuses one longer (Codex 4600565985)", async () => {
+    __setTokenizeCoreForTest(fakeTokenizeCore((text) => ({ template: text, usedLlm: false })));
+    const userId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(userId);
+    const at = (n: number) => request(makeApp())
+      .post("/ai/tokenize-enrichment")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ entries: [{ path: "coreSceneOverride", value: "x".repeat(n), kind: "prose" }] });
+    const ok = await at(SCENE_RAW_MAX_CHARS);
+    assert.equal(ok.status, 200);
+    assert.equal(ok.body.results[0].value.length, SCENE_RAW_MAX_CHARS, "nothing truncated");
+    assert.equal((await at(SCENE_RAW_MAX_CHARS + 1)).status, 400);
   });
 
   it("returns 400 before any LLM call on an oversized entries array (Zod max(80))", async () => {

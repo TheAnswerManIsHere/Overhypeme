@@ -450,6 +450,43 @@ describe("the stand-in name is converted by the tokenizer (PLAN_GAG_GENERATOR.md
     assert.equal(humorNoteSaveSchema.safeParse({ text: out.jokeRead }).success, true);
   });
 
+  it("a conversion that fails once is tried again, so one bad tokenizer response never costs a gag (Review #6897)", async () => {
+    // The tokenizer is a model call: a single malformed, unconverted or
+    // thrown response used to make the gag unpickable for good.
+    const flaky = "The television is muted, yet the signing reaches Alex as sound.";
+    const kinds: Array<(t: string) => Promise<{ template: string; grammarError?: string }>> = [
+      async (t) => ({ template: t }), // the name left unconverted
+      async () => ({ template: "" }), // empty
+      async (t) => ({ template: t.replace(/\bAlex\b/g, "{NAME}"), grammarError: "Unmatched closing brace" }),
+      async () => { throw new Error("Request timed out."); },
+    ];
+    for (const failOnce of kinds) {
+      let flakyCalls = 0;
+      const tokenize = async (t: string) => {
+        if (t === flaky && ++flakyCalls === 1) return failOnce(t);
+        return { template: t.replace(/\bAlex\b/g, "{NAME}") };
+      };
+      const model = async () => JSON.stringify({ jokeRead: "R", concepts: [alex(flaky), alex("Alex lifts a bus."), alex("Alex reads.")] });
+      const out = await generateVisualConceptsWithModel(input(), model, tokenize);
+      assert.equal(flakyCalls, 2);
+      assert.equal(out.candidates[0]!.sceneDescription, "The television is muted, yet the signing reaches {NAME} as sound.");
+      assert.ok(out.candidates.every(isCandidateConceptPickable));
+    }
+  });
+
+  it("a conversion that fails on every try is attempted twice, then stored unpickable", async () => {
+    let calls = 0;
+    const tokenize = async (t: string) => {
+      if (t === "Alex waves.") { calls++; return { template: t }; }
+      return { template: t.replace(/\bAlex\b/g, "{NAME}") };
+    };
+    const model = async () => JSON.stringify({ jokeRead: "R", concepts: [alex("Alex waves."), alex("Alex lifts a bus."), alex("Alex reads.")] });
+    const out = await generateVisualConceptsWithModel(input(), model, tokenize);
+    assert.equal(calls, 2);
+    assert.equal(isCandidateConceptPickable(out.candidates[0]!), false);
+    assert.equal(out.candidates[0]!.sceneDescription.includes("Alex"), false, "never stored naming Alex");
+  });
+
   it("a scene that never names the subject is not pickable", async () => {
     const tokenize = async (t: string) => ({ template: t });
     const model = async () => JSON.stringify({ jokeRead: "R", concepts: [alex("A bus floats."), alex("Alex lifts a bus."), alex("Alex reads.")] });

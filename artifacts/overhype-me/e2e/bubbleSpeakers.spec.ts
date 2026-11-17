@@ -1,35 +1,43 @@
 /**
  * Bubble speakers on the moderation screen, in a real browser
  * (PLAN_BUBBLE_SPEAKERS.md, Testing: "on a seeded hospital fact, add two
- * bubbles — subject 'Buckle up, mom', mom 'Will do'").
+ * bubbles — subject 'Buckle up, mom', mom 'Will do'"; since
+ * PLAN_GAG_DIRECT_RENDER.md increment 2, the speakers are the gag's cast).
  *
  * The review and its enrichment are stubbed (the dev database holds no fact,
- * and making one takes the AI pipeline); what this owns is the screen: the
- * gag's speaker dropdown offers the subject and the fact's characters by
- * their display names, picking "Alex's mom" stores the plain label "mom", the
- * same choices appear in the bubble editor under "More art direction", and the
- * Characters section in the enrichment shows the list. Nothing is saved.
+ * and making one takes the AI pipeline), and so is reading the scene's cast (a
+ * model call). What this owns is the screen: the gag card shows who is in its
+ * scene, its speaker dropdown offers the subject and that cast, picking mom
+ * stores the label "mom", the eleven "More art direction" controls are gone,
+ * and the moderation screen keeps the fact's characters but not the taxonomy
+ * editor. Nothing is saved.
  */
 import { expect, test, type Page } from "@playwright/test";
+import { castSourceKey, type FactEnrichment, type VisualPromptStrategyOverride } from "@workspace/api-zod";
 import { enrichmentWithConcept, stubConceptReview } from "./helpers/adminStubs";
-import type { FactEnrichment, VisualPromptStrategyOverride } from "@workspace/api-zod";
 
 const TEXT = "When {NAME} was born, {SUBJ} drove {POSS} mom home from the hospital.";
 const DESKTOP = { width: 1440, height: 1000 };
+const SCENE = "Newborn {NAME} drives a station wagon out of the hospital lot, mom in the passenger seat.";
+const MOM = { label: "mom", description: "the woman in the passenger seat" };
 
 function hospitalEnrichment(): FactEnrichment {
-  const e = enrichmentWithConcept("Newborn {NAME} drives a station wagon out of the hospital lot, mom in the passenger seat.");
+  const e = enrichmentWithConcept(SCENE);
   const ov = e.visualPromptStrategyOverride as VisualPromptStrategyOverride;
+  const bubbles = [
+    { type: "speech" as const, entity: "subject", text: "Buckle up, mom" },
+    { type: "speech" as const, entity: "subject", text: "Will do." },
+  ];
   return {
     ...e,
     characters: [{ label: "mom", kind: "person", ofSubject: true }],
     charactersExtraction: { promptVersion: "v1", extractedAt: "2026-11-15T00:00:00.000Z" },
     visualPromptStrategyOverride: {
       ...ov,
-      bubbles: [
-        { type: "speech", entity: "subject", text: "Buckle up, mom" },
-        { type: "speech", entity: "subject", text: "Will do." },
-      ],
+      bubbles,
+      // The gag's cast, read from its scene (the fold reads every stored gag's).
+      cast: [MOM],
+      castExtraction: { promptVersion: "v2", extractedAt: "2026-11-17T00:00:00.000Z", sourceKey: castSourceKey(SCENE, bubbles) },
     },
   } as FactEnrichment;
 }
@@ -47,38 +55,32 @@ test.describe("Bubble speakers", () => {
     await page.setViewportSize(DESKTOP);
   });
 
-  test("the speaker dropdown offers Alex and Alex's mom, and picking mom stores the label", async ({ page }) => {
-    await stubConceptReview(page, { id: 96801, submittedText: TEXT, stagingFactId: 96802, enrichment: hospitalEnrichment() });
+  test("the gag card shows who is in the scene, offers the subject and them as speakers, and has no extra art-direction controls", async ({ page }) => {
+    await stubConceptReview(page, { id: 96801, submittedText: TEXT, stagingFactId: 96802, enrichment: hospitalEnrichment(), cast: [MOM] });
     await openReview(page);
 
     const gag = page.getByTestId("gag-card").first();
-    // Two bubbles, each editable in two placements: the gag card (first two)
-    // and the bubble editor inside "More art direction" (last two).
-    const all = gag.getByTestId("bubble-entity");
-    await expect(all).toHaveCount(4);
-    const speakers = gag.getByTestId("bubble-editor").first().getByTestId("bubble-entity");
+    await expect(gag.getByTestId("gag-cast-chip")).toHaveText(["mom"]);
+    await expect(gag.getByText("More art direction")).toHaveCount(0);
+    const speakers = gag.getByTestId("bubble-entity");
     await expect(speakers).toHaveCount(2);
-    const first = speakers.nth(0);
-    await expect(first.locator("option")).toHaveText(["Alex (the subject)", "Alex's mom"]);
+    await expect(speakers.nth(0).locator("option")).toHaveText(["Alex (the subject)", "mom"]);
 
-    await speakers.nth(1).selectOption({ label: "Alex's mom" });
+    await speakers.nth(1).selectOption({ label: "mom" });
     await expect(speakers.nth(1)).toHaveValue("mom");
     await expect(speakers.nth(0)).toHaveValue("subject");
     await page.screenshot({ path: test.info().outputPath("bubble-speakers.png"), fullPage: false });
-
-    // The bubble editor under "More art direction" edits the same draft and offers the same speakers.
-    await gag.getByText("More art direction").click();
-    await expect(all.nth(3)).toHaveValue("mom");
-    await expect(all.nth(2).locator("option")).toHaveText(["Alex (the subject)", "Alex's mom"]);
   });
 
-  test("the enrichment's Characters section lists the fact's characters", async ({ page }) => {
-    await stubConceptReview(page, { id: 96803, submittedText: TEXT, stagingFactId: 96804, enrichment: hospitalEnrichment() });
+  test("the moderation screen keeps the fact's characters and leaves the taxonomy editor to the Facts editor", async ({ page }) => {
+    await stubConceptReview(page, { id: 96803, submittedText: TEXT, stagingFactId: 96804, enrichment: hospitalEnrichment(), cast: [MOM] });
     await openReview(page);
     await page.getByRole("button", { name: /Advanced Options/ }).click();
     const editor = page.getByTestId("characters-editor");
     await expect(editor).toBeVisible();
     await expect(editor.getByTestId("character-label")).toHaveValue("mom");
     await expect(editor.getByTestId("character-display")).toContainText("Alex's mom");
+    await expect(page.getByTestId("enrichment-editor")).toHaveCount(0);
+    await expect(page.getByText(/Primary archetype/i)).toHaveCount(0);
   });
 });

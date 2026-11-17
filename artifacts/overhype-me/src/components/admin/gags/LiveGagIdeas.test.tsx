@@ -45,6 +45,10 @@ function stubFetch(sequence: VisualConceptsResponse[]) {
       i++;
       return json(r, method === "POST" ? 202 : 200);
     }
+    if (String(url).endsWith("/gags/cast")) {
+      const b = JSON.parse(String(init!.body)) as { scene: string };
+      return json({ cast: [], castExtraction: { promptVersion: "v2", extractedAt: "2026-11-17T00:00:00.000Z", sourceKey: `key:${b.scene}` }, unboundSpeakers: [] });
+    }
     return json(VIEW);
   }));
   return calls;
@@ -83,6 +87,11 @@ describe("LiveGagIdeas", () => {
     const create = calls.find((c) => c.method === "POST" && c.url === "/api/admin/facts/5/gags");
     expect((create?.body as { content: { coreSceneOverride: string }; reviewId?: number }).content.coreSceneOverride).toBe("{NAME} idea 1.");
     expect((create?.body as { reviewId?: number }).reviewId).toBeUndefined();
+    // The idea goes through the same preparation: its cast is read before the save and sent with it.
+    const castRead = calls.findIndex((c) => c.url === "/api/admin/facts/5/gags/cast");
+    expect(castRead).toBeGreaterThan(-1);
+    expect(castRead).toBeLessThan(calls.indexOf(create!));
+    expect((create?.body as { content: { cast?: unknown; castExtraction?: { sourceKey: string } } }).content.castExtraction?.sourceKey).toBe("key:{NAME} idea 1.");
   });
 
   it("waits while a gag card holds unsaved edits", async () => {

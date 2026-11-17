@@ -321,7 +321,7 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
     // The count stays in the journey's evidence.
     const withBubbles = (prepared.visualConcepts.candidates as any[]).filter((c) => (c.bubbles ?? []).length > 0).length;
 
-    const vso = {
+    const vso: Record<string, any> = {
       version: 1,
       requiredVisualDetails: [],
       forbiddenVisualDetails: [],
@@ -352,6 +352,13 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
       if (r.path === "coreSceneOverride") vso.coreSceneOverride = r.value;
       else if (m) vso.bubbles[Number(m[1])][m[2]] = r.value;
     }
+    // Read who is in the scene before saving, as the editor does (PLAN_GAG_DIRECT_RENDER.md, F): every save carries its cast.
+    const castRead = await admin.json<{ cast: unknown[]; castExtraction: unknown; unboundSpeakers: string[] }>(
+      "3", "POST", `/api/admin/facts/${stagingFactId}/gags/cast`, { scene: vso.coreSceneOverride, bubbles: vso.bubbles },
+    );
+    if (castRead.unboundSpeakers.length) throw new JourneyError("3", "read the gag's cast", `the scene does not show ${castRead.unboundSpeakers.join(", ")}`);
+    vso.cast = castRead.cast;
+    vso.castExtraction = castRead.castExtraction;
     // The picked candidate becomes the fact's first gag (fact_gags, migration 0139).
     const created = await admin.json<{ gags: Array<{ id: number; slot: number }> }>("3", "POST", `/api/admin/facts/${stagingFactId}/gags`, { content: vso, reviewId });
     const gagId = created.gags.find((g) => g.slot === 1)?.id;

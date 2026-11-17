@@ -135,15 +135,15 @@ describe("VisualConceptCard", () => {
       expect((chip as HTMLButtonElement).disabled).toBe(true);
     }
   });
-  it("the Visual Concept textarea carries maxLength 1500, so a paste past 1,500 characters is cut there and the counter reads 1500/1500", () => {
+  it("the Visual Concept textarea carries maxLength 3000 (the extra fields' budget moved to the scene), so a paste past 3,000 characters is cut there and the counter reads 3000/3000", () => {
     render(<Harness />);
     const el = screen.getByTestId("visual-concept-textarea") as HTMLTextAreaElement;
-    expect(el.getAttribute("maxlength")).toBe("1500");
+    expect(el.getAttribute("maxlength")).toBe("3000");
     // A browser cuts pasted text at the field's own maxLength; do the same here.
-    const pasted = "x".repeat(1600);
+    const pasted = "x".repeat(3100);
     fireEvent.change(el, { target: { value: pasted.slice(0, el.maxLength) } });
-    expect((screen.getByTestId("visual-concept-textarea") as HTMLTextAreaElement).value).toHaveLength(1500);
-    expect(screen.getByText("1500/1500")).toBeTruthy();
+    expect((screen.getByTestId("visual-concept-textarea") as HTMLTextAreaElement).value).toHaveLength(3000);
+    expect(screen.getByText("3000/3000")).toBeTruthy();
   });
 
   it("a blank concept renders the visual-concept-required line reading exactly: Required — describe the picture before saving or approving.", () => {

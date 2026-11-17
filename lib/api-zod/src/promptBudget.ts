@@ -32,7 +32,7 @@
  */
 
 import { projectWorstCaseRenderedLength } from "./promptIdentityBudget";
-import { collectRenderedTextEntries, type VisualPromptStrategyOverride } from "./visualStrategyOverride";
+import { collectRenderedTextEntries, SCENE_RAW_MAX_CHARS, type VisualPromptStrategyOverride } from "./visualStrategyOverride";
 
 /** Bump when any reserve below changes, so budget fixtures/tests re-derive. */
 export const PROMPT_BUDGET_VERSION = 3 as const;
@@ -114,11 +114,22 @@ export const SPEAKER_BINDINGS_RENDERED_MAX = 576;
 
 /**
  * Raw (pre-render) storage cap for the moderator Concept. Matches the VSO
- * schema's `coreSceneOverride` cap (1500, `visualStrategyOverride.ts`) — with
- * the roomier rendered budget above, a new save is never stricter than legacy
- * content (David, 2026-07-21: restored from the original plan's 1200).
+ * schema's `coreSceneOverride` cap (`SCENE_RAW_MAX_CHARS`, `visualStrategyOverride.ts`).
+ * 1500 until PLAN_GAG_DIRECT_RENDER.md increment 2, which moved the eleven
+ * extra fields' 1500 to the scene ("the additions budget the eleven fields used
+ * moves to the scene, so a gag that fitted before the fold fits after it"),
+ * so it is now 3000. The rendered side is pooled: see
+ * `SCENE_AND_ADDITIONS_RENDERED_MAX`.
  */
-export const CORE_SCENE_RAW_MAX = 1500;
+export const CORE_SCENE_RAW_MAX = SCENE_RAW_MAX_CHARS;
+
+/**
+ * The scene and the eleven extra fields share one rendered pool (plan
+ * PLAN_GAG_DIRECT_RENDER.md, E): the scene may use what the additions do not.
+ * The sum of the two reserves is unchanged, so the compile-time guard below
+ * still holds; a scene alone may reach the whole pool.
+ */
+export const SCENE_AND_ADDITIONS_RENDERED_MAX = CORE_SCENE_RENDERED_MAX + MODERATOR_ADDITIONS_RENDERED_MAX;
 
 // Compile-time guard: the reserves + margin must fit the total budget. This is a
 // literal arithmetic check on the constants above (the LIVE-compiler proof lives
@@ -234,13 +245,15 @@ export function validateVisualStrategyOverrideForSave(
   }
 
   const coreRendered = ov.coreSceneOverride ? projectWorstCaseRenderedLength(ov.coreSceneOverride) : 0;
-  if (coreRendered > CORE_SCENE_RENDERED_MAX) {
+  // Pooled with the additions: the scene may use whatever they leave.
+  const sceneLimit = SCENE_AND_ADDITIONS_RENDERED_MAX - Math.min(additionsEmittedLength, MODERATOR_ADDITIONS_RENDERED_MAX);
+  if (coreRendered > sceneLimit) {
     errors.push({
       code: "core_scene_rendered_too_long",
       field: "coreSceneOverride",
       actual: coreRendered,
-      limit: CORE_SCENE_RENDERED_MAX,
-      message: `The Visual Concept expands to up to ${coreRendered} characters once names/pronouns are filled in; the maximum is ${CORE_SCENE_RENDERED_MAX}. Shorten it or use fewer personalization tokens.`,
+      limit: sceneLimit,
+      message: `The Visual Concept expands to up to ${coreRendered} characters once names/pronouns are filled in; the maximum is ${sceneLimit}. Shorten it or use fewer personalization tokens.`,
     });
   }
 

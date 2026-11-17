@@ -39,10 +39,11 @@ import {
   type VisualConceptsJobDeps,
 } from "../lib/visualConceptJobs.js";
 import { sendFactBackToReview } from "../lib/sendBackToReview.js";
+import { withCast } from "./helpers/gagCast.js";
 
 const RUN = randomUUID().slice(0, 8);
 const START = new Date();
-const scene = (text: string): VisualPromptStrategyOverride => ({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: text });
+const scene = (text: string): VisualPromptStrategyOverride => withCast({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: text });
 
 const PROVENANCE: VisualConceptProvenance = {
   engineId: "openai-gag-writer", model: "gpt-6-astra", reasoningEffort: "high", timeoutMs: 180_000, promptVersion: 4, fallbackReason: null,

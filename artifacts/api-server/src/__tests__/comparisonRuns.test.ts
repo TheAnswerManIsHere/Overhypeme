@@ -610,7 +610,7 @@ describe("a planned-versus-direct comparison", () => {
       return {
         cast: speakers.filter((s) => s !== "nurse").map((label) => ({ label, description: "the older woman in the passenger seat" })),
         unboundSpeakers: speakers.filter((s) => s === "nurse"),
-        extraction: { promptVersion: "v1", extractedAt: new Date().toISOString() },
+        extraction: { promptVersion: "v1", extractedAt: new Date().toISOString(), sourceKey: "v1:0:00000000" },
       };
     });
   });

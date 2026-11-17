@@ -252,6 +252,16 @@ function FactEnrichmentPanel({
             onSavingChange={setIdeaSaving}
             disabled={disabled}
           />
+          {/* The taxonomy lives here only (plan PLAN_GAG_DIRECT_RENDER.md, F;
+              David, Q2: 1): the AI's classification of the fact, kept for AI
+              and code to use. The gags above are what shapes a picture. */}
+          <section className="space-y-1" data-testid="ai-classification">
+            <h3 className="text-sm font-bold text-foreground">AI classification</h3>
+            <p className="text-xs text-muted-foreground">
+              How the AI classified this fact. It is used by AI and code (finding similar facts, filtering); the gags above,
+              not this, decide what a picture shows.
+            </p>
+          </section>
           <EnrichmentEditor
             value={enrichment}
             status={enrichmentStatus}

@@ -19,6 +19,7 @@ import { AlertTriangle, Plus, Trash2, MessageCircle } from "lucide-react";
 import {
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
   canonicalizeNameToken,
+  unboundSpeakers,
   BUBBLE_TEXT_MAX_CHARS,
   BUBBLE_TEXT_SOFT_WARN,
   MAX_BUBBLES,
@@ -28,7 +29,7 @@ import {
 } from "@workspace/api-zod";
 import { FieldLabel } from "./FieldInfo";
 import { useFactCharacters } from "./FactCharactersContext";
-import { buildSpeakerOptions, selectedSpeakerValue } from "./speakerOptions";
+import { buildCastSpeakerOptions, buildSpeakerOptions, selectedSpeakerValue, type CastForSpeakers } from "./speakerOptions";
 
 const INPUT_CLASS =
   "w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary";
@@ -62,6 +63,7 @@ export function BubbleEditor({
   fieldErrors,
   firstClass = false,
   characters: charactersProp,
+  cast,
 }: {
   value: VisualPromptStrategyOverride | undefined;
   onChange: (next: VisualPromptStrategyOverride) => void;
@@ -75,6 +77,11 @@ export function BubbleEditor({
   firstClass?: boolean;
   /** The fact's effective characters; defaults to the gags panel's context. */
   characters?: readonly FactCharacter[];
+  /**
+   * The gag card's cast (plan PLAN_GAG_DIRECT_RENDER.md, F). When given, the
+   * speakers are the subject and the cast, not the fact's characters.
+   */
+  cast?: CastForSpeakers;
 }) {
   const ov = value ?? EMPTY_VISUAL_STRATEGY_OVERRIDE;
   const bubbles = ov.bubbles ?? [];
@@ -83,11 +90,13 @@ export function BubbleEditor({
   // The speaker choices (PLAN_BUBBLE_SPEAKERS.md, C): the subject, the fact's
   // characters, this gag's extra roles, and any saved speaker that matches
   // none of those — shown as itself and saved unchanged.
-  const speakerOptions = buildSpeakerOptions({
-    characters,
-    roleBindings: ov.roleBindings,
-    currentSpeakers: bubbles.map((b) => b.entity),
-  });
+  const speakerOptions = cast
+    ? buildCastSpeakerOptions({ cast, currentSpeakers: bubbles.map((b) => b.entity) })
+    : buildSpeakerOptions({
+      characters,
+      roleBindings: ov.roleBindings,
+      currentSpeakers: bubbles.map((b) => b.entity),
+    });
 
   const setBubbles = (next: VisualStrategyBubble[]) => onChange(withBubbles(value, next));
   const setRow = (i: number, patch: Partial<VisualStrategyBubble>) => {
@@ -107,8 +116,16 @@ export function BubbleEditor({
       .filter(Boolean),
   );
   const warnings: string[] = [];
+  const unbound = new Set(cast?.read ? unboundSpeakers(bubbles, cast.entries) : []);
   for (const [i, b] of bubbles.entries()) {
     const entity = b.entity.trim().toLowerCase();
+    if (cast) {
+      // On a gag card the scene decides who can speak: a speaker it does not show stops the save.
+      if (unbound.has(b.entity.trim())) {
+        warnings.push(`Bubble ${i + 1}: the scene does not show "${b.entity.trim()}". Pick another speaker, or say in the scene that they are there; the gag will not save until you do.`);
+      }
+      continue;
+    }
     if (!entity || entity === "subject" || knownEntities.has(entity)) continue;
     warnings.push(
       `Bubble ${i + 1}: "${b.entity.trim()}" isn't in this fact's character list or this gag's Scene Role Assignments — it still renders, but add the character to one of them so the picture is sure to include them.`,
@@ -121,7 +138,7 @@ export function BubbleEditor({
   }
   for (const [i, b] of bubbles.entries()) {
     const k = b.entity.trim().toLowerCase();
-    if (k && (labelCounts.get(k) ?? 0) > 1) {
+    if (!cast && k && (labelCounts.get(k) ?? 0) > 1) {
       warnings.push(
         `Bubble ${i + 1}: more than one Scene Role Assignment is labeled "${b.entity.trim()}" — the balloon's tail may attach to the wrong one.`,
       );
@@ -228,9 +245,9 @@ export function BubbleEditor({
         <FieldLabel docKey="vso.bubbles" />
       </div>
       <p className="text-xs text-muted-foreground">
-        Make a character speak or think an exact line — the balloon and lettering are rendered into the
-        image. Pick who says it from the fact's characters or this gag's Scene Role Assignments; keep the
-        text short.
+        {cast
+          ? "Make a character speak or think an exact line — the balloon and lettering are rendered into the image. Pick who says it from the subject and the people in this scene; to add someone, say in the scene that they are there. Keep the text short."
+          : "Make a character speak or think an exact line — the balloon and lettering are rendered into the image. Pick who says it from the fact's characters or this gag's Scene Role Assignments; keep the text short."}
       </p>
       {body}
     </div>
