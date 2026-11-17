@@ -20,6 +20,7 @@
 
 import { eq } from "drizzle-orm";
 import { db, imagePromptAttemptsTable, type EngineFallbackRecord, type ImagePromptAttempt } from "@workspace/db";
+import { fencedTransaction } from "./jobFence";
 import { fallbackEngineIdFor } from "./imageEngineRouting";
 import { engineFamilyOf, liveRecipeForEngine, recipeById } from "./imagePrompt/recipeStore";
 import type { CompiledImagePrompt } from "./imagePrompt/types";
@@ -114,10 +115,10 @@ export async function recordRefusal(
     resolvedAtHandover: choice.resolvedAtHandover,
     at: new Date().toISOString(),
   };
-  await db
+  await fencedTransaction(db, (tx) => tx
     .update(imagePromptAttemptsTable)
     .set({ engineFallback: record, updatedAt: new Date() })
-    .where(eq(imagePromptAttemptsTable.id, attempt.id));
+    .where(eq(imagePromptAttemptsTable.id, attempt.id)));
   return record;
 }
 
@@ -134,7 +135,7 @@ export async function switchToFallback(
   if (plannerProvenance !== undefined && compiledPrompt.diagnostics) {
     (compiledPrompt.diagnostics as { plannerProvenance?: unknown }).plannerProvenance = plannerProvenance;
   }
-  await db
+  await fencedTransaction(db, (tx) => tx
     .update(imagePromptAttemptsTable)
     .set({
       actualImageEngineId: record.fallbackEngineId,
@@ -143,7 +144,7 @@ export async function switchToFallback(
       engineFallback: { ...record, state: "switched" },
       updatedAt: new Date(),
     })
-    .where(eq(imagePromptAttemptsTable.id, attempt.id));
+    .where(eq(imagePromptAttemptsTable.id, attempt.id)));
 }
 
 /** The fallback recipe as the compiler uses it. */

@@ -8,6 +8,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import sharp from "sharp";
 import { desc, eq } from "drizzle-orm";
+import { fencedTransaction } from "../jobFence";
 import {
   db,
   usersTable,
@@ -81,7 +82,8 @@ export interface GenerationRequestInput {
 
 /** Persist the request a vendor is about to receive. Call BEFORE submitting. */
 export async function recordGenerationRequest(input: GenerationRequestInput): Promise<number> {
-  const [row] = await db.insert(imageGenerationRequestsTable).values({
+  // Fenced (Issue #1000): a run that lost its job records nothing.
+  const [row] = await fencedTransaction(db, (tx) => tx.insert(imageGenerationRequestsTable).values({
     producer: input.producer,
     engineId: input.engineId,
     endpointId: input.endpointId,
@@ -91,16 +93,16 @@ export async function recordGenerationRequest(input: GenerationRequestInput): Pr
     factId: input.factId ?? null,
     ...actorColumns(input.actor),
     ...codeVersionColumns(),
-  }).returning({ id: imageGenerationRequestsTable.id });
+  }).returning({ id: imageGenerationRequestsTable.id }));
   return row!.id;
 }
 
 /** Add the vendor's own request id once it returns. */
 export async function setVendorRequestId(generationRequestId: number, vendorRequestId: string | null | undefined): Promise<void> {
   if (!vendorRequestId) return;
-  await db.update(imageGenerationRequestsTable)
+  await fencedTransaction(db, (tx) => tx.update(imageGenerationRequestsTable)
     .set({ vendorRequestId })
-    .where(eq(imageGenerationRequestsTable.id, generationRequestId));
+    .where(eq(imageGenerationRequestsTable.id, generationRequestId)));
 }
 
 /** The latest request captured for a comparison cell: what a storage-only retry reads. */
@@ -196,7 +198,7 @@ export async function finishImage(input: FinishImageInput): Promise<FinishedImag
   };
   if (input.commit !== false) {
     if (insertOverride) await insertOverride(row);
-    else await db.insert(imageProvenanceTable).values(row);
+    else await fencedTransaction(db, (tx) => tx.insert(imageProvenanceTable).values(row));
   }
   return { bytes: stamped, mime, ext, provenanceId: id, sha256: row.sha256 };
 }

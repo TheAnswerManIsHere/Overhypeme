@@ -71,6 +71,7 @@
  * @subsystem legal-safety
  */
 
+import { IN_FLIGHT_JOB_STATUSES } from "@workspace/db";
 import type { AsyncJobStatus, NcmecReport, NcmecSubmissionStatus } from "@workspace/db";
 import { NCMEC_FINAL_STATUSES } from "@workspace/db";
 
@@ -304,7 +305,7 @@ export const NCMEC_WAITING_ON_A_PERSON = [
 ] as const satisfies readonly NcmecWaitingState[];
 
 /** Async-job statuses from which a job may still run. Anything else has stopped. */
-const NON_TERMINAL_JOB_STATUSES = new Set<AsyncJobStatus>(["pending", "processing"]);
+const NON_TERMINAL_JOB_STATUSES = new Set<AsyncJobStatus>(IN_FLIGHT_JOB_STATUSES);
 
 /** The single field of the row's `ncmec_submit` job that the classification depends on. */
 export interface NcmecSubmitJobState {

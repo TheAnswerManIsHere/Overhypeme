@@ -29,6 +29,18 @@ export const asyncJobsTable = pgTable(
     maxAttempts: integer("max_attempts").notNull().default(0),
     nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
     lastError: text("last_error"),
+    // Lease (Issue #1000, migration 0148). Stamped at claim; renewed while the
+    // holder lives; every finish and fenced effect presents lease_token.
+    claimOwner: varchar("claim_owner", { length: 64 }),
+    leaseToken: varchar("lease_token", { length: 64 }),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    // Recovery protocol the claiming handler declared for its queue (null: none).
+    claimRecoveryProtocol: integer("claim_recovery_protocol"),
+    // Non-null only once the row has been taken back from a stopped holder of a
+    // recovery-declaring queue: the minimum protocol a claimer must declare.
+    // Sticky until the job finishes.
+    recoveryProtocol: integer("recovery_protocol"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -38,7 +50,9 @@ export const asyncJobsTable = pgTable(
     // Dedupe: at most one non-terminal job per (queue, dedupe_key).
     uniqueIndex("async_jobs_dedupe_idx")
       .on(t.queue, t.dedupeKey)
-      .where(sql`dedupe_key IS NOT NULL AND status IN ('pending', 'processing')`),
+      .where(sql`dedupe_key IS NOT NULL AND status IN ('pending', 'processing', 'recovering')`),
+    index("async_jobs_recovering_idx").on(t.queue, t.nextAttemptAt).where(sql`status = 'recovering'`),
+    index("async_jobs_lease_idx").on(t.leaseExpiresAt).where(sql`status = 'processing'`),
   ],
 );
 
@@ -47,9 +61,15 @@ export type InsertAsyncJobRow = typeof asyncJobsTable.$inferInsert;
 
 /**
  * Status lifecycle:
- *   pending  → ready to be claimed by the next worker tick (nextAttemptAt due)
- *   processing → currently being executed by a worker (stuck-row recovery on boot)
+ *   pending    → ready to be claimed by the next worker tick (nextAttemptAt due)
+ *   recovering → taken back from a stopped holder; claimable only by a handler
+ *                declaring at least `recovery_protocol` for its queue. Stays
+ *                recovering through retry, deferral and reclaim until it finishes.
+ *   processing → held by a worker under a lease (reclaimed once the lease lapses)
  *   done       → handler returned ok (terminal; eligible for retention purge)
  *   failed     → handler exhausted maxAttempts retries (terminal)
  */
-export type AsyncJobStatus = "pending" | "processing" | "done" | "failed";
+export type AsyncJobStatus = "pending" | "recovering" | "processing" | "done" | "failed";
+
+/** Statuses that are still in flight: dedupe, polling and "is it running" all read these. */
+export const IN_FLIGHT_JOB_STATUSES = ["pending", "recovering", "processing"] as const satisfies readonly AsyncJobStatus[];

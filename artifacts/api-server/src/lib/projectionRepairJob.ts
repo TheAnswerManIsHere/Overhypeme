@@ -8,6 +8,7 @@
  */
 
 import { registerJobHandler, type JobHandler, type HandlerResult } from "./asyncJobs";
+import { whileOwned } from "./jobFence";
 import { repairFactEnrichmentProjection } from "./taxonomyHealth/projectionRepair";
 
 export const PROJECTION_REPAIR_QUEUE = "projection_repair";
@@ -22,7 +23,7 @@ export const projectionRepairHandler: JobHandler = {
     if (typeof p?.factId !== "number") {
       return { ok: false, error: "projection_repair: payload missing factId" };
     }
-    const outcome = await repairFactEnrichmentProjection(p.factId);
+    const outcome = await whileOwned(() => repairFactEnrichmentProjection(p.factId));
     if (outcome.error) {
       // fact_not_found / missing_enrichment / invalid_enrichment / DB error.
       // Don't retry on these — they're determined by data state, not transient.
@@ -42,5 +43,6 @@ export const projectionRepairHandler: JobHandler = {
 
 export function registerProjectionRepairHandler(): void {
   // `fast` lane: pure-DB projection repair (no model/image wait).
-  registerJobHandler(PROJECTION_REPAIR_QUEUE, projectionRepairHandler, { lane: "fast" });
+  // Execution limit (Issue #1000): database only.
+  registerJobHandler(PROJECTION_REPAIR_QUEUE, projectionRepairHandler, { lane: "fast", executionLimitMs: 5 * 60_000 });
 }

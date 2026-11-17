@@ -19,6 +19,7 @@ import { isEnrichmentAdminEdited } from "./taxonomyHealth";
 import { renderCanonical } from "./renderCanonical";
 import { charactersOverrideOnly } from "./factCharacters";
 import { logger } from "./logger";
+import { assertJobOwnership, fencedTransaction } from "./jobFence";
 
 export const FACT_ENRICHMENT_BACKFILL_QUEUE = "fact_enrichment_backfill";
 
@@ -82,6 +83,7 @@ export async function runFactEnrichmentBackfill(
 
   let next: FactEnrichment;
   try {
+    await assertJobOwnership(); // paid AI call: only while this run owns its job (Issue #1000)
     next = await deps.classify({
       factText: renderedText,
       priorCharacters: row.enrichmentAiDerived as FactEnrichment | null,
@@ -119,7 +121,7 @@ export async function runFactEnrichmentBackfill(
  * call survives too. Gags live in fact_gags and are not touched.
  */
 export async function writeBulkReenrichKeepingCharacterCorrection(factId: number, aiDerived: FactEnrichment): Promise<void> {
-  await db.transaction(async (tx) => {
+  await fencedTransaction(db, async (tx) => {
     const [locked] = await tx
       .select({ enrichmentOverrides: factsTable.enrichmentOverrides })
       .from(factsTable)
@@ -133,5 +135,6 @@ export async function writeBulkReenrichKeepingCharacterCorrection(factId: number
 }
 
 export function registerFactEnrichmentBackfillHandler(): void {
-  registerJobHandler(FACT_ENRICHMENT_BACKFILL_QUEUE, factEnrichmentBackfillHandler);
+  // Execution limit (Issue #1000): two classifier calls, each up to 3 tries of 120 s (about 12 min), plus margin.
+  registerJobHandler(FACT_ENRICHMENT_BACKFILL_QUEUE, factEnrichmentBackfillHandler, { executionLimitMs: 20 * 60_000 });
 }

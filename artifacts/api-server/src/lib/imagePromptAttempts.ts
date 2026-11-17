@@ -22,6 +22,7 @@ import type {
 } from "@workspace/api-zod";
 import { generationModeFromSubjectRenderMode } from "./sourceImageAnalysis";
 import { enqueueJob } from "./asyncJobs";
+import { fencedTransaction } from "./jobFence";
 import { lookClassOfSelection, resolveImageEngine } from "./imageEngineRouting";
 import { FROZEN_FALLBACK_KEY, freezeFallbackChoice } from "./engineFallback";
 import { isValidRenderStyleSnapshot, resolveAndFreezeRenderStyle, type ResolvedRenderStyleSnapshot } from "./imagePrompt/styleResolution";
@@ -165,7 +166,11 @@ export async function buildAndEnqueueImagePromptAttempt(
   const fallbackChoice = await freezeFallbackChoice(imageEngine.id);
   if (fallbackChoice) (renderControls as unknown as Record<string, unknown>)[FROZEN_FALLBACK_KEY] = fallbackChoice;
   const renderJobId = randomUUID();
-  const [attempt] = await db
+  // The attempt and its planner job land together, in one transaction that a
+  // job calling this fences against its own claim (Issue #1000); a route calls
+  // it as a plain transaction.
+  return fencedTransaction(db, async (tx) => {
+  const [attempt] = await tx
     .insert(imagePromptAttemptsTable)
     .values({
       factId: args.factId,
@@ -202,9 +207,10 @@ export async function buildAndEnqueueImagePromptAttempt(
     queue: "image_prompt_generation",
     payload: { attemptId: attempt!.id },
     dedupeKey: `image_prompt:attempt:${attempt!.id}`,
-  });
+  }, tx);
 
   return { renderJobId, attemptId: attempt!.id };
+  });
 }
 
 export type RenderStatus = "pending" | "prompt_ready" | "image_ready" | "failed" | "blocked";

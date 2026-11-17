@@ -34,6 +34,7 @@ import { recordOverrideHistory } from "./enrichmentOverrideHistory";
 import { hashFactText } from "./enrichmentVersioning";
 import { currentProcessingSignatureFromConfig } from "./processingSignature";
 import { enqueueVisualConceptsForReview } from "./visualConceptJobs";
+import { assertJobOwnership, fencedTransaction, whileOwned } from "./jobFence";
 import { renderCanonical } from "./renderCanonical";
 import {
   advanceReviewForStagingFactEnrichment,
@@ -96,20 +97,21 @@ async function runEnrichmentForReview(reviewId: number): Promise<HandlerResult> 
 
   let enrichment: FactEnrichment;
   try {
+    await assertJobOwnership(); // paid classifier call (Issue #1000)
     enrichment = await enrichFact({ factText: renderedText });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    await db
+    await fencedTransaction(db, (tx) => tx
       .update(pendingReviewsTable)
       .set({ enrichmentStatus: "failed" })
-      .where(eq(pendingReviewsTable.id, reviewId));
+      .where(eq(pendingReviewsTable.id, reviewId)));
     return { ok: false, error: `classify: ${msg}` };
   }
 
-  await db
+  await fencedTransaction(db, (tx) => tx
     .update(pendingReviewsTable)
     .set({ enrichment, enrichmentStatus: "ok" })
-    .where(eq(pendingReviewsTable.id, reviewId));
+    .where(eq(pendingReviewsTable.id, reviewId)));
 
   return { ok: true };
 }
@@ -178,16 +180,17 @@ export async function runEnrichmentForFact(
 
   let freshAiDerived: FactEnrichment;
   try {
+    await assertJobOwnership(); // paid AI call: only while this run owns its job (Issue #1000)
     freshAiDerived = await deps.classify({
       factText: renderedFactText,
       priorCharacters: factRow.enrichmentAiDerived as FactEnrichment | null,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    await db
+    await fencedTransaction(db, (tx) => tx
       .update(factsTable)
       .set({ enrichmentStatus: "failed" })
-      .where(eq(factsTable.id, factId));
+      .where(eq(factsTable.id, factId)));
     return { ok: false, error: `classify: ${msg}` };
   }
 
@@ -207,7 +210,7 @@ export async function runEnrichmentForFact(
   // with sendFactBackToReview (which locks the fact first), so the recheck
   // either sees the new candidate (→ discard this stale result) or the
   // send-back waits and seeds its candidate from the freshly-written active.
-  const wrote = await db.transaction(async (tx) => {
+  const wrote = await fencedTransaction(db, async (tx) => {
     const [locked] = await tx
       .select({ id: factsTable.id, text: factsTable.text, enrichmentOverrides: factsTable.enrichmentOverrides })
       .from(factsTable)
@@ -273,7 +276,7 @@ export async function runEnrichmentForFact(
 
   // Advance a linked staging review prep_pending → concept_review (Step 2). No-op
   // for live-fact re-enrich (no linked review) and refused for refresh cycles.
-  await advanceReviewForStagingFactEnrichment({ factId, outcome: "success" });
+  await whileOwned(() => advanceReviewForStagingFactEnrichment({ factId, outcome: "success" }));
 
   return { ok: true };
 }
@@ -331,6 +334,7 @@ export async function runEnrichmentForCandidateVersion(
   // ── Phase 2: LLM classification (no locks held) ──
   let freshAiDerived: FactEnrichment;
   try {
+    await assertJobOwnership(); // paid AI call: only while this run owns its job (Issue #1000)
     freshAiDerived = await deps.classify({
       factText: renderCanonical(factRow.text),
       priorCharacters: v0.aiDerived as FactEnrichment | null,
@@ -339,7 +343,7 @@ export async function runEnrichmentForCandidateVersion(
     const msg = err instanceof Error ? err.message : String(err);
     // Reflect failure on the live fact's pill; leave the cycle prep_pending so
     // the job retries. Terminal exhaustion → onAbandon marks the cycle failed.
-    await db.update(factsTable).set({ enrichmentStatus: "failed" }).where(eq(factsTable.id, v0.factId));
+    await fencedTransaction(db, (tx) => tx.update(factsTable).set({ enrichmentStatus: "failed" }).where(eq(factsTable.id, v0.factId)));
     return { ok: false, error: `classify: ${msg}` };
   }
 
@@ -347,7 +351,7 @@ export async function runEnrichmentForCandidateVersion(
   // Overrides are re-read under the version-row lock (not the preflight read),
   // so a moderator correction saved during the classifier call survives
   // (PLAN_BUBBLE_SPEAKERS.md, E).
-  const { advancedReviewId } = await db.transaction(async (tx): Promise<{ advancedReviewId: number | null }> => {
+  const { advancedReviewId } = await fencedTransaction(db, async (tx): Promise<{ advancedReviewId: number | null }> => {
     const [v1] = await tx
       .select({
         status: factEnrichmentVersionsTable.status,
@@ -407,18 +411,18 @@ export async function runEnrichmentForCandidateVersion(
   // fail the (already-committed) enrichment.
   if (advancedReviewId != null) {
     try {
-      await enqueueVisualConceptsForReview({
+      await whileOwned(() => enqueueVisualConceptsForReview({
         reviewId: advancedReviewId,
         factId: v0.factId,
         candidateVersionId: versionId,
-      });
+      }));
     } catch (err) {
       logger.error(
         { err, reviewId: advancedReviewId, versionId },
         "[refresh] failed to enqueue visual concepts (enrichment kept; status → failed)",
       );
       try {
-        await db.update(factsTable).set({ visualConceptStatus: "failed" }).where(ownedFact(v0.factId, reviewConceptOwner(advancedReviewId)));
+        await fencedTransaction(db, (tx) => tx.update(factsTable).set({ visualConceptStatus: "failed" }).where(ownedFact(v0.factId, reviewConceptOwner(advancedReviewId))));
       } catch (statusErr) {
         logger.error(
           { err: statusErr, reviewId: advancedReviewId, versionId },
@@ -487,7 +491,8 @@ export const enrichmentJobHandler: JobHandler = {
 
 /** Register the enrichment queue with the shared async-jobs worker. */
 export function registerEnrichmentJobHandlers(): void {
-  registerJobHandler("enrichment", enrichmentJobHandler);
+  // Execution limit (Issue #1000): two classifier calls, each up to 3 tries of 120 s (about 12 min), then database work, plus margin.
+  registerJobHandler("enrichment", enrichmentJobHandler, { executionLimitMs: 20 * 60_000 });
 }
 
 // Exported for callers (the routes file consumes the registerer + this helper).

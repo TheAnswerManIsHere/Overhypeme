@@ -44,7 +44,8 @@ export const WORKER_INSTANCE_ID: string = randomUUID();
  * release identifier.
  *
  * `1` = claims and processes jobs, finalizing on row id alone.
- * `2` (Phase 3a) = honors a lease fence on every finalize.
+ * `2` (Phase 3a, Issue #1000 increment 1) = claims under a renewed lease and
+ *     honors the lease fence on every finalize and fenced effect.
  *
  * Bumped **by hand** only when the protocol changes. Deriving it from a release
  * identifier would be wrong in both directions: every deploy changes the
@@ -54,7 +55,7 @@ export const WORKER_INSTANCE_ID: string = randomUUID();
  * is *does this worker honor the fence*, which is a property of the code, not of
  * when it shipped — two different releases of the same phase must compare equal.
  */
-export const WORKER_PROTOCOL_VERSION = 1;
+export const WORKER_PROTOCOL_VERSION = 2;
 
 const DEFAULT_HEARTBEAT_TTL_MINUTES = 15;
 

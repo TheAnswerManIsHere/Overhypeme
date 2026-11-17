@@ -272,7 +272,7 @@ async function inventoryWithin(
 
   const jobRows = await rows(sql`
     SELECT queue, status, count(*) AS n FROM async_jobs
-    WHERE status IN ('pending', 'processing') GROUP BY queue, status ORDER BY queue, status`);
+    WHERE status IN ('pending', 'recovering', 'processing') GROUP BY queue, status ORDER BY queue, status`);
   const nonTerminalJobs = {
     total: jobRows.reduce((s, r) => s + Number(r.n), 0),
     byQueueAndStatus: tally(jobRows, (r) => `${r.queue}/${r.status}`),

@@ -18,12 +18,21 @@ import {
 /** Steady cadence. Never a timeout: a legitimately long job may run for an hour. */
 const POLL_INTERVAL_MS = 5_000;
 
-type DisplayStatus = "pending" | "processing" | "done" | "failed" | "skipped" | "abandoned_no_retry";
+type DisplayStatus =
+  | "pending"
+  | "recovering"
+  | "processing"
+  | "done"
+  | "failed"
+  | "skipped"
+  | "abandoned_no_retry";
 
 interface QueueRow {
   queue: string;
   lane: string | null;
   pending: number;
+  /** Taken back from a server that stopped mid-run (Issue #1000). */
+  recovering: number;
   processing: number;
   done: number;
   failed: number;
@@ -84,6 +93,9 @@ function formatAge(seconds: number | null): string {
 function DisplayStatusBadge({ status, skipReason }: { status: DisplayStatus; skipReason: string | null }) {
   const map: Record<DisplayStatus, { icon: typeof CheckCircle2; label: string; className: string }> = {
     pending: { icon: Clock, label: "Queued", className: "text-muted-foreground" },
+    // A job its server stopped in the middle of, taken back and waiting for a
+    // worker that can pick it up again (Issue #1000).
+    recovering: { icon: Clock, label: "Picking back up", className: "text-amber-600" },
     processing: { icon: Loader2, label: "Working", className: "text-blue-500" },
     done: { icon: CheckCircle2, label: "Done", className: "text-green-600" },
     failed: { icon: XCircle, label: "Failed", className: "text-destructive" },
@@ -94,7 +106,8 @@ function DisplayStatusBadge({ status, skipReason }: { status: DisplayStatus; ski
     // happen.
     abandoned_no_retry: { icon: MinusCircle, label: "Failed — no more retries", className: "text-destructive" },
   };
-  const { icon: Icon, label, className } = map[status];
+  // An unknown status (a newer server than this page) still renders, as itself.
+  const { icon: Icon, label, className } = map[status] ?? { icon: Clock, label: String(status), className: "text-muted-foreground" };
   return (
     <span className={`inline-flex items-center gap-1 text-xs font-medium ${className}`}>
       <Icon className={`w-3.5 h-3.5 shrink-0 ${status === "processing" ? "animate-spin" : ""}`} />
@@ -249,7 +262,7 @@ export default function AdminQueueHealth() {
 
   const stalledLanes = data.lanes.filter((l) => l.stalled);
   const busyQueues = data.queues.filter(
-    (q) => q.pending > 0 || q.processing > 0 || q.failed > 0 || q.abandonedNoRetry > 0,
+    (q) => q.pending > 0 || (q.recovering ?? 0) > 0 || q.processing > 0 || q.failed > 0 || q.abandonedNoRetry > 0,
   );
 
   return (
@@ -331,7 +344,7 @@ export default function AdminQueueHealth() {
                     )}
                     <span className="font-mono text-xs shrink-0">{q.queue}</span>
                     <span className="text-xs text-muted-foreground truncate">
-                      {q.pending} queued · {q.processing} working · {q.done} done · {q.failed} failed
+                      {q.pending} queued · {(q.recovering ?? 0) > 0 ? `${q.recovering} picking back up · ` : ""}{q.processing} working · {q.done} done · {q.failed} failed
                       {q.skipped > 0 ? ` · ${q.skipped} skipped` : ""}
                       {/* Same wording as the per-item badge, and for the same reason: this
                           also counts a terminalFailure() that gave up after SOME retries, not

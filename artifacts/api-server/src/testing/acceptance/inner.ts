@@ -125,7 +125,7 @@ async function pinRestoredSnapshot(databaseUrl: string): Promise<Record<string, 
   try {
     const { rowCount: jobsMadeTerminal } = await client.query(
       `UPDATE async_jobs SET status = 'failed', last_error = 'restored with a snapshot; made terminal before the acceptance journeys', updated_at = now()
-       WHERE status IN ('pending', 'processing')`,
+       WHERE status IN ('pending', 'recovering', 'processing')`,
     );
     return { jobsMadeTerminal };
   } finally {

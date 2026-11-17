@@ -69,6 +69,7 @@ import {
   terminalFailure,
 } from "./asyncJobs";
 import { logger } from "./logger";
+import { assertJobOwnership, fencedTransaction } from "./jobFence";
 
 export const FACT_VISUAL_CONCEPTS_QUEUE = "fact_visual_concepts";
 
@@ -337,7 +338,7 @@ export async function runVisualConceptsJob(
     // clears its own "pending", if it still owns it, so nothing reads as
     // working with no job behind it.
     if (live) {
-      await db.update(factsTable).set({ visualConceptStatus: null }).where(ownedFact(factId, owner));
+      await fencedTransaction(db, (tx) => tx.update(factsTable).set({ visualConceptStatus: null }).where(ownedFact(factId, owner)));
     }
     logger.info({ reviewId, factId, reason: resolved.reason }, "[fact_visual_concepts] no-op (unresolvable cycle)");
     return { ok: true };
@@ -368,6 +369,7 @@ export async function runVisualConceptsJob(
 
   let result;
   try {
+    await assertJobOwnership(); // paid AI call: only while this run owns its job (Issue #1000)
     result = await deps.generate({
       factText: cycle.factText,
       enrichment: cycle.enrichment,
@@ -383,7 +385,7 @@ export async function runVisualConceptsJob(
     // fact would stay "pending" with Regenerate and approval refusing it.
     // Anything else keeps the queue's retries with status "pending".
     if (err instanceof VisualConceptsEngineUnusable) {
-      await db.update(factsTable).set({ visualConceptStatus: "failed" }).where(ownedFact(factId, owner));
+      await fencedTransaction(db, (tx) => tx.update(factsTable).set({ visualConceptStatus: "failed" }).where(ownedFact(factId, owner)));
       return terminalFailure("gag_writer_engine_unusable", err.message);
     }
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -405,11 +407,11 @@ export async function runVisualConceptsJob(
   // Written only while this generation still owns the fact: a live draft
   // that finishes after a review opened, or a review's generation after a
   // later one took over, writes nothing (plan section F).
-  const written = await db
+  const written = await fencedTransaction(db, (tx) => tx
     .update(factsTable)
     .set({ visualConceptCandidates: blob, visualConceptStatus: "ok" })
     .where(ownedFact(factId, owner))
-    .returning({ id: factsTable.id });
+    .returning({ id: factsTable.id }));
   if (written.length === 0) {
     logger.info({ reviewId, factId, owner }, "[fact_visual_concepts] result dropped (another generation owns the fact)");
   }
@@ -445,7 +447,8 @@ export const factVisualConceptsJobHandler: JobHandler = {
 };
 
 export function registerVisualConceptJobHandlers(): void {
-  registerJobHandler(FACT_VISUAL_CONCEPTS_QUEUE, factVisualConceptsJobHandler);
+  // Execution limit (Issue #1000): two 360 s concept calls and their name conversions, each up to 3 tries (about 39 min), plus margin.
+  registerJobHandler(FACT_VISUAL_CONCEPTS_QUEUE, factVisualConceptsJobHandler, { executionLimitMs: 45 * 60_000 });
 }
 
 // ─── Normalized review-detail response (server-computed `current`) ───────────

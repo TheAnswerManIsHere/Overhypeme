@@ -328,7 +328,8 @@ export const emailJobHandler: JobHandler = {
  * from index.ts before `runAsyncJobsWorker()` starts.
  */
 export function registerEmailHandler(): void {
-  registerJobHandler("email", emailJobHandler);
+  // Execution limit (Issue #1000): one send with no idempotency key yet; kept at the old 30-minute reclaim until increment 3 adds one.
+  registerJobHandler("email", emailJobHandler, { executionLimitMs: 30 * 60_000 });
 }
 
 /**

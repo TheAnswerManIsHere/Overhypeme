@@ -34,8 +34,8 @@ import {
 } from "./asyncJobs";
 import { heartbeatTtlMinutes } from "./workerHeartbeats";
 
-/** The four raw statuses `async_jobs.status` can hold. */
-export const RAW_JOB_STATUSES = ["pending", "processing", "done", "failed"] as const;
+/** The five raw statuses `async_jobs.status` can hold (`recovering`: Issue #1000). */
+export const RAW_JOB_STATUSES = ["pending", "recovering", "processing", "done", "failed"] as const;
 export type RawJobStatus = (typeof RAW_JOB_STATUSES)[number];
 
 /**
@@ -50,6 +50,9 @@ export type RawJobStatus = (typeof RAW_JOB_STATUSES)[number];
  */
 export const DISPLAY_STATUSES = [
   "pending",
+  // Taken back from a server that stopped mid-run; waits for a worker that can
+  // recover it (plan PLAN_JOB_RESUME.md §A).
+  "recovering",
   "processing",
   "done",
   "failed",
@@ -199,6 +202,8 @@ export interface QueueHealth {
   queue: string;
   lane: JobLane | null;
   pending: number;
+  /** Taken back from a stopped server, waiting for a worker that can recover it. */
+  recovering: number;
   processing: number;
   done: number;
   failed: number;
@@ -291,6 +296,7 @@ export async function queueHealth(
       queue,
       lane: laneOfQueue(queue) ?? null,
       pending: pendingRow?.total ?? 0,
+      recovering: of("recovering")?.total ?? 0,
       processing: of("processing")?.total ?? 0,
       done: of("done")?.total ?? 0,
       failed: of("failed")?.total ?? 0,
@@ -372,13 +378,13 @@ export async function queueHealthJobs(
       })
       .from(asyncJobsTable)
       .where(where)
-      // Active work (pending/processing) sorts ahead of terminal rows, THEN by
+      // Active work (pending/recovering/processing) sorts ahead of terminal rows, THEN by
       // recency within each group. Without this, a queue with heavy terminal
       // volume can crowd every pending/processing row out of a bounded page —
       // the aggregate would report queued work while the drill-down shows
       // none of it, since both are the exact same work at different altitudes.
       .orderBy(sql`
-        case when ${asyncJobsTable.status} in ('pending', 'processing') then 0 else 1 end,
+        case when ${asyncJobsTable.status} in ('pending', 'recovering', 'processing') then 0 else 1 end,
         ${asyncJobsTable.updatedAt} desc,
         ${asyncJobsTable.id} desc
       `)

@@ -49,6 +49,7 @@ import { foldGagContent } from "./fold";
 import { extractCast, type CastExtractionInput, type CastExtractionResult } from "./castExtraction";
 import { factCharacterLabels } from "./castPreparation";
 import { logger } from "../logger";
+import { assertJobOwnership, fencedTransaction } from "../jobFence";
 
 export const GAG_FOLD_QUEUE = "gag_fold";
 
@@ -210,6 +211,8 @@ export async function runGagFold(payload: unknown, deps: GagFoldDeps = realDeps)
 
   // The paid step, outside any lock: the cast of the scene this version will hold.
   let cast: CastExtractionResult;
+  // Paid: only while this run still owns its job (Issue #1000).
+  await assertJobOwnership();
   try {
     cast = await deps.extract({
       scene: target.coreSceneOverride ?? "",
@@ -227,7 +230,8 @@ export async function runGagFold(payload: unknown, deps: GagFoldDeps = realDeps)
     ? withoutCast(target)
     : { ...target, cast: cast.cast, castExtraction: cast.extraction };
 
-  return db.transaction(async (tx): Promise<HandlerResult> => {
+  // Fenced (Issue #1000): the fold lands only while this run owns its job.
+  return fencedTransaction(db, async (tx): Promise<HandlerResult> => {
     await tx.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, gag.factId)).for("update").limit(1);
     const [locked] = await tx.select().from(factGagsTable).where(eq(factGagsTable.id, p.gagId)).for("update").limit(1);
     if (!locked || locked.removedAt) return skipped("gag_removed");
@@ -287,5 +291,6 @@ export async function revertGagFold(archiveId: number): Promise<"reverted" | "ch
 export const gagFoldHandler: JobHandler = { run: (payload: unknown) => runGagFold(payload) };
 
 export function registerGagFoldHandler(): void {
-  registerJobHandler(GAG_FOLD_QUEUE, gagFoldHandler);
+  // Execution limit (Issue #1000): one cast call, up to 3 tries of 30 s (about 1.5 min), then database work, plus margin.
+  registerJobHandler(GAG_FOLD_QUEUE, gagFoldHandler, { executionLimitMs: 10 * 60_000 });
 }

@@ -41,7 +41,7 @@ import { TABLE_CLASSIFICATION } from "@workspace/db/table-classification";
 import { adminValues, advanceSequences, exhaustedSequences, orphans, publicTables } from "./databaseChecks.js";
 import { pgCommandConnection, withoutPassword } from "./pgCommandLine.js";
 
-const NON_TERMINAL = "status IN ('pending', 'processing')";
+const NON_TERMINAL = "status IN ('pending', 'recovering', 'processing')";
 
 /** The same server and connection settings, another database; the test runner's schema options dropped. */
 export function databaseUrl(serverUrl: string, database: string): string {

@@ -12,6 +12,8 @@ import { registerJobHandler, enqueueJob, type JobHandler, type HandlerResult } f
 import { sendFactBackToReview, SendBackToReviewError, type SendBackToReviewErrorCode } from "./sendBackToReview";
 import { findInFlightRefreshCandidate } from "./enrichmentVersioning";
 import { logger } from "./logger";
+import { db } from "@workspace/db";
+import { fencedTransaction, whileOwned } from "./jobFence";
 
 export const FACT_SEND_BACK_QUEUE = "fact_send_back";
 
@@ -49,7 +51,7 @@ export const factSendBackHandler: JobHandler = {
       return { ok: false, error: "fact_send_back: payload missing factId" };
     }
     try {
-      const result = await sendFactBackToReview({ factId: p.factId, adminId: p.adminId ?? null });
+      const result = await whileOwned(() => sendFactBackToReview({ factId: p.factId, adminId: p.adminId ?? null }));
       return {
         ok: true,
         result: { reviewId: result.reviewId, candidateVersionId: result.candidateVersionId, versionNo: result.versionNo },
@@ -98,11 +100,11 @@ export async function recoverInFlightRefresh(factId: number, err: SendBackToRevi
     return { ok: false, error: "Refresh already in progress but candidateVersionId could not be resolved" };
   }
   try {
-    await enqueueJob({
+    await fencedTransaction(db, (tx) => enqueueJob({
       queue: "enrichment",
       payload: { factId, versionId: candidateVersionId },
       dedupeKey: `enrichment:version:${candidateVersionId}`,
-    });
+    }, tx));
     logger.info(
       { factId, candidateVersionId },
       "[fact_send_back] re-enqueued candidate enrichment for in-flight refresh",
@@ -120,5 +122,6 @@ export async function recoverInFlightRefresh(factId: number, err: SendBackToRevi
 export function registerFactSendBackHandler(): void {
   // `fast` lane: pure-DB admin action (no model/image wait) — must stay
   // near-instant regardless of bulk/render backlog.
-  registerJobHandler(FACT_SEND_BACK_QUEUE, factSendBackHandler, { lane: "fast" });
+  // Execution limit (Issue #1000): database only.
+  registerJobHandler(FACT_SEND_BACK_QUEUE, factSendBackHandler, { lane: "fast", executionLimitMs: 5 * 60_000 });
 }
