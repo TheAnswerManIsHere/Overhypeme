@@ -6,7 +6,6 @@ import { usersTable } from "./auth";
 import { factsTable } from "./facts";
 import { imagePromptAttemptsTable } from "./imagePromptAttempts";
 import { promptRecipeVersionsTable } from "./promptRecipes";
-import { factGagsTable } from "./factGags";
 
 /**
  * Launch Phase 8 — the engine comparison (plan
@@ -105,8 +104,12 @@ export const comparisonPanelsTable = pgTable("comparison_panels", {
    * panels prepared earlier, which draw `compiled_prompt` as before.
    */
   compileArgs: jsonb("compile_args"),
-  /** The one gag this panel draws (migration 0143); null on panels made earlier, which drew the fact's default gag. */
-  gagId: bigint("gag_id", { mode: "number" }).references(() => factGagsTable.id, { onDelete: "set null" }),
+  /**
+   * The one gag this panel draws (migration 0143); null on panels made
+   * earlier, which drew the fact's default gag. A record with no foreign key:
+   * the panel freezes the gag's content itself.
+   */
+  gagId: bigint("gag_id", { mode: "number" }),
   /** The direct side's frozen cast extraction: { cast, unboundSpeakers, extraction } (migration 0143). */
   gagCast: jsonb("gag_cast"),
   /** The gag's bubbles as the panel expects them, rendered for its subject: { type, speaker, text }[] (migration 0143). */
