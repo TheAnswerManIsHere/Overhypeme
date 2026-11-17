@@ -56,6 +56,15 @@ export interface DrawRequest {
   input: Record<string, unknown>;
   /** Records the request before it is submitted (fenced); returns the row id. */
   record: () => Promise<number>;
+  /**
+   * Whether a finished answer holds what the caller needs (for a render, an
+   * image URL). An answer that does not is a finished failure: the row goes
+   * FAILED, so the retry draws anew rather than collecting it again (plan §C;
+   * PR #1017 round 3).
+   */
+  usable: (data: unknown) => boolean;
+  /** The error a finished-but-unusable answer is reported as. */
+  unusableError: () => Error;
 }
 
 const realSleep = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
@@ -124,7 +133,12 @@ function isDefiniteStatusAnswer(err: unknown): boolean {
  * open only when nothing was learned about the request: a read with no HTTP
  * answer, a status read that was refused or timed out, a wait that ran out.
  */
-async function collect(row: { id: number; endpointId: string }, vendorRequestId: string, written: VendorRequestStatus | null): Promise<DrawOutcome> {
+async function collect(
+  row: { id: number; endpointId: string },
+  vendorRequestId: string,
+  written: VendorRequestStatus | null,
+  check: Pick<DrawRequest, "usable" | "unusableError">,
+): Promise<DrawOutcome> {
   const transport = renderFal();
   const signal = jobAbortSignal();
   const deadline = now() + COLLECT_TIMEOUT_MS;
@@ -153,10 +167,9 @@ async function collect(row: { id: number; endpointId: string }, vendorRequestId:
       // A word fal does not document: nothing is learned, so nothing is closed.
       return fail(new Error(`fal request ${vendorRequestId} reported status ${status}; it will be read again on retry`));
     }
+    let data: unknown;
     try {
-      const data = await transport.result(row.endpointId, vendorRequestId);
-      await setStatus(row.id, "COMPLETED");
-      return { ok: true, data, generationRequestId: row.id, vendorRequestId };
+      data = await transport.result(row.endpointId, vendorRequestId);
     } catch (err) {
       rethrowIfOwnershipLost(err);
       // Finished: an HTTP answer here is the model's own outcome. No answer at
@@ -164,6 +177,14 @@ async function collect(row: { id: number; endpointId: string }, vendorRequestId:
       if (httpStatusOf(err) != null) await setStatus(row.id, "FAILED");
       return fail(err);
     }
+    // A finished answer with nothing usable in it is the request's outcome
+    // too: never COMPLETED, so it is never collected again.
+    if (!check.usable(data)) {
+      await setStatus(row.id, "FAILED");
+      return fail(check.unusableError());
+    }
+    await setStatus(row.id, "COMPLETED");
+    return { ok: true, data, generationRequestId: row.id, vendorRequestId };
   }
 }
 
@@ -182,7 +203,7 @@ async function submitAndCollect(req: DrawRequest): Promise<DrawOutcome> {
     return { ok: false, err, generationRequestId: rowId, vendorRequestId: null };
   }
   await setStatus(rowId, "IN_QUEUE", vendorRequestId);
-  return collect({ id: rowId, endpointId: req.endpointId }, vendorRequestId, "IN_QUEUE");
+  return collect({ id: rowId, endpointId: req.endpointId }, vendorRequestId, "IN_QUEUE", req);
 }
 
 /**
@@ -257,7 +278,7 @@ export async function drawOrCollect(req: DrawRequest): Promise<DrawOutcome> {
     if (!vendorRequestId) vendorRequestId = await recoverLostReceipt(prior);
     if (vendorRequestId) {
       logger.info({ attemptId: req.attemptId, generationRequestId: prior.id, vendorRequestId }, "[renderRecovery] resuming a request already submitted; nothing new is paid for");
-      return collect(prior, vendorRequestId, prior.vendorStatus ?? null);
+      return collect(prior, vendorRequestId, prior.vendorStatus ?? null, req);
     }
   }
   return submitAndCollect(req);

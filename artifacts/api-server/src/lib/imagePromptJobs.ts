@@ -453,6 +453,8 @@ export const imageGenerationHandler: JobHandler = {
       attemptId: p.attemptId,
       endpointId: engine.endpointId,
       input: falInput,
+      usable: (data) => Boolean(extractFirstImageUrl(data)),
+      unusableError: () => new Error("fal response missing image url"),
       record: async () => {
         // The picture is paid: check this run still owns its job immediately
         // before recording and submitting it (plan §A).

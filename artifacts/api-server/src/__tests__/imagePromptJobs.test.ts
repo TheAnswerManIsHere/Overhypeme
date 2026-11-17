@@ -910,6 +910,44 @@ describe("image_generation — a resumed render collects what was already paid f
     });
   }
 
+  it("a fresh request fal finishes with no picture is failed, and the retry draws anew, once (PR #1017 round 3)", async () => {
+    const { attemptId } = await planned();
+    const fake = fakeFal();
+    let firstSubmit = true;
+    const submitOf = fake.transport.submit.bind(fake.transport);
+    fake.transport.submit = async (endpoint, input, signal) => {
+      const id = await submitOf(endpoint, input, signal);
+      if (firstSubmit) {
+        firstSubmit = false;
+        fake.requests.set(id, { statuses: ["COMPLETED"], answer: { images: [] } });
+      }
+      return id;
+    };
+    const first = await run(attemptId, fake);
+    assert.equal(first.ok, false);
+    assert.notEqual((first as { retryable?: boolean }).retryable, false, "the existing retry applies");
+    assert.match((first as { error: string }).error, /missing image url/);
+    const [row] = await db.select().from(imageGenerationRequestsTable).where(eq(imageGenerationRequestsTable.attemptId, attemptId));
+    assert.equal(row!.vendorStatus, "FAILED", "an empty answer is never collected again");
+    const second = await run(attemptId, fake);
+    assert.equal(second.ok, true, JSON.stringify(second));
+    assert.equal(fake.submits.length, 2, "two submissions in total, as before");
+  });
+
+  it("a recorded request that finished with no picture: no submit on that run, failed, then exactly one submit on the next", async () => {
+    const { attemptId, factId } = await planned();
+    const fake = fakeFal();
+    const prior = await earlierRequest(attemptId, factId, { vendorRequestId: "v-empty", vendorStatus: "IN_PROGRESS" });
+    fake.requests.set("v-empty", { statuses: ["COMPLETED"], answer: { images: [] } });
+    const first = await run(attemptId, fake);
+    assert.equal(first.ok, false);
+    assert.deepEqual(fake.submits, []);
+    assert.equal((await requestRow(prior.id)).vendorStatus, "FAILED");
+    const second = await run(attemptId, fake);
+    assert.equal(second.ok, true, JSON.stringify(second));
+    assert.equal(fake.submits.length, 1);
+  });
+
   it("a result read that got no HTTP answer leaves the request open, and the retry collects it with no new submit", async () => {
     const { attemptId, factId } = await planned();
     const fake = fakeFal();
