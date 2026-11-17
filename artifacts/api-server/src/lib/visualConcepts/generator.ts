@@ -41,6 +41,7 @@ import {
   type VisualStrategyBubble,
 } from "@workspace/api-zod";
 import { validateVisualStrategyOverridePersistence } from "../imagePrompt/promptBudget";
+import { VIOLENCE_RULE } from "../imagePrompt/violenceRule";
 import { callUtilityLLM } from "../utilityLLM";
 import { renderPersonalized, stripSubjectNameSemanticEntities } from "../renderCanonical";
 import { hasNoLikelySubjectReference, tokenizePlainTextToTemplate } from "../factTokenizer";
@@ -241,12 +242,9 @@ export function buildVisualConceptsUserMessage(input: GenerateVisualConceptsInpu
     `${plain(e.primaryArchetype)}, ${plain(e.subtype)}${guide?.principle ? `. ${guide.principle}` : ""}`,
   ]);
 
-  const v = input.renderPolicy.violence;
-  const violence = v.mode === "suppress"
-    ? "Do not depict violence, injury, death or bodies; show consequences symbolically or through damage to things."
-    : v.mode === "soften"
-      ? "Reduce explicit violent consequences; no graphic injury and no visible death."
-      : `Allowed (${v.intensity}): when the fact calls for violence or its aftermath, show it clearly, without gratuitous gore.`;
+  // The one violence rule, word for word: the sentence every picture's
+  // prompt carries (plan PLAN_GAG_DIRECT_RENDER.md, B), so the writer and the
+  // engine are held to the same limit.
   const t = input.renderPolicy.supportingText;
   const text = t.mode === "forbid"
     ? "No signs, labels or other words in the picture. Speech and thought bubbles are still allowed."
@@ -255,7 +253,7 @@ export function buildVisualConceptsUserMessage(input: GenerateVisualConceptsInpu
       : "Short signs, labels and sound-effect words are allowed where they are visual evidence.";
   blocks.push([
     "LIMITS:",
-    `Violence: ${violence}${v.guidance ? ` Moderator guidance: ${v.guidance}` : ""}`,
+    `Violence: ${VIOLENCE_RULE}`,
     `Text in the picture: ${text}${t.guidance ? ` Moderator guidance: ${t.guidance}` : ""}`,
   ]);
 

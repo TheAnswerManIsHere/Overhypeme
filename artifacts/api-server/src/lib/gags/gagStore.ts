@@ -37,6 +37,7 @@ import {
   missingKinds,
   overrideValuesEqual,
   castIsCurrent,
+  retiredArtDirectionFields,
   unboundSpeakers,
   type GagExampleKind,
   visualPromptStrategyOverrideSchema,
@@ -60,6 +61,7 @@ export type GagErrorCode =
   | "CONTENT_INVALID"
   | "CONTENT_OVER_BUDGET"
   | "SCENE_REQUIRED"
+  | "RETIRED_FIELD"
   | "REFRESH_IN_REVIEW"
   | "REVIEW_NOT_EDITABLE"
   | "RENDER_NOT_APPROVABLE"
@@ -164,6 +166,18 @@ export function validateGagContent(raw: unknown): GagContent {
   const content = parsed.data as VisualPromptStrategyOverride;
   if (!content.coreSceneOverride?.trim()) {
     throw new GagError("SCENE_REQUIRED", "A gag needs a scene: describe the picture.", 400);
+  }
+  // The eleven "More art direction" fields left the accepted input at the
+  // switch (plan PLAN_GAG_DIRECT_RENDER.md, D; Q1: 1): nothing reads them, so
+  // a value sent in one is refused rather than stored unseen.
+  const retired = retiredArtDirectionFields(content);
+  if (retired.length) {
+    throw new GagError(
+      "RETIRED_FIELD",
+      `These fields are no longer part of a gag; write what they said into the scene: ${retired.join(", ")}.`,
+      400,
+      { fields: retired },
+    );
   }
   assertGagCast(content);
   const budget = validateVisualStrategyOverridePersistence(content);

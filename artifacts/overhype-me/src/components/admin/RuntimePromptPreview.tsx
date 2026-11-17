@@ -4,11 +4,12 @@ import { Beaker, ChevronDown, ChevronRight, Copy, Check, RefreshCw, AlertTriangl
 /**
  * Prompt Diagnostics (Phase 2C).
  *
- * Calls the REAL Phase 2 image-prompt service via POST /api/admin/image-prompt/preview
- * and shows the engine-neutral `visualPlan` + Nano Banana `compiledPrompt` an
- * image engine would actually receive under the chosen test assumptions — a
- * RECOMPUTE-under-current-assumptions diagnostic, distinct from the frozen
- * per-render prompt shown on each visual-review tile.
+ * Calls the REAL image-prompt service via POST /api/admin/image-prompt/preview
+ * and shows the `compiledPrompt` an image engine would actually receive under
+ * the chosen test assumptions. Since the switch (plan
+ * PLAN_GAG_DIRECT_RENDER.md, D) the prompt is compiled straight from the
+ * chosen gag with no model call, so this is exactly the prompt a render of
+ * the same gag, photo, look and controls sends.
  *
  * Diagnostics-only: this panel no longer triggers renders (the Step-2 visual-
  * review scenario grid owns rendering now). It is read-only / non-mutating: it
@@ -59,19 +60,9 @@ interface PromptWarning {
   severity: "info" | "warning";
 }
 
-interface PlannerProvenance {
-  configuredEngineId: string;
-  resolvedEngineId: string | null;
-  model: string | null;
-  reasoningEffort: string | null;
-  timeoutMs: number;
-  fallbackReason: string | null;
-}
-
 interface CompiledPromptDiagnostics {
   removedPlannerProseSentences?: RemovedProseSentence[];
   warnings?: PromptWarning[];
-  plannerProvenance?: PlannerProvenance;
 }
 
 interface CompiledPrompt {
@@ -99,9 +90,7 @@ interface PreviewResponse {
     aspectRatio: string;
     negativeSpacePreference: string | null;
   };
-  visualPlan: Record<string, unknown>;
   compiledPrompt: CompiledPrompt;
-  debug: Record<string, unknown>;
   attemptId?: number;
 }
 
@@ -109,28 +98,6 @@ const inputCls =
   "w-full px-2 py-1.5 text-xs bg-muted/30 border border-border rounded-sm focus:outline-none focus:border-primary";
 const labelCls = "block text-[10px] font-semibold text-muted-foreground mb-1 uppercase tracking-wide";
 
-// Visual-plan keys surfaced in the debug view, ordered to mirror the engine
-// prompt's labeled contract (core scene → subject → environment → lighting),
-// then identity/treatment, then the audit echoes. visualGoal/visualApproach are
-// INTERNAL reasoning (not in the engine prompt) but kept here for admin insight.
-const VISUAL_PLAN_KEYS = [
-  "sceneConcept",
-  "coreScene",
-  "subjectDetails",
-  "environment",
-  "lightingAndStyle",
-  "keyVisualElements",
-  "visualGoal",
-  "visualApproach",
-  "subjectTreatment",
-  "secondaryCharacters",
-  "composition",
-  "supportingTextPolicy",
-  "semanticEntitiesUsed",
-  "culturalReferencesUsed",
-  "subjectFactCompatibility",
-  "debugNotes",
-];
 
 // Per-section status → label + Tailwind classes for the breakdown chips.
 const STATUS_META: Record<PromptSectionStatus, { label: string; cls: string }> = {
@@ -242,7 +209,6 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender, onPr
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<PreviewResponse | null>(null);
-  const [showVisualPlan, setShowVisualPlan] = useState(false);
   const [showBreakdown, setShowBreakdown] = useState(true);
   const [copied, setCopied] = useState(false);
 
@@ -722,31 +688,6 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender, onPr
                 </div>
               )}
 
-              {/* Planner provenance — which LLM engine planned this prompt. */}
-              {result.compiledPrompt.diagnostics?.plannerProvenance && (
-                result.compiledPrompt.diagnostics.plannerProvenance.fallbackReason ? (
-                  <div
-                    className="flex items-start gap-2 rounded-sm border border-amber-500/40 bg-amber-500/10 px-3 py-2"
-                    data-testid="rpp-planner-fallback"
-                  >
-                    <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                    <p className="text-[11px] text-amber-700 dark:text-amber-300 leading-snug">
-                      FALLBACK: planned by the default utility LLM — the configured visual-planner engine
-                      ({result.compiledPrompt.diagnostics.plannerProvenance.configuredEngineId}) was not used
-                      ({result.compiledPrompt.diagnostics.plannerProvenance.fallbackReason}).
-                    </p>
-                  </div>
-                ) : (
-                  <p className="text-[10px] text-muted-foreground" data-testid="rpp-planner-provenance">
-                    Planned by {result.compiledPrompt.diagnostics.plannerProvenance.model}
-                    {" "}({result.compiledPrompt.diagnostics.plannerProvenance.resolvedEngineId}
-                    {result.compiledPrompt.diagnostics.plannerProvenance.reasoningEffort
-                      ? `, effort ${result.compiledPrompt.diagnostics.plannerProvenance.reasoningEffort}`
-                      : ""})
-                  </p>
-                )
-              )}
-
               {/* Compiler diagnostics — stripped prose clauses + tone warnings */}
               {result.compiledPrompt.diagnostics &&
                 ((result.compiledPrompt.diagnostics.warnings?.length ?? 0) > 0 ||
@@ -817,33 +758,6 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender, onPr
                 )}
               </div>
 
-              {/* Visual plan debug */}
-              <div>
-                <button
-                  type="button"
-                  onClick={() => setShowVisualPlan((v) => !v)}
-                  className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide"
-                  data-testid="rpp-toggle-visual-plan"
-                >
-                  {showVisualPlan ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                  Visual plan debug
-                </button>
-                {showVisualPlan && (
-                  <pre
-                    className="mt-1 whitespace-pre-wrap font-mono text-[10px] text-foreground bg-background border border-border rounded-sm p-2 max-h-96 overflow-auto"
-                    data-testid="rpp-visual-plan"
-                  >
-                    {JSON.stringify(
-                      {
-                        ...Object.fromEntries(VISUAL_PLAN_KEYS.map((k) => [k, result.visualPlan[k]])),
-                        debug: result.debug,
-                      },
-                      null,
-                      2,
-                    )}
-                  </pre>
-                )}
-              </div>
             </div>
           )}
         </div>

@@ -49,11 +49,11 @@ export function guardModalOverlayDismiss(target: Element | null | undefined): vo
 
 const EFFECT_BADGE: Record<FieldEffectClass, { text: string; cls: string }> = {
   "render-affecting": {
-    text: "Feeds the render pipeline",
+    text: "Reaches the picture prompt",
     cls: "bg-primary/10 text-primary",
   },
   "advisory-only": {
-    text: "Advisory to the AI planner — no fixed directive",
+    text: "Read by the gag writer — never reaches the picture",
     cls: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
   },
   "gating-only": {

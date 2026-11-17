@@ -468,7 +468,7 @@ function assembleSections(
   return { prompt, breakdown, overflowBy };
 }
 
-type LabelKey = "coreScene" | "identityReference" | "subjectBinding" | "subjectRealization" | "roleDetails" | "subjectDetails" | "requiredVisualDetails" | "environment" | "additionalDetails" | "bubbles" | "composition" | "lighting" | "engineNotes" | "renderStyle" | "strictConstraints";
+type LabelKey = "coreScene" | "identityReference" | "additionalDetails" | "bubbles" | "composition" | "engineNotes" | "renderStyle" | "strictConstraints";
 
 /**
  * The moderator scene is verbatim (warn, never strip): compiler-owned

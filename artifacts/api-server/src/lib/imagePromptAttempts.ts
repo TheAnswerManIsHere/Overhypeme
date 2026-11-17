@@ -213,6 +213,14 @@ export async function buildAndEnqueueImagePromptAttempt(
   });
 }
 
+/**
+ * The typed terminal code a render ends with when the picture engine refused
+ * it under its content policy (and its photoreal fallback, where there is one,
+ * refused too): never retried, and shown on the test-render tile with the
+ * engine's reason (plan PLAN_GAG_DIRECT_RENDER.md, B; Issue #980).
+ */
+export const ENGINE_REFUSED_ERROR_CODE = "vendor_content_refused";
+
 export type RenderStatus = "pending" | "prompt_ready" | "image_ready" | "failed" | "blocked";
 
 /**

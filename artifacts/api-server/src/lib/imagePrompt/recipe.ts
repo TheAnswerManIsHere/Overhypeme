@@ -7,19 +7,22 @@
  *   the same for every fact (David, 2026-11-12: *"I should be able to modify
  *   any section of the prompt that is compiled into the final prompt … for
  *   this exercise, we're looking only at global elements."*). The approved
- *   gag, the moderator's sections, the planner's scene description and a look
- *   style's own text never come from a recipe.
- * - **The baseline is today's wording, exactly.** `BASELINE_RECIPE` holds the
- *   strings the compiler emitted before recipes existed; compiling with it
- *   reproduces the captured corpus (`__tests__/fixtures/compilerBaseline.json`)
- *   byte for byte.
+ *   gag (scene, bubbles, cast) and a look style's own text never come from a
+ *   recipe.
+ * - **Only what the direct compile emits** (plan
+ *   `docs/plans/PLAN_GAG_DIRECT_RENDER.md`, D). The pieces only the removed
+ *   planned sections used (subject binding, the do-not constraints, framing
+ *   and key elements, the in-scene text policies, the violence lines) are no
+ *   longer offered; a stored version that holds them keeps them, and they are
+ *   ignored (`recipeFrom` reads only known pieces). Violence is the one
+ *   sentence `VIOLENCE_RULE`, which no recipe rewords or drops.
  * - **Templates with named slots.** `{subject}`, `{side}` and the like are
  *   filled by the compiler; a version that drops a slot its piece requires,
  *   or names one it does not have, is refused (`recipeProblems`).
  * - **When a line appears is the compiler's.** A recipe changes a line's
  *   wording, never the condition under which it is emitted.
- * - **Policy pieces** (the overlay-text and incidental-text rules and the
- *   violence lines) can be reworded but never emptied, and promoting a change
+ * - **Policy pieces** (the overlay-text and incidental-text rules) can be
+ *   reworded but never emptied, and promoting a change
  *   to one asks a second confirmation (David, 2026-11-12).
  * - **Section order is fixed**; the section labels are pieces, and so is the
  *   shape: how a section is written (`shape.section`) and what sits between
@@ -32,7 +35,7 @@
  *   baseline.
  */
 
-export type RecipeGroup = "labels" | "shape" | "identity" | "binding" | "constraints" | "composition" | "style" | "text" | "violence" | "bubbles" | "notes";
+export type RecipeGroup = "labels" | "shape" | "identity" | "composition" | "style" | "text" | "bubbles" | "notes";
 
 export interface RecipePieceDef {
   key: string;
@@ -59,16 +62,9 @@ export const RECIPE_PIECES = [
   // ── Section labels (order fixed; the words are editable) ───────────────────
   label("coreScene", "CORE SCENE"),
   label("identityReference", "IDENTITY & REFERENCE", "On a picture made from a supplied photo."),
-  label("subjectBinding", "SUBJECT BINDING"),
-  label("subjectRealization", "SUBJECT REALIZATION"),
-  label("roleDetails", "ROLE DETAILS"),
-  label("subjectDetails", "SUBJECT DETAILS"),
-  label("requiredVisualDetails", "REQUIRED VISUAL DETAILS"),
-  label("environment", "ENVIRONMENT"),
   label("additionalDetails", "ADDITIONAL DETAILS"),
   label("bubbles", "SPEECH & THOUGHT BUBBLES"),
   label("composition", "COMPOSITION"),
-  label("lighting", "LIGHTING"),
   label("engineNotes", "ENGINE NOTES", "Whenever this recipe's engine notes are not empty."),
   label("renderStyle", "RENDER STYLE", "Always."),
   label("strictConstraints", "STRICT CONSTRAINTS"),
@@ -97,90 +93,11 @@ export const RECIPE_PIECES = [
     text: "Image-to-image edit using the reference image as the visual identity source for the uploaded pet. The uploaded pet visually represents the named subject in the fact. Preserve the pet's recognizable visual identity. Do not replace the pet with a human.",
   },
 
-  // ── Subject binding ─────────────────────────────────────────────────────────
-  {
-    key: "binding.agePerson", label: "Binding: a person shown at another age", group: "binding",
-    when: "From a person's photo, on a fact that changes their age.", slots: ["subject", "targetState", "noun"],
-    text: "The reference person is {subject}. {subject} is {targetState} in this scene. Render exactly one {subject}. The transformed {noun} IS {subject} — the same person de-aged or aged, not a second person.",
-  },
-  {
-    key: "binding.ageOther", label: "Binding: a subject shown at another age (no person's photo)", group: "binding",
-    when: "Without a person's photo, on a fact that changes the subject's age.", slots: ["subject", "targetState"],
-    text: "{subject} is {targetState} in this scene — the same subject rendered at that life stage, not a different individual. Render exactly one {subject}.",
-  },
-  {
-    key: "binding.singlePerson", label: "Binding: exactly one of the person", group: "binding",
-    when: "From a person's photo, on a fact marked \"avoid a duplicate subject\".", slots: ["subject"],
-    text: "The reference person is {subject}. Render exactly one {subject} — a single instance.",
-  },
-  {
-    key: "binding.singleOther", label: "Binding: exactly one of the subject", group: "binding",
-    when: "Without a person's photo, on a fact marked \"avoid a duplicate subject\".", slots: ["subject"],
-    text: "Render exactly one {subject} — a single instance.",
-  },
-
-  // ── Constraints ─────────────────────────────────────────────────────────────
-  {
-    key: "constraints.agePerson", label: "Do-nots: a person shown at another age", group: "constraints",
-    when: "From a person's photo, on a fact that changes their age.", slots: ["subject", "noun"],
-    text: "Do not render the adult reference person separately. Do not add a second, generic {noun}. Do not show both an adult {subject} and a {noun} in the same frame.",
-  },
-  {
-    key: "constraints.ageOther", label: "Do-nots: a subject shown at another age", group: "constraints",
-    when: "Without a person's photo, on a fact that changes the subject's age.", slots: ["noun"],
-    text: "Do not add a separate, generic {noun}. Do not show the subject at two ages or life stages in the same frame.",
-  },
-  {
-    key: "constraints.duplicate", label: "Do-not: duplicates of the subject", group: "constraints",
-    when: "On a fact marked \"avoid a duplicate subject\".", slots: ["subject"],
-    text: "Do not duplicate, clone, or mirror {subject} anywhere in the frame.",
-  },
-  {
-    key: "constraints.roles", label: "Keep each character's role", group: "constraints",
-    when: "When the scene has other characters.", slots: ["subject"],
-    text: "Keep each named character in their stated visual role; do not swap {subject}'s role with a secondary character.",
-  },
-  {
-    key: "constraints.soleAgent", label: "Only the subject performs the action", group: "constraints",
-    when: "When the scene has other characters and the subject is doing the action.", slots: ["subject"],
-    text: "Only {subject} performs the central action; secondary characters do not take it over.",
-  },
-  {
-    key: "constraints.activeAction", label: "Show the subject acting", group: "constraints",
-    when: "When the subject is doing the action.", slots: ["subject"],
-    text: "Show {subject} actively performing the central action, not posing or passively present afterward.",
-  },
-  {
-    key: "constraints.crowd", label: "The crowd supports the subject", group: "constraints",
-    when: "On a fact with a crowd reacting.", slots: ["subject"],
-    text: "Keep {subject} the visual focal point; the crowd reacts to and supports {subject} rather than replacing {subject} as the subject of the image.",
-  },
-  {
-    key: "constraints.causal", label: "Show cause and effect together", group: "constraints",
-    when: "On a fact whose joke is a cause and its effect.", slots: [],
-    text: "Show the cause and its effect together in the frame so the causal link is legible, not an unrelated aftermath.",
-  },
-  {
-    key: "constraints.reversal", label: "The subject plays the reversed role", group: "constraints",
-    when: "On a fact where the subject and the object swap roles.", slots: ["subject"],
-    text: "Realize {subject} through the reversed role the scene requires; do not render {subject} as a separate, uninvolved bystander beside the object.",
-  },
-
   // ── Composition ─────────────────────────────────────────────────────────────
   {
-    key: "composition.framing", label: "Framing and camera", group: "composition",
-    when: "When the scene plan names a framing or camera.", slots: ["framing"],
-    text: "Composition: {framing}.",
-  },
-  {
     key: "composition.captionSpace", label: "Room for the caption", group: "composition",
-    when: "When the scene plan leaves room for the caption on one side.", slots: ["side"],
+    when: "When the render asks for room for the caption on one side.", slots: ["side"],
     text: "Leave clean negative space at the {side} of the frame for the caption overlay.",
-  },
-  {
-    key: "composition.keyElements", label: "Elements that must be visible", group: "composition",
-    when: "When the scene plan names key elements the scene description has not covered.", slots: ["elements"],
-    text: "Ensure these elements are clearly visible: {elements}.",
   },
 
   // ── Style ───────────────────────────────────────────────────────────────────
@@ -200,48 +117,6 @@ export const RECIPE_PIECES = [
     key: "text.incidental", label: "Background text stays unreadable", group: "text", policy: true,
     when: "Always.", slots: [],
     text: "Keep incidental background text non-readable; render only the specific in-scene text requested by these instructions.",
-  },
-  {
-    key: "text.literal", label: "Words the scene shows", group: "text",
-    when: "When the scene plan puts specific words in the picture.", slots: ["items"],
-    text: "Render this in-scene text clearly: {items}.",
-  },
-  {
-    key: "text.graphic", label: "Things drawn rather than written", group: "text",
-    when: "When the scene plan names graphics that must not become words.", slots: ["items"],
-    text: "Depict these as visuals, not as written words: {items}.",
-  },
-  {
-    key: "text.requireGuided", label: "Text required, with guidance", group: "text",
-    when: "On a fact whose moderator requires text and says what it is.", slots: ["guidance"],
-    text: "SUPPORTING TEXT: Readable in-scene text is required in this scene. Show it clearly: {guidance}.",
-  },
-  {
-    key: "text.require", label: "Text required", group: "text",
-    when: "On a fact whose moderator requires text without saying what.", slots: [],
-    text: "SUPPORTING TEXT: Readable in-scene text is required in this scene; show it clearly.",
-  },
-  {
-    key: "text.forbid", label: "Text avoided", group: "text",
-    when: "On a fact whose moderator forbids in-scene text.", slots: [],
-    text: "Avoid readable in-scene text unless required by a higher-priority instruction.",
-  },
-
-  // ── Violence ────────────────────────────────────────────────────────────────
-  {
-    key: "violence.allow", label: "Violence shown, without gore", group: "violence", policy: true,
-    when: "On a fact that involves violence, unless its moderator softened or suppressed it.", slots: [],
-    text: "When the fact explicitly requires violence, death, weapons, or destruction, depict the action and consequences clearly without gratuitous gore.",
-  },
-  {
-    key: "violence.soften", label: "Violence softened", group: "violence", policy: true,
-    when: "On a fact whose moderator softened violence.", slots: [],
-    text: "Soften violent consequences; avoid graphic injury and visible death unless explicitly required by a higher-priority instruction.",
-  },
-  {
-    key: "violence.suppress", label: "Violence not shown", group: "violence", policy: true,
-    when: "On a fact whose moderator suppressed violence.", slots: [],
-    text: "Do not depict violence, injury, or death directly; represent consequences symbolically or through environmental damage.",
   },
 
   // ── Speech and thought balloons ─────────────────────────────────────────────
@@ -314,24 +189,16 @@ const FAMILY_BASELINES: Readonly<Record<string, Partial<RecipePieces>>> = {
     "shape.join": "\n\n",
     "identity.person": "Edit image 1. The person in image 1 is the subject of this picture. Keep their identity and likeness exactly: face, facial features, skin tone, hairstyle and distinctive characteristics, so they are unmistakably the same person. Their apparent age, body proportions, clothing, pose and life stage change only where the scene requires it.",
     "identity.pet": "Edit image 1. The pet in image 1 is the named subject of the fact. Keep its recognizable identity exactly: markings, colours, shape and distinctive features. Do not replace the pet with a human.",
-    "composition.framing": "{framing}.",
     "style.photoreal": "A photorealistic image, like a real photograph: true-to-life materials and textures, natural detail and believable lighting.",
-    "text.literal": "Render this in-scene text exactly as quoted, clearly and legibly, each item exactly once: {items}.",
   },
   "nano-banana-2-1": {
     "shape.section": "{body}",
     "shape.join": "\n\n",
     "identity.person": "Create this image using the provided photo as the reference for the person in it. Ensure that their face, facial features, skin tone and distinctive characteristics remain completely unchanged, so they are unmistakably the same person; their apparent age, body proportions, hair, clothing and life stage change only where the scene requires it.",
     "identity.pet": "Create this image using the provided photo as the reference for its subject, a pet that is the named subject of the fact. Ensure that its markings, colours, shape and distinctive features remain completely unchanged, and keep it the animal it is.",
-    "composition.framing": "{framing}.",
     "style.photoreal": "A photorealistic photograph with true-to-life materials and textures, natural light and realistic optical detail.",
-    "constraints.agePerson": "{subject} appears exactly once in the frame, only as the {noun}: the {noun} and {subject} are the same person.",
-    "constraints.ageOther": "The subject appears exactly once, only at that life stage: the {noun} in the frame is the subject itself.",
-    "constraints.duplicate": "{subject} appears exactly once in the frame, as a single figure.",
-    "constraints.reversal": "Realize {subject} through the reversed role the scene requires, as a participant in it beside the object.",
     "text.overlay": "The picture is a clean, uncaptioned scene: captions are added later, so it carries none of these: {forbidden}.",
     "text.incidental": "Background signs and labels stay softly unreadable; the only legible lettering is the in-scene text these instructions ask for.",
-    "text.forbid": "The scene carries no readable lettering unless a higher-priority instruction asks for it.",
   },
 };
 
@@ -394,8 +261,8 @@ export function recipeProblems(pieces: Record<string, unknown>): string[] {
     if (value.length > RECIPE_PIECE_MAX_CHARS) out.push(`${def.label}: ${value.length} characters, over the ${RECIPE_PIECE_MAX_CHARS} allowed`);
     if (def.policy && !value.trim()) out.push(`${def.label}: a policy line can be reworded but not emptied`);
     // A piece that carries the fact's own text (balloon words, required-text
-    // guidance, in-scene words) cannot be emptied: that would drop moderator or
-    // planner content from the prompt, which a recipe may never do.
+    // guidance, in-scene words) cannot be emptied: that would drop the gag's
+    // own content from the prompt, which a recipe may never do.
     if (!value.trim() && def.slots.some((s) => CONTENT_SLOTS.has(s))) out.push(`${def.label}: carries the fact's own text, so it can be reworded but not emptied`);
     if (def.group === "labels" && !value.trim()) out.push(`${def.label}: a section label cannot be empty`);
     if (def.group === "labels" && /[\r\n:]/.test(value)) out.push(`${def.label}: a section label is one line with no colon`);

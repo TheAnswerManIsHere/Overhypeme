@@ -63,8 +63,12 @@ export const CANDIDATE_SCENE_MAX_CHARS = 1500;
  * docs/plans/PLAN_THREE_GAGS.md, increment 2), and the input hash covers the
  * same frozen list, so a change to any gag stales the candidates. The locked
  * system prompt is unchanged.
+ * v5: the request's violence limit is the one violence rule
+ * (`VIOLENCE_RULE`, plan docs/plans/PLAN_GAG_DIRECT_RENDER.md, B), word for
+ * word, the sentence every picture's prompt carries; a gag's old violence
+ * override no longer shapes it. The locked system prompt is unchanged.
  */
-export const VISUAL_CONCEPTS_PROMPT_VERSION = 4 as const;
+export const VISUAL_CONCEPTS_PROMPT_VERSION = 5 as const;
 
 /** The approved humor note's length cap (plain prose, never shown to end users). */
 export const HUMOR_NOTE_MAX_CHARS = 1500;

@@ -50,7 +50,7 @@ import { finishAndStore, recordGenerationRequest, setVendorRequestId } from "./p
 import { vendorContext } from "./provenance/vendorContext";
 import { attemptProvenanceContext } from "./provenance/attemptActor";
 import { attemptImageEngineId, ImageEngineRoutingError, resolveImageEngine } from "./imageEngineRouting";
-import { NoPhotoRenderRefusedError } from "./imagePromptAttempts";
+import { ENGINE_REFUSED_ERROR_CODE, NoPhotoRenderRefusedError } from "./imagePromptAttempts";
 import { buildImageRequestSettings, type ImageRequestPurpose, type ImageRequestSettings } from "./imageRequestBuilder";
 import { compileDirect, type DirectCompileArgs } from "./imagePrompt/compilers/nanoBanana2";
 import { directGagInput, DirectGagInputError } from "./imagePrompt/directInput";
@@ -369,7 +369,7 @@ export const imageGenerationHandler: JobHandler = {
         if (priorFallback?.state === "switched") {
           return recordTerminalAttemptFailure(
             p.attemptId,
-            "vendor_content_refused",
+            ENGINE_REFUSED_ERROR_CODE,
             bothRefusedMessage(priorFallback, engine.label, refusal),
           );
         }
@@ -392,7 +392,7 @@ export const imageGenerationHandler: JobHandler = {
         // engine for hours behind a "Drawing…" tile (David, Q17 option 1).
         return recordTerminalAttemptFailure(
           p.attemptId,
-          "vendor_content_refused",
+          ENGINE_REFUSED_ERROR_CODE,
           falSubmitErrorMessage(err, engine.label),
         );
       }

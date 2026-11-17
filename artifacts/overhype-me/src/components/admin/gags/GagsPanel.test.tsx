@@ -136,6 +136,25 @@ describe("GagsPanel", () => {
     expect((within(card).getByTestId("visual-concept-textarea") as HTMLTextAreaElement).value).toBe(long);
   });
 
+  it("says the engine refused a picture, with its reason, and never as a plain failure to retry (plan PLAN_GAG_DIRECT_RENDER.md, B)", async () => {
+    const renders: PerKind<RenderScenarioCard | null> = {
+      male: card("i2i_male_default", { status: "failed", imageUrl: null, engineRefused: true, message: "fal submit failed: GPT Image 2.6 refused this picture under its content policy (violence)" }),
+      female: card("i2i_female_default", { status: "failed", imageUrl: null, engineRefused: false, message: "timed out" }),
+      pet: null,
+    };
+    stubFetch(view([
+      gag({ id: 2, slot: 1, state: "new", availableToUsers: false, approvedContent: null, approvedAt: null, pendingContent: scene("{NAME} juggles planets."), renders }),
+    ], { isActive: false }));
+    render(<GagsPanel factId={5} reviewId={77} rendersEnabled subjectNames={[]} />);
+    const tiles = await screen.findAllByTestId("gag-render");
+    const refused = within(tiles[0]!).getByTestId("gag-render-status");
+    expect(refused.textContent).toMatch(/^The engine refused this picture: .*content policy \(violence\)\. Change the scene, then draw it again\.$/);
+    expect(refused.getAttribute("data-refused")).toBe("true");
+    const failed = within(tiles[1]!).getByTestId("gag-render-status");
+    expect(failed.textContent).toBe("Failed: timed out. Draw it again.");
+    expect(failed.getAttribute("data-refused")).toBeNull();
+  });
+
   it("shows a male, a female and a pet tile; approving a finished render sends its attempt; an approved one says so", async () => {
     const renders: PerKind<RenderScenarioCard | null> = {
       male: card("i2i_male_default", { latestAttemptId: 901 }),

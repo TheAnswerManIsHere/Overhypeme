@@ -493,7 +493,7 @@ export default function ComparisonResults() {
                 {Object.entries(data.costs).sort(([a], [b]) => a.localeCompare(b)).map(([engine, c]) => (
                   <li key={engine}>{engine} ({c.family}) · {c.calls} call{c.calls === 1 ? "" : "s"} · {usd(c.boundUsd)}</li>
                 ))}
-                <li>planner preparation · {usd(data.preparationBoundUsd)}</li>
+                <li>preparation (the planner, on sets made before it was removed) · {usd(data.preparationBoundUsd)}</li>
                 <li className="font-bold">total, at most · {usd(totalCost)}</li>
               </ul>
               <p className="text-[11px] text-muted-foreground">Each call is recorded at the most it could cost; fal's dashboard has what was billed.</p>

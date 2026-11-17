@@ -12,7 +12,6 @@ import { AlertTriangle, Check, ChevronLeft, ChevronRight, Loader2, Search, Spark
 import {
   EVALUATION_CANDIDATE_FAMILIES,
   EVALUATION_PHOTO_TYPES,
-  hasExtraArtDirection,
   type EvaluationSelection,
 } from "@workspace/api-zod";
 import { readError } from "@/components/admin/readError";
@@ -32,9 +31,8 @@ interface FactHit { id: number; text: string }
 interface Estimate { panels: number; images: number; totalBoundUsd: number | null; typicalUsd: number | null; preparationBoundUsd: number | null; renderBoundUsd: number; warning: boolean; refusal: string | null }
 interface RecipeFamily { family: string; liveVersionId: number | null; versions: Array<{ id: number; number: number; note: string }> }
 
-const STEPS = ["Facts", "Engines", "Photo types", "Looks", "Describe and generate"] as const;
-const PROMPT_STEPS = ["Facts", "Wording", "Photo types", "Look", "Describe and generate"] as const;
-const PATH_STEPS = ["Facts", "Engines and gags", "Photo types", "Looks", "Describe and generate"] as const;
+const STEPS = ["Facts and gags", "Engines", "Photo types", "Looks", "Describe and generate"] as const;
+const PROMPT_STEPS = ["Facts and gags", "Wording", "Photo types", "Look", "Describe and generate"] as const;
 
 const usd = (n: number | null) => (n == null ? "unknown" : `$${n.toFixed(2)}`);
 const newToken = () => (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -45,14 +43,14 @@ const newToken = () => (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Ma
  * wizard renders nothing.
  */
 export function EvaluationWizard({ kind, active = true, onGenerated }: { kind: EvaluationKind; active?: boolean; onGenerated: (setId: number) => void }) {
-  const steps = kind === "prompt" ? PROMPT_STEPS : kind === "path" ? PATH_STEPS : STEPS;
+  const steps = kind === "prompt" ? PROMPT_STEPS : STEPS;
   const [step, setStep] = useState(0);
   const [facts, setFacts] = useState<FactHit[]>([]);
   const [engines, setEngines] = useState<Set<string>>(new Set());
   const [tuneFamily, setTuneFamily] = useState<string>(EVALUATION_CANDIDATE_FAMILIES[0]);
   /** Chosen versions, "0" being the baseline. */
   const [versions, setVersions] = useState<Set<string>>(new Set());
-  /** A path evaluation's chosen gags, by fact. */
+  /** The chosen gags, by fact: every evaluation draws the gags it is given (plan PLAN_GAG_DIRECT_RENDER.md, Q11: 1). */
   const [gagChoice, setGagChoice] = useState<Record<number, number[]>>({});
   const [photoTypes, setPhotoTypes] = useState<Set<string>>(new Set(["i2i_male_default"]));
   const [looks, setLooks] = useState<Set<string>>(new Set(["none"]));
@@ -96,29 +94,29 @@ export function EvaluationWizard({ kind, active = true, onGenerated }: { kind: E
 
   const selection: EvaluationSelection | null = useMemo(() => {
     if (!facts.length || !photoTypes.size || !looks.size) return null;
+    if (facts.some((f) => !(gagChoice[f.id]?.length))) return null;
+    const gagIds = facts.flatMap((f) => gagChoice[f.id] ?? []);
     if (kind === "prompt") {
       if (versions.size < 2 || versions.size > 4 || looks.size !== 1) return null;
       return {
         kind, factIds: facts.map((f) => f.id), engineFamilies: [tuneFamily as (typeof EVALUATION_CANDIDATE_FAMILIES)[number]],
         scenarioKeys: EVALUATION_PHOTO_TYPES.filter((t) => photoTypes.has(t.scenarioKey)).map((t) => t.scenarioKey),
-        lookStyleIds: [...looks], recipeVersionIds: [...versions].map((v) => (v === "0" ? null : Number(v))),
+        lookStyleIds: [...looks], recipeVersionIds: [...versions].map((v) => (v === "0" ? null : Number(v))), gagIds,
       };
     }
     if (!engines.size) return null;
-    const gagIds = facts.flatMap((f) => gagChoice[f.id] ?? []);
-    if (kind === "path" && facts.some((f) => !(gagChoice[f.id]?.length))) return null;
     return {
       kind, factIds: facts.map((f) => f.id),
       engineFamilies: EVALUATION_CANDIDATE_FAMILIES.filter((f) => engines.has(f)),
       scenarioKeys: EVALUATION_PHOTO_TYPES.filter((t) => photoTypes.has(t.scenarioKey)).map((t) => t.scenarioKey),
       lookStyleIds: [...looks],
-      ...(kind === "path" ? { gagIds } : {}),
+      gagIds,
     };
   }, [kind, facts, engines, tuneFamily, versions, photoTypes, looks, gagChoice]);
 
   const stepValid = [
-    facts.length > 0,
-    kind === "prompt" ? versions.size >= 2 && versions.size <= 4 : engines.size > 0 && (kind !== "path" || facts.every((f) => (gagChoice[f.id]?.length ?? 0) > 0)),
+    facts.length > 0 && facts.every((f) => (gagChoice[f.id]?.length ?? 0) > 0),
+    kind === "prompt" ? versions.size >= 2 && versions.size <= 4 : engines.size > 0,
     photoTypes.size > 0,
     kind === "prompt" ? looks.size === 1 : looks.size > 0,
     !!selection && description.trim().length > 0,
@@ -205,6 +203,7 @@ export function EvaluationWizard({ kind, active = true, onGenerated }: { kind: E
       </ol>
 
       {step === 0 && <FactPicker chosen={facts} onChange={setFacts} />}
+      {step === 0 && facts.length > 0 && <GagPicker facts={facts} chosen={gagChoice} onChange={setGagChoice} />}
 
       {step === 1 && kind !== "prompt" && (
         <fieldset className="space-y-1" data-testid="wizard-engines">
@@ -217,8 +216,6 @@ export function EvaluationWizard({ kind, active = true, onGenerated }: { kind: E
           ))}
         </fieldset>
       )}
-
-      {step === 1 && kind === "path" && <GagPicker facts={facts} chosen={gagChoice} onChange={setGagChoice} />}
 
       {step === 1 && kind === "prompt" && (
         <div className="space-y-2" data-testid="wizard-wording">
@@ -279,7 +276,7 @@ export function EvaluationWizard({ kind, active = true, onGenerated }: { kind: E
           </label>
           {selection && (
             <p className="text-sm text-foreground" data-testid="wizard-count">
-              {kind === "path" ? `${selection.gagIds?.length ?? 0} gag${selection.gagIds?.length === 1 ? "" : "s"}` : `${facts.length} fact${facts.length === 1 ? "" : "s"}`} × {kind === "prompt" ? `${versions.size} wordings` : `${engines.size} engine${engines.size === 1 ? "" : "s"}`}{kind === "path" ? " × 2 ways (planner, direct)" : ""} × {photoTypes.size} photo type{photoTypes.size === 1 ? "" : "s"} × {looks.size} look{looks.size === 1 ? "" : "s"}
+              {`${selection.gagIds?.length ?? 0} gag${selection.gagIds?.length === 1 ? "" : "s"}`} × {kind === "prompt" ? `${versions.size} wordings` : `${engines.size} engine${engines.size === 1 ? "" : "s"}`} × {photoTypes.size} photo type{photoTypes.size === 1 ? "" : "s"} × {looks.size} look{looks.size === 1 ? "" : "s"}
               {estimate ? <> = <strong>{estimate.images} images</strong>, <span data-testid="wizard-typical">usually about <strong>{usd(estimate.typicalUsd)}</strong></span>, at most <strong>{usd(estimate.totalBoundUsd)}</strong> (scenes {usd(estimate.preparationBoundUsd)}, pictures {usd(estimate.renderBoundUsd)})</> : <> = <Loader2 className="inline w-3 h-3 animate-spin" /></>}
             </p>
           )}
@@ -375,14 +372,12 @@ interface GagChoiceRow {
   isDefault: boolean;
   /** Only a saved change, never approved: a draft would be drawn. */
   unapproved: boolean;
-  /** Values in the old "More art direction" fields: the planner reads them, the direct path does not (build report on Issue #987). */
-  extraArtDirection: boolean;
 }
 
 /**
- * A path evaluation's gags (plan PLAN_GAG_DIRECT_RENDER.md, A): every live gag
- * of each chosen fact, its default ticked, so one fact's two gags can each be
- * drawn. A gag is drawn from its approved version, else its saved change.
+ * An evaluation's gags (plan PLAN_GAG_DIRECT_RENDER.md, Q11: 1): every live
+ * gag of each chosen fact, its default ticked, so one fact's two gags can each
+ * be drawn. A gag is drawn from its approved version, else its saved change.
  */
 function GagPicker({ facts, chosen, onChange }: { facts: FactHit[]; chosen: Record<number, number[]>; onChange: Dispatch<SetStateAction<Record<number, number[]>>> }) {
   const [byFact, setByFact] = useState<Record<number, GagChoiceRow[] | "error">>({});
@@ -403,7 +398,6 @@ function GagPicker({ facts, chosen, onChange }: { facts: FactHit[]; chosen: Reco
             bubbles: content!.bubbles.length,
             isDefault: g.isDefault,
             unapproved: g.approvedContent == null,
-            extraArtDirection: hasExtraArtDirection(content!),
           }))
           .sort((a, b) => a.slot - b.slot);
         setByFact((m) => ({ ...m, [f.id]: rows }));
@@ -443,12 +437,6 @@ function GagPicker({ facts, chosen, onChange }: { facts: FactHit[]; chosen: Reco
                   {g.unapproved && (
                     <span className="ml-1 text-[11px] font-semibold text-amber-700 dark:text-amber-300" data-testid={`wizard-gag-unapproved-${g.id}`}>
                       · unapproved draft
-                    </span>
-                  )}
-                  {g.extraArtDirection && (
-                    <span className="ml-1 text-[11px] font-semibold text-amber-700 dark:text-amber-300" data-testid={`wizard-gag-extras-${g.id}`}
-                      title="This gag has values in the old extra art-direction fields. The planner reads them and the direct path does not, so a difference may come from them, not the path. The fold moves them into the scene.">
-                      · has extra art direction (not folded yet)
                     </span>
                   )}
                 </span>

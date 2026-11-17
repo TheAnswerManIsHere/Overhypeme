@@ -19,10 +19,11 @@ function tabFromUrl(): Tab {
   return tab === "prompts" || tab === "paths" ? tab : "models";
 }
 
-const TABS: Array<{ id: Tab; label: string; kind: EvaluationKind; blurb: string }> = [
-  { id: "models", label: "Evaluate Models", kind: "engine", blurb: "Draw the same facts with several engines and judge them blind, to choose which engine draws best." },
-  { id: "prompts", label: "Evaluate Prompts", kind: "prompt", blurb: "Draw the same facts on one engine with different prompt wordings and judge them blind, then promote the winner." },
-  { id: "paths", label: "Planner vs. Direct", kind: "path", blurb: "Draw each chosen gag twice on each engine, once through today's planner and once straight from the gag, and judge them blind. Results are shown per case, so you can see where the direct path holds up and where it does not." },
+const TABS: Array<{ id: Tab; label: string; kind: EvaluationKind; blurb: string; canCreate: boolean }> = [
+  { id: "models", label: "Evaluate Models", kind: "engine", blurb: "Draw the same facts with several engines and judge them blind, to choose which engine draws best.", canCreate: true },
+  { id: "prompts", label: "Evaluate Prompts", kind: "prompt", blurb: "Draw the same facts on one engine with different prompt wordings and judge them blind, then promote the winner.", canCreate: true },
+  // No new ones are made: the planner was removed (plan PLAN_GAG_DIRECT_RENDER.md, D); the finished ones stay readable.
+  { id: "paths", label: "Planner vs. Direct", kind: "path", blurb: "The finished planner-versus-direct comparisons. No new ones are made: the render planner has been removed, so every picture is now drawn straight from its gag.", canCreate: false },
 ];
 
 export default function EvalDashboard() {
@@ -67,7 +68,7 @@ export default function EvalDashboard() {
           {/* Both tabs stay mounted for the page visit: each keeps its own draft and request token, and each list keeps polling its own kind. */}
           {TABS.map((t) => (
             <div key={t.id} className="space-y-4">
-              <EvaluationWizard kind={t.kind} active={tab === t.id} onGenerated={() => setRefresh((n) => n + 1)} />
+              {t.canCreate && <EvaluationWizard kind={t.kind} active={tab === t.id} onGenerated={() => setRefresh((n) => n + 1)} />}
               <EvaluationsList kind={t.kind} active={tab === t.id} refreshKey={refresh} />
             </div>
           ))}
