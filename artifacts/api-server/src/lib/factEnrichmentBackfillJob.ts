@@ -19,7 +19,7 @@ import { isEnrichmentAdminEdited } from "./taxonomyHealth";
 import { renderCanonical } from "./renderCanonical";
 import { charactersOverrideOnly } from "./factCharacters";
 import { logger } from "./logger";
-import { assertJobOwnership, whileOwned } from "./jobFence";
+import { assertJobOwnership, fencedTransaction } from "./jobFence";
 
 export const FACT_ENRICHMENT_BACKFILL_QUEUE = "fact_enrichment_backfill";
 
@@ -121,7 +121,7 @@ export async function runFactEnrichmentBackfill(
  * call survives too. Gags live in fact_gags and are not touched.
  */
 export async function writeBulkReenrichKeepingCharacterCorrection(factId: number, aiDerived: FactEnrichment): Promise<void> {
-  await whileOwned(() => db.transaction(async (tx) => {
+  await fencedTransaction(db, async (tx) => {
     const [locked] = await tx
       .select({ enrichmentOverrides: factsTable.enrichmentOverrides })
       .from(factsTable)
@@ -131,7 +131,7 @@ export async function writeBulkReenrichKeepingCharacterCorrection(factId: number
     const kept = charactersOverrideOnly((locked?.enrichmentOverrides ?? {}) as EnrichmentOverrides);
     const { columns } = materializeEnrichment({ aiDerived, overrides: kept });
     await tx.update(factsTable).set(columns).where(eq(factsTable.id, factId));
-  }));
+  });
 }
 
 export function registerFactEnrichmentBackfillHandler(): void {

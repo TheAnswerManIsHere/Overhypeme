@@ -34,7 +34,7 @@ import { recordOverrideHistory } from "./enrichmentOverrideHistory";
 import { hashFactText } from "./enrichmentVersioning";
 import { currentProcessingSignatureFromConfig } from "./processingSignature";
 import { enqueueVisualConceptsForReview } from "./visualConceptJobs";
-import { assertJobOwnership, whileOwned } from "./jobFence";
+import { assertJobOwnership, fencedTransaction, whileOwned } from "./jobFence";
 import { renderCanonical } from "./renderCanonical";
 import {
   advanceReviewForStagingFactEnrichment,
@@ -101,14 +101,14 @@ async function runEnrichmentForReview(reviewId: number): Promise<HandlerResult> 
     enrichment = await enrichFact({ factText: renderedText });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    await whileOwned(() => db
+    await fencedTransaction(db, (tx) => tx
       .update(pendingReviewsTable)
       .set({ enrichmentStatus: "failed" })
       .where(eq(pendingReviewsTable.id, reviewId)));
     return { ok: false, error: `classify: ${msg}` };
   }
 
-  await whileOwned(() => db
+  await fencedTransaction(db, (tx) => tx
     .update(pendingReviewsTable)
     .set({ enrichment, enrichmentStatus: "ok" })
     .where(eq(pendingReviewsTable.id, reviewId)));
@@ -187,7 +187,7 @@ export async function runEnrichmentForFact(
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    await whileOwned(() => db
+    await fencedTransaction(db, (tx) => tx
       .update(factsTable)
       .set({ enrichmentStatus: "failed" })
       .where(eq(factsTable.id, factId)));
@@ -210,7 +210,7 @@ export async function runEnrichmentForFact(
   // with sendFactBackToReview (which locks the fact first), so the recheck
   // either sees the new candidate (→ discard this stale result) or the
   // send-back waits and seeds its candidate from the freshly-written active.
-  const wrote = await whileOwned(() => db.transaction(async (tx) => {
+  const wrote = await fencedTransaction(db, async (tx) => {
     const [locked] = await tx
       .select({ id: factsTable.id, text: factsTable.text, enrichmentOverrides: factsTable.enrichmentOverrides })
       .from(factsTable)
@@ -271,7 +271,7 @@ export async function runEnrichmentForFact(
       );
     }
     return true;
-  }));
+  });
   if (!wrote) return { ok: true }; // retired as a successful no-op — the new owner (e.g. a refresh cycle) has the fact
 
   // Advance a linked staging review prep_pending → concept_review (Step 2). No-op
@@ -343,7 +343,7 @@ export async function runEnrichmentForCandidateVersion(
     const msg = err instanceof Error ? err.message : String(err);
     // Reflect failure on the live fact's pill; leave the cycle prep_pending so
     // the job retries. Terminal exhaustion → onAbandon marks the cycle failed.
-    await whileOwned(() => db.update(factsTable).set({ enrichmentStatus: "failed" }).where(eq(factsTable.id, v0.factId)));
+    await fencedTransaction(db, (tx) => tx.update(factsTable).set({ enrichmentStatus: "failed" }).where(eq(factsTable.id, v0.factId)));
     return { ok: false, error: `classify: ${msg}` };
   }
 
@@ -351,7 +351,7 @@ export async function runEnrichmentForCandidateVersion(
   // Overrides are re-read under the version-row lock (not the preflight read),
   // so a moderator correction saved during the classifier call survives
   // (PLAN_BUBBLE_SPEAKERS.md, E).
-  const { advancedReviewId } = await whileOwned(() => db.transaction(async (tx): Promise<{ advancedReviewId: number | null }> => {
+  const { advancedReviewId } = await fencedTransaction(db, async (tx): Promise<{ advancedReviewId: number | null }> => {
     const [v1] = await tx
       .select({
         status: factEnrichmentVersionsTable.status,
@@ -399,7 +399,7 @@ export async function runEnrichmentForCandidateVersion(
     // Clear the live fact's "working" pill; facts.* enrichment itself is untouched.
     await tx.update(factsTable).set({ enrichmentStatus: "ok" }).where(eq(factsTable.id, v0.factId));
     return { advancedReviewId: v1.sourceReviewId };
-  }));
+  });
 
   // A refresh cycle lands at Step 2 (concept_review) — NO render prep here.
   // Renders are Step 3 and force-fire only when the moderator approves the visual
@@ -422,7 +422,7 @@ export async function runEnrichmentForCandidateVersion(
         "[refresh] failed to enqueue visual concepts (enrichment kept; status → failed)",
       );
       try {
-        await whileOwned(() => db.update(factsTable).set({ visualConceptStatus: "failed" }).where(ownedFact(v0.factId, reviewConceptOwner(advancedReviewId))));
+        await fencedTransaction(db, (tx) => tx.update(factsTable).set({ visualConceptStatus: "failed" }).where(ownedFact(v0.factId, reviewConceptOwner(advancedReviewId))));
       } catch (statusErr) {
         logger.error(
           { err: statusErr, reviewId: advancedReviewId, versionId },

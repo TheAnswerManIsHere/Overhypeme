@@ -75,11 +75,6 @@ const INVOCATION = new AsyncLocalStorage<JobInvocation>();
 /** Set while a fenced transaction of that invocation holds its job row. */
 const FENCE_HELD = new AsyncLocalStorage<JobInvocation>();
 
-/** The invocation of the job whose handler is running here, if any. */
-export function currentJobInvocation(): JobInvocation | undefined {
-  return INVOCATION.getStore();
-}
-
 /**
  * The running job's abort signal, for a handler's local waits (a vendor poll,
  * a fetch). Fires when the run's effect context is stopped. Undefined outside
@@ -141,9 +136,23 @@ export async function fencedTransaction<T>(
  * not. A no-op outside a job.
  */
 export async function assertJobOwnership(
-  dbInstance: Pick<typeof defaultDb, "transaction"> = defaultDb,
+  dbInstance: Pick<typeof defaultDb, "select"> = defaultDb,
 ): Promise<void> {
-  await fencedTransaction(dbInstance, async () => undefined);
+  const invocation = INVOCATION.getStore();
+  if (!invocation) return;
+  // A read, not a lock: nothing is written here, and the paid call it guards
+  // happens after any lock would have been released anyway.
+  const refuse = (reason: string): never => {
+    invocation.stop(reason);
+    logger.warn({ id: invocation.jobId, queue: invocation.queue, reason }, "[asyncJobs] paid call refused — this run no longer owns its job");
+    throw new JobOwnershipLostError(invocation.jobId, reason);
+  };
+  if (invocation.stopped) refuse(invocation.reason!);
+  const [owned] = await dbInstance
+    .select({ id: asyncJobsTable.id })
+    .from(asyncJobsTable)
+    .where(ownedBy(invocation.jobId, invocation.leaseToken));
+  if (!owned) refuse("lease lost — the claim changed or expired");
 }
 
 /** Run `fn` as the given invocation: its fenced effects are checked against it. */
@@ -156,7 +165,9 @@ export function runAsInvocation<T>(invocation: JobInvocation, fn: () => Promise<
  * reclaim can land) for as long as `fn` runs, even when `fn` writes through the
  * module database rather than a transaction it is handed. Use it around a
  * shared helper a job calls whose writes a second run would also make. Outside
- * a job it simply runs `fn`. Keep `fn` short: it holds the job row.
+ * a job it simply runs `fn`. Keep `fn` short: it holds the job row, and a
+ * second connection while `fn` writes. Prefer `fencedTransaction` with the
+ * transaction passed in wherever the writes can take it.
  */
 export async function whileOwned<T>(fn: () => Promise<T>): Promise<T> {
   if (!INVOCATION.getStore()) return fn();

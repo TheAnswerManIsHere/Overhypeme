@@ -179,10 +179,6 @@ export function registerJobHandler(
   });
 }
 
-/** A registered queue's run settings, or undefined when it is not registered. */
-export function queueSettings(queue: string): Readonly<QueueSettings> | undefined {
-  return SETTINGS_OF_QUEUE.get(queue);
-}
 
 /** Queues currently registered to a given lane. Resolved fresh at each call. */
 export function queuesForLane(lane: JobLane): string[] {
@@ -265,7 +261,6 @@ export {
   JobInvocation,
   JobOwnershipLostError,
   assertJobOwnership,
-  currentJobInvocation,
   fencedTransaction,
   jobAbortSignal,
 } from "./jobFence";
@@ -450,7 +445,7 @@ const intervalEnv = (name: string, fallback: number): number =>
  */
 const ASYNC_JOBS_MAX_CONCURRENCY = Math.max(1, positiveIntEnv("ASYNC_JOBS_MAX_CONCURRENCY", 3));
 
-/** The statuses a finished-for-now (retry, deferral) row goes back to. */
+/** The status a finished-for-now (retried or deferred) row goes back to. */
 function requeueStatus(row: Pick<AsyncJobRow, "recoveryProtocol">): AsyncJobStatus {
   // A row in recovery stays in recovery until it finishes (plan §A): only a
   // worker that can recover it may run it again.
@@ -483,7 +478,8 @@ async function processClaimedJob(
 
   const invocation = new JobInvocation(row.id, row.queue, leaseToken);
   HELD.set(leaseToken, invocation);
-  const limitMs = SETTINGS_OF_QUEUE.get(row.queue)?.executionLimitMs ?? DEFAULT_EXECUTION_LIMIT_MS;
+  // Set at registration with the handler, so present whenever the handler is.
+  const limitMs = SETTINGS_OF_QUEUE.get(row.queue)!.executionLimitMs;
   let limitTimer: NodeJS.Timeout | undefined;
 
   try {
@@ -517,9 +513,9 @@ async function processClaimedJob(
         `${lanePrefix(lane)} job reached its execution limit — effects stopped, scheduling retry`,
       );
       outcome = { ok: false, error: reason };
-      // The handler keeps running in the background until it notices; its
-      // eventual result is discarded, and its effects are refused.
-      void run.catch(() => undefined);
+      // The handler keeps running in the background until it notices (its
+      // abort signal has fired); its eventual result is discarded, and its
+      // effects are refused. `run` never rejects: it catches its own errors.
     } else {
       outcome = raced;
     }
@@ -784,21 +780,24 @@ export async function asyncJobsTick(
   let claimedCount = 0;
   let inFlight = 0;
 
-  const slot = async (): Promise<void> => {
-    while (claimedCount < TICK_CLAIM_LIMIT) {
-      claimedCount++; // reserve before the await, so slots never over-claim
-      let row: AsyncJobRow | null;
-      try {
-        row = await claimOne(dbInstance, now, queues, lane);
-      } catch (err) {
-        claimedCount--;
-        logger.error({ ...laneField(lane), err }, `${lanePrefix(lane)} claim failed`);
-        return;
-      }
-      if (!row) {
-        claimedCount--;
-        return;
-      }
+  /** Claim the next due row, or null when nothing is due or the tick's quota is spent. */
+  const claimNext = async (): Promise<AsyncJobRow | null> => {
+    if (claimedCount >= TICK_CLAIM_LIMIT) return null;
+    claimedCount++; // reserved before the await, so slots never over-claim
+    try {
+      const row = await claimOne(dbInstance, now, queues, lane);
+      if (!row) claimedCount--;
+      return row;
+    } catch (err) {
+      claimedCount--;
+      logger.error({ ...laneField(lane), err }, `${lanePrefix(lane)} claim failed`);
+      return null;
+    }
+  };
+
+  /** Run a claimed row, then keep claiming into this slot until nothing is due. */
+  const runSlot = async (initial: AsyncJobRow | null): Promise<void> => {
+    for (let row = initial; row; row = await claimNext()) {
       // Publish the in-flight count as soon as the claim commits, before the
       // handler is awaited: a wedged tick never completes, so a completion-only
       // write would leave the count at its previous value (normally zero) while
@@ -816,7 +815,14 @@ export async function asyncJobsTick(
     }
   };
 
-  await Promise.all(Array.from({ length: maxConcurrency }, () => slot()));
+  // One claim first: an idle lane then costs one empty claim per tick, not one
+  // per slot. The other slots open only once there is work to share.
+  const first = await claimNext();
+  if (!first) return;
+  await Promise.all([
+    runSlot(first),
+    ...Array.from({ length: maxConcurrency - 1 }, async () => runSlot(await claimNext())),
+  ]);
 }
 
 // ─── Lease renewal and reclaim (plan §A) ────────────────────────────────────
@@ -873,7 +879,7 @@ export async function recoverStuckProcessing(
   dbInstance: Pick<typeof defaultDb, "update">,
   cutoffMinutes = RECOVER_STUCK_CUTOFF_MIN,
 ): Promise<number> {
-  const cutoff = sql`now() - ${sql.raw(`interval '${Math.max(0, Number(cutoffMinutes) || 0)} minutes'`)}`;
+  const cutoff = sql`now() - make_interval(mins => ${cutoffMinutes})`;
   const fastQueues = [...SETTINGS_OF_QUEUE].filter(([, s]) => s.fastReclaim).map(([q]) => q);
 
   const leased = await dbInstance
@@ -890,7 +896,8 @@ export async function recoverStuckProcessing(
       sql`${asyncJobsTable.leaseExpiresAt} <= now()`,
       or(
         fastQueues.length > 0 ? inArray(asyncJobsTable.queue, fastQueues) : sql`false`,
-        sql`COALESCE(${asyncJobsTable.claimedAt}, ${asyncJobsTable.updatedAt}) < ${cutoff}`,
+        // Every leased row was stamped with its claim time at claim.
+        sql`${asyncJobsTable.claimedAt} < ${cutoff}`,
       ),
     ))
     .returning({

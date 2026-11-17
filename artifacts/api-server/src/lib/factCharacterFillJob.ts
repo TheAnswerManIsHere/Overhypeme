@@ -40,7 +40,7 @@ import { materializeEnrichment, resolveFactEnrichmentLLMSettings } from "./factE
 import { extractFactCharacters, withExtractedCharacters } from "./factCharacters";
 import { renderCanonical } from "./renderCanonical";
 import { logger } from "./logger";
-import { assertJobOwnership, whileOwned } from "./jobFence";
+import { assertJobOwnership, fencedTransaction } from "./jobFence";
 
 export const FACT_CHARACTER_FILL_QUEUE = "fact_character_fill";
 
@@ -178,7 +178,7 @@ export async function runFactCharacterFill(
     return { ok: false, error: `character call failed: ${msg}` };
   }
 
-  return whileOwned(() => db.transaction(async (tx): Promise<HandlerResult> => {
+  return fencedTransaction(db, async (tx): Promise<HandlerResult> => {
     if (p.target === "fact") {
       const [lockedFact] = await tx
         .select({
@@ -236,7 +236,7 @@ export async function runFactCharacterFill(
       .set({ enrichment: d.columns.enrichment, enrichmentAiDerived: d.columns.enrichmentAiDerived })
       .where(eq(factEnrichmentVersionsTable.id, p.versionId));
     return { ok: true, result: { target: "candidate", versionId: p.versionId, characters: characters.length } };
-  }));
+  });
 }
 
 export const factCharacterFillHandler: JobHandler = {

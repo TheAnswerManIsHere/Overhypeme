@@ -579,9 +579,9 @@ export function registerImagePromptHandlers(): void {
   // `render` lane: single-item, moderator-watched renders (LLM planner + fal
   // image gen). Isolated so a "test render" never waits behind a bulk backfill.
   // Execution limit (Issue #1000): two planner calls, each up to 3 tries of 180 s (about 18 min), plus margin.
-  registerJobHandler(IMAGE_PROMPT_QUEUE, imagePromptGenerationHandler, { lane: "render" , executionLimitMs: 25 * 60_000 });
+  registerJobHandler(IMAGE_PROMPT_QUEUE, imagePromptGenerationHandler, { lane: "render", executionLimitMs: 25 * 60_000 });
   // Execution limit (Issue #1000): the image wait has no bound of its own; kept at the old 30-minute reclaim until increment 2 collects a submitted picture instead of paying again.
-  registerJobHandler(IMAGE_GENERATION_QUEUE, imageGenerationHandler, { lane: "render" , executionLimitMs: 30 * 60_000 });
+  registerJobHandler(IMAGE_GENERATION_QUEUE, imageGenerationHandler, { lane: "render", executionLimitMs: 30 * 60_000 });
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────

@@ -12,7 +12,8 @@ import { registerJobHandler, enqueueJob, type JobHandler, type HandlerResult } f
 import { sendFactBackToReview, SendBackToReviewError, type SendBackToReviewErrorCode } from "./sendBackToReview";
 import { findInFlightRefreshCandidate } from "./enrichmentVersioning";
 import { logger } from "./logger";
-import { whileOwned } from "./jobFence";
+import { db } from "@workspace/db";
+import { fencedTransaction, whileOwned } from "./jobFence";
 
 export const FACT_SEND_BACK_QUEUE = "fact_send_back";
 
@@ -99,11 +100,11 @@ export async function recoverInFlightRefresh(factId: number, err: SendBackToRevi
     return { ok: false, error: "Refresh already in progress but candidateVersionId could not be resolved" };
   }
   try {
-    await whileOwned(() => enqueueJob({
+    await fencedTransaction(db, (tx) => enqueueJob({
       queue: "enrichment",
       payload: { factId, versionId: candidateVersionId },
       dedupeKey: `enrichment:version:${candidateVersionId}`,
-    }));
+    }, tx));
     logger.info(
       { factId, candidateVersionId },
       "[fact_send_back] re-enqueued candidate enrichment for in-flight refresh",
@@ -122,5 +123,5 @@ export function registerFactSendBackHandler(): void {
   // `fast` lane: pure-DB admin action (no model/image wait) — must stay
   // near-instant regardless of bulk/render backlog.
   // Execution limit (Issue #1000): database only.
-  registerJobHandler(FACT_SEND_BACK_QUEUE, factSendBackHandler, { lane: "fast" , executionLimitMs: 5 * 60_000 });
+  registerJobHandler(FACT_SEND_BACK_QUEUE, factSendBackHandler, { lane: "fast", executionLimitMs: 5 * 60_000 });
 }

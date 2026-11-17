@@ -69,7 +69,7 @@ import {
   terminalFailure,
 } from "./asyncJobs";
 import { logger } from "./logger";
-import { assertJobOwnership, whileOwned } from "./jobFence";
+import { assertJobOwnership, fencedTransaction } from "./jobFence";
 
 export const FACT_VISUAL_CONCEPTS_QUEUE = "fact_visual_concepts";
 
@@ -338,7 +338,7 @@ export async function runVisualConceptsJob(
     // clears its own "pending", if it still owns it, so nothing reads as
     // working with no job behind it.
     if (live) {
-      await whileOwned(() => db.update(factsTable).set({ visualConceptStatus: null }).where(ownedFact(factId, owner)));
+      await fencedTransaction(db, (tx) => tx.update(factsTable).set({ visualConceptStatus: null }).where(ownedFact(factId, owner)));
     }
     logger.info({ reviewId, factId, reason: resolved.reason }, "[fact_visual_concepts] no-op (unresolvable cycle)");
     return { ok: true };
@@ -385,7 +385,7 @@ export async function runVisualConceptsJob(
     // fact would stay "pending" with Regenerate and approval refusing it.
     // Anything else keeps the queue's retries with status "pending".
     if (err instanceof VisualConceptsEngineUnusable) {
-      await whileOwned(() => db.update(factsTable).set({ visualConceptStatus: "failed" }).where(ownedFact(factId, owner)));
+      await fencedTransaction(db, (tx) => tx.update(factsTable).set({ visualConceptStatus: "failed" }).where(ownedFact(factId, owner)));
       return terminalFailure("gag_writer_engine_unusable", err.message);
     }
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -407,7 +407,7 @@ export async function runVisualConceptsJob(
   // Written only while this generation still owns the fact: a live draft
   // that finishes after a review opened, or a review's generation after a
   // later one took over, writes nothing (plan section F).
-  const written = await whileOwned(() => db
+  const written = await fencedTransaction(db, (tx) => tx
     .update(factsTable)
     .set({ visualConceptCandidates: blob, visualConceptStatus: "ok" })
     .where(ownedFact(factId, owner))

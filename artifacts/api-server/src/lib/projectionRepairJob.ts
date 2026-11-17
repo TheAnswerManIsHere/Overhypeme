@@ -44,5 +44,5 @@ export const projectionRepairHandler: JobHandler = {
 export function registerProjectionRepairHandler(): void {
   // `fast` lane: pure-DB projection repair (no model/image wait).
   // Execution limit (Issue #1000): database only.
-  registerJobHandler(PROJECTION_REPAIR_QUEUE, projectionRepairHandler, { lane: "fast" , executionLimitMs: 5 * 60_000 });
+  registerJobHandler(PROJECTION_REPAIR_QUEUE, projectionRepairHandler, { lane: "fast", executionLimitMs: 5 * 60_000 });
 }

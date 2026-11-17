@@ -13,7 +13,7 @@ import { db } from "@workspace/db";
 import { factsTable, type AsyncJobRow } from "@workspace/db/schema";
 import { registerJobHandler, type JobHandler, type HandlerResult } from "./asyncJobs";
 import { logger } from "./logger";
-import { whileOwned } from "./jobFence";
+import { fencedTransaction } from "./jobFence";
 
 export const FACT_AI_MEME_BACKFILL_QUEUE = "fact_ai_meme_backfill";
 
@@ -36,7 +36,7 @@ export async function runFactAiMemeBackfillJob(factId: number): Promise<HandlerR
   if (!factRow) return { ok: false, error: `fact ${factId} not found` };
   const existing = factRow.aiMemeBackfillStatus;
   if (existing !== "ok" && existing !== "failed" && existing !== "skipped") {
-    await whileOwned(() => db.update(factsTable).set({ aiMemeBackfillStatus: "skipped" }).where(eq(factsTable.id, factId)));
+    await fencedTransaction(db, (tx) => tx.update(factsTable).set({ aiMemeBackfillStatus: "skipped" }).where(eq(factsTable.id, factId)));
   }
   logger.info({ factId }, "[fact_ai_meme_backfill] retired: the job ended without generating");
   return { ok: true, result: RETIRED_SKIP_RESULT };
@@ -60,5 +60,5 @@ export const factAiMemeBackfillJobHandler: JobHandler = {
 
 export function registerFactAiMemeBackfillHandler(): void {
   // Execution limit (Issue #1000): database only (retired queue).
-  registerJobHandler(FACT_AI_MEME_BACKFILL_QUEUE, factAiMemeBackfillJobHandler, { lane: "ai_meme_backfill" , executionLimitMs: 5 * 60_000 });
+  registerJobHandler(FACT_AI_MEME_BACKFILL_QUEUE, factAiMemeBackfillJobHandler, { lane: "ai_meme_backfill", executionLimitMs: 5 * 60_000 });
 }
