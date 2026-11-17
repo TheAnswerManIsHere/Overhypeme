@@ -5,7 +5,7 @@
  * Finish opening the results, the prompts wizard from fact search to a
  * wording evaluation, and the tab surviving a reload.
  *
- * Making an evaluation takes paid planner and fal calls, so the evaluation
+ * Making an evaluation takes paid fal calls, so the evaluation
  * API is stubbed here by a small in-memory server. That the server creates
  * and runs an evaluation once, queues each picture when its scene is ready
  * and refuses an early Finish is `evaluations.test.ts`, against the real
@@ -24,6 +24,10 @@ async function stubEvaluations(page: Page): Promise<{ generated: () => unknown[]
   });
   await page.route(/\/api\/admin\/comparison\/eligible-facts/, (route: Route) =>
     route.fulfill({ json: { facts: [{ id: 11, text: "Alex lifts a mountain before breakfast" }], eligibleTotal: 1 } }));
+  // Every evaluation draws the gags it is given (plan PLAN_GAG_DIRECT_RENDER.md,
+  // Q11: 1): the wizard loads each fact's gags and ticks its default.
+  await page.route(/\/api\/admin\/facts\/11\/gags$/, (route: Route) =>
+    route.fulfill({ json: { gags: [{ id: 501, slot: 1, isDefault: true, approvedContent: { coreSceneOverride: "{NAME} lifts a mountain before breakfast.", bubbles: [] }, pendingContent: null }] } }));
   await page.route(/\/api\/admin\/comparison\/evaluations\/estimate$/, (route: Route) =>
     route.fulfill({ json: { panels: 1, images: 2, totalBoundUsd: 0.6, typicalUsd: 0.25, preparationBoundUsd: 0.4, renderBoundUsd: 0.2, warning: false, refusal: null } }));
   await page.route(/\/api\/admin\/comparison\/evaluations\/9\/finish$/, (route: Route) => { finished = true; return route.fulfill({ json: { progress: evaluation() } }); });
@@ -67,6 +71,7 @@ test.describe("Admin · Eval page", () => {
 
     await page.getByTestId("wizard-fact-search").fill("mountain");
     await page.getByTestId("wizard-fact-11").click();
+    await expect(page.getByTestId("wizard-gag-501")).toBeChecked();
     await page.getByTestId("wizard-next").click();
     await page.getByTestId("wizard-engine-gpt-image-2-6").check();
     await page.getByTestId("wizard-engine-nano-banana-2-1").check();
@@ -96,6 +101,7 @@ test.describe("Admin · Eval page", () => {
 
     await page.getByTestId("wizard-fact-search").fill("mountain");
     await page.getByTestId("wizard-fact-11").click();
+    await expect(page.getByTestId("wizard-gag-501")).toBeChecked();
     await page.getByTestId("wizard-next").click();
     await expect(page.getByTestId("wizard-wording")).toBeVisible();
     // The live wording (today's baseline) and the newest version are pre-ticked.
