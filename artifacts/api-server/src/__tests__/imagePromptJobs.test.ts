@@ -680,13 +680,40 @@ describe("image_generation — the photoreal fallback: GPT Image refuses, Nano B
     assert.equal(((await attemptRow(attemptId)).engineFallback as EngineFallbackRecord).resolvedAtHandover, true);
   });
 
-  it("a styled render's content refusal behaves as before: retried, no fallback", async () => {
+  it("a styled render's content refusal ends the render at once, named, with no fallback (Q17 option 1)", async () => {
     const attemptId = await plannedAttempt({ moderation: true, engine: "nano-banana-2-1-edit" });
     const { out, calls } = await draw(attemptId, () => refusal());
     assert.equal(out.ok, false);
-    assert.notEqual((out as { retryable?: boolean }).retryable, false);
+    assert.equal((out as { retryable?: boolean }).retryable, false, "terminal, not retried");
     assert.deepEqual(calls.map((c) => c.endpoint), [NB]);
-    assert.equal((await attemptRow(attemptId)).engineFallback, null);
+    const row = await attemptRow(attemptId);
+    assert.equal(row.engineFallback, null);
+    assert.equal(row.errorCode, "vendor_content_refused");
+    assert.match(row.error ?? "", /refused this picture under its content policy/);
+    assert.equal(buildRenderStatusPayload(row).status, "failed", "the tile reads failed now, not Drawing…");
+  });
+
+  it("a render whose stored input cannot be drawn ends at once, without calling the vendor (Q17 option 1)", async () => {
+    // A photo-based render with no reference photo: every retry would fail the same way.
+    const missingPhoto = await plannedAttempt({ moderation: true });
+    const row0 = await attemptRow(missingPhoto);
+    const { referenceImageUrl: _drop, ...noRef } = row0.compiledPrompt as Record<string, unknown>;
+    await db.update(imagePromptAttemptsTable).set({ compiledPrompt: noRef }).where(eq(imagePromptAttemptsTable.id, missingPhoto));
+    const a = await draw(missingPhoto, () => picture());
+    assert.equal((a.out as { retryable?: boolean }).retryable, false, "terminal");
+    assert.deepEqual(a.calls, [], "no vendor call");
+    const rowA = await attemptRow(missingPhoto);
+    assert.equal(rowA.errorCode, "render_input_invalid");
+    assert.equal(rowA.error, "i2i_missing_reference_url");
+    assert.equal(buildRenderStatusPayload(rowA).status, "failed");
+
+    // An empty stored prompt: the same.
+    const noPrompt = await plannedAttempt({ moderation: true });
+    await db.update(imagePromptAttemptsTable).set({ compiledPrompt: { referenceImageUrl: "https://example.test/reference.png" } }).where(eq(imagePromptAttemptsTable.id, noPrompt));
+    const b = await draw(noPrompt, () => picture());
+    assert.equal((b.out as { retryable?: boolean }).retryable, false);
+    assert.deepEqual(b.calls, []);
+    assert.equal((await attemptRow(noPrompt)).errorCode, "render_input_invalid");
   });
 
   it("when the queue gives up, the last failure is written to the render; a render with a picture is left alone", async () => {

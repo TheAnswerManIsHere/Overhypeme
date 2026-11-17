@@ -56,7 +56,7 @@ import { generateImagePromptPlan, ImagePromptError } from "./imagePrompt/generat
 import { finishAndStore, recordGenerationRequest, setVendorRequestId } from "./provenance/records";
 import { vendorContext } from "./provenance/vendorContext";
 import { attemptProvenanceContext } from "./provenance/attemptActor";
-import { attemptImageEngineId, resolveImageEngine } from "./imageEngineRouting";
+import { attemptImageEngineId, ImageEngineRoutingError, resolveImageEngine } from "./imageEngineRouting";
 import { NoPhotoRenderRefusedError } from "./imagePromptAttempts";
 import { buildImageRequestSettings, type ImageRequestPurpose, type ImageRequestSettings } from "./imageRequestBuilder";
 import { compileForSubjectRenderMode } from "./imagePrompt/compilers/nanoBanana2";
@@ -336,7 +336,9 @@ export const imageGenerationHandler: JobHandler = {
     const compiled = attempt.compiledPrompt as { imagePrompt?: string; prompt?: string; referenceImageUrl?: string };
     const promptText = compiled.imagePrompt ?? compiled.prompt;
     if (!promptText) {
-      return retryRender(p.attemptId, "compiledPrompt has no prompt text");
+      // A stored prompt does not change between runs, so a retry cannot help
+      // (David, Q17 option 1): the render fails now, with its reason.
+      return recordTerminalAttemptFailure(p.attemptId, RENDER_INPUT_INVALID, "compiledPrompt has no prompt text");
     }
 
     const generationMode = generationModeFromSubjectRenderMode(
@@ -345,7 +347,7 @@ export const imageGenerationHandler: JobHandler = {
     // Fail fast + legibly when an i2i render has no reference image, instead of
     // the opaque MissingRequiredParamError buildEngineInput would throw later.
     if (generationMode === "i2i" && !compiled.referenceImageUrl) {
-      return retryRender(p.attemptId, "i2i_missing_reference_url");
+      return recordTerminalAttemptFailure(p.attemptId, RENDER_INPUT_INVALID, "i2i_missing_reference_url");
     }
     // The engine recorded at construction draws the attempt, never today's
     // default: an attempt queued before a default changed still renders
@@ -362,6 +364,11 @@ export const imageGenerationHandler: JobHandler = {
         renderControls.aspectRatio,
       );
     } catch (err) {
+      // An engine that cannot draw this mode stays unable to on every retry;
+      // anything else here (a configuration read) may be transient.
+      if (err instanceof ImageEngineRoutingError) {
+        return recordTerminalAttemptFailure(p.attemptId, RENDER_INPUT_INVALID, err.message);
+      }
       return retryRender(p.attemptId, err instanceof Error ? err.message : String(err));
     }
     await db
@@ -383,7 +390,12 @@ export const imageGenerationHandler: JobHandler = {
     try {
       falInput = buildEngineInput(engine, pipelineParams);
     } catch (err) {
-      return retryRender(p.attemptId, `buildEngineInput failed: ${err instanceof Error ? err.message : String(err)}`);
+      // Built from the stored attempt alone, so it fails the same way every time.
+      return recordTerminalAttemptFailure(
+        p.attemptId,
+        RENDER_INPUT_INVALID,
+        `buildEngineInput failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     // Image tracing: the exact request, its producer and who started it are
@@ -438,7 +450,14 @@ export const imageGenerationHandler: JobHandler = {
           return (await prepareAndSwitchFallback({ ...attempt, engineFallback: record }, record))
             ?? imageGenerationHandler.run(payload, _row);
         }
-        // A styled engine refused: retried as before (plan, Astra round 1, A1).
+        // A styled engine refused, with no fallback to hand over to: the
+        // render ends now with the refusal named, instead of retrying the same
+        // engine for hours behind a "Drawing…" tile (David, Q17 option 1).
+        return recordTerminalAttemptFailure(
+          p.attemptId,
+          "vendor_content_refused",
+          falSubmitErrorMessage(err, engine.label),
+        );
       }
       return retryRender(p.attemptId, falSubmitErrorMessage(err, engine.label));
     }
@@ -682,6 +701,13 @@ async function markAttemptError(attemptId: number, error: string): Promise<void>
  * and re-attempts the write. A terminal queue row can therefore never coexist
  * indefinitely with a `pending`-looking attempt.
  */
+/**
+ * A render whose stored input cannot be drawn: an empty prompt, a missing
+ * reference photo, an engine that cannot draw the mode, or a request that
+ * cannot be built. Every retry would fail the same way (David, Q17 option 1).
+ */
+const RENDER_INPUT_INVALID = "render_input_invalid";
+
 async function recordTerminalAttemptFailure(
   attemptId: number,
   code: string,
