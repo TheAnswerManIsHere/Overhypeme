@@ -33,7 +33,7 @@ import {
 import { resolveImagePromptLLMSettings } from "../imagePrompt/generator";
 import { liveRecipeVersionIds } from "../imagePrompt/recipeStore";
 import { ComparisonLayoutError, deriveComparisonLayout } from "./layout";
-import { cellBoundUsd, panelPreparationBoundUsd, planRun, round4, type PlannerRequestSettings, type RunPlan, type WorkItem } from "./admission";
+import { cellBoundUsd, preparationBoundUsd, planRun, round4, type PlannerRequestSettings, type RunPlan, type WorkItem } from "./admission";
 import { engineById, imageEngines } from "../engineInterpreter";
 import { loadGagsForFacts } from "../gags/resolver";
 import { castCallBoundUsd } from "../gags/castExtraction";
@@ -68,29 +68,14 @@ export async function createComparisonSet(input: ComparisonSetCreate, adminUserI
   }
   if (reasons.length) throw new ComparisonLayoutError(reasons);
 
-  // A path set draws one named gag per panel: each chosen gag on its fact's
-  // panels, and a fact with none chosen its default gag (the lowest live slot
-  // with content), resolved now so every panel records the gag it drew.
+  // A path set draws one named gag per panel, resolved now so every panel
+  // records the gag it drew.
   const kind = input.kind ?? "engine";
-  const gagsByFact = new Map<number, number[]>();
+  let gagsByFact = new Map<number, number[]>();
   if (kind === "path") {
-    const gags = await loadGagsForFacts(input.factIds);
-    const live = new Map<number, { factId: number; slot: number }>();
-    for (const [factId, list] of gags) {
-      for (const g of list) if (!g.removedAt && (g.approvedContent ?? g.pendingContent)) live.set(g.id, { factId, slot: g.slot });
-    }
-    for (const id of input.gagIds ?? []) {
-      const g = live.get(id);
-      if (!g) reasons.push(`gag ${id} is not a live gag of one of the set's facts`);
-      else gagsByFact.set(g.factId, [...(gagsByFact.get(g.factId) ?? []), id]);
-    }
-    for (const factId of input.factIds) {
-      if (gagsByFact.has(factId)) continue;
-      const first = [...live.entries()].filter(([, g]) => g.factId === factId).sort((a, b) => a[1].slot - b[1].slot)[0];
-      if (first) gagsByFact.set(factId, [first[0]]);
-      else reasons.push(`fact ${factId} has no gag to draw`);
-    }
-    if (reasons.length) throw new ComparisonLayoutError(reasons);
+    const resolved = await resolvePathGags(input.factIds, input.gagIds);
+    if (resolved.reasons.length) throw new ComparisonLayoutError(resolved.reasons);
+    gagsByFact = resolved.gagsByFact;
   }
   const panelGags = (factId: number): Array<number | null> => (kind === "path" ? gagsByFact.get(factId)! : [null]);
   const paths: Array<string | null> = kind === "path" ? [...COMPARISON_RENDER_PATHS] : [null];
@@ -151,6 +136,38 @@ export async function createComparisonSet(input: ComparisonSetCreate, adminUserI
     await tx.insert(comparisonCellsTable).values(cells);
     return { setId: set!.id, panels: panels.length, cells: cells.length };
   });
+}
+
+/**
+ * The gags a path set draws, by fact: each chosen gag on its own fact's
+ * panels, and a fact with none chosen its default gag (its lowest live slot
+ * with content). One resolution for set creation and the wizard's estimate,
+ * so what is priced is what is drawn. `reasons` names each gag or fact that
+ * cannot be drawn.
+ */
+export async function resolvePathGags(factIds: number[], gagIds: number[] = []): Promise<{ gagsByFact: Map<number, number[]>; reasons: string[] }> {
+  const reasons: string[] = [];
+  const live = new Map<number, number>();
+  const defaults = new Map<number, number>();
+  for (const [factId, list] of await loadGagsForFacts(factIds)) {
+    // loadGagsForFacts returns only live gags, in slot order.
+    const drawable = list.filter((g) => g.approvedContent ?? g.pendingContent);
+    for (const g of drawable) live.set(g.id, factId);
+    if (drawable[0]) defaults.set(factId, drawable[0].id);
+  }
+  const gagsByFact = new Map<number, number[]>();
+  for (const id of gagIds) {
+    const factId = live.get(id);
+    if (factId == null) reasons.push(`gag ${id} is not a live gag of one of the set's facts`);
+    else gagsByFact.set(factId, [...(gagsByFact.get(factId) ?? []), id]);
+  }
+  for (const factId of factIds) {
+    if (gagsByFact.has(factId)) continue;
+    const first = defaults.get(factId);
+    if (first != null) gagsByFact.set(factId, [first]);
+    else reasons.push(`fact ${factId} has no gag to draw`);
+  }
+  return { gagsByFact, reasons };
 }
 
 export interface ComparisonSetSummary {
@@ -222,13 +239,13 @@ export interface SetRows {
  * for a planner other than the configured one would price a different
  * experiment, and a guess is no bound.
  */
-export async function plannerSettings(): Promise<PlannerRequestSettings> {
+export async function plannerSettings(opts: { withCast?: boolean } = {}): Promise<PlannerRequestSettings> {
   const resolved = await resolveImagePromptLLMSettings();
   const { fallbackReason, configuredEngineId } = resolved.plannerProvenance;
   if (fallbackReason || !resolved.model) {
     throw new ComparisonLayoutError([`the planner engine "${configuredEngineId}" cannot be used (${fallbackReason ?? "no model"}), so no preparation can be bounded`]);
   }
-  return { model: resolved.model, maxTokens: resolved.maxTokens, temperature: resolved.temperature, reasoningEffort: resolved.reasoningEffort, castBoundUsd: await castCallBoundUsd() };
+  return { model: resolved.model, maxTokens: resolved.maxTokens, temperature: resolved.temperature, reasoningEffort: resolved.reasoningEffort, ...(opts.withCast ? { castBoundUsd: await castCallBoundUsd() } : {}) };
 }
 
 export async function loadSetRows(setId: number, exec: Executor = db): Promise<SetRows | null> {
@@ -251,7 +268,7 @@ export async function loadSetRows(setId: number, exec: Executor = db): Promise<S
  * real ceiling, plus, on a path set, the one cast call its direct side makes.
  */
 export function prepareItems(rows: SetRows, planner: PlannerRequestSettings): WorkItem[] {
-  const bound = panelPreparationBoundUsd(planner) + (rows.set.kind === "path" ? (planner.castBoundUsd ?? 0) : 0);
+  const bound = preparationBoundUsd(planner, rows.set.kind);
   return rows.panels.filter((p) => p.state === "pending").map((p) => ({
     ref: `panel:${p.id}`,
     label: `preparing panel ${p.id} (fact ${p.factId}, ${p.scenarioKey}, ${p.lookStyleId})`,
@@ -332,7 +349,7 @@ export async function getComparisonSet(setId: number): Promise<ComparisonSetDeta
   let preparationRefusal: string | null = null;
   if (rows.panels.some((p) => p.state === "pending")) {
     try {
-      prepare = prepareItems(rows, await plannerSettings());
+      prepare = prepareItems(rows, await plannerSettings({ withCast: rows.set.kind === "path" }));
     } catch (err) {
       if (!(err instanceof ComparisonLayoutError)) throw err;
       preparationRefusal = err.reasons.join("; ");
@@ -354,10 +371,11 @@ export async function getComparisonSet(setId: number): Promise<ComparisonSetDeta
 
 /** The work a run of `kind` would take; the planner is resolved only for preparation. */
 export async function runItems(kind: "prepare" | "render" | "full", rows: SetRows, scope?: RunScope): Promise<WorkItem[]> {
-  if (kind === "prepare") return prepareItems(rows, await plannerSettings());
+  const withCast = rows.set.kind === "path";
+  if (kind === "prepare") return prepareItems(rows, await plannerSettings({ withCast }));
   if (kind === "full") {
     const needsPlanner = rows.panels.some((p) => p.state === "pending" && (!scope || ("panelId" in scope && p.id === scope.panelId)));
-    return fullItems(rows, needsPlanner ? await plannerSettings() : null, scope);
+    return fullItems(rows, needsPlanner ? await plannerSettings({ withCast }) : null, scope);
   }
   return renderItems(rows, { preparedOnly: true });
 }

@@ -20,7 +20,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { comparisonJudgementSchema, comparisonPickSchema, comparisonResultsQuerySchema, comparisonRunPlanSchema, comparisonSetCreateSchema, evaluationCreateSchema, evaluationSelectionSchema } from "@workspace/api-zod";
+import { comparisonJudgementSchema, comparisonPickSchema, comparisonResultsQuerySchema, comparisonRunPlanSchema, comparisonSetCreateSchema, evaluationCreateSchema, evaluationSelectionSchema, COMPARISON_SET_KINDS, type ComparisonSetKind } from "@workspace/api-zod";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { requireAdmin } from "./admin";
 import {
@@ -211,7 +211,8 @@ router.post("/admin/comparison/evaluations", requireAdmin, async (req: Authentic
 });
 
 router.get("/admin/comparison/evaluations", requireAdmin, async (req: Request, res: Response) => {
-  const kind = req.query["kind"] === "prompt" ? "prompt" : req.query["kind"] === "path" ? "path" : "engine";
+  const asked = req.query["kind"];
+  const kind = (COMPARISON_SET_KINDS as readonly unknown[]).includes(asked) ? (asked as ComparisonSetKind) : "engine";
   res.json({ evaluations: await listEvaluations(kind) });
 });
 

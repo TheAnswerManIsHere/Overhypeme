@@ -1336,24 +1336,7 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
     // A non-empty Concept therefore never falls back to AI content.
     coreScene = moderatorCoreRaw;
     coreSceneModeratorAuthored = true;
-    const owned = detectOwnedLanguage(moderatorCoreRaw);
-    if (owned) {
-      moderatorCoreWarnings.push({
-        code: "moderator_core_scene_owned_language",
-        severity: "warning",
-        message: `The Visual concept contains ${owned.category} language the compiler owns ("${owned.matchedText}"). It is rendered verbatim as authored; rewrite it as visible scene description only so the compiler's identity/reference/text-policy clauses stay the single source.`,
-      });
-    }
-    // Moderator content is verbatim (warn, never strip): a Concept that authors
-    // its own balloon while structured bubbles are active would double-render.
-    if (hasBubbles && BUBBLE_DIRECTIVE_LANGUAGE_RE.test(moderatorCoreRaw)) {
-      moderatorCoreWarnings.push({
-        code: "bubble_language_in_moderator_scene",
-        severity: "warning",
-        message:
-          "The Visual concept describes a speech/thought balloon while structured bubbles are configured. The SPEECH & THOUGHT BUBBLES section owns balloon rendering — describe only the staging (pose, expression, headroom) in the Concept to avoid a doubled balloon.",
-      });
-    }
+    moderatorCoreWarnings.push(...moderatorSceneWarnings(moderatorCoreRaw, hasBubbles));
   }
   if (!coreSceneModeratorAuthored) {
     const sanitized = sanitizePlannerProse(aiCore, { stripBubbleDirectives: hasBubbles });
@@ -1668,6 +1651,33 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   return out;
 }
 
+/**
+ * The moderator scene is verbatim (warn, never strip): compiler-owned
+ * language in it, and a balloon it describes itself while structured bubbles
+ * are configured (which would double-render), are reported here. One copy
+ * for the planned and the direct paths.
+ */
+function moderatorSceneWarnings(scene: string, hasBubbles: boolean): PromptWarning[] {
+  const warnings: PromptWarning[] = [];
+  const owned = detectOwnedLanguage(scene);
+  if (owned) {
+    warnings.push({
+      code: "moderator_core_scene_owned_language",
+      severity: "warning",
+      message: `The Visual concept contains ${owned.category} language the compiler owns ("${owned.matchedText}"). It is rendered verbatim as authored; rewrite it as visible scene description only so the compiler's identity/reference/text-policy clauses stay the single source.`,
+    });
+  }
+  if (hasBubbles && BUBBLE_DIRECTIVE_LANGUAGE_RE.test(scene)) {
+    warnings.push({
+      code: "bubble_language_in_moderator_scene",
+      severity: "warning",
+      message:
+        "The Visual concept describes a speech/thought balloon while structured bubbles are configured. The SPEECH & THOUGHT BUBBLES section owns balloon rendering — describe only the staging (pose, expression, headroom) in the Concept to avoid a doubled balloon.",
+    });
+  }
+  return warnings;
+}
+
 // ─── The direct path (no planner) ──────────────────────────────────────────
 //
 // Plan `docs/plans/PLAN_GAG_DIRECT_RENDER.md`, *Proposed Design* A: a picture
@@ -1722,23 +1732,7 @@ export function compileDirect(args: DirectCompileArgs): CompiledImagePrompt {
   const coreScene = render(args.gag.scene.trim());
   if (!coreScene) throw new Error("the direct path needs the gag's scene");
   const activeBubbles = args.gag.bubbles.filter((b) => b.entity.trim() && b.text.trim());
-  const warnings: PromptWarning[] = [];
-  const owned = detectOwnedLanguage(coreScene);
-  if (owned) {
-    warnings.push({
-      code: "moderator_core_scene_owned_language",
-      severity: "warning",
-      message: `The Visual concept contains ${owned.category} language the compiler owns ("${owned.matchedText}"). It is rendered verbatim as authored; rewrite it as visible scene description only so the compiler's identity/reference/text-policy clauses stay the single source.`,
-    });
-  }
-  if (activeBubbles.length > 0 && BUBBLE_DIRECTIVE_LANGUAGE_RE.test(coreScene)) {
-    warnings.push({
-      code: "bubble_language_in_moderator_scene",
-      severity: "warning",
-      message:
-        "The Visual concept describes a speech/thought balloon while structured bubbles are configured. The SPEECH & THOUGHT BUBBLES section owns balloon rendering — describe only the staging (pose, expression, headroom) in the Concept to avoid a doubled balloon.",
-    });
-  }
+  const warnings: PromptWarning[] = moderatorSceneWarnings(coreScene, activeBubbles.length > 0);
 
   const identity = [fillPiece(r, mode === "human_identity_i2i" ? "identity.person" : "identity.object"), mode === "nonhuman_subject_i2i" ? DIRECT_PET_INSTRUCTION : ""]
     .filter(Boolean).join(" ");

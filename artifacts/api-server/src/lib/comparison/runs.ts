@@ -282,8 +282,8 @@ export async function preparePanel(p: PreparePayload): Promise<HandlerResult> {
 async function preparePanelInFlight(panel: ComparisonPanel, p: PreparePayload): Promise<HandlerResult> {
   // Everything before the planner call can refuse for free.
   const [fact] = await db.select({ text: factsTable.text, enrichment: factsTable.enrichment }).from(factsTable).where(eq(factsTable.id, panel.factId));
-  const [set] = await db.select({ kind: comparisonSetsTable.kind }).from(comparisonSetsTable).where(eq(comparisonSetsTable.id, panel.setId));
-  const isPath = set?.kind === "path";
+  // Only a path set's panels name a gag (createComparisonSet).
+  const isPath = panel.gagId != null;
   // The render input: the fact's classification with the panel's one gag —
   // the gag the panel names (a path set; plan PLAN_GAG_DIRECT_RENDER.md, A),
   // else the fact's primary gag (the lowest-slot gag's approved version;

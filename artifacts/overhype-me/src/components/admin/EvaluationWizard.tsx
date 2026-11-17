@@ -16,6 +16,7 @@ import {
 } from "@workspace/api-zod";
 import { readError } from "@/components/admin/readError";
 import { RECIPES_CHANGED_EVENT } from "@/components/admin/promoteRecipeVersion";
+import { gagApi } from "@/components/admin/gags/gagApi";
 
 export type EvaluationKind = "engine" | "prompt" | "path";
 
@@ -380,14 +381,13 @@ function GagPicker({ facts, chosen, onChange }: { facts: FactHit[]; chosen: Reco
     let cancelled = false;
     for (const f of facts) {
       if (byFact[f.id]) continue;
-      void fetch(`/api/admin/facts/${f.id}/gags`, { credentials: "include" }).then(async (r) => {
+      void gagApi.load(f.id).then((r) => {
         if (cancelled) return;
         if (!r.ok) { setByFact((m) => ({ ...m, [f.id]: "error" })); return; }
-        const body = (await r.json()) as { gags: Array<{ id: number; slot: number; isDefault: boolean; approvedContent: { coreSceneOverride?: string; bubbles?: unknown[] } | null; pendingContent: { coreSceneOverride?: string; bubbles?: unknown[] } | null }> };
-        const rows = body.gags
+        const rows = r.view.gags
           .map((g) => ({ g, content: g.approvedContent ?? g.pendingContent }))
           .filter(({ content }) => !!content?.coreSceneOverride?.trim())
-          .map(({ g, content }) => ({ id: g.id, slot: g.slot, scene: content!.coreSceneOverride!.trim(), bubbles: content!.bubbles?.length ?? 0, isDefault: g.isDefault }))
+          .map(({ g, content }) => ({ id: g.id, slot: g.slot, scene: content!.coreSceneOverride!.trim(), bubbles: content!.bubbles.length, isDefault: g.isDefault }))
           .sort((a, b) => a.slot - b.slot);
         setByFact((m) => ({ ...m, [f.id]: rows }));
         if (!chosenRef.current[f.id] && rows.length) {
