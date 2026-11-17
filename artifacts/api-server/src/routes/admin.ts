@@ -956,7 +956,7 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
   if (nonTextUpdates.isActive === true) {
     if (current!.isActive === false) {
       res.status(400).json({
-        error: "A deactivated fact can't be reactivated from the admin yet.",
+        error: "Only Approve for production makes a fact live, and a deactivated fact can't be reactivated from the admin yet.",
         code: "ACTIVATION_REQUIRES_MODERATION",
       });
       return;
