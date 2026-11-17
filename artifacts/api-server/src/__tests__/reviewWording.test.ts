@@ -142,6 +142,7 @@ describe("the wording locks on acceptance", () => {
     const refused = await request(app).post(url(id, "wording")).send({ text: "{NAME} a later edit to the wording." });
     assert.equal(refused.status, 409);
     assert.equal(refused.body.code, "WORDING_LOCKED");
+    assert.match(refused.body.error, /Reject the submission/, "the locked-wording refusal points at Reject, not the removed Withdraw");
     await assert.rejects(db.update(factsTable).set({ text: "{NAME} edited around the route." }).where(eq(factsTable.id, fact!.id)));
   });
 

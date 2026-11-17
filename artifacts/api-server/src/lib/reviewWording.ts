@@ -32,7 +32,7 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export class WordingError extends Error {
   constructor(
-    readonly code: "REVIEW_NOT_FOUND" | "WORDING_LOCKED" | "WORDING_INVALID" | "NOT_WITHDRAWABLE",
+    readonly code: "REVIEW_NOT_FOUND" | "WORDING_LOCKED" | "WORDING_INVALID",
     message: string,
     readonly status = 409,
   ) {
@@ -65,7 +65,7 @@ function assertAtTriage(review: { status: string; workflowStage: string; staging
   if (!canEditWording(review.workflowStage as ReviewWorkflowStage, review.status, review.stagingFactId != null)) {
     throw new WordingError(
       "WORDING_LOCKED",
-      "The wording is locked: it can only be edited at triage, before the submission is accepted. Withdraw the submission and submit the corrected wording as a new fact.",
+      "The wording is locked: it can only be edited at triage, before the submission is accepted. Reject the submission and submit the corrected wording as a new fact.",
     );
   }
 }
