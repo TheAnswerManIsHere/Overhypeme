@@ -21,6 +21,7 @@ import {
   type UiOpState,
 } from "@/components/admin/useTaxonomyHealthActions";
 import { MarkMajorUpdateModal } from "@/components/admin/MarkMajorUpdateModal";
+import { GagFoldPanel } from "@/components/admin/GagFoldPanel";
 
 /**
  * The summary response carries the shared count shape PLUS `engineRevision`
@@ -706,6 +707,7 @@ export default function TaxonomyHealth() {
           {isBulkMode && `Filter: ${filter.replace(/_/g, " ")}. `}
           {total} matching {total === 1 ? "fact" : "facts"}.
         </p>
+        <GagFoldPanel />
       </div>
     </AdminLayout>
   );
