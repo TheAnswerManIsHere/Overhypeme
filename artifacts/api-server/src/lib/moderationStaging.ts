@@ -45,9 +45,8 @@ type DbLike = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
  * born active/enriched: it always starts at the front of the moderation pipeline
  * (triage → enrich → activate).
  *
- * Deliberately carries EVERY column the manual-submit path writes today —
- * `matchingFactId` / `matchingSimilarity` / `reason` (duplicate/near-match
- * context) — so refactoring manual submit onto it is byte-identical. `enrichment` / `canonicalText` / hashtag-upsert /
+ * The duplicate match is not written here: the server's duplicate check of the
+ * saved wording writes it after the insert (lib/duplicateVerdict.ts). `enrichment` / `canonicalText` / hashtag-upsert /
  * embeddings are intentionally NOT derived here: they belong to later pipeline
  * stages (the cost gate), exactly as manual submit already defers them.
  *
@@ -62,8 +61,6 @@ export async function createTriageReview(
     submittedText: string;
     submittedById: string | null;
     hashtags: string[];
-    matchingFactId?: number | null;
-    matchingSimilarity?: number;
     reason?: (typeof pendingReviewsTable.$inferInsert)["reason"];
   },
 ): Promise<typeof pendingReviewsTable.$inferSelect> {
@@ -72,8 +69,6 @@ export async function createTriageReview(
     .values({
       submittedText: input.submittedText,
       submittedById: input.submittedById,
-      matchingFactId: input.matchingFactId ?? null,
-      matchingSimilarity: input.matchingSimilarity ?? 0,
       hashtags: input.hashtags,
       status: "pending",
       workflowStage: "triage_pending",

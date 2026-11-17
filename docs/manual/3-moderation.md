@@ -39,8 +39,8 @@ refuses both ([decision](../ai-context/decisions.md#2026-11-15--a-gag-carries-a-
 
 The review opens as a three-step wizard:
 
-1. **Triage.** The cheap first pass. The moderator sees the submitted fact, any
-   near-duplicate it resembles, and who sent it, and either **rejects** it (with
+1. **Triage.** The cheap first pass. The moderator sees the submitted fact, the
+   duplicate check's verdict on it (with the match it found), and who sent it, and either **rejects** it (with
    a reason) or **[provisionally approves](../ai-context/glossary.md#provisional-approval)** it. Provisional approval is the moment
    the paid **[moderation prep](../ai-context/glossary.md#moderation-prep)** — [enrichment](../ai-context/glossary.md#enrichment) and visual-idea
    drafting, with no renders yet — is allowed to begin; before it,

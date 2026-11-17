@@ -18,6 +18,7 @@ import {
 import { Textarea, Input } from "@/components/ui/Input";
 import { HighlightedFactText } from "@/components/facts/HighlightedFactText";
 import { useToast } from "@/hooks/use-toast";
+import { useDuplicatePreview } from "@/hooks/use-duplicate-preview";
 import { useFormDraft } from "@/hooks/use-form-draft";
 import { createLocalStorageAdapter } from "@/lib/form-draft-storage";
 import {
@@ -34,14 +35,6 @@ interface SubmitDraft {
   hashtagsStr: string;
 }
 
-interface DuplicateResult {
-  isDuplicate: boolean;
-  confidence: number;
-  matchingFactId?: number;
-  matchingFactText?: string;
-  matchingCanonicalText?: string;
-  llmChecked?: boolean;
-}
 
 const PRONOUN_PREVIEWS: { label: string; subject: string; object: string; name: string }[] = [
   { label: "he/him",    subject: "he",   object: "him",  name: "David Franklin" },
@@ -69,8 +62,6 @@ export default function SubmitFact() {
   const [step, setStep] = useState<Step>("write");
 
   const [rawText, setRawText] = useState("");
-  const [duplicate, setDuplicate] = useState<DuplicateResult | null>(null);
-  const [checkingDuplicate, setCheckingDuplicate] = useState(false);
 
   const [template, setTemplate] = useState("");
   const [tokenizing, setTokenizing] = useState(false);
@@ -85,7 +76,6 @@ export default function SubmitFact() {
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
   const [onboardingRequired, setOnboardingRequired] = useState(false);
-  const [duplicateThreshold, setDuplicateThreshold] = useState(80);
   const [showDiscardDialog, setShowDiscardDialog] = useState(false);
 
   // AI hashtag suggestions — a non-blocking pre-fill of the (editable) Hashtags
@@ -95,17 +85,6 @@ export default function SubmitFact() {
   const suggestReqIdRef = useRef(0);          // latest-request guard
   const hashtagsEditedRef = useRef(false);    // true once the user touches the field
 
-  useEffect(() => {
-    fetch("/api/config", { credentials: "include" })
-      .then((r) => r.ok ? r.json() as Promise<Record<string, unknown>> : Promise.reject())
-      .then((cfg) => {
-        const t = cfg["review_duplicate_threshold"];
-        if (typeof t === "number" && isFinite(t)) setDuplicateThreshold(t);
-      })
-      .catch(() => {});
-  }, []);
-
-  const dupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Draft autosave to localStorage — survives leaving the page (24h TTL).
   const draftAdapter = useMemo(
@@ -146,37 +125,20 @@ export default function SubmitFact() {
     setTemplateGrammarError(result.valid ? null : (result.error ?? "Invalid template"));
   }, [template]);
 
-  const checkDuplicate = useCallback(async (factText: string) => {
-    if (factText.length < 20) { setDuplicate(null); return; }
-    setCheckingDuplicate(true);
-    try {
-      const r = await fetch("/api/ai/check-duplicate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ text: factText }),
-      });
-      if (r.ok) {
-        const data: DuplicateResult = await r.json();
-        setDuplicate(data.confidence > 0 ? data : null);
-      }
-    } catch { setDuplicate(null); }
-    finally { setCheckingDuplicate(false); }
-  }, []);
 
-  useEffect(() => {
-    if (dupTimer.current) clearTimeout(dupTimer.current);
-    if (rawText.length < 20) { setDuplicate(null); return; }
-    dupTimer.current = setTimeout(() => { void checkDuplicate(rawText); }, 1200);
-    return () => { if (dupTimer.current) clearTimeout(dupTimer.current); };
-  }, [rawText, checkDuplicate]);
+  // The text being judged: what was typed, then — once tokenized — the template
+  // that will be submitted, including any advanced-editor edit.
+  const { checking: checkingDuplicate, shown: shownDuplicate, clear: clearDuplicate } =
+    // Stopped from the moment Submit is pressed until it fails or the next fact
+    // starts: a check landing after the save would match the submitter's own review.
+    useDuplicatePreview(step === "preview" ? template : rawText, !submitting && !submitted);
 
   async function handleTokenize() {
     if (rawText.length < 10) return;
     if (!captchaToken && !isCaptchaVerified) return;
     setTokenizing(true);
     setTokenizeError("");
-    setDuplicate(null);
+    clearDuplicate();
     const sanitizedText = rawText.replace(/[{}]/g, "");
     const controller = new AbortController();
     const abortTimer = setTimeout(() => controller.abort(), 35_000);
@@ -199,7 +161,6 @@ export default function SubmitFact() {
       setShowAdvanced(false);
       setStep("preview");
       window.scrollTo({ top: 0, behavior: "smooth" });
-      void checkDuplicate(data.template);
       void fetchHashtagSuggestions(data.template);
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") {
@@ -264,11 +225,6 @@ export default function SubmitFact() {
         text: template,
         hashtags: getTags(),
       };
-      if (duplicate) {
-        if (duplicate.matchingFactId) body.matchingFactId = duplicate.matchingFactId;
-        if (duplicate.confidence > 0) body.matchingSimilarity = duplicate.confidence;
-        body.isDuplicate = duplicate.isDuplicate;
-      }
       const r = await fetch("/api/facts/submit-review", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -307,7 +263,7 @@ export default function SubmitFact() {
     hashtagsEditedRef.current = false;   // allow auto-fill again on the next preview
     suggestReqIdRef.current++;           // invalidate any in-flight suggestion
     setSuggestingHashtags(false);
-    setDuplicate(null);
+    clearDuplicate();
     setStep("write");
     setTokenizeError("");
     setError("");
@@ -351,7 +307,7 @@ export default function SubmitFact() {
             </Link>{" "}
             to see when it goes live.
           </p>
-          {(duplicate && duplicate.confidence >= duplicateThreshold) && (
+          {shownDuplicate && (
             <div className="mb-8 p-4 bg-amber-500/10 border border-amber-500/30 rounded-sm text-amber-600 dark:text-amber-400">
               <GitBranch className="w-4 h-4 inline mr-1.5" />
               Your fact was flagged as similar to an existing one. The moderator will decide how to handle it.
@@ -361,7 +317,7 @@ export default function SubmitFact() {
             <Button size="lg" onClick={() => {
               draft.clear();
               setRawText(""); setTemplate(""); setSubmitted(false);
-              setDuplicate(null); setHashtagsStr(""); setStep("write");
+              clearDuplicate(); setHashtagsStr(""); setStep("write");
               setOnboardingRequired(false); setError("");
               hashtagsEditedRef.current = false;   // fresh fact → allow auto-fill again
               suggestReqIdRef.current++;            // invalidate any in-flight suggestion
@@ -573,19 +529,21 @@ export default function SubmitFact() {
                 </div>
               )}
 
-              {/* Duplicate warning — only shown if confidence meets the admin threshold */}
-              {!checkingDuplicate && duplicate && duplicate.confidence >= duplicateThreshold && (
+              {/* Duplicate warning — shown on the server's "duplicate" verdict for this text */}
+              {!checkingDuplicate && shownDuplicate && (
                 <div className="rounded-xl border-2 border-amber-500/40 bg-amber-500/5 p-6">
                   <p className="text-lg font-semibold text-amber-600 dark:text-amber-400 mb-4">
-                    Your fact is very similar to another fact already in the database:
+                    {shownDuplicate.matchingReviewId
+                      ? "Your fact matches another submission that's already waiting for review:"
+                      : "Your fact is very similar to another fact already in the database:"}
                   </p>
                   <div className="bg-background rounded-lg border border-border px-5 py-4 mb-4">
                     <p className="text-xl font-bold text-foreground leading-snug">
-                      "{duplicate.matchingCanonicalText ?? duplicate.matchingFactText}"
+                      "{shownDuplicate.matchingCanonicalText ?? shownDuplicate.matchingFactText}"
                     </p>
-                    {duplicate.matchingFactId && (
+                    {shownDuplicate.matchingFactId && (
                       <a
-                        href={`/facts/${duplicate.matchingFactId}`}
+                        href={`/facts/${shownDuplicate.matchingFactId}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-sm text-primary underline mt-3 block hover:opacity-80"
@@ -741,7 +699,7 @@ export default function SubmitFact() {
                   variant="outline"
                   size="lg"
                   className="flex-1"
-                  onClick={() => { setStep("write"); setTokenizeError(""); setDuplicate(null); setOnboardingRequired(false); setError(""); }}
+                  onClick={() => { setStep("write"); setTokenizeError(""); clearDuplicate(); setOnboardingRequired(false); setError(""); }}
                 >
                   <ChevronLeft className="w-4 h-4 mr-1" /> Edit
                 </Button>
@@ -767,10 +725,10 @@ export default function SubmitFact() {
                     activity feed
                   </Link>{" "}
                   once it's approved or declined.
-                  {duplicate && duplicate.confidence >= duplicateThreshold && (
+                  {shownDuplicate && (
                     <span className="block mt-2 text-amber-600 dark:text-amber-400">
                       <GitBranch className="w-3.5 h-3.5 inline mr-1" />
-                      Flagged as similar to an existing fact ({duplicate.confidence}% match) — the moderator will decide.
+                      Flagged as similar to an existing fact — the moderator will decide.
                     </span>
                   )}
                 </p>

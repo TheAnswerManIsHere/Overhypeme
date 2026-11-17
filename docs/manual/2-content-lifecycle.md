@@ -35,13 +35,13 @@ this chapter links out rather than repeating it.
 Submitting is a two-step form: **write**, then **[preview](../ai-context/glossary.md#preview)**. While the
 submitter is writing, a **[duplicate check](../ai-context/glossary.md#duplicate-detection)** runs automatically in the
 background — no button needed — comparing the draft against existing facts
-and, if it finds a likely match, showing it so the submitter can decide for
-themselves whether to continue. It's advisory only: nothing stops a
-submission that's flagged. It's also best-effort, not guaranteed — the check
-re-runs against the finished template on Preview, but Submit stays clickable
-while it's still in flight, so submitting before the check resolves reaches
-the server with no duplicate flag attached at all, even against a real
-match.
+and, when the AI judges it the same fact or joke as one already there,
+showing that match so the submitter can decide for themselves whether to
+continue. It's advisory only: nothing stops a submission that's flagged. The
+warning is only a preview, tied to the exact text on screen — editing the
+text, or the template on Preview, drops it and checks again. What the
+moderator sees doesn't depend on it: after the submission is saved, the
+server checks the saved wording itself and stores the verdict on the review.
 
 Moving from Write to Preview is a different kind of step — a **required,
 blocking** one. Clicking Preview sends the draft through a [grammar pass](../ai-context/glossary.md#grammar-pass) that
@@ -113,11 +113,17 @@ it goes live.
 
 ### Near-duplicates: one fact per joke
 
-The duplicate check attaches its nearest match to a submission whenever it
-finds one with positive confidence — not only when that match was strong
-enough to show the submitter a warning — so a moderator at
-[Triage](../ai-context/glossary.md#triage) sees more candidates than the
-submitter ever saw flagged. The moderator has two choices: reject the
+A moderator at [Triage](../ai-context/glossary.md#triage) sees the
+duplicate check's verdict on the submission's saved wording — "Duplicate of
+#N", "Duplicate of pending review #N", "Not a duplicate", "Couldn't check" or
+"Not checked yet" — never a similarity percentage. A percentage measured how
+close two sentences sit in an embedding space, which is not the question: a
+plural and a full stop scored an obvious duplicate at 77%. The verdict comes
+from an AI judgement of "same fact or joke?" on the closest few facts, and
+when the check can't run the screen says so and shows the closest fact rather
+than guessing. A review with no verdict yet — one from before verdicts were
+stored, or a bulk import — is checked the first time it's opened. The
+moderator has two choices: reject the
 submission as a duplicate, or accept it as a fact of its own. A different
 wording of a joke that's already live is the same joke, so the usual call is
 the first. Every fact stands alone: nothing links one fact to another, and
@@ -184,12 +190,12 @@ for the funnel itself.
 
 ## Boundaries & known limitations
 
-- **Duplicate detection at submission is advisory, not a gate — and not even
-  guaranteed to reach Triage.** A submitter can send a fact flagged as a
-  likely duplicate; nothing stops them, and nothing stops a moderator from
-  approving it anyway if they disagree with the flag. It's also racing the
-  submitter: hitting Submit before the check resolves reaches the server
-  with no flag at all, even against a genuine match.
+- **Duplicate detection is advisory, not a gate.** A submitter can send a
+  fact flagged as a likely duplicate; nothing stops them, and nothing stops a
+  moderator from approving it anyway if they disagree with the verdict. The
+  AI stage compares against live facts only: another pending submission is
+  caught only when its wording is identical (case, spacing and punctuation
+  aside).
 - **Bulk import's dedupe only catches exact, post-normalization text.** Two
   imports of the same fact queue separately unless they normalize to
   identical stored text — a trailing-space or grammar-cleanup difference can

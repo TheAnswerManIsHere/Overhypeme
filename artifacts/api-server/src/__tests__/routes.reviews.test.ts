@@ -32,7 +32,7 @@ import {
 import { and, eq, gte, like, sql, count, inArray } from "drizzle-orm";
 import type { FactEnrichment } from "@workspace/api-zod";
 
-import reviewsRouter, { __setPlanGeneratorForTest } from "../routes/reviews.js";
+import reviewsRouter, { __setPlanGeneratorForTest, __settleSubmitDuplicateChecksForTest } from "../routes/reviews.js";
 import { materializeEnrichment } from "../lib/factEnrichment.js";
 import { FACT_SUBMIT_PENDING_CAP, FACT_SUBMIT_MAX } from "../lib/rateLimit.js";
 import { runEnrichmentForFact } from "../lib/enrichmentJobs.js";
@@ -82,6 +82,7 @@ process.env.RESEND_API_KEY = process.env.RESEND_API_KEY ?? "re_test_dummy";
 
 function makeApp(): Express {
   const app = express();
+  app.locals["duplicateDetector"] = async () => ({ outcome: "distinct", confidence: 0 });
   app.use(express.json());
   app.use(authMiddleware);
   app.use(reviewsRouter);
@@ -134,6 +135,10 @@ async function cleanup() {
   }
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
 }
+
+// A submission's post-commit duplicate check runs through this app's own stub
+// (makeApp): no paid call.
+after(() => __settleSubmitDuplicateChecksForTest());
 
 before(cleanup);
 after(cleanup);
