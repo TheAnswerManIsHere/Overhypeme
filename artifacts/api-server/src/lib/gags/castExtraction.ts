@@ -28,7 +28,9 @@
 import { z } from "zod";
 import { zodResponseFormat } from "openai/helpers/zod";
 import { BUBBLE_ENTITY_MAX_CHARS, SPEAKER_BINDING_ROLE_MAX_CHARS, activeBubbleSpeakers, type VisualStrategyBubble } from "@workspace/api-zod";
-import { callUtilityLLM } from "../utilityLLM";
+import { callUtilityLLM, resolveLLMSettings } from "../utilityLLM";
+import { chatModelTuningParams } from "../openaiChatParams";
+import { OPENAI_PRICES } from "../aiDouble/recorder";
 import { CANONICAL_SUBJECT_NAME_FORMS_LC, renderPersonalized } from "../renderCanonical";
 import { shortSpeakerRole } from "../imagePrompt/compilers/nanoBanana2";
 
@@ -170,4 +172,21 @@ export async function extractCast(input: CastExtractionInput): Promise<CastExtra
     });
     return response.choices[0]?.message?.content ?? "";
   });
+}
+
+/** A cast call's input never approaches this: a scene of at most 1,500 characters, the speakers and the prompt. */
+const CAST_INPUT_TOKEN_BOUND = 3_000;
+
+/**
+ * The most one cast call can cost, at the utility model's real completion
+ * ceiling: the record a comparison's preparation reserves for it. Throws when
+ * the model has no price, since no run can bound an unpriced call.
+ */
+export async function castCallBoundUsd(): Promise<number> {
+  const settings = await resolveLLMSettings();
+  const price = OPENAI_PRICES[settings.model];
+  if (!price) throw new Error(`no price for the utility model "${settings.model}", so no run can bound a cast call`);
+  const tuning = chatModelTuningParams(settings);
+  const outputTokens = tuning.max_completion_tokens ?? tuning.max_tokens ?? settings.maxTokens;
+  return (outputTokens * price.output + CAST_INPUT_TOKEN_BOUND * price.input) / 1_000_000;
 }

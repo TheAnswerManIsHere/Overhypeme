@@ -36,6 +36,8 @@ export interface PlannerRequestSettings {
   maxTokens: number;
   temperature: number;
   reasoningEffort?: string;
+  /** The worst case of one cast call (plan PLAN_GAG_DIRECT_RENDER.md, A), added to a path set's preparation. */
+  castBoundUsd?: number;
 }
 
 /** One planner call at the completion ceiling its request would actually send. */

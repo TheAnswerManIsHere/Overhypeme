@@ -30,6 +30,7 @@ import {
   type EvaluationStatus,
 } from "@workspace/api-zod";
 import { ComparisonLayoutError, deriveComparisonLayout } from "./layout";
+import { loadGagsForFacts } from "../gags/resolver";
 import { cellBoundUsd, panelPreparationBoundUsd, panelPreparationTypicalUsd, round4 } from "./admission";
 import { createComparisonSet, groupCellsByPanel, planComparisonRun, plannerSettings, type RunScope } from "./sets";
 import { ComparisonRunRefused, startComparisonRun } from "./runs";
@@ -137,9 +138,20 @@ export async function actionPricing(): Promise<ActionPricing> {
  */
 export async function estimateEvaluation(sel: EvaluationSelection): Promise<EvaluationEstimate> {
   const engines = imageEngines();
-  const layout = deriveComparisonLayout({ factIds: sel.factIds, scenarioKeys: sel.scenarioKeys, lookStyleIds: sel.lookStyleIds, engineFamilies: sel.engineFamilies }, engines);
+  const base = deriveComparisonLayout({ factIds: sel.factIds, scenarioKeys: sel.scenarioKeys, lookStyleIds: sel.lookStyleIds, engineFamilies: sel.engineFamilies }, engines);
+  // A path evaluation draws one panel per chosen gag of a fact (its default
+  // gag when none is chosen), each picture twice: planned and direct.
+  const gagsPerFact = new Map<number, number>();
+  if (sel.kind === "path" && sel.gagIds?.length) {
+    const chosen = new Set(sel.gagIds);
+    for (const [factId, gags] of await loadGagsForFacts(sel.factIds)) {
+      const n = gags.filter((g) => chosen.has(g.id)).length;
+      if (n) gagsPerFact.set(factId, n);
+    }
+  }
+  const layout = base.flatMap((p) => Array.from({ length: gagsPerFact.get(p.factId) ?? 1 }, () => p));
   const price = new Map(engines.map((e) => [e.id, e.priceModel]));
-  const perCell = sel.kind === "prompt" ? (sel.recipeVersionIds?.length ?? 0) : 1;
+  const perCell = sel.kind === "prompt" ? (sel.recipeVersionIds?.length ?? 0) : sel.kind === "path" ? 2 : 1;
   const renderBoundUsd = round4(layout.reduce((s, p) => s + p.engineIds.reduce((t, id) => t + cellBoundUsd(price.get(id)) * perCell, 0), 0));
   const images = layout.reduce((s, p) => s + p.engineIds.length * perCell, 0);
   let preparationBoundUsd: number | null = null;
@@ -147,8 +159,9 @@ export async function estimateEvaluation(sel: EvaluationSelection): Promise<Eval
   let refusal: string | null = null;
   try {
     const settings = await plannerSettings();
-    preparationBoundUsd = round4(layout.length * panelPreparationBoundUsd(settings));
-    preparationTypicalUsd = layout.length * panelPreparationTypicalUsd(settings);
+    const cast = sel.kind === "path" ? (settings.castBoundUsd ?? 0) : 0;
+    preparationBoundUsd = round4(layout.length * (panelPreparationBoundUsd(settings) + cast));
+    preparationTypicalUsd = layout.length * (panelPreparationTypicalUsd(settings) + cast);
   } catch (err) {
     if (!(err instanceof ComparisonLayoutError)) throw err;
     refusal = err.reasons.join("; ");
@@ -242,6 +255,7 @@ export async function createEvaluation(req: EvaluationCreate, adminUserId: strin
       imageSize: "comparison",
       kind: sel.kind,
       ...(sel.kind === "prompt" ? { recipeVersionIds: sel.recipeVersionIds } : {}),
+      ...(sel.kind === "path" && sel.gagIds ? { gagIds: sel.gagIds } : {}),
     }, adminUserId, { requestToken: req.requestToken }));
   } catch (err) {
     // Two requests with one token racing: the loser reads the winner's set

@@ -33,6 +33,7 @@ import {
   comparisonReservationsTable,
   comparisonRunsTable,
   comparisonSetsTable,
+  factGagsTable,
   factsTable,
   type ComparisonCell,
   type ComparisonPanel,
@@ -54,7 +55,8 @@ import { resolveRenderReviewInput } from "../imagePrompt/resolveRenderReviewInpu
 import { assembleImagePromptForPreview } from "../imagePrompt/preview";
 import { withoutLlmRetries } from "../utilityLLM";
 import { renderPersonalized } from "../renderCanonical";
-import { compileForSubjectRenderMode } from "../imagePrompt/compilers/nanoBanana2";
+import { compileDirect, compileForSubjectRenderMode, type DirectCompileArgs } from "../imagePrompt/compilers/nanoBanana2";
+import { extractCast, type CastExtractionResult } from "../gags/castExtraction";
 import { engineFamilyOf, recipeById } from "../imagePrompt/recipeStore";
 import type { CompiledPrompt, IdentityPolicy, ImagePromptGenerationInput, VisualPlan } from "@workspace/api-zod";
 import { imageEngineRefusal } from "../imageEngineRouting";
@@ -75,7 +77,7 @@ import { vendorContext } from "../provenance/vendorContext";
 import { blindToken } from "./blindToken";
 import { ObjectStorageService } from "../objectStorage";
 import { logger } from "../logger";
-import { gagRenderInput, primaryGag } from "../gags/resolver";
+import { gagRenderInput, normaliseGagContent, primaryGag, type GagContent } from "../gags/resolver";
 import { planRun, type RunPlan, type WorkItem } from "./admission";
 import { loadSetRows, runItems, type RunScope } from "./sets";
 import { awaitResult, comparisonFal } from "./transport";
@@ -89,6 +91,12 @@ export function promptTextOf(compiledPrompt: unknown): string | null {
 }
 
 export const COMPARISON_RENDER_QUEUE = "comparison_render";
+
+let castExtractor: typeof extractCast = extractCast;
+/** Test seam: replace the cast call a path set's preparation makes. */
+export function __setCastExtractorForTest(fn: typeof extractCast | null): void {
+  castExtractor = fn ?? extractCast;
+}
 
 /** The comparison's reference images are sent at most this size on the long edge (plan, D2). */
 const COMPARISON_REFERENCE_MAX_EDGE_PX = 1024;
@@ -274,15 +282,20 @@ export async function preparePanel(p: PreparePayload): Promise<HandlerResult> {
 async function preparePanelInFlight(panel: ComparisonPanel, p: PreparePayload): Promise<HandlerResult> {
   // Everything before the planner call can refuse for free.
   const [fact] = await db.select({ text: factsTable.text, enrichment: factsTable.enrichment }).from(factsTable).where(eq(factsTable.id, panel.factId));
-  // The render input: the fact's classification with its primary gag (the
-  // lowest-slot gag's approved version; lib/gags/resolver.ts), as a comparison
-  // read the fact's one gag before gags had their own table.
-  const primary = fact ? await primaryGag(panel.factId) : null;
+  const [set] = await db.select({ kind: comparisonSetsTable.kind }).from(comparisonSetsTable).where(eq(comparisonSetsTable.id, panel.setId));
+  const isPath = set?.kind === "path";
+  // The render input: the fact's classification with the panel's one gag —
+  // the gag the panel names (a path set; plan PLAN_GAG_DIRECT_RENDER.md, A),
+  // else the fact's primary gag (the lowest-slot gag's approved version;
+  // lib/gags/resolver.ts), as a comparison read the fact's one gag before
+  // gags had their own table.
+  const gag = !fact ? null : panel.gagId != null ? await namedGag(panel.gagId, panel.factId) : (await primaryGag(panel.factId))?.content ?? null;
   const enrichment = fact
-    ? validateEnrichment(primary && fact.enrichment ? gagRenderInput(fact.enrichment as FactEnrichment, primary.content) : fact.enrichment)
+    ? validateEnrichment(gag && fact.enrichment ? gagRenderInput(fact.enrichment as FactEnrichment, gag) : fact.enrichment)
     : null;
-  if (!fact || !enrichment?.ok) {
-    await failPanel(panel.id, "skipped", fact ? "the fact's enrichment does not validate" : "the fact no longer exists");
+  if (!fact || !enrichment?.ok || (panel.gagId != null && !gag)) {
+    const reason = !fact ? "the fact no longer exists" : panel.gagId != null && !gag ? `gag ${panel.gagId} no longer has content` : "the fact's enrichment does not validate";
+    await failPanel(panel.id, "skipped", reason);
     await release(p.reservationId);
     return { ok: true, result: "skipped" };
   }
@@ -324,6 +337,28 @@ async function preparePanelInFlight(panel: ComparisonPanel, p: PreparePayload): 
     .where(and(eq(comparisonPanelsTable.id, panel.id), eq(comparisonPanelsTable.state, "preparing")))
     .returning({ id: comparisonPanelsTable.id });
   if (!marked) return { ok: true, result: "not in flight" };
+  // A path set's direct side: the gag's cast, read once and frozen. Under the
+  // same marker as the planner call, so a restart never repeats it either.
+  let castResult: CastExtractionResult | null = null;
+  if (isPath) {
+    try {
+      castResult = await withoutLlmRetries(() => castExtractor({
+        scene: gag?.coreSceneOverride ?? "",
+        bubbles: gag?.bubbles ?? [],
+        factCharacterLabels: (enrichment.data.characters ?? []).map((c) => c.label),
+      }));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await failPanel(panel.id, "failed", `reading the gag's cast failed: ${msg}`);
+      return terminalFailure("comparison_cast_failed", msg);
+    }
+    if (castResult.unboundSpeakers.length) {
+      // The gag could not be saved under the new rules: a bubble's speaker is not in its scene.
+      await failPanel(panel.id, "skipped", `the gag's scene does not show bubble speaker ${castResult.unboundSpeakers.map((s) => `"${s}"`).join(", ")}; edit the gag or choose another`);
+      await settleAtBound(p.reservationId);
+      return { ok: true, result: "skipped" };
+    }
+  }
   let assembled;
   try {
     // One submission per permitted call: the SDK's own retries are off.
@@ -366,8 +401,27 @@ async function preparePanelInFlight(panel: ComparisonPanel, p: PreparePayload): 
     styleSnapshot: { lookStyleId: panel.lookStyleId, stylePrompt: resolved.stylePrompt, styleSource: resolved.styleSource },
     renderControls: resolved.renderControls,
     ...frozenJudgingReference(resolved.renderedFactText, enrichment.data, resolved.renderedSubject),
-    // The scene, frozen once and shared: each cell compiles it with its own wording.
-    compileArgs: { visualPlan: assembled.output.visualPlan, plannerPrompt: assembled.output.compiledPrompt, input: assembled.input, renderedSubject: resolved.renderedSubject } satisfies PanelCompileArgs,
+    frozenBubbles: frozenBubblesOf(gag, resolved.renderedSubject),
+    gagCast: castResult,
+    // The scene, frozen once and shared: each cell compiles it with its own
+    // wording; a path set's direct cells compile the gag alone.
+    compileArgs: {
+      visualPlan: assembled.output.visualPlan,
+      plannerPrompt: assembled.output.compiledPrompt,
+      input: assembled.input,
+      renderedSubject: resolved.renderedSubject,
+      ...(castResult && gag ? {
+        direct: {
+          gag: { scene: gag.coreSceneOverride ?? "", bubbles: gag.bubbles ?? [] },
+          cast: castResult.cast,
+          subjectRenderMode: resolved.subjectRenderMode,
+          stylePrompt: resolved.stylePrompt,
+          renderControls: resolved.renderControls,
+          referenceImageUrl: reference?.url ?? null,
+          renderedSubject: resolved.renderedSubject,
+        },
+      } : {}),
+    } satisfies PanelCompileArgs,
     error: null,
     updatedAt: new Date(),
   }).where(eq(comparisonPanelsTable.id, panel.id));
@@ -396,23 +450,58 @@ export function frozenJudgingReference(
   };
 }
 
-/** What preparation freezes on a panel so each cell can compile the same scene with its own wording. */
-interface PanelCompileArgs { visualPlan: VisualPlan; plannerPrompt: CompiledPrompt; input: ImagePromptGenerationInput; renderedSubject: { name: string; pronouns: string | null } }
+/**
+ * What preparation freezes on a panel so each cell can compile the same scene
+ * with its own wording; on a path set, also the direct side's whole input.
+ */
+interface PanelCompileArgs {
+  visualPlan: VisualPlan;
+  plannerPrompt: CompiledPrompt;
+  input: ImagePromptGenerationInput;
+  renderedSubject: { name: string; pronouns: string | null };
+  direct?: Omit<DirectCompileArgs, "recipe">;
+}
+
+/** A named gag's content for a comparison: its approved version, else its pending change. Null when it has neither or belongs to another fact. */
+async function namedGag(gagId: number, factId: number): Promise<GagContent | null> {
+  const [row] = await db.select().from(factGagsTable).where(and(eq(factGagsTable.id, gagId), eq(factGagsTable.factId, factId)));
+  return row ? normaliseGagContent(row.approvedContent ?? row.pendingContent) : null;
+}
+
+/** The gag's complete bubbles as the judge should expect them, rendered for the panel's subject. */
+export function frozenBubblesOf(
+  gag: Pick<GagContent, "bubbles"> | null,
+  subject: { name: string; pronouns: string | null },
+): Array<{ type: string; speaker: string; text: string }> | null {
+  const bubbles = (gag?.bubbles ?? []).filter((b) => b.entity.trim() && b.text.trim());
+  if (!bubbles.length) return null;
+  return bubbles.map((b) => ({
+    type: b.type,
+    speaker: b.entity.trim().toLowerCase() === "subject" ? subject.name : b.entity.trim(),
+    text: renderPersonalized(b.text.trim(), subject.name, subject.pronouns),
+  }));
+}
 
 /**
  * The exact prompt a cell sends: the panel's frozen scene compiled with the
  * cell's prompt wording (the prompt tuner), or, for a panel prepared before
- * scenes were frozen, the panel's one compiled prompt.
+ * scenes were frozen, the panel's one compiled prompt. A path set's direct
+ * cell compiles the panel's gag alone (plan PLAN_GAG_DIRECT_RENDER.md, A).
  */
-export async function cellPromptText(panel: ComparisonPanel, cell: Pick<ComparisonCell, "recipeVersionId" | "engineId">): Promise<string | null> {
+export async function cellPromptText(panel: ComparisonPanel, cell: Pick<ComparisonCell, "recipeVersionId" | "engineId" | "renderPath">): Promise<string | null> {
   const args = panel.compileArgs as PanelCompileArgs | null;
   if (!args) return promptTextOf(panel.compiledPrompt);
+  const recipe = await recipeById(cell.recipeVersionId, engineFamilyOf(cell.engineId));
+  if (cell.renderPath === "direct") {
+    if (!args.direct) throw new Error("the panel froze no direct-path input");
+    return compileDirect({ ...args.direct, recipe }).prompt || null;
+  }
   const compiled = compileForSubjectRenderMode({
     visualPlan: args.visualPlan,
     compiledPrompt: args.plannerPrompt,
     input: args.input,
     renderedSubject: args.renderedSubject,
-    recipe: await recipeById(cell.recipeVersionId, engineFamilyOf(cell.engineId)),
+    recipe,
   });
   return compiled.prompt || null;
 }

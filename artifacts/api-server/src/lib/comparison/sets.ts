@@ -26,6 +26,7 @@ import { asc, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   COMPARISON_CELL_STATES,
   COMPARISON_PANEL_STATES,
+  COMPARISON_RENDER_PATHS,
   type ComparisonRunPlanRequest,
   type ComparisonSetCreate,
 } from "@workspace/api-zod";
@@ -34,6 +35,8 @@ import { liveRecipeVersionIds } from "../imagePrompt/recipeStore";
 import { ComparisonLayoutError, deriveComparisonLayout } from "./layout";
 import { cellBoundUsd, panelPreparationBoundUsd, planRun, round4, type PlannerRequestSettings, type RunPlan, type WorkItem } from "./admission";
 import { engineById, imageEngines } from "../engineInterpreter";
+import { loadGagsForFacts } from "../gags/resolver";
+import { castCallBoundUsd } from "../gags/castExtraction";
 
 export { ComparisonLayoutError };
 
@@ -65,10 +68,37 @@ export async function createComparisonSet(input: ComparisonSetCreate, adminUserI
   }
   if (reasons.length) throw new ComparisonLayoutError(reasons);
 
+  // A path set draws one named gag per panel: each chosen gag on its fact's
+  // panels, and a fact with none chosen its default gag (the lowest live slot
+  // with content), resolved now so every panel records the gag it drew.
+  const kind = input.kind ?? "engine";
+  const gagsByFact = new Map<number, number[]>();
+  if (kind === "path") {
+    const gags = await loadGagsForFacts(input.factIds);
+    const live = new Map<number, { factId: number; slot: number }>();
+    for (const [factId, list] of gags) {
+      for (const g of list) if (!g.removedAt && (g.approvedContent ?? g.pendingContent)) live.set(g.id, { factId, slot: g.slot });
+    }
+    for (const id of input.gagIds ?? []) {
+      const g = live.get(id);
+      if (!g) reasons.push(`gag ${id} is not a live gag of one of the set's facts`);
+      else gagsByFact.set(g.factId, [...(gagsByFact.get(g.factId) ?? []), id]);
+    }
+    for (const factId of input.factIds) {
+      if (gagsByFact.has(factId)) continue;
+      const first = [...live.entries()].filter(([, g]) => g.factId === factId).sort((a, b) => a[1].slot - b[1].slot)[0];
+      if (first) gagsByFact.set(factId, [first[0]]);
+      else reasons.push(`fact ${factId} has no gag to draw`);
+    }
+    if (reasons.length) throw new ComparisonLayoutError(reasons);
+  }
+  const panelGags = (factId: number): Array<number | null> => (kind === "path" ? gagsByFact.get(factId)! : [null]);
+  const paths: Array<string | null> = kind === "path" ? [...COMPARISON_RENDER_PATHS] : [null];
+
   // The wording each cell draws with. An engine set uses each family's live
   // version, frozen now so a later promotion never changes a set already
-  // made; a prompt set draws each of its versions on its one family.
-  const kind = input.kind ?? "engine";
+  // made; a prompt set draws each of its versions on its one family; a path
+  // set draws both paths with each family's live version.
   let versionsFor: (engineId: string) => Array<number | null>;
   if (kind === "prompt") {
     const family = input.engineFamilies[0]!;
@@ -101,20 +131,23 @@ export async function createComparisonSet(input: ComparisonSetCreate, adminUserI
       imageSize: input.imageSize ?? "comparison",
       kind,
       recipeVersionIds: kind === "prompt" ? (input.recipeVersionIds ?? []).map((id) => id ?? 0) : null,
+      gagIds: kind === "path" ? [...gagsByFact.values()].flat() : null,
       createdBy: adminUserId,
       requestToken: opts.requestToken ?? null,
     }).returning({ id: comparisonSetsTable.id });
     // Postgres returns a multi-row insert's rows in the order given.
-    const panels = await tx.insert(comparisonPanelsTable).values(layout.map((p) => ({
+    const drawn = layout.flatMap((p) => panelGags(p.factId).map((gagId) => ({ ...p, gagId })));
+    const panels = await tx.insert(comparisonPanelsTable).values(drawn.map((p) => ({
       setId: set!.id,
       factId: p.factId,
       scenarioKey: p.scenarioKey,
       lookStyleId: p.lookStyleId,
       imageMode: p.imageMode,
+      gagId: p.gagId,
       shuffleSeed: randomInt(0, 2 ** 31 - 1),
     }))).returning({ id: comparisonPanelsTable.id });
-    const cells = layout.flatMap((p, i) => p.engineIds.flatMap((engineId) =>
-      versionsFor(engineId).map((recipeVersionId) => ({ panelId: panels[i]!.id, engineId, recipeVersionId }))));
+    const cells = drawn.flatMap((p, i) => p.engineIds.flatMap((engineId) =>
+      versionsFor(engineId).flatMap((recipeVersionId) => paths.map((renderPath) => ({ panelId: panels[i]!.id, engineId, recipeVersionId, renderPath })))));
     await tx.insert(comparisonCellsTable).values(cells);
     return { setId: set!.id, panels: panels.length, cells: cells.length };
   });
@@ -195,7 +228,7 @@ export async function plannerSettings(): Promise<PlannerRequestSettings> {
   if (fallbackReason || !resolved.model) {
     throw new ComparisonLayoutError([`the planner engine "${configuredEngineId}" cannot be used (${fallbackReason ?? "no model"}), so no preparation can be bounded`]);
   }
-  return { model: resolved.model, maxTokens: resolved.maxTokens, temperature: resolved.temperature, reasoningEffort: resolved.reasoningEffort };
+  return { model: resolved.model, maxTokens: resolved.maxTokens, temperature: resolved.temperature, reasoningEffort: resolved.reasoningEffort, castBoundUsd: await castCallBoundUsd() };
 }
 
 export async function loadSetRows(setId: number, exec: Executor = db): Promise<SetRows | null> {
@@ -213,9 +246,12 @@ export async function loadSetRows(setId: number, exec: Executor = db): Promise<S
   return { set, panels, cells, prices };
 }
 
-/** Panels still to prepare, each priced at two planner calls at the planner's real ceiling. */
+/**
+ * Panels still to prepare, each priced at two planner calls at the planner's
+ * real ceiling, plus, on a path set, the one cast call its direct side makes.
+ */
 export function prepareItems(rows: SetRows, planner: PlannerRequestSettings): WorkItem[] {
-  const bound = panelPreparationBoundUsd(planner);
+  const bound = panelPreparationBoundUsd(planner) + (rows.set.kind === "path" ? (planner.castBoundUsd ?? 0) : 0);
   return rows.panels.filter((p) => p.state === "pending").map((p) => ({
     ref: `panel:${p.id}`,
     label: `preparing panel ${p.id} (fact ${p.factId}, ${p.scenarioKey}, ${p.lookStyleId})`,

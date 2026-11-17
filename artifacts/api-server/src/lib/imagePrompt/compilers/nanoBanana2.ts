@@ -1769,7 +1769,7 @@ export function compileDirect(args: DirectCompileArgs): CompiledImagePrompt {
   const strictConstraints = [overlayTextExclusion(r), incidentalTextGuard(r), VIOLENCE_RULE].join(" ");
 
   const L = (key: LabelKey) => fillPiece(r, `label.${key}`);
-  const sections: Section[] = [
+  const rawSections: Section[] = [
     { id: "core_scene", label: L("coreScene"), text: labeled(r, L("coreScene"), coreScene), priority: "required", moderatorAuthored: true },
     { id: "identity_reference", label: L("identityReference"), text: labeled(r, L("identityReference"), identity), priority: "required" },
     { id: "additional_details", label: L("additionalDetails"), text: labeled(r, L("additionalDetails"), DIRECT_FILL_INSTRUCTION), priority: "required" },
@@ -1783,7 +1783,8 @@ export function compileDirect(args: DirectCompileArgs): CompiledImagePrompt {
       : []),
     { id: "render_style", label: L("renderStyle"), text: labeled(r, L("renderStyle"), renderStyle), priority: "required" },
     { id: "strict_constraints", label: L("strictConstraints"), text: labeled(r, L("strictConstraints"), strictConstraints), priority: "required" },
-  ].map((s) => ({ ...s, text: render(s.text) }));
+  ];
+  const sections = rawSections.map((s) => ({ ...s, text: render(s.text) }));
 
   const { prompt, breakdown, overflowBy } = assembleSections(sections, notes, r.pieces["shape.join"] || " ");
   if (hasUnresolvedFactTokens(prompt)) {
