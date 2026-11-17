@@ -92,11 +92,7 @@ export function defaultScenarioRenderControls(): {
 /** Synthetic analysis for a KNOWN default reference — avoids a network analyze call. */
 export function syntheticAnalysisForReference(identityType: ReferenceIdentityType): SourceImageAnalysis {
   const isHuman = identityType === "male" || identityType === "female";
-  const subjectKind = isHuman
-    ? "human_face"
-    : identityType === "nonhuman_animal"
-      ? "animal_subject"
-      : "object_subject";
+  const subjectKind = isHuman ? "human_face" : "animal_subject";
   return {
     subjectKind,
     confidence: "high",
@@ -512,7 +508,6 @@ function cardFor(gagId: number, scenarioKey: RenderScenarioKey, attempt: ImagePr
       : status === "failed" ? attempt.error
       : status === "blocked" ? buildRenderStatusPayload(attempt).blockReason
       : null,
-    applicability: null,
     moderatorRating: attempt?.moderatorRating ?? null,
     failureTag: attempt?.failureTag ?? null,
     evalNotes: attempt?.evalNotes ?? null,

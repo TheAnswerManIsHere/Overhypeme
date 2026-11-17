@@ -47,7 +47,7 @@ export interface RenderAttempt {
 /** Controls the render endpoint accepts — mirrors the prompt-preview body. */
 export interface RenderControlsBody {
   /** The fixed reference photo to render from; the server defaults to David's. */
-  referenceIdentityType?: "male" | "female" | "nonhuman_animal" | "nonhuman_object_vehicle";
+  referenceIdentityType?: "male" | "female" | "nonhuman_animal";
   lookStyleId: string | null;
   previewName?: string;
   previewPronouns?: string;

@@ -65,8 +65,15 @@ import { detectMediumClaim } from "./promptContentDetectors";
 // on what it actually emitted. The bubble directives themselves are
 // byte-identical. Compiled output changes for gags with non-subject speakers,
 // and the version is in the render hash, so existing test renders flag stale.
-export const IMAGE_PROMPT_GENERATION_VERSION = "v9";
-export const SOURCE_IMAGE_ANALYZER_VERSION = "v1";
+//
+// v10 (plan PLAN_GAG_EXAMPLES.md, increment 2; David, 2026-11-15, Q9): a
+// picture's subject is a person or a pet. The planner, the classifier and the
+// non-human identity wording no longer offer a vehicle, an object or a mascot
+// as the subject; vehicles and objects stay legitimate as props in a scene.
+export const IMAGE_PROMPT_GENERATION_VERSION = "v10";
+// v2: a vehicle, object or mascot is no longer a subject kind; a photo whose
+// only subject is one has no usable subject (people and pets only).
+export const SOURCE_IMAGE_ANALYZER_VERSION = "v2";
 
 // ─── Enums ────────────────────────────────────────────────────────────────
 
@@ -89,9 +96,6 @@ export const SOURCE_SUBJECT_KIND_VALUES = [
   // Distinct from "no face at all" — routes to t2i fallback with a clear UI warning.
   "human_subject_no_usable_face",
   "animal_subject",
-  "object_subject",
-  "vehicle_subject",
-  "mascot_or_character_subject",
   "multiple_subjects",
   "scene_no_clear_subject",
   "ambiguous",
@@ -392,11 +396,9 @@ export interface ImagePromptGenerationInput {
 // `.superRefine()` — these break OpenAI's strict json_schema. Cross-field +
 // business rules run in `validateImagePromptPlan` after the wire parse.
 
+// A non-human subject is a pet (people and pets only, 2026-11-15).
 const NONHUMAN_SUBJECT_KIND_WIRE_VALUES = [
   "animal_subject",
-  "object_subject",
-  "vehicle_subject",
-  "mascot_or_character_subject",
   "not_applicable",
 ] as const;
 
@@ -817,7 +819,7 @@ export function validateImagePromptPlan(
       return {
         ok: false,
         error: `nonhumanSubjectTreatment.subjectKind must NOT be "not_applicable" for nonhuman_subject_i2i`,
-        correctableHint: `Pick the correct subjectKind: animal_subject, object_subject, vehicle_subject, or mascot_or_character_subject.`,
+        correctableHint: `Set subjectKind to animal_subject: a non-human subject is a pet.`,
       };
     }
     if (nht.preserveTraits.length < 1) {

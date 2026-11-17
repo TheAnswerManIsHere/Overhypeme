@@ -9,7 +9,8 @@
  *
  * NOTE on labels: open-vocab detectors (YOLO-World, Grounding-DINO) return
  * arbitrary text labels from the query vocabulary. We match labels against
- * lowercase keyword sets to bucket them into SourceSubjectKind. This is
+ * lowercase keyword sets to bucket them into SourceSubjectKind; a label that
+ * is not a person or an animal is not a subject (people and pets only). This is
  * intentionally lossy — Tier-2 only needs to be GOOD ENOUGH for routing;
  * Tier-3 rescues low-confidence cases.
  *
@@ -32,18 +33,6 @@ const ANIMAL_LABELS = new Set([
   "cat", "kitten", "dog", "puppy", "bird", "horse", "cow", "sheep", "bear",
   "elephant", "zebra", "giraffe", "lion", "tiger", "fox", "deer", "rabbit",
   "hamster", "guinea pig", "parrot", "fish", "lizard", "snake", "frog",
-]);
-const VEHICLE_LABELS = new Set([
-  "car", "truck", "motorcycle", "bicycle", "bus", "airplane", "boat", "train",
-  "van", "suv", "vehicle", "scooter", "tractor",
-]);
-const MASCOT_LABELS = new Set([
-  "toy", "stuffed animal", "mascot", "statue", "sculpture", "doll", "figurine", "robot",
-]);
-const OBJECT_LABELS_HINT = new Set([
-  "bottle", "cup", "lamp", "phone", "laptop", "chair", "couch", "bag",
-  "guitar", "ball", "bag", "skateboard", "surfboard", "kite", "umbrella",
-  "appliance", "product",
 ]);
 
 interface SubjectScore {
@@ -78,20 +67,25 @@ export function classifyTier2(
   const W = opts.imageWidth && opts.imageWidth > 0 ? opts.imageWidth : 1;
   const H = opts.imageHeight && opts.imageHeight > 0 ? opts.imageHeight : 1;
 
-  const scored: SubjectScore[] = detections.map((det, index) => {
+  // A subject is a person or a pet (David, 2026-11-15, Q9): a detection of
+  // anything else (a car, a toy, a mug) is not a candidate subject, so a photo
+  // holding only those has no usable subject.
+  const scored: SubjectScore[] = detections.flatMap((det, index) => {
     const category = categorize(det.label);
+    if (!category) return [];
     const box = det.box;
     const areaFraction = box ? (box.width * box.height) / (W * H) : 0.05;
     const centralityWeight = box ? centralityFromBox(box, W, H) : 0.5;
     const conf = clamp01(det.score);
     const score = conf * (areaFraction || 0.05) * centralityWeight;
-    return { index, detection: det, score, areaFraction, centralityWeight, category };
+    return [{ index, detection: det, score, areaFraction, centralityWeight, category }];
   });
 
   scored.sort((a, b) => b.score - a.score);
   const dominant = scored[0];
 
-  // No detections at all → no clear subject.
+  // No person or pet detected → no clear subject. Detections of anything else
+  // are kept so the record shows what the photo held.
   if (!dominant) {
     return {
       analysis: {
@@ -101,9 +95,9 @@ export function classifyTier2(
         hasUsableSubject: false,
         subjectCount: 0,
         subjectDescription: undefined,
-        detections: [],
+        detections,
         suggestedRenderMode: "t2i_fallback",
-        warnings: ["No detectable subject in this image."],
+        warnings: [detections.length > 0 ? "No person or pet in this image." : "No detectable subject in this image."],
       },
       shouldEscalate: false,
     };
@@ -163,9 +157,7 @@ export function classifyTier2(
 
   // Use the dominant non-face/non-person detection.
   const second = scored[1];
-  const isMultiple = !!second && second.score >= dominant.score * MULTIPLE_SUBJECTS_RATIO
-    && second.category !== "ambiguous"
-    && dominant.category !== "ambiguous";
+  const isMultiple = !!second && second.score >= dominant.score * MULTIPLE_SUBJECTS_RATIO;
 
   if (isMultiple) {
     return {
@@ -190,8 +182,8 @@ export function classifyTier2(
   const lowSize = dominant.areaFraction < SUBJECT_AREA_THRESHOLD;
   const usable = !lowSize && dominant.detection.score >= LOW_CONFIDENCE_THRESHOLD;
 
-  // Ambiguous: dominant category is "ambiguous" OR confidence is low.
-  if (dominant.category === "ambiguous" || confidence === "low") {
+  // Ambiguous: the dominant pet detection is low-confidence.
+  if (confidence === "low") {
     return {
       analysis: {
         subjectKind: confidence === "low" ? "ambiguous" : dominant.category,
@@ -211,7 +203,7 @@ export function classifyTier2(
     };
   }
 
-  // Dominant non-human subject (animal / vehicle / mascot / object).
+  // Dominant non-human subject: a pet.
   return {
     analysis: {
       subjectKind: dominant.category,
@@ -229,19 +221,13 @@ export function classifyTier2(
   };
 }
 
-function categorize(label: string): SourceSubjectKind {
+/** A detection's subject kind, or null when it is not a person or a pet. */
+function categorize(label: string): SourceSubjectKind | null {
   const lc = label.toLowerCase().trim();
   if (HUMAN_FACE_LABELS.has(lc)) return "human_face";
   if (PERSON_LABELS.has(lc)) return "human_subject_no_usable_face"; // upgraded by faceDet check above
   if (ANIMAL_LABELS.has(lc)) return "animal_subject";
-  if (VEHICLE_LABELS.has(lc)) return "vehicle_subject";
-  if (MASCOT_LABELS.has(lc)) return "mascot_or_character_subject";
-  if (OBJECT_LABELS_HINT.has(lc)) return "object_subject";
-  // Heuristic fallback: anything not matched is "object_subject" if it has
-  // any score; the analyzer's confidence handling demotes truly weak ones
-  // to "ambiguous". This is intentionally permissive — Tier-3 can re-classify.
-  if (lc.length > 0) return "object_subject";
-  return "ambiguous";
+  return null;
 }
 
 function centralityFromBox(box: { x: number; y: number; width: number; height: number }, W: number, H: number): number {

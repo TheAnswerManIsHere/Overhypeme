@@ -21,9 +21,6 @@ type SubjectRenderMode = "human_identity_i2i" | "nonhuman_subject_i2i";
 type SourceSubjectKind =
   | "human_face"
   | "animal_subject"
-  | "object_subject"
-  | "vehicle_subject"
-  | "mascot_or_character_subject"
   | "human_subject_no_usable_face"
   | "multiple_subjects"
   | "scene_no_clear_subject"
@@ -225,7 +222,7 @@ type RuntimePromptPreviewProps = (
 
 export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender, onPreviewNameChange }: RuntimePromptPreviewProps) {
   const isReviewMode = reviewId !== undefined;
-  // Every preview starts from a photo; a person's photo unless the moderator picks a pet or object.
+  // Every preview starts from a photo; a person's photo unless the moderator picks a pet.
   const defaultMode: SubjectRenderMode = "human_identity_i2i";
   const [expanded, setExpanded] = useState(false);
   const [lookStyles, setLookStyles] = useState<LookStyle[]>([]);
@@ -465,9 +462,6 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender, onPr
               >
                 <option value="human_face">human_face</option>
                 <option value="animal_subject">animal_subject</option>
-                <option value="object_subject">object_subject</option>
-                <option value="vehicle_subject">vehicle_subject</option>
-                <option value="mascot_or_character_subject">mascot_or_character_subject</option>
                 <option value="human_subject_no_usable_face">human_subject_no_usable_face</option>
                 <option value="multiple_subjects">multiple_subjects</option>
                 <option value="scene_no_clear_subject">scene_no_clear_subject</option>

@@ -22,7 +22,7 @@ import { bustConfigCache } from "../lib/adminConfig.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "../../../..");
-const LOCKED_SHA256 = "838fce3ae26e9ed0b09bdd581f09fb814f4d111b246c279fabd23c35921bff6f";
+const LOCKED_SHA256 = "033f7e84b15c4c01aecf59aa3cf1434e82316b33f9d33f3a26c59aaf1bb2ae35";
 const KEY = "fact_visual_concepts_engine_id";
 const BEFORE = "fact_visual_concepts_engine_id_before_0137";
 

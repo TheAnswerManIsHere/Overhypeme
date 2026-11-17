@@ -31,7 +31,7 @@ function basePlan(overrides: Partial<{
   archetype: PlanExpectations["archetype"];
   subtype: string;
   nonhumanApplicable: boolean;
-  nonhumanSubjectKind: "animal_subject" | "object_subject" | "vehicle_subject" | "mascot_or_character_subject" | "not_applicable";
+  nonhumanSubjectKind: "animal_subject" | "not_applicable";
   preserveTraits: string[];
   anthropomorphicTreatment: "none" | "subtle_pose" | "costume_and_pose" | "full_cartoonish_anthropomorphism";
   doNotTransformIntoHuman: boolean;

@@ -101,7 +101,7 @@ function renderIdentityTokens(text: string, subject?: CompileArgs["renderedSubje
   return renderPersonalized(text, subject.name, subject.pronouns);
 }
 
-// The identity preambles are recipe pieces (`identity.person`, `identity.object`;
+// The identity preambles are recipe pieces (`identity.person`, `identity.pet`;
 // `../recipe.ts`).
 
 // The compiler-owned RENDER STYLE default when no visual style is selected
@@ -1269,7 +1269,7 @@ type LabelKey = "coreScene" | "identityReference" | "subjectBinding" | "subjectR
 interface ModeContext {
   /** Operational mode/identity clause. Emitted right AFTER CORE SCENE — the
    *  Visual Concept leads; identity/reference follows it prominently. */
-  preamble: "identity.person" | "identity.object";
+  preamble: "identity.person" | "identity.pet";
   withReferenceUrl: boolean;
 }
 
@@ -1681,7 +1681,7 @@ export function compileNanoBanana2NonhumanI2I(args: CompileArgs): CompiledImageP
   // human." guard, so no extra clause is needed — and adding a paraphrase would
   // duplicate the instruction.
   return compile(args, {
-    preamble: "identity.object",
+    preamble: "identity.pet",
     withReferenceUrl: true,
   });
 }

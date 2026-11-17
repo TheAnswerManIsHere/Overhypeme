@@ -12,13 +12,10 @@
  *                               renders still read.
  *   - i2i_male_default          image-to-image with the default male reference
  *   - i2i_female_default        image-to-image with the default female reference
- *   - i2i_nonhuman_animal       image-to-image with a non-human animal reference
- *   - i2i_nonhuman_object_vehicle  …with a non-human object/vehicle reference
+ *   - i2i_nonhuman_animal       image-to-image with the default pet reference
  *
- * The two human scenarios are REQUIRED (always attempted). The two non-human scenarios
- * are OPTIONAL/conditional — see `resolveNonHumanScenarioApplicability` server
- * side; they auto-run only on a high-confidence non-human-subject signal and are
- * otherwise manually forceable.
+ * The three kinds a gag's examples are drawn from (male, female, pet) map onto
+ * the i2i scenarios; a picture's subject is a person or a pet (2026-11-15).
  */
 
 import { z } from "zod";
@@ -31,7 +28,6 @@ export const RENDER_SCENARIO_KEYS = [
   "i2i_male_default",
   "i2i_female_default",
   "i2i_nonhuman_animal",
-  "i2i_nonhuman_object_vehicle",
 ] as const;
 export type RenderScenarioKey = (typeof RENDER_SCENARIO_KEYS)[number];
 
@@ -42,7 +38,6 @@ export const REFERENCE_IDENTITY_TYPES = [
   "male",
   "female",
   "nonhuman_animal",
-  "nonhuman_object_vehicle",
 ] as const;
 export type ReferenceIdentityType = (typeof REFERENCE_IDENTITY_TYPES)[number];
 
@@ -73,24 +68,6 @@ export const PROBLEMATIC_SCENARIO_STATUSES = [
   "stale",
 ] as const;
 export type ProblematicScenarioStatus = (typeof PROBLEMATIC_SCENARIO_STATUSES)[number];
-
-// ─── Non-human applicability ─────────────────────────────────────────────────
-
-/**
- * Result of the conservative non-human applicability check. `autoRun` only flips
- * true on a high-confidence signal that the *personalized subject itself* is
- * non-human — never merely because a non-human entity appears in the scene. The
- * UI always exposes a manual override regardless of `autoRun`.
- */
-export interface NonHumanApplicability {
-  autoRun: boolean;
-  confidence: "high" | "medium" | "low";
-  /** Which non-human reference to use when run (auto or forced). */
-  subtype: "animal" | "object_vehicle" | "none";
-  reason: string;
-  evidence: string[];
-  negativeEvidence: string[];
-}
 
 // ─── Static scenario descriptors (shared source of truth) ────────────────────
 
@@ -145,14 +122,6 @@ export const RENDER_SCENARIO_DESCRIPTORS: Record<RenderScenarioKey, RenderScenar
     referenceIdentityType: "nonhuman_animal",
     required: false,
   },
-  i2i_nonhuman_object_vehicle: {
-    key: "i2i_nonhuman_object_vehicle",
-    label: "Non-human · object/vehicle (image-to-image)",
-    purpose: "How the fact renders when the subject is an object/vehicle (e.g. a car). Conditional.",
-    subjectRenderMode: "nonhuman_subject_i2i",
-    referenceIdentityType: "nonhuman_object_vehicle",
-    required: false,
-  },
 };
 
 export const REQUIRED_RENDER_SCENARIO_KEYS: readonly RenderScenarioKey[] = RENDER_SCENARIO_KEYS.filter(
@@ -166,7 +135,6 @@ export const ACTIVE_RENDER_SCENARIO_KEYS: readonly RenderScenarioKey[] = RENDER_
 
 export const NONHUMAN_RENDER_SCENARIO_KEYS: readonly RenderScenarioKey[] = [
   "i2i_nonhuman_animal",
-  "i2i_nonhuman_object_vehicle",
 ];
 
 // ─── Scenario card (GET /render-scenarios response item) ─────────────────────
@@ -192,8 +160,6 @@ export interface RenderScenarioCard {
   imageUrl: string | null;
   /** Present for failed/blocked tiles. */
   message: string | null;
-  /** Only set for the non-human scenarios: why it was included / skipped. */
-  applicability: NonHumanApplicability | null;
   // Eval harness (Slice 2B): the moderator's opportunistic verdict on the latest
   // attempt, so the Step-2 tile can render the rating control + chips. Null when
   // unrated (or no attempt). Optional so pre-eval card constructors still satisfy
