@@ -9,7 +9,7 @@
  * as platform and relies on maxTouchPoints > 1 for detection.
  */
 
-import { describe, it, expect, afterEach, vi, beforeEach } from "vitest";
+import { describe, it, expect, afterEach, vi, beforeEach, beforeAll } from "vitest";
 import { render, fireEvent, screen } from "@testing-library/react";
 import React from "react";
 
