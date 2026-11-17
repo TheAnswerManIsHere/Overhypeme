@@ -269,7 +269,7 @@ test.describe("Admin described screens", () => {
       await expect(editor.getByRole("button", { name: section, exact: true })).toBeVisible();
     }
     await expect(editor.getByTestId("fact-enrichment-panel")).toBeVisible();
-    for (const action of ["Save Changes", "Discard", "Cancel", "Send Back to Review", "Delete Fact"]) {
+    for (const action of ["Save Changes", "Discard", "Cancel", "Deactivate Fact"]) {
       await expect(editor.getByRole("button", { name: action, exact: true })).toBeVisible();
     }
     await expect(page.getByText("Something broke")).toHaveCount(0);
