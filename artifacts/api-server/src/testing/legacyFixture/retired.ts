@@ -10,8 +10,8 @@
  * set) and open resubmissions (an open review of a fact created before it)
  * are left out with the enrichment versions that never became a fact's; a
  * gag a refresh owned loses that refresh's change and picks; references to a
- * left-out review are nulled. The freshness predicates recorded for left-out
- * rows are not checked, since those rows are not loaded.
+ * left-out review are nulled. The freshness predicates of left-out or changed
+ * rows are not checked on either side, since no recorded outcome describes them.
  */
 import type { Row } from "./export";
 import type { PredicateRecord } from "./predicates";
@@ -29,6 +29,8 @@ export interface FixtureRetirement {
   versionIds: Set<number>;
   /** Render attempts made in a left-out review, or of a refresh-owned gag (their input changed). */
   attemptIds: Set<number>;
+  /** Reviews whose staging fact's gag-idea set the retirement clears (a refresh review shared its live fact). */
+  clearedBlobReviewIds: Set<number>;
 }
 
 const num = (v: unknown): number | null => (typeof v === "number" ? v : typeof v === "string" && v !== "" ? Number(v) : null);
@@ -66,7 +68,19 @@ export function fixtureRetirement(read: (table: string) => Row[]): FixtureRetire
     const review = num(a["review_id"]);
     if ((gag != null && refreshGagIds.has(gag)) || (review != null && reviewIds.has(review))) attemptIds.add(num(a["id"])!);
   }
-  return { reviewIds, refreshIds, openReviewFacts, refreshGagIds, versionIds, attemptIds };
+  const clearedFacts = new Set<number>();
+  for (const f of read("facts")) {
+    const owner = f["visual_concept_owner"];
+    const blob = f["visual_concept_candidates"] as Record<string, unknown> | null | undefined;
+    const ownedByRetired = typeof owner === "string" && owner.startsWith("review:") && reviewIds.has(Number(owner.slice(7)));
+    if (ownedByRetired || (blob && typeof blob === "object" && blob["source"] === "candidate_version")) clearedFacts.add(num(f["id"])!);
+  }
+  const clearedBlobReviewIds = new Set<number>();
+  for (const r of read("pending_reviews")) {
+    const staging = num(r["staging_fact_id"]);
+    if (staging != null && clearedFacts.has(staging)) clearedBlobReviewIds.add(num(r["id"])!);
+  }
+  return { reviewIds, refreshIds, openReviewFacts, refreshGagIds, versionIds, attemptIds, clearedBlobReviewIds };
 }
 
 /** The table's rows as 0151 leaves them. */
@@ -117,13 +131,18 @@ export function retireRows(table: string, rows: Row[], r: FixtureRetirement, now
   }
 }
 
-/** The recorded predicates, less those of rows the retirement leaves out or changes. */
+/**
+ * A predicate record less the rows the retirement leaves out or changes:
+ * applied to the recorded side (those rows are not loaded as recorded) and to
+ * the loaded side (a kept render attempt of a retired review is still read,
+ * against inputs 0151 changed, so no recorded outcome speaks for it).
+ */
 export function withoutRetired(p: PredicateRecord, r: FixtureRetirement): PredicateRecord {
   const keep = <T>(rec: Record<string, T>, gone: Set<number>): Record<string, T> =>
     Object.fromEntries(Object.entries(rec).filter(([k]) => !gone.has(Number(k))));
   return {
     renderAttempts: keep(p.renderAttempts, r.attemptIds),
     candidateTextHash: keep(p.candidateTextHash, r.versionIds),
-    conceptBlobs: keep(p.conceptBlobs, r.reviewIds),
+    conceptBlobs: keep(p.conceptBlobs, new Set([...r.reviewIds, ...r.clearedBlobReviewIds])),
   };
 }

@@ -220,10 +220,10 @@ export async function loadLegacyFixture(fixtureDir: string, targetUrl: string): 
   const { manifest, rowCounts, migrationHeads, retirement } = await loadFixtureRows(fixtureDir, targetUrl);
   const placeholdersWritten = await writePlaceholders(manifest);
   const { comparePredicates, evaluatePredicates, restorePredicates } = await import("./predicates");
-  // Rows 0151 retired are not loaded, so their recorded outcomes are not checked.
+  // Rows 0151 retired or changed have no recorded outcome to check, on either side.
   const expected = withoutRetired(manifest.predicates, retirement);
   const restoreProblems = await restorePredicates(expected);
-  const actual = await evaluatePredicates();
+  const actual = withoutRetired(await evaluatePredicates(), retirement);
   const predicateProblems = [...restoreProblems, ...comparePredicates(expected, actual)];
   return { rowCounts, placeholdersWritten, predicateProblems, migrationHeads };
 }
