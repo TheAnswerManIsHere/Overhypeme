@@ -4,13 +4,14 @@ import { AccountIdentityMirror } from "@/components/auth/AccountIdentityMirror";
 import { lazyWithRetry as lazy } from "@/lib/lazy-retry";
 import { Switch, Route, Router as WouterRouter, useLocation, useSearch } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Sentry } from "@/lib/sentry";
+import { Sentry, sentryUserFor } from "@/lib/sentry";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { trackPageView, trackRouteVisit, getTopRoutes } from "@/lib/analytics";
 import { PersonNameProvider } from "@/hooks/use-person-name";
 import { WelcomeModal } from "@/components/WelcomeModal";
 import { LEGAL_SLUGS } from "@/generated/legal";
+import { AnalyticsNotice } from "@/components/legal/AnalyticsNotice";
 import { PendingActionRunner, ShareLinkResolver } from "@/hooks/use-identity-gate";
 import { clearAllWizardStates } from "@/components/meme-builder/wizard/state/wizardStorage";
 import { FactExpansionProvider } from "@/contexts/fact-expansion-context";
@@ -88,25 +89,12 @@ function AuthProfileSync() {
   const { isAuthenticated, isLoading, user } = useAuth();
   const prevAuthRef = useRef<boolean | null>(null);
 
-  // Keep Sentry's user scope in sync with the auth state.
-  // ID is used for error events; name + email are also set so the feedback
-  // widget pre-populates its fields for logged-in users.
+  // Keep Sentry's user scope in sync with the auth state: the account id only
+  // (launch Phase 14, increment 2; the Privacy page describes it).
   useEffect(() => {
     if (isLoading) return;
-    if (isAuthenticated && user?.id) {
-      // "First Last (DisplayName)", so the feedback widget pre-fills the name.
-      const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ");
-      const displayName = (user as { displayName?: string | null }).displayName ?? "";
-      const name = (fullName && displayName ? `${fullName} (${displayName})` : fullName || displayName) || undefined;
-      Sentry.setUser({
-        id: user.id,
-        email: user.email ?? undefined,
-        name,
-      });
-    } else {
-      Sentry.setUser(null);
-    }
-  }, [isAuthenticated, isLoading, user?.id, user?.email, user?.firstName, user?.lastName, (user as { displayName?: string | null } | null)?.displayName]);
+    Sentry.setUser(isAuthenticated ? sentryUserFor(user) : null);
+  }, [isAuthenticated, isLoading, user?.id]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -314,6 +302,7 @@ function Router() {
       </Switch>
       </Suspense>
       <WelcomeModal />
+      <AnalyticsNotice />
     </>
   );
 }

@@ -1,15 +1,15 @@
 {
   "terms": {
-    "version": "2026-11-17",
-    "sha256": "c7101240266b368961a715172223b8e5a8fe4880eabf87e365a96566eeb6cb81"
+    "version": "2026-11-18",
+    "sha256": "b1791b5ec5742709500b956408622acbf8b051e01e633d38d6c78b90a67b8334"
   },
   "privacy": {
-    "version": "2026-11-18",
-    "sha256": "b9b1cc1e47ca2505f4181e671b656ced198ae3938b1f665fd7c9fe8fcf8ded40"
+    "version": "2026-11-18.2",
+    "sha256": "b9a99396f099233af1bda44d370f4ba7368dc777b587f2d7c056ec06164c43c2"
   },
   "copyright": {
-    "version": "2026-11-17",
-    "sha256": "36c02db231f5342c80ffcd1ee4e3ccad46bb4c0fe00ad349bd99bcc539bd7469"
+    "version": "2026-11-18",
+    "sha256": "c2aca34163d0413a515660ff8d3a0ef032569c9614705e764f5fd39dcbb99c0a"
   },
   "guidelines": {
     "version": "2026-11-17",
