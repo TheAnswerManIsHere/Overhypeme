@@ -73,23 +73,38 @@ describe("devPreviewGate", () => {
     assert.equal((await request(app).get("/api/healthz").set("Host", "127.0.0.1:8080")).status, 200);
   });
 
-  it("refuses every preview request when no key is configured, the gate link included", async () => {
+  it("refuses every preview request when no key is configured, the unlock call included", async () => {
     const app = appWith({ NODE_ENV: "development", REPLIT_DEV_DOMAIN: DEV_DOMAIN });
     assert.equal((await viaPreview(request(app).get("/api/healthz")).set("X-Dev-Preview-Key", "")).status, 403);
-    assert.equal((await viaPreview(request(app).get("/api/dev-preview-gate?key="))).status, 403);
+    assert.equal((await viaPreview(request(app).post("/api/dev-preview-gate")).set("X-Dev-Preview-Key", "")).status, 403);
   });
 
-  it("sets the cookie from the gate link with the right key, and only then", async () => {
+  it("sets a partitioned cookie for a keyed unlock call, and only then", async () => {
     const app = appWith(workspace);
-    const ok = await viaPreview(request(app).get(`/api/dev-preview-gate?key=${KEY}`));
-    assert.equal(ok.status, 302);
+    const ok = await viaPreview(request(app).post("/api/dev-preview-gate")).set("X-Dev-Preview-Key", KEY);
+    assert.equal(ok.status, 204);
     const cookie = String(ok.headers["set-cookie"] ?? "");
     assert.match(cookie, /dev_preview_key=/);
     assert.match(cookie, /HttpOnly/);
     assert.match(cookie, /Secure/);
-    const bad = await viaPreview(request(app).get("/api/dev-preview-gate?key=nope"));
+    assert.match(cookie, /Partitioned/);
+    const bad = await viaPreview(request(app).post("/api/dev-preview-gate")).set("X-Dev-Preview-Key", "nope");
     assert.equal(bad.status, 403);
     assert.equal(bad.headers["set-cookie"], undefined);
+  });
+
+  it("never takes the key from an address: the old ?key= link is refused", async () => {
+    const app = appWith(workspace);
+    const res = await viaPreview(request(app).get(`/api/dev-preview-gate?key=${KEY}`));
+    assert.equal(res.status, 403);
+    assert.equal(res.headers["set-cookie"], undefined);
+  });
+
+  it("lets the admin shortcut's keyed request, with no cookie, reach the dev-admin login", async () => {
+    const app = appWith(workspace);
+    app.get("/api/auth/dev-admin-login", (_req, res) => res.send("<script>/* login page */</script>"));
+    const res = await viaPreview(request(app).get("/api/auth/dev-admin-login?returnTo=/admin")).set("X-Dev-Preview-Key", KEY);
+    assert.equal(res.status, 200);
   });
 
   it("does nothing in the published deployment", async () => {

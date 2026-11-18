@@ -32,6 +32,8 @@ function scrubSentryEvent(event: Sentry.Event): void {
   if (event.request?.headers) {
     delete event.request.headers.Authorization;
     delete event.request.headers.Cookie;
+    delete event.request.headers["X-Dev-Preview-Key"];
+    delete event.request.headers["x-dev-preview-key"];
   }
   if (typeof event.request?.url === "string") {
     event.request.url = scrubUrl(event.request.url, window.location.origin);

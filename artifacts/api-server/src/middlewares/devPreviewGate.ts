@@ -1,5 +1,5 @@
 /**
- * @purpose devPreviewGate: in a Replit workspace (development), refuses every API request that reached the server through the public `*.replit.dev` preview address unless it carries DEV_PREVIEW_KEY, by header or cookie; requests to localhost are untouched and the published deployment never gates. GET /api/dev-preview-gate?key= sets the cookie.
+ * @purpose devPreviewGate: in a Replit workspace (development), refuses every API request that reached the server through the public `*.replit.dev` preview address unless it carries DEV_PREVIEW_KEY, by header or cookie; requests to localhost are untouched and the published deployment never gates. A keyed POST /api/dev-preview-gate sets the cookie.
  * @subsystem security
  *
  * Why (launch Phase 14, increment 3; measured 2026-11-18): the workspace
@@ -55,7 +55,7 @@ function matchesKey(given: unknown, key: string): boolean {
 function refuse(res: Response): void {
   res.status(403).json({
     error: "dev_preview_locked",
-    message: "This development preview is private. Open /api/dev-preview-gate?key=<DEV_PREVIEW_KEY> once to unlock it in this browser.",
+    message: "This development preview is private. Open the preview once with ?devPreviewKey=<DEV_PREVIEW_KEY> to unlock this browser. Inside Replit's embedded pane, pictures and sign-in need the preview open in its own tab.",
   });
 }
 
@@ -66,23 +66,28 @@ export function devPreviewGate(env: NodeJS.ProcessEnv = process.env) {
     if (isDirectLocalRequest(req)) return next();
     const key = env.DEV_PREVIEW_KEY ?? "";
 
-    if (req.path === GATE_PATH && req.method === "GET") {
-      if (!key || !matchesKey(req.query.key, key)) return refuse(res);
+    if (!key) return refuse(res);
+    const fromCookie = readCookie(req.headers.cookie, DEV_PREVIEW_COOKIE);
+    const keyed = matchesKey(req.headers[DEV_PREVIEW_HEADER], key);
+    if (!keyed && !matchesKey(fromCookie, key)) return refuse(res);
+
+    // The web app's unlock call: a keyed POST, never a key in an address, so
+    // no log or trace records it. It sets the cookie for what script cannot
+    // key (pictures, navigations); Partitioned lets an embedded preview pane
+    // keep it where the browser refuses third-party cookies.
+    if (req.path === GATE_PATH && req.method === "POST" && keyed) {
       res.cookie(DEV_PREVIEW_COOKIE, key, {
         httpOnly: true,
         secure: true,
         sameSite: "none",
+        partitioned: true,
         path: "/",
         maxAge: 90 * 86_400_000,
       });
-      res.redirect(302, "/");
+      res.status(204).end();
       return;
     }
-
-    if (!key) return refuse(res);
-    const fromCookie = readCookie(req.headers.cookie, DEV_PREVIEW_COOKIE);
-    if (matchesKey(req.headers[DEV_PREVIEW_HEADER], key) || matchesKey(fromCookie, key)) return next();
-    return refuse(res);
+    return next();
   };
 }
 

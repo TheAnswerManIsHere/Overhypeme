@@ -9,6 +9,9 @@ import { AccountMenuAvatarTrigger } from "@/components/layout/AccountMenu";
 import { usePersonName } from "@/hooks/use-person-name";
 import { useAskBefore } from "@/hooks/use-identity-gate";
 import { useGetMyProfile, getGetMyProfileQueryKey } from "@workspace/api-client-react";
+import { devPreviewKey, DEV_PREVIEW_HEADER } from "@/lib/devPreviewUnlock";
+
+const DEV_ADMIN_LOGIN_URL = "/api/auth/dev-admin-login?returnTo=/admin";
 
 function dicebearUrl(style: string, seed: string) {
   return `https://api.dicebear.com/9.x/${style}/svg?seed=${encodeURIComponent(seed)}`;
@@ -87,7 +90,26 @@ export function Navbar() {
     // cookie path in every modern browser, so the sid actually persists.
     // The GET handler returns an HTML page that JS-redirects to `returnTo`
     // *after* the Set-Cookie has been committed, then admin requests work.
-    window.location.href = "/api/auth/dev-admin-login?returnTo=/admin";
+    //
+    // In the dev preview with its key stored (launch Phase 14, increment 3;
+    // lib/devPreviewUnlock.ts), a bare navigation cannot carry the key header,
+    // and the gate's cookie may be dropped in the embedded pane. So the same
+    // GET is fetched with the key, and the page it returns — which writes the
+    // session token to localStorage and redirects — is run in place.
+    const previewKey = devPreviewKey();
+    if (previewKey) {
+      void fetch(DEV_ADMIN_LOGIN_URL, { credentials: "include", headers: { [DEV_PREVIEW_HEADER]: previewKey } })
+        .then(async (res) => {
+          if (!res.ok) return;
+          const page = await res.text();
+          document.open();
+          document.write(page);
+          document.close();
+        })
+        .catch(() => {});
+      return;
+    }
+    window.location.href = DEV_ADMIN_LOGIN_URL;
   }
 
   // Mobile: onTouchEnd fires on every tap reliably (onClick is suppressed by

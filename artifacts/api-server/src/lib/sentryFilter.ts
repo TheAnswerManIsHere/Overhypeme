@@ -8,6 +8,9 @@ export function scrubSentryEvent(event: Event): void {
       delete event.request.headers.authorization;
       delete event.request.headers.cookie;
       delete event.request.headers["x-api-key"];
+      // The dev preview key (middlewares/devPreviewGate.ts) rides on every
+      // preview API call; it never reaches monitoring.
+      delete event.request.headers["x-dev-preview-key"];
     }
     if (typeof event.request.url === "string") {
       event.request.url = scrubUrl(event.request.url);
