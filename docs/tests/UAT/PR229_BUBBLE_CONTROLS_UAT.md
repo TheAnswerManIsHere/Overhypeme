@@ -25,18 +25,7 @@ do.
 
 ## Steps
 
-### 1. A speech bubble appears correctly in the compiled prompt
-
-**Do:** In the Speech & Thought Bubbles editor, click Add bubble, leave
-type Speech and entity subject, type `You're the man of the house now.`,
-then open Runtime Compiled Prompt (Advanced Options / preview).
-
-**Expect:** a `SPEECH & THOUGHT BUBBLES:` section containing one directive
-with your exact text in quotes and a tail "pointing to" the subject's name.
-
-**Lane:** ci
-
-**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits one deterministic directive per bubble in STORED order, with exact serialized text`; `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts:returns one speech directive quoting the exact text, tail pointing to the preview name`
+_Step 1 retired with the old compiler path and its tests (PR #1022 draws straight from the gag; bubble wording is pinned by `directCompile.test.ts`) (David, 2026-11-18, Q2: retired as not applicable — the behaviour it tested was removed)._
 
 ### 2. The speech bubble renders correctly at 2K
 
@@ -51,19 +40,7 @@ a caption across the image. Which speaker the balloon belongs to is step
 
 **Deferred:** #628 — Phase 7 (image offering) — speech bubbles are finished in that phase; lettering and tail placement are a judgement on a real render
 
-### 3. A thought bubble attaches to a secondary character in the prompt
-
-**Do:** Add a second bubble: type Thought, entity a role label (e.g. `the
-bartender`), text `Not again.`; make sure the scene actually includes that
-character (mention "a bartender" in the Visual Concept, or add a Scene
-Role Assignment for them); then open the preview.
-
-**Expect:** a second directive — a cloud-shaped thought balloon with a
-trail "leading to the head of the bartender", text `Not again.`
-
-**Lane:** ci
-
-**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits one deterministic directive per bubble in STORED order, with exact serialized text`; `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts:returns a cloud-shaped thought balloon whose trail leads to the head of the bartender`
+_Step 3 retired with Scene Role Assignment and the old compiler path (PR #1022; bubbles now live on the gag card) (David, 2026-11-18, Q2: retired as not applicable — the behaviour it tested was removed)._
 
 ### 4. The thought bubble renders on the right character
 
@@ -166,18 +143,7 @@ now."`
 
 **Deferred:** #628 — Phase 8 (Engine evaluation) — the model proposing a speech bubble from a quote-bearing fact; whether the model proposes one is model behaviour that phase tunes (David, 2026-10-17)
 
-### 12. Using a proposed idea fills both the Concept and the bubble editor
-
-**Do:** Click Use as draft on the idea card from step 11.
-
-**Expect:** the Visual Concept field fills and the bubble appears in the
-Speech & Thought Bubbles editor — the same rows the card showed.
-
-**Lane:** ci
-
-**Check:** `artifacts/overhype-me/src/components/admin/VisualConceptCandidates.test.tsx:"Use as draft" calls onPick with the COMPLETE candidate (scene + bubbles)`
-
-**Deferred:** #628 — Phase 13 (Admin console) — the moderation review pane that wires Use as draft into the Concept field and bubble editor is rebuilt there
+_Step 12 retired with the proposed-idea "Use as draft" flow, replaced by the gag card in the three-gags rebuild (PR #956) (David, 2026-11-18, Q2: retired as not applicable — the behaviour it tested was removed)._
 
 ### 13. The picked bubble renders correctly
 
@@ -201,20 +167,7 @@ speech where the fact has none.
 
 **Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 3: the baseline fact has no dialogue, and no Visual Ideas candidate proposes a bubble
 
-### 15. Picking an idea is blocked while other Advanced edits are unsaved
-
-**Do:** Make an edit to some other Visual Strategy field (e.g. add a
-Required Visual Detail) without saving, then try Use as draft on an idea.
-
-**Expect:** the button is disabled with copy asking you to save or discard
-your current Visual Strategy changes first. (Editing the Concept text or
-bubbles themselves does not block picking — only unrelated fields do.)
-
-**Lane:** ci
-
-**Check:** `artifacts/overhype-me/src/components/admin/candidatePickGate.test.ts:BLOCKS when an unrelated field (e.g. requiredVisualDetails) is unsaved relative to a real persisted base`; `artifacts/overhype-me/src/components/admin/VisualConceptCandidates.test.tsx:pickBlockedReason disables picking with the reason but keeps the cards rendered`; `artifacts/overhype-me/src/components/admin/candidatePickGate.test.ts:does NOT block on scene/bubble-only dirtiness relative to a real persisted base — a pick replaces exactly those fields`
-
-**Deferred:** #628 — Phase 13 (Admin console) — the moderation review pane that computes the pick gate and passes its reason to the idea cards is rebuilt there
+_Step 15 retired with the idea-card pick gate, replaced by the gag card in the three-gags rebuild (PR #956) (David, 2026-11-18, Q2: retired as not applicable — the behaviour it tested was removed)._
 
 ### 16. The step 2 balloon belongs to the subject
 
@@ -289,17 +242,7 @@ prompt.
 
 **Deferred:** #628 — Phase 13 (Admin console) — the moderation review pane that wires Use as draft into the Concept field is rebuilt there
 
-### R3. Advanced Options still saves unrelated fields
-
-**Do:** Save an edit to a role binding or required detail in Advanced
-Options.
-
-**Expect:** it still saves; role bindings / required details are
-unchanged.
-
-**Lane:** ci
-
-**Check:** `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`:canonicalizes {name}/{Name} tokens and rejects unknown tokens in the override — a required detail saves with 200 and reads back; `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:reads a saved role binding back with its entity and visualRole unchanged`
+_R3 retired with the Advanced Options art-direction fields (PR #1022 retired the eleven fields) (David, 2026-11-18, Q2: retired as not applicable — the behaviour it tested was removed)._
 
 ### R4. Editing the Concept or a bubble marks ideas stale, non-blocking
 

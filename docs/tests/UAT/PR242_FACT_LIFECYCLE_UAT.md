@@ -68,31 +68,9 @@ existing facts and things already in the queue.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:skips a text matching an existing fact and one matching an unresolved review, queuing no new review`
 
-### 5. Adding a variant queues it instead of publishing instantly
+_Step 5 retired with fact variants (PR #970; ledger: `docs/retired/README.md`) (David, 2026-11-18, Q2: retired as not applicable — the behaviour it tested was removed)._
 
-**Do:** Open a fact in the admin Facts editor, click Add Variant, enter
-variant text, and save.
-
-**Expect:** you get "Variant queued for review. It'll appear under this
-fact once it's approved through moderation." — it no longer appears
-instantly.
-
-**Lane:** ci
-
-**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:queues the variant as a Stage-1 review carrying the parent (no active variant fact)`; `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts:PR242 5, 6, 9, 10, 13 — a variant is queued not published; Resubmit shows on inactive facts and Send Back on active ones`
-
-### 6. A queued variant carries its parent and nests only after approval
-
-**Do:** Check the moderation queue for the variant from step 5.
-
-**Expect:** it shows up carrying its parent fact, and only appears nested
-under the parent after you approve it for production.
-
-**Lane:** ci
-
-**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:queues the variant as a Stage-1 review carrying the parent (no active variant fact)`; `artifacts/api-server/src/__tests__/routes.reviews.test.ts:a variant review's approval activates the staging fact with parentId set to the parent fact (inactive before)`; `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts:PR242 5, 6, 9, 10, 13 — a variant is queued not published; Resubmit shows on inactive facts and Send Back on active ones`
-
-**Deferred:** #628 — Phase 13 (Admin console) — the Moderation screen showing the queued variant with its parent fact is rebuilt in Phase 13
+_Step 6 retired with fact variants (PR #970; ledger: `docs/retired/README.md`) (David, 2026-11-18, Q2: retired as not applicable — the behaviour it tested was removed)._
 
 ### 7. Toggling an inactive fact to Active is rejected
 
@@ -117,66 +95,15 @@ live again."
 
 **Check:** `artifacts/api-server/src/__tests__/factLifecycleClosure.test.ts:cascades: deactivating an active root also deactivates its active children`; `artifacts/api-server/src/__tests__/routes.admin.test.ts:deactivating a root via this PATCH cascades to its active variants`
 
-### 9. An inactive fact shows a Resubmit for Moderation button
+_Step 9 retired with Resubmit for Moderation (PR #1027; ledger: `docs/retired/README.md`) (David, 2026-11-18, Q2: retired as not applicable — the behaviour it tested was removed)._
 
-**Do:** Open an inactive fact in the admin Facts editor.
+_Step 10 retired with Resubmit for Moderation (PR #1027) (David, 2026-11-18, Q2: retired as not applicable — the behaviour it tested was removed)._
 
-**Expect:** you see a "Resubmit for Moderation" button (where "Send Back
-to Review" shows for active facts instead).
+_Step 11 retired with Resubmit for Moderation (PR #1027) (David, 2026-11-18, Q2: retired as not applicable — the behaviour it tested was removed)._
 
-**Lane:** ci
+_Step 12 retired with Resubmit for Moderation (PR #1027) (David, 2026-11-18, Q2: retired as not applicable — the behaviour it tested was removed)._
 
-**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts:PR242 5, 6, 9, 10, 13 — a variant is queued not published; Resubmit shows on inactive facts and Send Back on active ones`
-
-### 10. Resubmitting puts the fact back in the queue at Stage 1
-
-**Do:** Click "Resubmit for Moderation".
-
-**Expect:** you get "Resubmitted for moderation — Review #… is back in the
-queue at Stage 1."
-
-**Lane:** ci
-
-**Check:** `artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts:re-enters the SAME fact at prep_pending: no new fact, enrichment job queued`; `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts:PR242 5, 6, 9, 10, 13 — a variant is queued not published; Resubmit shows on inactive facts and Send Back on active ones`
-
-### 11. The resubmitted review reuses the same fact id
-
-**Do:** Go to Admin → Reviews and find the review from step 10.
-
-**Expect:** the review is listed as "AI prep running" (enrichment running
-again), reusing the same fact id — not a duplicate.
-
-**Lane:** ci
-
-**Check:** `artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts:re-enters the SAME fact at prep_pending: no new fact, enrichment job queued`
-
-**Deferred:** #628 — Phase 13 (Admin console) — the Moderation screen that shows the AI prep running label is rebuilt in Phase 13
-
-### 12. A second resubmit while one is in progress is rejected
-
-**Do:** Click "Resubmit for Moderation" again before finishing the review
-from step 10.
-
-**Expect:** you get a 409 — a review is already in progress for this
-fact; no duplicate reviews stack up.
-
-**Lane:** ci
-
-**Check:** `artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts:409 REVIEW_ALREADY_IN_PROGRESS naming the in-flight review on a second click`; `artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts:a second click answers the error 'A moderation review is already in progress for this fact.'`; `artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts:leaves exactly one unresolved review for the fact after the second click`
-
-### 13. Resubmit isn't available on an active fact
-
-**Do:** Open an active fact in the admin Facts editor and look for a
-Resubmit for Moderation button (or attempt the resubmit call directly,
-e.g. via the API).
-
-**Expect:** the button doesn't appear on active facts — "Send Back to
-Review" shows instead; a direct attempt is rejected, pointing you at Send
-Back to Review.
-
-**Lane:** ci
-
-**Check:** `artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts:404 for a missing fact; 409 ALREADY_ACTIVE`; `artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts:the 409 ALREADY_ACTIVE error tells the admin to use Send Back to Review to refresh it instead`; `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts:PR242 5, 6, 9, 10, 13 — a variant is queued not published; Resubmit shows on inactive facts and Send Back on active ones`
+_Step 13 retired with Resubmit for Moderation (PR #1027) (David, 2026-11-18, Q2: retired as not applicable — the behaviour it tested was removed)._
 
 ### 14. Production approval is still blocked without a Visual Concept
 
@@ -242,15 +169,7 @@ and share.
 
 **Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journeys 2–3: a submission goes triage_pending, provisional approve, preparation to concept_review, Visual Concept saved and approved, renders, approve-for-production, and the fact reads back active `artifacts/api-server/src/__tests__/routes.admin.test.ts:rejects flipping an INACTIVE fact to active — activation is moderation-only`; `artifacts/api-server/src/__tests__/routes.admin.test.ts` — POST /admin/facts/import and POST /admin/facts/:id/variants write no fact row; `artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts:re-enters the SAME fact at prep_pending: no new fact, enrichment job queued` — the resubmitted fact stays inactive
 
-### R3. Refresh / send-back of a live fact is unchanged
-
-**Do:** Send a live fact back to review (refresh).
-
-**Expect:** unchanged; it never touches active state.
-
-**Lane:** ci
-
-**Check:** `artifacts/api-server/src/__tests__/routes.sendBackToReview.test.ts:starts a refresh cycle: candidate + new review, createdBy = the admin, ids echoed`
+_R3 retired with refresh reviews and send-back (PR #1027; ledger: `docs/retired/README.md`) (David, 2026-11-18, Q2: retired as not applicable — the behaviour it tested was removed)._
 
 ### R4. Re-running "Backfill enrichment" keeps the moderator's Visual Concept
 

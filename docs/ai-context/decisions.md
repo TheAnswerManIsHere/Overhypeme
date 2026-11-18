@@ -4140,7 +4140,8 @@
   an unbounded number of retry cycles nor be silently declared "migration
   complete" while still excluded. See
   `docs/tests/Replit/PR293_NCMEC_CYBERTIPLINE_TEST_RUN.md`
-  and `docs/tests/UAT/PR256_VARIANT_INDEPENDENCE_UAT.md` for the verification record.
+  for the verification record. (The PR256 UAT script was retired unrun on
+  2026-11-18 with variants themselves, PR #970; David's Q2 on Issue #562.)
   This entry was a forward-looking "sites to fix" list at decision time — it
   now describes fixed behavior, not a plan.
 
