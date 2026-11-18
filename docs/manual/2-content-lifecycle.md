@@ -81,7 +81,9 @@ Bulk import exists in two forms that both do the same thing — turn a batch
 of fact texts into pending reviews — with different callers in mind:
 
 - **From the [admin console](../ai-context/glossary.md#admin-console)**, an admin pastes facts as JSON, CSV, or one
-  fact per line and imports them in one action.
+  fact per line and imports them in one action. A batch over the import's
+  size limit is refused whole, nothing from it queued; split it into
+  smaller batches.
 - **Via API key**, an external system posts the same kind of batch
   programmatically, with an optional dry-run mode that validates without
   writing anything.

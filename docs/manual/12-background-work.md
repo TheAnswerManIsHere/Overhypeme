@@ -148,10 +148,11 @@ queue's items:
   inside the wider retention window), and whether the whole fleet has gone
   quiet on it.
 - **Per-item altitude** (`GET /api/admin/queue-health/jobs`) — the same drill-down
-  every queue gets, not just email. A job's error is shown only while its
-  latest attempt has failed: a retry that succeeds clears the old message,
-  here and on Taxonomy Health and the Email Queue, so red always means the
-  last try went wrong.
+  every queue gets, not just email. A retry that succeeds clears the job's
+  old error, here and on Taxonomy Health and the Email Queue, so a finished
+  job never shows a stale failure. A waiting job can still show a message
+  without having been tried: when the work it needs is unavailable, the job
+  stays waiting and its message gives the reason.
 - **A public liveness probe** (`GET /api/health/queues`, unauthenticated) —
   on total API-process death it's unreachable exactly like every other
   endpoint, so that's not what makes it useful. The aggregate endpoint above
