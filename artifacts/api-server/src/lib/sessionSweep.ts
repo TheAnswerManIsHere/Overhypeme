@@ -1,5 +1,5 @@
 /**
- * @purpose Deletes sign-in sessions past their expiry in bounded batches, so a session nobody presents again does not stay until its account is deleted (launch Phase 14, increment 6); run daily by the maintenance call.
+ * @purpose Deletes sign-in sessions past their expiry in bounded batches, so a session nobody presents again does not stay until its account is deleted (launch Phase 14, increment 6); run hourly while the process is up and daily by the maintenance call.
  * @subsystem accounts-auth
  */
 import { db } from "@workspace/db";
