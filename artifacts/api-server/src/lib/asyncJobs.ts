@@ -41,6 +41,7 @@ import {
   heartbeatTtlMinutes,
 } from "./workerHeartbeats";
 import { recordTaskCompleted } from "./recurringTasks";
+import { reportOperationalAlert } from "./operationalAlerts";
 
 // ─── Handler registry ───────────────────────────────────────────────────────
 
@@ -724,6 +725,9 @@ async function finalizeOutcome(
       { ...laneField(lane), queue: row.queue, id: row.id, error: outcomeError },
       `${lanePrefix(lane)} job failed terminally (deterministic, not retried)`,
     );
+    // Launch Phase 16: a job that failed for good, reported from the one place
+    // the core finalises a failure. No database write; never throws.
+    reportOperationalAlert("job_failed", { queue: row.queue, jobId: row.id, attempts: newAttempts, how: "failed_without_retry" });
     return;
   }
 
@@ -732,6 +736,7 @@ async function finalizeOutcome(
       { ...laneField(lane), queue: row.queue, id: row.id, error: outcomeError },
       `${lanePrefix(lane)} job abandoned after max retries`,
     );
+    reportOperationalAlert("job_failed", { queue: row.queue, jobId: row.id, attempts: newAttempts, how: "retries_exhausted" });
     // Reached only after the fenced terminal transition succeeded (plan §A).
     if (handler.onAbandon) {
       try {
@@ -1027,6 +1032,10 @@ export async function recoverStuckProcessing(
       { id: r.id, queue: r.queue, previousOwner: r.claimOwner, to: r.status },
       "[asyncJobs] reclaimed a job whose holder stopped renewing its lease",
     );
+    // Launch Phase 16: recorded in Sentry at warning level and shown in admin;
+    // the phone rule leaves this source out (David's Q6: 1 — a job that
+    // resumes on its own does not ring).
+    reportOperationalAlert("job_interrupted", { queue: r.queue, jobId: r.id, to: String(r.status) });
   }
 
   // Taken back from a stopped holder like any other row (plan §A): a queue
@@ -1043,6 +1052,7 @@ export async function recoverStuckProcessing(
     .returning({ id: asyncJobsTable.id, queue: asyncJobsTable.queue, status: asyncJobsTable.status });
   for (const r of legacy) {
     logger.info({ id: r.id, queue: r.queue, to: r.status }, "[asyncJobs] reclaimed an unleased job left processing by an earlier release");
+    reportOperationalAlert("job_interrupted", { queue: r.queue, jobId: r.id, to: String(r.status) });
   }
   return leased.length + legacy.length;
 }

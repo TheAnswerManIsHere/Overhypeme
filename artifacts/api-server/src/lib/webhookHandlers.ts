@@ -1014,6 +1014,24 @@ async function applyDomainEvent(
   return result.notifications;
 }
 
+/**
+ * Errors thrown by the first phase — the sync library's signature check and
+ * its mirror write — before an event is known to be Stripe's (launch Phase
+ * 16). The route does not report these as a failed payment webhook: anyone
+ * can post to the address, so reporting them would let a stranger ring the
+ * operator's phone. A real breakage there (a wrong signing secret, the mirror
+ * write failing) still shows, as events the webhook has not processed, on the
+ * polled payments check. Membership only; the error and its handling are
+ * unchanged.
+ */
+const REJECTED_BEFORE_VERIFICATION = new WeakSet<object>();
+export function markRejectedBeforeVerification(err: unknown): void {
+  if (err !== null && typeof err === "object") REJECTED_BEFORE_VERIFICATION.add(err);
+}
+export function wasRejectedBeforeVerification(err: unknown): boolean {
+  return err !== null && typeof err === "object" && REJECTED_BEFORE_VERIFICATION.has(err);
+}
+
 export class WebhookHandlers {
   private static async audit(eventId: string, eventType: string, state: "received" | "processed" | "ignored_duplicate" | "failed", detail?: string) {
     await db.insert(stripeWebhookAuditTable).values({ eventId, eventType, state, detail });
@@ -1079,6 +1097,7 @@ export class WebhookHandlers {
         { err: sigErr, eventId: eventIdGuess, reason },
         "Stripe webhook rejected before domain processing",
       );
+      markRejectedBeforeVerification(sigErr);
       throw sigErr;
     }
 
