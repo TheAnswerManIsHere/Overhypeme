@@ -257,6 +257,38 @@ function scheduleAccountDeletionWorker() {
   schedule(7 * 60 * 1000);
 }
 
+// Hourly: delete expired sign-in sessions (lib/sessionSweep.ts) and expired
+// email and password tokens and searches over 90 days old
+// (lib/dataLifecycle.ts), launch Phase 14, increment 6. The daily maintenance
+// call runs both too; this keeps an awake site tidy between calls, as the
+// other cleanups' timers do. Safe on several instances at once: the session
+// sweep takes its rows SKIP LOCKED, and the windows job's deletes are
+// idempotent. One failing does not stop the other.
+function scheduleSessionAndRetentionWindowJobs() {
+  const HOURLY_MS = 60 * 60 * 1000;
+  const schedule = (delayMs: number) => {
+    setTimeout(async () => {
+      try {
+        const { sweepExpiredSessions } = await import("./lib/sessionSweep");
+        const result = await sweepExpiredSessions();
+        if (result.deleted > 0) logger.info(result, "[session-sweep] run");
+      } catch (err) {
+        logger.error({ err }, "[session-sweep] run failed");
+      }
+      try {
+        const { runRetentionWindowJobs } = await import("./lib/dataLifecycle");
+        const result = await runRetentionWindowJobs();
+        if (Object.values(result).some((n) => n > 0)) logger.info(result, "[retention-windows] run");
+      } catch (err) {
+        logger.error({ err }, "[retention-windows] run failed");
+      }
+      schedule(HOURLY_MS);
+    }, delayMs).unref();
+  };
+  // Not at boot: nothing about it is urgent to the minute.
+  schedule(9 * 60 * 1000);
+}
+
 // Once per boot, a couple of minutes in: bake every recipe meme saved before
 // memes were baked at save (launch Phase 5, plan S16; lib/memeBake.ts). A
 // no-op once every meme is a file, and safe on several instances at once: a
@@ -506,6 +538,7 @@ scheduleTransientRenderPurger();
 scheduleRateLimitCounterPurger();
 scheduleContentPurger();
 scheduleAccountDeletionWorker();
+scheduleSessionAndRetentionWindowJobs();
 scheduleMediaBackup();
 scheduleMemeBakeBackfill();
 // Engines live in the code catalogue (decisions.md 2026-11-14); the pricing

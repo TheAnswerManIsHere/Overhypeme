@@ -5,10 +5,11 @@
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { RETENTION_SCHEDULE } from "@workspace/db/retention-schedule";
+import { RETENTION_SCHEDULE, ACCOUNT_PURGE } from "@workspace/db/retention-schedule";
 import { TABLE_CLASSIFICATION } from "@workspace/db/table-classification";
 import { MAINTENANCE_JOB_NAMES } from "../lib/maintenance.js";
 import { SEARCH_HISTORY_RETENTION_DAYS } from "../lib/dataLifecycle.js";
+import { DELETION_COOLING_OFF_DAYS, NEVER_ONBOARDED_AFTER_DAYS } from "../lib/accountDeletion.js";
 
 describe("the retention schedule", () => {
   it("names exactly the tables the schema has (the classification is held to the live database by its own test)", () => {
@@ -42,5 +43,12 @@ describe("the retention schedule", () => {
   it("the search-history window it states is the one the job uses", () => {
     const rule = RETENTION_SCHEDULE.search_history!.rules.find((r) => r.kind === "job");
     assert.ok(rule && rule.kind === "job" && rule.window === `${SEARCH_HISTORY_RETENTION_DAYS} days`);
+  });
+
+  it("the account purge's timing it states is the deletion engine's", () => {
+    assert.equal(ACCOUNT_PURGE.coolingOffDays, DELETION_COOLING_OFF_DAYS);
+    assert.equal(ACCOUNT_PURGE.unfinishedSignUpAfterDays, NEVER_ONBOARDED_AFTER_DAYS);
+    const rule = RETENTION_SCHEDULE.users!.rules.find((r) => r.kind === "job");
+    assert.ok(rule && rule.kind === "job" && rule.job === "account-deletion");
   });
 });

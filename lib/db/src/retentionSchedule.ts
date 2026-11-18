@@ -7,7 +7,8 @@
  *     named by its id), which a test holds to that list;
  *   - `with-parent`: the rows go when the named parent row goes;
  *   - `account-deletion`: deleted, or stripped of the person, when the
- *     account is purged (itself the `account-deletion` job);
+ *     account is purged (itself the `account-deletion` job). When that purge
+ *     happens is `ACCOUNT_PURGE`, below, and is the same for every table;
  *   - `kept`: kept on purpose, with the reason (or the decision) that says so;
  *   - `legal-hold`: kept because the law requires it (the child-safety
  *     records; increment 7 adds their purge after filing);
@@ -38,6 +39,26 @@ export interface RetentionEntry {
   rules: readonly RetentionRule[];
 }
 
+/**
+ * When an account's purge happens, for every `account-deletion` rule above.
+ * The engine is api-server `lib/accountDeletion.ts`, and a test holds the day
+ * counts here equal to its constants.
+ *
+ * - A member's own request: purged `coolingOffDays` later unless they keep
+ *   the account. An admin's removal: purged at once.
+ * - A self-registered sign-up never onboarded: a deletion request is opened
+ *   `unfinishedSignUpAfterDays` after the account was created, then the
+ *   cooling-off runs as for a member's own request. A kept account is never
+ *   scheduled again; an account created by an admin or before onboarding
+ *   existed never is.
+ * - An open billing dispute on any of the person's purchases holds the purge
+ *   until it is settled.
+ */
+export const ACCOUNT_PURGE = {
+  coolingOffDays: 14,
+  unfinishedSignUpAfterDays: 30,
+} as const;
+
 const configKept: RetentionEntry = { personal: null, rules: [{ kind: "kept", reason: "configuration: how the system behaves" }] };
 const systemKept = (reason: string): RetentionEntry => ({ personal: null, rules: [{ kind: "kept", reason }] });
 const adminRecord = (parent: string | null, reason: string): RetentionEntry => ({
@@ -51,7 +72,14 @@ export const RETENTION_SCHEDULE: Readonly<Record<string, RetentionEntry>> = {
   // ── Accounts and sign-in ─────────────────────────────────────────────────
   users: {
     personal: "email, name, birth date, pronouns, profile picture, password hash, marketing consent",
-    rules: [{ kind: "account-deletion", effect: "deleted" }],
+    rules: [
+      {
+        kind: "job",
+        job: "account-deletion",
+        window: `a self-registered sign-up never onboarded: a deletion request opened at ${ACCOUNT_PURGE.unfinishedSignUpAfterDays} days, purged ${ACCOUNT_PURGE.coolingOffDays} days later unless kept; never again once kept`,
+      },
+      { kind: "account-deletion", effect: "deleted" },
+    ],
   },
   sessions: {
     personal: "the account a session belongs to",
@@ -196,14 +224,27 @@ export const RETENTION_SCHEDULE: Readonly<Record<string, RetentionEntry>> = {
 
   // ── Payments ─────────────────────────────────────────────────────────────
   membership_entitlements: { personal: "the account and its Stripe references", rules: [{ kind: "account-deletion", effect: "deleted" }] },
-  entitlement_source_disputes: { personal: "a Stripe dispute reference", rules: [{ kind: "with-parent", parent: "membership_entitlements" }] },
+  entitlement_source_disputes: {
+    personal: "a Stripe dispute reference",
+    rules: [
+      { kind: "with-parent", parent: "membership_entitlements" },
+      { kind: "kept", reason: "an open dispute holds its account's purge until it is settled (ACCOUNT_PURGE)" },
+    ],
+  },
   membership_history: { personal: "the account and its Stripe payment references", rules: [{ kind: "account-deletion", effect: "deleted" }, { kind: "kept", reason: PAYMENT_LEDGER }] },
   stripe_checkout_request_ledger: { personal: "the account and its checkout session", rules: [{ kind: "account-deletion", effect: "deleted" }, { kind: "kept", reason: PAYMENT_LEDGER }] },
   membership_leases: systemKept("short-lived locks released by the code that took them"),
-  stripe_processed_events: systemKept("Stripe event ids, kept so a replayed event is never applied twice"),
+  stripe_processed_events: {
+    personal: "Stripe event ids, each of which Stripe resolves to the customer it concerns",
+    rules: [{ kind: "kept", reason: "kept so a replayed event is never applied twice" }],
+  },
   stripe_webhook_audit: {
-    personal: null,
-    rules: [{ kind: "gap", closeBy: "nothing deletes these rows; whether `detail` can hold a customer reference is unverified, and a window (it is read for recent deliveries only) closes it" }],
+    // Its one writer is WebhookHandlers.audit (api-server lib/webhookHandlers.ts):
+    // `detail` is set only on a failed delivery, to the first 400 characters
+    // of whatever error the processing threw, which includes Stripe's own
+    // API errors about the customer's subscriptions, payments and disputes.
+    personal: "Stripe event ids; for a failed delivery, the error text, which can carry a Stripe customer, subscription or payment reference",
+    rules: [{ kind: "gap", closeBy: "nothing deletes these rows; a window (the admin page reads recent failures and a duplicate count only) closes it" }],
   },
 
   // ── Child safety ─────────────────────────────────────────────────────────
@@ -245,6 +286,13 @@ export const RETENTION_SCHEDULE: Readonly<Record<string, RetentionEntry>> = {
   comparison_picks: adminRecord("comparison_panels", "engine comparison judgements"),
   comparison_runs: adminRecord("comparison_sets", "engine comparison runs"),
   comparison_reservations: adminRecord("comparison_runs", "engine comparison spend"),
+  fact_readings: {
+    personal: "the account that asked for the run (cleared when that account is deleted)",
+    rules: [
+      { kind: "with-parent", parent: "facts" },
+      { kind: "kept", reason: "every reading run is kept, so the research an approved humor note was written from stays (facts.humor_note_reading_id)" },
+    ],
+  },
   hashtags: systemKept("the hashtag list"),
   fact_hashtags: { personal: null, rules: [{ kind: "with-parent", parent: "facts" }] },
 

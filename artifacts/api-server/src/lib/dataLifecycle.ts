@@ -1,5 +1,5 @@
 /**
- * @purpose exportUserData returns one user's row, sessions, search history and membership history; runRetentionWindowJobs deletes expired email-verification and password-reset tokens and search history over 90 days old, and is run daily by the maintenance call (lib/maintenance.ts).
+ * @purpose exportUserData returns one user's row, sessions, search history and membership history; runRetentionWindowJobs deletes expired email-verification and password-reset tokens and search history over 90 days old, and is run hourly while the process is up (index.ts) and daily by the maintenance call (lib/maintenance.ts).
  * @subsystem accounts-auth
  */
 import { db, usersTable, sessionsTable, emailVerificationTokensTable, passwordResetTokensTable } from "@workspace/db";

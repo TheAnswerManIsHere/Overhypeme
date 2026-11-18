@@ -8,8 +8,10 @@
  * /api/jobs/maintenance, from a Cloudflare scheduled trigger) runs each job
  * here directly — not by waking the process and hoping its timers fire.
  *
- * The hourly timers stay: they are harmless beside this (every job is safe to
- * run twice at once) and keep a busy site tidier than once a day.
+ * Every job here also runs on a timer inside the process while it is awake
+ * (the session sweep and the retention windows since the 6a follow-up). The
+ * timers stay: they are harmless beside this (every job is safe to run twice
+ * at once) and keep a busy site tidier than once a day.
  *
  * Increment 7 adds the child-safety recovery and evidence purge to this list;
  * a later step records each run in the database (until then, the response and
@@ -61,41 +63,82 @@ type JobRunner = () => Promise<unknown>;
  * catching a failed item and leaving it for the next run is right, so several
  * of them report failure in what they return rather than by throwing. A throw
  * is always a failure on top of this.
+ *
+ * Every judgement fails closed: an answer whose shape it does not recognise
+ * (a field renamed, a count missing, a new message) is a failure, never a
+ * good day, so a job reworded later cannot make its failures quiet again.
  */
 type FailureJudge = (result: unknown) => string | null;
 
-const NEVER_FAILS_BY_RESULT: FailureJudge = () => null;
+function unrecognised(result: unknown): string {
+  let shown: string;
+  try { shown = JSON.stringify(result) ?? String(result); } catch { shown = String(result); }
+  return `an answer this run does not recognise: ${shown.slice(0, 200)}`;
+}
 
-interface CountsLike { failed?: number }
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+const isCount = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0;
+
+/**
+ * The answer is an object carrying each named count (a finite number, zero
+ * or more) and each named flag (a boolean). Anything else is unrecognised.
+ */
+function hasShape(result: unknown, counts: readonly string[], flags: readonly string[] = []): result is Record<string, unknown> {
+  return isRecord(result)
+    && counts.every((k) => isCount(result[k]))
+    && flags.every((k) => typeof result[k] === "boolean");
+}
+
+/** A job whose only failure is a throw, once its answer has the expected shape. */
+const shapeOnly = (counts: readonly string[], flags: readonly string[] = []): FailureJudge =>
+  (result) => (hasShape(result, counts, flags) ? null : unrecognised(result));
+
+const PURGE_COUNTS = ["selected", "purged", "skipped", "failed"] as const;
 
 /** The content purge: a row it could not purge, per kind (photos, generated images, memes). */
 const contentPurgeFailure: FailureJudge = (result) => {
-  const r = (result ?? {}) as Record<string, CountsLike | undefined>;
-  const failed = (["photos", "generated", "memes"] as const)
-    .map((kind) => [kind, r[kind]?.failed ?? 0] as const)
+  const kinds = ["photos", "generated", "memes"] as const;
+  if (!isRecord(result) || !kinds.every((k) => hasShape(result[k], PURGE_COUNTS))) return unrecognised(result);
+  const failed = kinds
+    .map((kind) => [kind, (result[kind] as { failed: number }).failed] as const)
     .filter(([, n]) => n > 0);
   return failed.length ? `could not purge ${failed.map(([k, n]) => `${n} ${k}`).join(", ")}` : null;
 };
 
 /** The account-deletion worker: a request it could not schedule or advance. A hold is not a failure. */
 const accountDeletionFailure: FailureJudge = (result) => {
-  const failed = (result as CountsLike | undefined)?.failed ?? 0;
+  if (!hasShape(result, ["opened", "selected", "advanced", "purged", "held", "failed"])) return unrecognised(result);
+  const failed = result.failed as number;
   return failed > 0 ? `${failed} account deletion step(s) failed` : null;
 };
 
+/** The finished background jobs: a count of rows deleted per queue. */
+const finishedJobsFailure: FailureJudge = (result) =>
+  isRecord(result) && isRecord(result.deleted) && Object.values(result.deleted).every(isCount)
+    ? null
+    : unrecognised(result);
+
 /**
- * The media backup, which this run calls only in the published deployment:
- * an incomplete capture fails, and so do the two answers that there mean the
- * backup cannot run at all (the state in which every storage delete is also
- * refused). Another instance capturing, or a recent pair, is someone else
- * having done the work.
+ * The media backup, which this run calls only in the published deployment.
+ * Success is a completed capture, another instance capturing, a recent pair
+ * (someone else did the work), or not being the published deployment. An
+ * incomplete capture fails; so do the two answers that there mean the backup
+ * cannot run at all (the state in which every storage delete is also
+ * refused); and so does any other answer.
  */
 const mediaBackupFailure: FailureJudge = (result) => {
+  if (result === "completed"
+    || result === "skipped: another instance is capturing"
+    || result === "skipped: not the published deployment"
+    || (typeof result === "string" && /^skipped: pair \S+ is recent$/.test(result))) return null;
   if (result === "incomplete") return "the backup capture was incomplete";
   if (result === "skipped: the media backup is not configured" || result === "skipped: PRIVATE_OBJECT_DIR is not set") {
     return `the backup cannot run (${String(result).replace(/^skipped: /, "")})`;
   }
-  return null;
+  return unrecognised(result);
 };
 
 interface MaintenanceJob {
@@ -105,8 +148,9 @@ interface MaintenanceJob {
 
 const JOBS: Record<MaintenanceJobName, MaintenanceJob> = {
   "expired-sessions": {
+    // A budget left over continues on the next hourly run.
     run: async () => (await import("./sessionSweep")).sweepExpiredSessions(),
-    failure: NEVER_FAILS_BY_RESULT,
+    failure: shapeOnly(["deleted", "batches"], ["budgetExhausted"]),
   },
   "expired-sign-in-states": {
     // A Google or Apple sign-in's ten-minute state; the auth router also
@@ -117,11 +161,11 @@ const JOBS: Record<MaintenanceJobName, MaintenanceJob> = {
       const rows = await db.delete(oauthPendingStatesTable).where(lt(oauthPendingStatesTable.expiresAt, new Date())).returning({ state: oauthPendingStatesTable.state });
       return { deleted: rows.length };
     },
-    failure: NEVER_FAILS_BY_RESULT,
+    failure: shapeOnly(["deleted"]),
   },
   "retention-windows": {
     run: async () => (await import("./dataLifecycle")).runRetentionWindowJobs(),
-    failure: NEVER_FAILS_BY_RESULT,
+    failure: shapeOnly(["expiredEmailTokensDeleted", "expiredPasswordTokensDeleted", "oldSearchHistoryDeleted"]),
   },
   "finished-jobs": {
     // Background jobs' finished rows past each queue's window (they carry
@@ -134,15 +178,15 @@ const JOBS: Record<MaintenanceJobName, MaintenanceJob> = {
       for (const queue of getRegisteredQueues()) deleted[queue] = await purgeTerminalJobs(db, queue);
       return { deleted };
     },
-    failure: NEVER_FAILS_BY_RESULT,
+    failure: finishedJobsFailure,
   },
   "transient-renders": {
     run: async () => (await import("../jobs/transientRenderPurger")).runTransientRenderPurger(),
-    failure: NEVER_FAILS_BY_RESULT,
+    failure: shapeOnly(["deleted", "retentionDays"]),
   },
   "image-provenance": {
     run: async () => (await import("../jobs/provenanceRetentionPurger")).runProvenanceRetentionPurge(),
-    failure: NEVER_FAILS_BY_RESULT,
+    failure: shapeOnly(["retentionDays", "deletedRecords", "deletedRequests"]),
   },
   "rate-limit-counters": {
     // One run is budget-bounded; a daily call keeps going until the backlog
@@ -161,7 +205,7 @@ const JOBS: Record<MaintenanceJobName, MaintenanceJob> = {
       }
       return { deleted, runs, budgetExhausted };
     },
-    failure: NEVER_FAILS_BY_RESULT,
+    failure: shapeOnly(["deleted", "runs"], ["budgetExhausted"]),
   },
   "content-purge": {
     run: async () => (await import("../jobs/contentPurger")).runContentPurger(),
@@ -182,6 +226,11 @@ const JOBS: Record<MaintenanceJobName, MaintenanceJob> = {
   },
 };
 
+/** A job's judgement of a result: a plain reason it failed, or null. Exported for tests. */
+export function judgeJobResult(job: MaintenanceJobName, result: unknown): string | null {
+  return JOBS[job].failure(result);
+}
+
 /**
  * Runs every job in order. A job fails when it throws or when its own
  * judgement of its result says the work did not happen; either way its
@@ -199,7 +248,7 @@ export async function runDailyMaintenance(
     const t0 = Date.now();
     try {
       const result = await run();
-      const reason = JOBS[job].failure(result);
+      const reason = judgeJobResult(job, result);
       outcomes.push(reason ? { job, ok: false, ms: Date.now() - t0, result, error: reason } : { job, ok: true, ms: Date.now() - t0, result });
     } catch (err) {
       outcomes.push({ job, ok: false, ms: Date.now() - t0, error: err instanceof Error ? err.message.slice(0, 300) : String(err) });

@@ -16,7 +16,28 @@ import { sql } from "drizzle-orm";
 
 process.env.CRON_SECRET ??= "test-cron-secret";
 
-const { runDailyMaintenance, MAINTENANCE_JOB_NAMES } = await import("../lib/maintenance.js");
+const { runDailyMaintenance, MAINTENANCE_JOB_NAMES, judgeJobResult } = await import("../lib/maintenance.js");
+const { runContentPurger } = await import("../jobs/contentPurger.js");
+const { runAccountDeletionWorker } = await import("../lib/accountDeletion.js");
+const { runTransientRenderPurger } = await import("../jobs/transientRenderPurger.js");
+const { runProvenanceRetentionPurge } = await import("../jobs/provenanceRetentionPurger.js");
+const { runScheduledMediaBackup } = await import("../jobs/mediaBackupJob.js");
+
+type JobName = (typeof MAINTENANCE_JOB_NAMES)[number];
+const ZERO_PURGE = { selected: 0, purged: 0, skipped: 0, failed: 0 };
+/** A good-day answer per job, in the shape each real job returns. */
+const OK_RESULTS: Record<JobName, unknown> = {
+  "expired-sessions": { deleted: 0, batches: 1, budgetExhausted: false },
+  "expired-sign-in-states": { deleted: 0 },
+  "retention-windows": { expiredEmailTokensDeleted: 0, expiredPasswordTokensDeleted: 0, oldSearchHistoryDeleted: 0 },
+  "finished-jobs": { deleted: { email: 0 } },
+  "transient-renders": { deleted: 0, retentionDays: 7, cutoff: "2026-11-11T00:00:00.000Z" },
+  "image-provenance": { retentionDays: 0, deletedRecords: 0, deletedRequests: 0 },
+  "rate-limit-counters": { deleted: 0, runs: 1, budgetExhausted: false },
+  "content-purge": { photos: ZERO_PURGE, generated: ZERO_PURGE, memes: ZERO_PURGE },
+  "account-deletion": { opened: 0, selected: 0, advanced: 0, purged: 0, held: 0, failed: 0 },
+  "media-backup": "skipped: not the published deployment",
+};
 const { sweepExpiredSessions } = await import("../lib/sessionSweep.js");
 const { runRetentionWindowJobs } = await import("../lib/dataLifecycle.js");
 const { default: jobsRouter } = await import("../routes/jobs.js");
@@ -82,7 +103,7 @@ describe("the daily maintenance run", () => {
 
   it("records one job's failure and still runs the rest", async () => {
     const ran: string[] = [];
-    const stub = (name: string) => async () => { ran.push(name); return name; };
+    const stub = (name: JobName) => async () => { ran.push(name); return OK_RESULTS[name]; };
     const jobs = Object.fromEntries(MAINTENANCE_JOB_NAMES.map((n) => [n, stub(n)]));
     jobs["retention-windows"] = async () => { throw new Error("boom"); };
     const run = await runDailyMaintenance(jobs);
@@ -95,10 +116,9 @@ describe("the daily maintenance run", () => {
   // Review round 1 on PR #1044: three jobs report failure in what they
   // return rather than by throwing, and the run must not call that success.
   describe("a job that reports failure in its result", () => {
-    const allOk = () => Object.fromEntries(MAINTENANCE_JOB_NAMES.map((n) => [n, async () => ({})]));
-    const zero = { selected: 0, purged: 0, skipped: 0, failed: 0 };
+    const allOk = () => Object.fromEntries(MAINTENANCE_JOB_NAMES.map((n) => [n, async () => OK_RESULTS[n]]));
     const failing: Array<[string, (typeof MAINTENANCE_JOB_NAMES)[number], unknown]> = [
-      ["a content-purge row it could not purge", "content-purge", { photos: zero, generated: { ...zero, failed: 2 }, memes: zero }],
+      ["a content-purge row it could not purge", "content-purge", { photos: ZERO_PURGE, generated: { ...ZERO_PURGE, failed: 2 }, memes: ZERO_PURGE }],
       ["an account-deletion step that failed", "account-deletion", { opened: 0, selected: 1, advanced: 0, purged: 0, held: 0, failed: 1 }],
       ["an incomplete backup capture", "media-backup", "incomplete"],
       ["a backup that is not configured", "media-backup", "skipped: the media backup is not configured"],
@@ -107,7 +127,7 @@ describe("the daily maintenance run", () => {
     for (const [what, job, result] of failing) {
       it(`fails the job and the run on ${what}, keeping the result and running the rest`, async () => {
         const ran: string[] = [];
-        const runners = Object.fromEntries(MAINTENANCE_JOB_NAMES.map((n) => [n, async () => { ran.push(n); return n === job ? result : {}; }]));
+        const runners = Object.fromEntries(MAINTENANCE_JOB_NAMES.map((n) => [n, async () => { ran.push(n); return n === job ? result : OK_RESULTS[n]; }]));
         const run = await runDailyMaintenance(runners);
         assert.equal(run.ok, false);
         const outcome = run.jobs.find((j) => j.job === job)!;
@@ -120,7 +140,7 @@ describe("the daily maintenance run", () => {
     }
 
     const benign: Array<[string, (typeof MAINTENANCE_JOB_NAMES)[number], unknown]> = [
-      ["content purged with some rows skipped", "content-purge", { photos: { ...zero, skipped: 3 }, generated: zero, memes: { ...zero, purged: 1 } }],
+      ["content purged with some rows skipped", "content-purge", { photos: { ...ZERO_PURGE, skipped: 3 }, generated: ZERO_PURGE, memes: { ...ZERO_PURGE, purged: 1 } }],
       ["an account deletion on hold", "account-deletion", { opened: 0, selected: 1, advanced: 0, purged: 0, held: 1, failed: 0 }],
       ["a recent backup pair", "media-backup", "skipped: pair abc is recent"],
       ["another instance capturing", "media-backup", "skipped: another instance is capturing"],
@@ -136,6 +156,88 @@ describe("the daily maintenance run", () => {
         assert.equal(run.ok, true);
       });
     }
+  });
+
+  // PR #1044's build report: a judgement that looked for particular words
+  // and passed anything else would let a reworded job's failures go quiet.
+  describe("an answer of a shape a judgement does not recognise", () => {
+    it("every job's good-day answer is recognised", () => {
+      for (const job of MAINTENANCE_JOB_NAMES) assert.equal(judgeJobResult(job, OK_RESULTS[job]), null, job);
+    });
+
+    const renamed = (v: unknown): unknown => {
+      if (typeof v === "string") return `${v} (reworded)`;
+      const o = { ...(v as Record<string, unknown>) };
+      const [first] = Object.keys(o);
+      o[`${first}Renamed`] = o[first!];
+      delete o[first!];
+      return o;
+    };
+    for (const job of MAINTENANCE_JOB_NAMES) {
+      it(`fails ${job} on nothing, a bare number, and its answer with a field renamed or reworded`, () => {
+        for (const value of [undefined, 3, renamed(OK_RESULTS[job])]) {
+          assert.ok(judgeJobResult(job, value), `${job} accepted ${JSON.stringify(value)}`);
+        }
+      });
+    }
+
+    it("fails the content purge when one kind's counts are missing or not numbers", () => {
+      assert.ok(judgeJobResult("content-purge", { photos: ZERO_PURGE, generated: ZERO_PURGE }));
+      assert.ok(judgeJobResult("content-purge", { photos: ZERO_PURGE, generated: { ...ZERO_PURGE, failed: "2" }, memes: ZERO_PURGE }));
+    });
+
+    it("fails the account deletion when its failed count is missing", () => {
+      const { failed: _failed, ...rest } = OK_RESULTS["account-deletion"] as Record<string, number>;
+      assert.ok(judgeJobResult("account-deletion", rest));
+    });
+
+    it("fails the run, and keeps the answer, when a job's answer is unrecognised", async () => {
+      const runners = Object.fromEntries(MAINTENANCE_JOB_NAMES.map((n) => [n, async () => (n === "retention-windows" ? { deleted: 4 } : OK_RESULTS[n])]));
+      const run = await runDailyMaintenance(runners);
+      assert.equal(run.ok, false);
+      const outcome = run.jobs.find((j) => j.job === "retention-windows")!;
+      assert.equal(outcome.ok, false);
+      assert.match(outcome.error!, /does not recognise/);
+      assert.deepEqual(outcome.result, { deleted: 4 });
+    });
+  });
+
+  describe("the real jobs' answers", () => {
+    // Each job called directly against the test database: its real answer is
+    // recognised, and the same answer with its failure count renamed is not.
+    // Scoped to rows that do not exist, so tests sharing the database are untouched.
+    const NO_ROWS = { photoPaths: [`/objects/none-${randomUUID()}`], generatedIds: [-1], memeIds: [-1] };
+    const real: Array<[JobName, () => Promise<unknown>]> = [
+      ["expired-sessions", () => sweepExpiredSessions()],
+      ["retention-windows", () => runRetentionWindowJobs()],
+      ["transient-renders", () => runTransientRenderPurger()],
+      ["image-provenance", () => runProvenanceRetentionPurge()],
+      ["content-purge", () => runContentPurger(NO_ROWS)],
+      ["account-deletion", () => runAccountDeletionWorker({ userIds: [randomUUID()] })],
+    ];
+    for (const [job, call] of real) {
+      it(`recognises ${job}'s real answer`, async () => {
+        const result = await call();
+        assert.equal(judgeJobResult(job, result), null, JSON.stringify(result));
+      });
+    }
+
+    it("fails the real content purge's answer with a kind's failed count renamed", async () => {
+      const result = (await runContentPurger(NO_ROWS)) as unknown as Record<string, Record<string, number>>;
+      const { failed, ...rest } = result.generated!;
+      assert.ok(judgeJobResult("content-purge", { ...result, generated: { ...rest, failedRows: failed } }));
+    });
+
+    it("fails the real account deletion's answer with its failed count renamed", async () => {
+      const { failed, ...rest } = await runAccountDeletionWorker({ userIds: [randomUUID()] });
+      assert.ok(judgeJobResult("account-deletion", { ...rest, failures: failed }));
+    });
+
+    it("judges the real media backup's unconfigured answer a failure, by name", async () => {
+      const result = await runScheduledMediaBackup();
+      assert.equal(result, "skipped: the media backup is not configured");
+      assert.match(judgeJobResult("media-backup", result)!, /cannot run/);
+    });
   });
 
   it("the endpoint answers 500, with each job, when a job reports failure in its result", async () => {
