@@ -28,7 +28,7 @@ function ask(over: Partial<IdentityDecisionInput>): boolean {
 }
 
 describe("isSuppressedPath", () => {
-  it.each(["/login", "/onboard", "/forgot-password", "/reset-password", "/verify-email", "/admin", "/admin/facts", "/login?x=1", "/account/deletion", "/account/deletion?scheduled=x"])(
+  it.each(["/login", "/onboard", "/forgot-password", "/reset-password", "/verify-email", "/admin", "/admin/facts", "/login?x=1", "/account/deletion", "/account/deletion?scheduled=x", "/terms", "/privacy", "/copyright", "/guidelines"])(
     "suppresses %s",
     (p) => expect(isSuppressedPath(p)).toBe(true),
   );

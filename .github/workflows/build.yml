@@ -249,6 +249,12 @@ jobs:
       - name: Check admin help content is in sync with docs/manual/
         run: pnpm --filter @workspace/overhype-me run check:help-content
 
+      # The public legal pages are generated from docs/legal/ the same way, and
+      # the check also refuses a changed text that keeps its version: an
+      # acceptance record stores only the version (launch Phase 14, plan S-a).
+      - name: Check legal pages are in sync with docs/legal/
+        run: pnpm --filter @workspace/overhype-me run check:legal-content
+
       # The permission chokepoint. A tier-keyed hasFeature() reachable from route
       # code is how PR #402's bug class reproduces, so the guard makes the wrong
       # call impossible rather than merely discouraged.

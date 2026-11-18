@@ -10,6 +10,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { trackPageView, trackRouteVisit, getTopRoutes } from "@/lib/analytics";
 import { PersonNameProvider } from "@/hooks/use-person-name";
 import { WelcomeModal } from "@/components/WelcomeModal";
+import { LEGAL_SLUGS } from "@/generated/legal";
 import { PendingActionRunner, ShareLinkResolver } from "@/hooks/use-identity-gate";
 import { clearAllWizardStates } from "@/components/meme-builder/wizard/state/wizardStorage";
 import { FactExpansionProvider } from "@/contexts/fact-expansion-context";
@@ -27,6 +28,7 @@ const Onboard = lazy(() => import("@/pages/Onboard"));
 const CheckEmail = lazy(() => import("@/pages/CheckEmail"));
 const AccountDeletion = lazy(() => import("@/pages/AccountDeletion"));
 const AccountSuspended = lazy(() => import("@/pages/AccountSuspended"));
+const LegalPage = lazy(() => import("@/pages/Legal"));
 const AdminDashboard = lazy(() => import("@/pages/admin/index"));
 const AdminFacts = lazy(() => import("@/pages/admin/facts"));
 const AdminUsers = lazy(() => import("@/pages/admin/users"));
@@ -305,6 +307,9 @@ function Router() {
         <Route path="/forgot-password" component={ForgotPassword} />
         <Route path="/reset-password" component={ResetPassword} />
         <Route path="/verify-email" component={VerifyEmail} />
+        {LEGAL_SLUGS.map((slug) => (
+          <Route key={slug} path={`/${slug}`}>{() => <LegalPage slug={slug} />}</Route>
+        ))}
         <Route component={NotFound} />
       </Switch>
       </Suspense>

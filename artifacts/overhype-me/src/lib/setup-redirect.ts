@@ -1,10 +1,11 @@
 /**
- * @purpose Decides where the web shell sends a signed-in account that cannot act yet (launch Phase 5, plan *Who is sent there*): a suspended one to the suspended screen, one scheduled for deletion to the "Keep my account" screen, an unverified account to "check your email", an un-onboarded one to onboarding, each set-up step carrying where it was going; the set-up, sign-in and keep-my-account pages themselves are never redirected away from.
+ * @purpose Decides where the web shell sends a signed-in account that cannot act yet (launch Phase 5, plan *Who is sent there*): a suspended one to the suspended screen, one scheduled for deletion to the "Keep my account" screen, an unverified account to "check your email", an un-onboarded one to onboarding, each set-up step carrying where it was going; the set-up, sign-in and keep-my-account pages themselves, and the four legal pages (launch Phase 14), are never redirected away from.
  * @subsystem accounts-auth
  */
+import { LEGAL_SLUGS } from "@/generated/legal";
 
 /** Where an account that cannot act yet may be without being sent on. */
-const SETUP_EXEMPT_ROOTS = ["/onboard", "/check-email", "/verify-email", "/login", "/forgot-password", "/reset-password", "/account/deletion", "/account/suspended"];
+const SETUP_EXEMPT_ROOTS = ["/onboard", "/check-email", "/verify-email", "/login", "/forgot-password", "/reset-password", "/account/deletion", "/account/suspended", ...LEGAL_SLUGS.map((s) => `/${s}`)];
 
 /** The account states that cannot act yet, each sent to its own screen. */
 const REDIRECTED_STATES = new Set<string | null | undefined>(["suspended", "deletion_pending", "unverified", "unonboarded"]);

@@ -5,6 +5,7 @@
 import { NameFieldHint, useNameField } from "@/hooks/use-name-field";
 import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
+import { LegalNotice } from "@/components/legal/LegalLinks";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -374,6 +375,7 @@ export default function Login() {
                 </>
               )}
             </Button>
+            {mode === "register" && <LegalNotice />}
           </form>
 
           <div className="mt-4 text-center">

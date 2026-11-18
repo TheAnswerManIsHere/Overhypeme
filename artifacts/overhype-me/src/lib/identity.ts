@@ -2,15 +2,18 @@
  * @purpose The one decision of when to ask a visitor for their name and pronouns (#719): completeness, the pages that never ask, and the shared-content landing exception, as pure functions the identity provider and the welcome sheet consume.
  * @subsystem public-site
  */
+import { LEGAL_SLUGS } from "@/generated/legal";
 
 /** Auth as the identity decision sees it. "loading" never asks. */
 export type IdentityAuthState = "loading" | "signedOut" | "signedIn";
 
 /**
- * Pages that never show the identity sheet, matched as whole path segments:
+ * Pages that never show the identity sheet, matched as whole path segments
+ * (the four legal pages must be readable before anything is asked: launch
+ * Phase 14):
  * `/login` and `/login/x` are suppressed, `/loginx` is not.
  */
-const SUPPRESSED_ROOTS = ["login", "onboard", "forgot-password", "reset-password", "verify-email", "admin", "account"];
+const SUPPRESSED_ROOTS: readonly string[] = ["login", "onboard", "forgot-password", "reset-password", "verify-email", "admin", "account", ...LEGAL_SLUGS];
 
 function segments(path: string): string[] {
   const clean = path.split(/[?#]/)[0] ?? "";
