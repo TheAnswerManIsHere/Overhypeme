@@ -183,12 +183,11 @@ export const RETENTION_SCHEDULE: Readonly<Record<string, RetentionEntry>> = {
   },
   user_generation_costs: {
     personal: "an account id against what its pictures cost",
+    // David, Q15, 2026-11-18. The spend limits read the current month or the
+    // last 30 days only.
     rules: [
-      {
-        kind: "gap",
-        closeBy:
-          "nothing deletes these rows, and the account purge does not reach them (no foreign key), so the account id outlives the account; deciding a window (the monthly spend limit needs only the current month) closes it",
-      },
+      { kind: "job", job: "retention-windows", window: "13 months" },
+      { kind: "account-deletion", effect: "deleted" },
     ],
   },
 
@@ -208,13 +207,12 @@ export const RETENTION_SCHEDULE: Readonly<Record<string, RetentionEntry>> = {
     ],
   },
   image_prompt_attempts: {
-    personal: "a description of a member's photo and the account (cleared when the account is deleted)",
+    personal: "a description of a member's photo and the account (both cleared when the account is deleted)",
+    // David, Q15, 2026-11-18: the purge clears the photo's description and
+    // fingerprint; the attempt, which no longer names anyone, stays with its fact.
     rules: [
+      { kind: "account-deletion", effect: "anonymised" },
       { kind: "with-parent", parent: "facts" },
-      {
-        kind: "gap",
-        closeBy: "the photo description stays after the account and the photo are gone; a window, or clearing it at the purge, closes it",
-      },
     ],
   },
   transient_renders: {
@@ -244,7 +242,9 @@ export const RETENTION_SCHEDULE: Readonly<Record<string, RetentionEntry>> = {
     // of whatever error the processing threw, which includes Stripe's own
     // API errors about the customer's subscriptions, payments and disputes.
     personal: "Stripe event ids; for a failed delivery, the error text, which can carry a Stripe customer, subscription or payment reference",
-    rules: [{ kind: "gap", closeBy: "nothing deletes these rows; a window (the admin page reads recent failures and a duplicate count only) closes it" }],
+    // David, Q15, 2026-11-18. The admin page reads recent failures and a
+    // duplicate count only.
+    rules: [{ kind: "job", job: "retention-windows", window: "90 days" }],
   },
 
   // ── Child safety ─────────────────────────────────────────────────────────
@@ -287,13 +287,6 @@ export const RETENTION_SCHEDULE: Readonly<Record<string, RetentionEntry>> = {
   comparison_picks: adminRecord("comparison_panels", "engine comparison judgements"),
   comparison_runs: adminRecord("comparison_sets", "engine comparison runs"),
   comparison_reservations: adminRecord("comparison_runs", "engine comparison spend"),
-  fact_readings: {
-    personal: "the account that asked for the run (cleared when that account is deleted)",
-    rules: [
-      { kind: "with-parent", parent: "facts" },
-      { kind: "kept", reason: "every reading run is kept, so the research an approved humor note was written from stays (facts.humor_note_reading_id)" },
-    ],
-  },
   hashtags: systemKept("the hashtag list"),
   fact_hashtags: { personal: null, rules: [{ kind: "with-parent", parent: "facts" }] },
 

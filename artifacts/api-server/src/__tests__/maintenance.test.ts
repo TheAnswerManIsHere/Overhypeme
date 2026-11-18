@@ -29,7 +29,7 @@ const ZERO_PURGE = { selected: 0, purged: 0, skipped: 0, failed: 0 };
 const OK_RESULTS: Record<JobName, unknown> = {
   "expired-sessions": { deleted: 0, batches: 1, budgetExhausted: false },
   "expired-sign-in-states": { deleted: 0 },
-  "retention-windows": { expiredEmailTokensDeleted: 0, expiredPasswordTokensDeleted: 0, oldSearchHistoryDeleted: 0 },
+  "retention-windows": { expiredEmailTokensDeleted: 0, expiredPasswordTokensDeleted: 0, oldSearchHistoryDeleted: 0, oldGenerationCostsDeleted: 0, oldWebhookAuditDeleted: 0 },
   "finished-jobs": { deleted: { email: 0 } },
   "transient-renders": { deleted: 0, retentionDays: 7, cutoff: "2026-11-11T00:00:00.000Z" },
   "image-provenance": { retentionDays: 0, deletedRecords: 0, deletedRequests: 0 },
@@ -85,6 +85,28 @@ describe("the retention-window job", () => {
     assert.ok(result.oldSearchHistoryDeleted >= 1);
     const left = await db.execute(sql`SELECT query FROM search_history WHERE user_id = ${user!.id}`);
     assert.deepEqual(left.rows.map((r) => (r as { query: string }).query), ["new search"]);
+  });
+
+  // Q15 (David, 2026-11-18).
+  it("deletes picture costs older than 13 months and webhook audit rows older than 90 days, keeping newer ones", async () => {
+    const who = `retention-costs-${randomUUID()}`;
+    await db.execute(sql`INSERT INTO user_generation_costs
+      (user_id, job_type, endpoint_id, unit_price_at_creation, billing_units, computed_cost_usd, pricing_fetched_at, created_at) VALUES
+      (${who}, 'old', 'e', 0.04, 1, 0.04, now(), now() - interval '13 months 1 day'),
+      (${who}, 'new', 'e', 0.04, 1, 0.04, now(), now() - interval '12 months')`);
+    const evt = `evt_retention_${randomUUID()}`;
+    await db.execute(sql`INSERT INTO stripe_webhook_audit (event_id, event_type, state, created_at) VALUES
+      (${evt}, 'old', 'failed', now() - interval '91 days'),
+      (${evt}, 'new', 'failed', now() - interval '89 days')`);
+    const result = await runRetentionWindowJobs();
+    assert.ok(result.oldGenerationCostsDeleted >= 1);
+    assert.ok(result.oldWebhookAuditDeleted >= 1);
+    const costs = await db.execute(sql`SELECT job_type FROM user_generation_costs WHERE user_id = ${who}`);
+    assert.deepEqual(costs.rows.map((r) => (r as { job_type: string }).job_type), ["new"]);
+    const audit = await db.execute(sql`SELECT event_type FROM stripe_webhook_audit WHERE event_id = ${evt}`);
+    assert.deepEqual(audit.rows.map((r) => (r as { event_type: string }).event_type), ["new"]);
+    await db.execute(sql`DELETE FROM user_generation_costs WHERE user_id = ${who}`);
+    await db.execute(sql`DELETE FROM stripe_webhook_audit WHERE event_id = ${evt}`);
   });
 });
 

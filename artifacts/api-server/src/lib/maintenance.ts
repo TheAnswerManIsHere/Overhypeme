@@ -165,7 +165,7 @@ const JOBS: Record<MaintenanceJobName, MaintenanceJob> = {
   },
   "retention-windows": {
     run: async () => (await import("./dataLifecycle")).runRetentionWindowJobs(),
-    failure: shapeOnly(["expiredEmailTokensDeleted", "expiredPasswordTokensDeleted", "oldSearchHistoryDeleted"]),
+    failure: shapeOnly(["expiredEmailTokensDeleted", "expiredPasswordTokensDeleted", "oldSearchHistoryDeleted", "oldGenerationCostsDeleted", "oldWebhookAuditDeleted"]),
   },
   "finished-jobs": {
     // Background jobs' finished rows past each queue's window (they carry

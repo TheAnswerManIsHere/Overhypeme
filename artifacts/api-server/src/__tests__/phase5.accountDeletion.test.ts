@@ -13,6 +13,7 @@ import { db } from "@workspace/db";
 import {
   accountDeletionRequestsTable, commentsTable, entitlementSourceDisputesTable, pendingReviewsTable, factsTable, membershipEntitlementsTable,
   memesTable, ncmecReportsTable, reactionsTable, sessionsTable, uploadImageMetadataTable, userAiImagesTable, usersTable,
+  userGenerationCostsTable, imagePromptAttemptsTable,
 } from "@workspace/db/schema";
 import { and, eq, inArray, like, sql } from "drizzle-orm";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
@@ -30,6 +31,7 @@ import adminRouter from "../routes/admin.js";
 import {
   acceptAccountDeletion, advanceAccountDeletion, cancelAccountDeletion, runAccountDeletionWorker,
   __setAccountDeletionBillingForTests, __setBeforePurgeClaimForTests, type AccountDeletionBilling,
+  CLEARED_PHOTO_DESCRIPTION,
 } from "../lib/accountDeletion.js";
 import { isReachableAdminSql } from "../lib/adminIdentity.js";
 import { createSession, type SessionData } from "../lib/auth.js";
@@ -428,6 +430,20 @@ describe("the account deletion state machine (T3)", () => {
     await db.update(factsTable).set({ aiMemeImages: { neutral: [shared] } }).where(eq(factsTable.id, factId));
     await db.insert(userAiImagesTable).values({ userId, factId, gender: "neutral", storagePath: shared, imageType: "reference" });
     const [report] = await db.insert(ncmecReportsTable).values({ userId, matchSource: "arachnid", evidenceUri: `/objects/restricted/t_p5del_${randomUUID()}` }).returning();
+    // Q15 (David, 2026-11-18): what the person's pictures cost, and the
+    // description of their photo on each picture attempt.
+    const cost = (who: string) => ({
+      userId: who, jobType: "image", endpointId: "test/engine", unitPriceAtCreation: "0.04", billingUnits: "1",
+      computedCostUsd: "0.04", pricingFetchedAt: new Date(),
+    });
+    await db.insert(userGenerationCostsTable).values([cost(userId), cost(other)]);
+    const attempt = (who: string) => ({
+      factId, userId: who, renderJobId: randomUUID(), generationMode: "i2i", subjectRenderMode: "human_identity_i2i",
+      targetEngine: "nano_banana_2", sourceImageAnalysis: { subject: "a person with short hair" } as never,
+      sourceImageSha256: "a".repeat(64), identityPolicy: {} as never, renderControls: {} as never,
+      factEnrichmentSnapshot: {} as never, renderedFactText: "x.", archetypeStrategyVersion: "v2",
+    });
+    const [ownAttempt, othersAttempt] = await db.insert(imagePromptAttemptsTable).values([attempt(userId), attempt(other)]).returning({ id: imagePromptAttemptsTable.id });
 
     await acceptAccountDeletion(userId, { requestedBy, purgeAfter: past(), kick: false });
     assert.equal(await advanceAccountDeletion(userId), "done");
@@ -448,6 +464,18 @@ describe("the account deletion state machine (T3)", () => {
     assert.ok(kept, "the safety record survives");
     assert.equal(kept!.userId, null, "with the person set null");
     await db.delete(ncmecReportsTable).where(eq(ncmecReportsTable.id, report!.id));
+
+    assert.equal((await db.select().from(userGenerationCostsTable).where(eq(userGenerationCostsTable.userId, userId))).length, 0, "what the person's pictures cost is deleted");
+    assert.equal((await db.select().from(userGenerationCostsTable).where(eq(userGenerationCostsTable.userId, other))).length, 1, "another member's costs stay");
+    const [ownAttemptNow] = await db.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.id, ownAttempt!.id));
+    assert.ok(ownAttemptNow, "the picture attempt stays with its fact");
+    assert.deepEqual(ownAttemptNow!.sourceImageAnalysis, CLEARED_PHOTO_DESCRIPTION, "the description of the photo is cleared");
+    assert.equal(ownAttemptNow!.sourceImageSha256, null, "and its fingerprint");
+    assert.equal(ownAttemptNow!.userId, null);
+    const [othersAttemptNow] = await db.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.id, othersAttempt!.id));
+    assert.deepEqual(othersAttemptNow!.sourceImageAnalysis, { subject: "a person with short hair" }, "another member's attempt is untouched");
+    await db.delete(userGenerationCostsTable).where(eq(userGenerationCostsTable.userId, other));
+    await db.delete(imagePromptAttemptsTable).where(inArray(imagePromptAttemptsTable.id, [ownAttempt!.id, othersAttempt!.id]));
 
     const [comment] = await db.select().from(commentsTable).where(eq(commentsTable.id, ownComment!.id));
     const [counted] = await db.select({ commentCount: factsTable.commentCount }).from(factsTable).where(eq(factsTable.id, countedFact!.id));
