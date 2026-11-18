@@ -133,18 +133,15 @@ async function defaultStripeDeps(): Promise<Omit<StripeComparisonDeps, "now">> {
  * a first purchase whose webhook never arrived has no local record, and the
  * webhook records every event it is sent, the other business's included.
  */
-export async function compareStripeEvents(deps?: Partial<StripeComparisonDeps>): Promise<StripeComparison> {
-  const base = deps?.stripe && deps.supportedTypes && deps.db ? null : await defaultStripeDeps();
-  const now = deps?.now ?? new Date();
-  const d: StripeComparisonDeps = {
-    stripe: deps?.stripe ?? base!.stripe,
-    supportedTypes: deps?.supportedTypes ?? base!.supportedTypes,
-    db: deps?.db ?? base!.db,
-    now,
-  };
+const NOTHING_EXPECTED: StripeComparison = { status: "ok", expected: 0, unprocessed: 0, oldestUnprocessedAt: null };
+
+export async function compareStripeEvents(deps: Partial<StripeComparisonDeps> = {}): Promise<StripeComparison> {
+  const complete = deps.stripe && deps.supportedTypes && deps.db;
+  const d: StripeComparisonDeps = { ...(complete ? {} : await defaultStripeDeps()), now: new Date(), ...deps } as StripeComparisonDeps;
+  const now = d.now;
   const since = Math.max(STRIPE_MONITORING_BEGAN.getTime(), now.getTime() - STRIPE_LOOKBACK_MS);
   const until = now.getTime() - STRIPE_EVENT_THRESHOLD_MS;
-  if (since >= until) return { status: "ok", expected: 0, unprocessed: 0, oldestUnprocessedAt: null };
+  if (since >= until) return NOTHING_EXPECTED;
 
   let stripe: Pick<StripeApi, "events">;
   let types: Set<string>;
@@ -177,7 +174,7 @@ export async function compareStripeEvents(deps?: Partial<StripeComparisonDeps>):
     return { status: "unjudgeable", reason: "stripe_unavailable" };
   }
 
-  if (expected.length === 0) return { status: "ok", expected: 0, unprocessed: 0, oldestUnprocessedAt: null };
+  if (expected.length === 0) return NOTHING_EXPECTED;
   let processed: Set<string>;
   try {
     const rows = await d.db
@@ -219,17 +216,32 @@ export interface OperationalHealthDeps {
   payments: () => Promise<StripeComparison>;
 }
 
+/**
+ * The Stripe comparison reads up to ten pages from Stripe, and an event is only
+ * expected after fifteen minutes, so it is held longer than the whole verdict:
+ * a good answer for two minutes, a failed one not at all.
+ */
+const PAYMENTS_CACHE_MS = 2 * 60_000;
+let paymentsCached: { at: number; result: StripeComparison } | null = null;
+async function paymentsCachedRead(): Promise<StripeComparison> {
+  if (paymentsCached && Date.now() - paymentsCached.at < PAYMENTS_CACHE_MS) return paymentsCached.result;
+  const result = await compareStripeEvents();
+  paymentsCached = result.status === "ok" ? { at: Date.now(), result } : null;
+  return result;
+}
+
 const realDeps: OperationalHealthDeps = {
   lanes: () => laneHealth(),
   tasks: () => taskHealth(),
   jobs: () => stuckJobs(),
-  payments: () => compareStripeEvents(),
+  payments: paymentsCachedRead,
 };
 let deps = realDeps;
 export function __setOperationalHealthDepsForTest(next: Partial<OperationalHealthDeps> | null): void {
   deps = next ? { ...realDeps, ...next } : realDeps;
   cached = null;
   inFlight = null;
+  paymentsCached = null;
 }
 
 async function judge<T>(what: string, read: () => Promise<T>, healthy: (t: T) => boolean): Promise<Part<T>> {
@@ -287,16 +299,19 @@ export async function operationalHealthCached(): Promise<OperationalHealth> {
 export function publicSummary(h: OperationalHealth) {
   const state = (p: { status: string; healthy?: boolean }) =>
     p.status !== "ok" ? "unjudgeable" : p.healthy ? "ok" : "unhealthy";
+  /** A count read from a judged part's detail; null when the part was not judged. */
+  const count = <T>(p: Part<T> | { status: "unjudgeable" }, of: (detail: T) => number): number | null =>
+    p.status === "ok" ? of(p.detail) : null;
   return {
     ok: h.healthy,
     ts: h.checkedAt.toISOString(),
-    lanes: { state: state(h.lanes), stalled: h.lanes.status === "ok" ? h.lanes.detail.filter((l) => l.stalled).length : null },
-    tasks: { state: state(h.tasks), overdue: h.tasks.status === "ok" ? h.tasks.detail.filter((t) => t.overdue).length : null },
+    lanes: { state: state(h.lanes), stalled: count(h.lanes, (d) => d.filter((l) => l.stalled).length) },
+    tasks: { state: state(h.tasks), overdue: count(h.tasks, (d) => d.filter((t) => t.overdue).length) },
     jobs: {
       state: state(h.jobs),
-      unclaimedQueues: h.jobs.status === "ok" ? h.jobs.detail.unclaimedQueues.length : null,
-      held: h.jobs.status === "ok" ? h.jobs.detail.held.length : null,
+      unclaimedQueues: count(h.jobs, (d) => d.unclaimedQueues.length),
+      held: count(h.jobs, (d) => d.held.length),
     },
-    payments: { state: state(h.payments), unprocessed: h.payments.status === "ok" ? h.payments.detail.unprocessed : null },
+    payments: { state: state(h.payments), unprocessed: count(h.payments, (d) => d.unprocessed) },
   };
 }

@@ -59,6 +59,15 @@ export const WORKER_PROTOCOL_VERSION = 2;
 
 const DEFAULT_HEARTBEAT_TTL_MINUTES = 15;
 
+/**
+ * Rows whose `lane` starts with this are not lane heartbeats: they are the
+ * recurring tasks' completion records (lib/recurringTasks.ts), kept on their
+ * own rule. Every reader or sweep of lane rows excludes them with
+ * `NOT_A_TASK_ROW`.
+ */
+export const TASK_LANE_PREFIX = "task:";
+export const NOT_A_TASK_ROW = sql`${workerLaneHeartbeatsTable.lane} NOT LIKE ${`${TASK_LANE_PREFIX}%`}`;
+
 type HeartbeatDb = Pick<typeof defaultDb, "insert" | "update" | "delete" | "execute">;
 
 /**
@@ -228,10 +237,9 @@ export async function pruneDepartedInstances(
   try {
     const removed = await dbInstance
       .delete(workerLaneHeartbeatsTable)
-      // A recurring task's completion row (`task:<id>`, lib/recurringTasks.ts)
-      // is not an instance's lane heartbeat: it is kept on its own rule and
-      // must survive this sweep, or a restart would erase when a task last ran.
-      .where(sql`${workerLaneHeartbeatsTable.lastScheduledAt} < ${cutoff} AND ${workerLaneHeartbeatsTable.lane} NOT LIKE 'task:%'`)
+      // A recurring task's completion row must survive this sweep, or a
+      // restart would erase when the task last ran.
+      .where(sql`${workerLaneHeartbeatsTable.lastScheduledAt} < ${cutoff} AND ${NOT_A_TASK_ROW}`)
       .returning({ instanceId: workerLaneHeartbeatsTable.instanceId });
     return removed.length;
   } catch (err) {

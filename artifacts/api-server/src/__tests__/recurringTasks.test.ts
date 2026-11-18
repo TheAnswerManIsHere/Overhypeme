@@ -61,13 +61,10 @@ describe("the recurring-task inventory", () => {
     );
   });
 
-  it("names every task exactly once, and every task's site schedules it", () => {
-    const named = TIMER_SITES.flatMap((s) => (s.kind === "tasks" ? [...s.tasks] : []));
-    assert.deepEqual([...named].sort(), RECURRING_TASKS.map((t) => t.id).sort());
-    for (const site of TIMER_SITES) {
-      if (site.kind !== "tasks") continue;
-      for (const id of site.tasks) assert.equal(RECURRING_TASKS.find((t) => t.id === id)!.site, site.file, id);
-    }
+  it("every task names a site that is a tasks site, and every tasks site has a task", () => {
+    const taskSites = new Set(TIMER_SITES.filter((s) => s.kind === "tasks").map((s) => s.file));
+    for (const t of RECURRING_TASKS) assert.ok(taskSites.has(t.site), `${t.id}'s site ${t.site} is not a tasks site`);
+    for (const file of taskSites) assert.ok(RECURRING_TASKS.some((t) => t.site === file), `${file} schedules no task`);
   });
 
   it("every task records its completed runs somewhere in the source", () => {

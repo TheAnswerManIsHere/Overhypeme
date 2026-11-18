@@ -36,6 +36,7 @@ import { db as defaultDb } from "@workspace/db";
 import { workerLaneHeartbeatsTable } from "@workspace/db/schema";
 import { getConfigInt } from "./adminConfig";
 import { logger } from "./logger";
+import { TASK_LANE_PREFIX } from "./workerHeartbeats";
 
 const SECOND = 1_000;
 const MINUTE = 60 * SECOND;
@@ -43,8 +44,7 @@ const HOUR = 60 * MINUTE;
 
 /** The `instance_id` every task row carries: a task's completion is a fleet-wide fact. */
 export const TASK_INSTANCE_ID = "recurring-task";
-/** `lane` is `task:<id>`; lanes proper never start with this. */
-export const TASK_LANE_PREFIX = "task:";
+export { TASK_LANE_PREFIX };
 
 export interface RecurringTask {
   id: string;
@@ -177,40 +177,30 @@ export type RecurringTaskId = (typeof RECURRING_TASKS)[number]["id"];
 
 /** Where a timer call sits and what it is, for every file under `src` that has one. */
 export type TimerSite =
-  | { file: string; calls: number; kind: "tasks"; tasks: readonly RecurringTaskId[]; note: string }
+  | { file: string; calls: number; kind: "tasks"; note: string }
   | { file: string; calls: number; kind: "job-lanes"; note: string }
   | { file: string; calls: number; kind: "not-recurring"; note: string };
 
 /**
  * Every file in `artifacts/api-server/src` (tests excluded) holding a
  * `setInterval` or `setTimeout` call, with how many. A site may hold both
- * recurring and one-off timers; `note` says which is which.
+ * recurring and one-off timers; `note` says which is which. A `tasks` site's
+ * tasks are the `RECURRING_TASKS` entries whose `site` is that file.
  */
 export const TIMER_SITES: readonly TimerSite[] = [
   {
     file: "index.ts",
     calls: 9,
     kind: "tasks",
-    tasks: [
-      "pricing_refresh",
-      "transient_render_purge",
-      "provenance_retention_purge",
-      "rate_limit_counter_purge",
-      "content_purge",
-      "account_deletion",
-      "media_backup",
-      "fact_of_the_day",
-    ],
     note:
       "Seven recurring schedulers (the transient-render timer also runs the provenance purge). Not recurring: the meme-bake backfill (once per boot) and the fatal-exit safety timer.",
   },
-  { file: "routes/auth.ts", calls: 1, kind: "tasks", tasks: ["oauth_state_sweep"], note: "Expired sign-in states, every 5 minutes." },
-  { file: "lib/membershipSchedules.ts", calls: 1, kind: "tasks", tasks: ["grace_sweep"], note: "The grace sweep." },
+  { file: "routes/auth.ts", calls: 1, kind: "tasks", note: "Expired sign-in states, every 5 minutes." },
+  { file: "lib/membershipSchedules.ts", calls: 1, kind: "tasks", note: "The grace sweep." },
   {
     file: "lib/asyncJobs.ts",
     calls: 2,
     kind: "tasks",
-    tasks: ["lease_renewal", "job_reclaim", "job_retention_purge"],
     note:
       "One shared scheduler drives the four job lanes (watched by the lane check), lease renewal and reclaim; the finished-job purge runs inside the bulk lane's tick. The other call is a run's execution limit, one per job.",
   },
@@ -318,9 +308,7 @@ export async function beginTaskMonitoring(dbInstance: TaskDb = defaultDb): Promi
   }
 }
 
-function taskRunsHere(task: RecurringTask): boolean {
-  return task.runsHere ? task.runsHere() : true;
-}
+const taskRunsHere = (task: RecurringTask): boolean => task.runsHere?.() ?? true;
 
 export interface TaskHealth {
   id: RecurringTaskId;
@@ -356,9 +344,10 @@ export async function taskHealth(
       inArray(workerLaneHeartbeatsTable.lane, tasks.map((t) => taskLane(t.id))),
     ));
   const byLane = new Map(rows.map((r) => [r.lane, r]));
+  const cadences = await Promise.all(tasks.map((t) => t.cadenceMs()));
   const out: TaskHealth[] = [];
-  for (const task of tasks) {
-    const cadenceMs = await task.cadenceMs();
+  for (const [i, task] of tasks.entries()) {
+    const cadenceMs = cadences[i]!;
     const row = byLane.get(taskLane(task.id));
     const lastCompletedAt = row?.lastCompletedAt ? new Date(row.lastCompletedAt) : null;
     const monitoredSince = row?.monitoredSince ? new Date(row.monitoredSince) : null;
