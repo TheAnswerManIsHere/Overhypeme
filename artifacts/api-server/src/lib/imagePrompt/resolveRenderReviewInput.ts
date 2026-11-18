@@ -19,7 +19,7 @@
  */
 import {
   defaultIdentityPolicyForRenderMode,
-  type FactEnrichment,
+  type GagRenderInput,
   type GenerationMode,
   type IdentityPolicy,
   type ReferenceIdentityType,
@@ -134,7 +134,7 @@ function resolvePreviewSubject(controls: RenderReviewControls): { name: string; 
 
 export async function resolveRenderReviewInput(
   sourceText: string,
-  enrichment: FactEnrichment,
+  enrichment: GagRenderInput,
   controls: RenderReviewControls,
 ): Promise<ResolvedRenderReviewInput> {
   // Source-image analysis: synthetic blob → analyze upload → no-image (t2i).

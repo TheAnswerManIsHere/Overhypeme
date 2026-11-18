@@ -1,60 +1,40 @@
 /**
  * Moderation workflow stages (leaf module — no cross-package imports).
  *
- * Overhype's fact moderation is a three-gate, cost-gated lifecycle:
+ * A new submission moves through four steps, then ends approved or rejected
+ * (plan docs/plans/PLAN_FACT_LIFECYCLE_REBUILD.md, 1D; Issue #1018, increment
+ * 1.2c-ii):
  *
- *   triage_pending ──reject──> triage_rejected
- *         │
- *  provisional approve (creates inactive staging fact; starts enrichment)
- *         ▼
- *   prep_pending ──enrichment terminal abandon──> prep_failed ──retry──> prep_pending
- *         │
- *  enrichment success (enqueues Visual-Idea candidates; NO renders yet)
- *         ▼
- *   concept_review                                        ← Step 2: Visual Concept gate
- *         │                ↑ back-to-visual-concept
- *  approve the visual gag (saved non-empty coreScene + ideas terminal-OK)
- *   → force-enqueues the default render batch (auto-fire)
- *         ▼
- *   production_review                                     ← Step 3: Test Renders gate
- *         │
- *  production approve (flips staging fact active, embeds, notifies user)
- *         ▼
- *   production_approved
+ *   triage ──"Provisional approval – start prep"──▶ reading
+ *     (creates the inactive staging fact; starts the reading job and, beside
+ *      it, the taxonomy run, which never moves a review)
+ *   reading ──"Approve" the humor note──▶ gags
+ *   gags ──"Approve the gags"──▶ test_renders ──"Back to gags"──▶ gags
+ *   test_renders ──"Approve for production"──▶ approved
+ *   any step before approved ──"Reject"──▶ rejected
  *
- * A submission can be rejected from any step before it goes live, with a
- * required reason (plan PLAN_FACT_LIFECYCLE_REBUILD.md, oracle item 13): at
- * triage it lands at triage_rejected, after triage at production_rejected.
+ * Background work has no stage of its own: the reading, the gag ideas and the
+ * renders each carry their own status, shown on the step that waits for it.
  *
- * Step 2 = Visual Concept gate (a saved concept + generated Visual Ideas gate the
- * gag approval; Visual Ideas are a blocking prep artifact, not best-effort).
- * Step 3 = Test Renders gate (render grid + final production approval).
- *
- * `pending_reviews.status` (pending|approved|rejected) stays as a coarse bucket;
- * `workflowStage` is the fine-grained driver. The string values are also the
- * Postgres enum labels (see migrations 0074 + 0083) and the FE display keys, so
- * this is the single source of truth shared by schema, routes, jobs, and UI.
+ * `pending_reviews.status` (pending|approved|rejected) stays as a coarse
+ * bucket; `workflowStage` is the fine-grained driver. The string values are
+ * also the Postgres enum labels (migration 0155) and the FE display keys, so
+ * this is the single source of truth shared by schema, routes, jobs and UI.
  */
 
 export const REVIEW_WORKFLOW_STAGE_VALUES = [
-  "triage_pending",
-  "triage_rejected",
-  "prep_pending",
-  "prep_failed",
-  "concept_review",
-  "production_review",
-  "production_rejected",
-  "production_approved",
+  "triage",
+  "reading",
+  "gags",
+  "test_renders",
+  "approved",
+  "rejected",
 ] as const;
 
 export type ReviewWorkflowStage = (typeof REVIEW_WORKFLOW_STAGE_VALUES)[number];
 
 /** Terminal stages — no further automated or moderator transitions occur. */
-const TERMINAL_STAGES: ReadonlySet<ReviewWorkflowStage> = new Set([
-  "triage_rejected",
-  "production_rejected",
-  "production_approved",
-]);
+const TERMINAL_STAGES: ReadonlySet<ReviewWorkflowStage> = new Set(["approved", "rejected"]);
 
 /**
  * Stages that count against a user's unresolved-submission cap: the candidate
@@ -62,11 +42,17 @@ const TERMINAL_STAGES: ReadonlySet<ReviewWorkflowStage> = new Set([
  * Exported as an array for `IN (...)` DB queries.
  */
 export const UNRESOLVED_SUBMISSION_STAGE_VALUES = [
-  "triage_pending",
-  "prep_pending",
-  "prep_failed",
-  "concept_review",
-  "production_review",
+  "triage",
+  "reading",
+  "gags",
+  "test_renders",
+] as const satisfies readonly ReviewWorkflowStage[];
+
+/** The unresolved stages past triage: a staging fact exists and is being prepared. */
+export const PREPARING_STAGE_VALUES = [
+  "reading",
+  "gags",
+  "test_renders",
 ] as const satisfies readonly ReviewWorkflowStage[];
 
 const UNRESOLVED_SUBMISSION_STAGES: ReadonlySet<ReviewWorkflowStage> = new Set(
@@ -81,40 +67,34 @@ export function isUnresolvedSubmissionStage(stage: ReviewWorkflowStage): boolean
   return UNRESOLVED_SUBMISSION_STAGES.has(stage);
 }
 
-/**
- * First moderator gate. Allowed from triage, from a failed prep (re-attempt),
- * and from concept_review / production_review (re-run prep / re-derive the
- * staging fact). The coarse status must still be "pending" — a resolved review
- * can't be re-prepped.
- */
+/** First moderator gate: accept a submission at triage and start its prep. */
 export function canProvisionallyApprove(stage: ReviewWorkflowStage, status: string): boolean {
-  return (
-    status === "pending" &&
-    (stage === "triage_pending" ||
-      stage === "prep_failed" ||
-      stage === "concept_review" ||
-      stage === "production_review")
-  );
+  return status === "pending" && stage === "triage";
 }
 
-/** Retry prep after a terminal enrichment failure. */
-export function canRetryPrep(stage: ReviewWorkflowStage, status: string): boolean {
-  return status === "pending" && stage === "prep_failed";
+/** Run the reading again: while the review waits at the Reading step. */
+export function canRetryReading(stage: ReviewWorkflowStage, status: string): boolean {
+  return status === "pending" && stage === "reading";
 }
 
-/**
- * Step 2 gate — "approve the visual gag". Advances concept_review →
- * production_review and force-enqueues the default render batch. Only the
- * saved concept + generated Visual Ideas (checked at the route) gate this;
- * here we only assert the stage/status shape.
- */
-export function canApproveVisualConcept(stage: ReviewWorkflowStage, status: string): boolean {
-  return status === "pending" && stage === "concept_review";
+/** Approve the humor note: Reading → Gags. */
+export function canApproveReading(stage: ReviewWorkflowStage, status: string): boolean {
+  return status === "pending" && stage === "reading";
 }
 
-/** Third moderator gate — only a fully-rendered fact can go live. */
+/** Approve the gags: Gags → Test Renders (the route checks the gags themselves). */
+export function canApproveGags(stage: ReviewWorkflowStage, status: string): boolean {
+  return status === "pending" && stage === "gags";
+}
+
+/** Back to gags: Test Renders → Gags. */
+export function canSendBackToGags(stage: ReviewWorkflowStage, status: string): boolean {
+  return status === "pending" && stage === "test_renders";
+}
+
+/** Final gate — only from Test Renders can a fact go live. */
 export function canProductionApprove(stage: ReviewWorkflowStage, status: string): boolean {
-  return status === "pending" && stage === "production_review";
+  return status === "pending" && stage === "test_renders";
 }
 
 /**
@@ -125,6 +105,13 @@ export function canProductionApprove(stage: ReviewWorkflowStage, status: string)
 export function canReject(stage: ReviewWorkflowStage, status: string): boolean {
   return status === "pending" && !TERMINAL_STAGES.has(stage);
 }
+
+/**
+ * The refusal every transition gives when the review is no longer where the
+ * moderator's screen showed it (another moderator, or a background step, moved
+ * it first). One code, so the screen can say "reload" the same way for all.
+ */
+export const REVIEW_MOVED_CODE = "REVIEW_MOVED" as const;
 
 /** Why a submission was rejected; one is required on every rejection. */
 export const REJECTION_REASON_VALUES = ["duplicate", "spam", "offensive", "lame", "visual"] as const;
@@ -152,11 +139,11 @@ export const SUBMISSION_TEXT_MAX_CHARS = 2000;
  * creates the staging fact, and from then on the wording is locked.
  */
 export function canEditWording(stage: ReviewWorkflowStage, status: string, hasStagingFact: boolean): boolean {
-  return status === "pending" && stage === "triage_pending" && !hasStagingFact;
+  return status === "pending" && stage === "triage" && !hasStagingFact;
 }
 
 /**
- * Coarse, list-level render state for a Step-3 (production_review) row, derived
+ * Coarse, list-level render state for a Test Renders row, derived
  * from a single aggregate SQL pass over the latest attempt per scenario. This is
  * intentionally cheaper and coarser than the modal's `buildReviewScenarioGrid`:
  *
@@ -183,46 +170,36 @@ export interface ReviewWorkflowStageDisplay {
   label: string;
   hint: string;
   /** List-grouping bucket for the moderation queue. */
-  group: "needs_first_pass" | "prep" | "concept_review" | "production_review" | "resolved";
+  group: "needs_first_pass" | "reading" | "gags" | "test_renders" | "resolved";
 }
 
 export const REVIEW_WORKFLOW_STAGE_DISPLAY: Record<ReviewWorkflowStage, ReviewWorkflowStageDisplay> = {
-  triage_pending: {
+  triage: {
     label: "Needs first pass",
     hint: "Cheap human triage — no AI/image work has run yet.",
     group: "needs_first_pass",
   },
-  triage_rejected: {
-    label: "Rejected (triage)",
-    hint: "Rejected before any prep spend.",
-    group: "resolved",
+  reading: {
+    label: "Reading",
+    hint: "Check how the fact was read: approve the humor note, written from the reference research beneath it.",
+    group: "reading",
   },
-  prep_pending: {
-    label: "AI prep running",
-    hint: "VTE enrichment and image prep are running on the staging fact.",
-    group: "prep",
-  },
-  prep_failed: {
-    label: "Prep failed",
-    hint: "Enrichment failed after retries — retry prep to continue.",
-    group: "prep",
-  },
-  concept_review: {
+  gags: {
     label: "Gags",
     hint: "Write, edit or use an idea for each of the fact's gags (up to three) and approve them — no renders spend yet.",
-    group: "concept_review",
+    group: "gags",
   },
-  production_review: {
+  test_renders: {
     label: "Test Renders",
-    hint: "Inspect the test-render grid, tweak enrichment/CPP, then approve for production.",
-    group: "production_review",
+    hint: "Inspect the test renders, then approve for production.",
+    group: "test_renders",
   },
-  production_rejected: {
+  rejected: {
     label: "Rejected",
-    hint: "Rejected after triage — its gags and renders were discarded.",
+    hint: "Rejected before it went live — its gags were deleted, and none of its pictures are shown anywhere.",
     group: "resolved",
   },
-  production_approved: {
+  approved: {
     label: "Live",
     hint: "Approved for production — visible to users.",
     group: "resolved",

@@ -114,7 +114,7 @@ async function seedReview(opts: {
       submittedById: opts.submittedById,
       matchingSimilarity: 0,
       status: "pending",
-      workflowStage: (opts.stage ?? "production_review") as never,
+      workflowStage: (opts.stage ?? "test_renders") as never,
       stagingFactId,
     })
     .returning({ id: pendingReviewsTable.id });

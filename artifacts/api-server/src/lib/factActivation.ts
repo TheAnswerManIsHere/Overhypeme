@@ -15,14 +15,13 @@
  * SQL too).
  *
  * It is deliberately NOT a standalone activation API: on its own it would let any
- * inactive row with an approved gag (e.g. a staging fact parked in `production_review`) go
+ * inactive row with an approved gag (e.g. a staging fact parked in `test_renders`) go
  * live while skipping the rest of `approveForProduction`. Keep the single-caller
  * invariant intact.
  */
 
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { db, factsTable, factGagsTable } from "@workspace/db";
-import { overrideValuesEqual } from "@workspace/api-zod";
 
 type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -62,43 +61,26 @@ export async function hasApprovedGag(tx: DbExecutor, factId: number): Promise<bo
  * Throws `ConceptMissingError` / `ActivationConflictError` — never activates on
  * any failure.
  *
- * @param tx                 the enclosing transaction executor
- * @param factId             the staging fact to flip active
- * @param expectedText       the exact wording the production gate validated (CAS guard)
- * @param expectedEnrichment the exact stored enrichment blob the render gate validated
- *   (the RAW value read from the row, not a Zod-normalized copy — pass it
- *   verbatim). When given, activation requires the row's enrichment to still
- *   match it exactly, closing the race where a concurrent edit changes the
- *   Visual Concept between the render gate and this activation — otherwise the
- *   fact would go live with enrichment nobody actually reviewed, while
- *   `pending_reviews.enrichment` records the older, reviewed blob. Optional so
- *   callers with no separately-validated snapshot (e.g. none today, but future
- *   ones) aren't forced to supply it.
+ * @param tx           the enclosing transaction executor
+ * @param factId       the staging fact to flip active
+ * @param expectedText the exact wording the production gate validated (CAS guard)
+ *
+ * The fact row is locked FOR NO KEY UPDATE (the lock rule, lib/reviewLocks.ts):
+ * a caller acting for a review has locked the review first.
  */
 export async function activateFact(
   tx: DbExecutor,
-  { factId, expectedText, expectedEnrichment }: { factId: number; expectedText: string; expectedEnrichment?: unknown },
+  { factId, expectedText }: { factId: number; expectedText: string },
 ): Promise<{ id: number }> {
-  // 1. Lock and re-read the row inside the tx, then assert an approved gag.
-  // `FOR UPDATE` locks the fact row for the rest of this transaction: without
-  // it, a concurrent admin edit to the enrichment could commit between this
-  // read and the activation UPDATE below (which never re-checks enrichment,
-  // only is_active/text) — the expectedEnrichment comparison would pass
-  // against a blob that's no longer what actually gets activated. Locking
-  // forces any concurrent writer of this row to wait for this transaction to
-  // commit/rollback, so the read, the comparison, and the activation are all
-  // atomic with respect to the row's enrichment.
+  // 1. Lock the row inside the tx, then assert an approved gag.
   const [row] = await tx
-    .select({ enrichment: factsTable.enrichment })
+    .select({ id: factsTable.id })
     .from(factsTable)
     .where(eq(factsTable.id, factId))
-    .for("update")
+    .for("no key update")
     .limit(1);
   if (!row || !(await hasApprovedGag(tx, factId))) {
     throw new ConceptMissingError(factId);
-  }
-  if (expectedEnrichment !== undefined && !overrideValuesEqual(row.enrichment, expectedEnrichment)) {
-    throw new ActivationConflictError(factId);
   }
 
   // 2. Compare-and-set activation: only while still inactive AND still the exact

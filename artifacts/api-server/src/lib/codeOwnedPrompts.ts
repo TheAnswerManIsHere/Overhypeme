@@ -1,5 +1,5 @@
 /**
- * @purpose The AI settings that live in code alone (the six system prompts and the retired engine-choice keys): boot does not seed them, no admin write reaches them, every reader returns the code constant, and the admin config list does not show them.
+ * @purpose The AI settings that live in code alone (the system prompts and the retired engine-choice keys): boot does not seed them, no admin write reaches them, every reader returns the code constant, and the admin config list does not show them.
  * @subsystem ai-config
  *
  * Launch Phase 3, plan amendment 1, Part B (docs/plans/PLAN_PHASE3_AMENDMENT_1.md,
@@ -11,6 +11,7 @@ import type { AdminConfig } from "@workspace/db/schema";
 
 import { FACT_ENRICHMENT_PROMPT_DEFS } from "./factEnrichmentConfig";
 import { IMAGE_PROMPT_PROMPT_DEFS } from "./imagePromptConfig";
+import { READING_PROMPT_DEF } from "./readingConfig";
 import { REFERENCE_RESEARCH_PROMPT_DEF } from "./referenceResearchConfig";
 import { VISUAL_CONCEPTS_PROMPT_DEFS } from "./visualConceptsConfig";
 
@@ -18,6 +19,7 @@ export const CODE_OWNED_PROMPT_DEFS = [
   ...FACT_ENRICHMENT_PROMPT_DEFS,
   ...IMAGE_PROMPT_PROMPT_DEFS,
   REFERENCE_RESEARCH_PROMPT_DEF,
+  READING_PROMPT_DEF,
   ...VISUAL_CONCEPTS_PROMPT_DEFS,
 ];
 

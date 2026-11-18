@@ -217,13 +217,13 @@ after(async () => {
 
 describe("POST /admin/reviews/:id/approve-visual-concept — preconditions", () => {
   it("403 for a non-admin", async () => {
-    const { reviewId } = await seedReview({ submittedById: adminId, stage: "concept_review", visualConceptStatus: "ok" });
+    const { reviewId } = await seedReview({ submittedById: adminId, stage: "gags", visualConceptStatus: "ok" });
     const res = await request(makeApp()).post(`/admin/reviews/${reviewId}/approve-visual-concept`).set("authorization", `Bearer ${plainSid}`).send({});
     assert.equal(res.status, 403);
   });
 
   it("409 CONCEPT_STAGE_ALREADY_ADVANCED from the wrong stage (production_review)", async () => {
-    const { reviewId } = await seedReview({ submittedById: adminId, stage: "production_review", visualConceptStatus: "ok" });
+    const { reviewId } = await seedReview({ submittedById: adminId, stage: "test_renders", visualConceptStatus: "ok" });
     const res = await request(makeApp()).post(`/admin/reviews/${reviewId}/approve-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({});
     assert.equal(res.status, 409);
     assert.equal(res.body.code, "CONCEPT_STAGE_ALREADY_ADVANCED");
@@ -231,7 +231,7 @@ describe("POST /admin/reviews/:id/approve-visual-concept — preconditions", () 
 
   it("succeeds with a saved gag", async () => {
     const { reviewId } = await seedReview({
-      submittedById: adminId, stage: "concept_review", visualConceptStatus: "ok",
+      submittedById: adminId, stage: "gags", visualConceptStatus: "ok",
       gag: gag("A hero hoists the planet overhead."),
     });
     const res = await request(makeApp()).post(`/admin/reviews/${reviewId}/approve-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({});
@@ -239,26 +239,26 @@ describe("POST /admin/reviews/:id/approve-visual-concept — preconditions", () 
   });
 
   it("409 CONCEPT_MISSING when no gag is saved", async () => {
-    const { reviewId } = await seedReview({ submittedById: adminId, stage: "concept_review", visualConceptStatus: "ok", gag: null });
+    const { reviewId } = await seedReview({ submittedById: adminId, stage: "gags", visualConceptStatus: "ok", gag: null });
     const res = await request(makeApp()).post(`/admin/reviews/${reviewId}/approve-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({});
     assert.equal(res.status, 409);
     assert.equal(res.body.code, "CONCEPT_MISSING");
   });
 
   it("409 IDEAS_PENDING while visual ideas are still generating", async () => {
-    const { reviewId } = await seedReview({ submittedById: adminId, stage: "concept_review", visualConceptStatus: "pending" });
+    const { reviewId } = await seedReview({ submittedById: adminId, stage: "gags", visualConceptStatus: "pending" });
     const res = await request(makeApp()).post(`/admin/reviews/${reviewId}/approve-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({});
     assert.equal(res.status, 409);
     assert.equal(res.body.code, "IDEAS_PENDING");
   });
 
   it("409 IDEAS_NOT_GENERATED when ideas failed / never ran", async () => {
-    const failed = await seedReview({ submittedById: adminId, stage: "concept_review", visualConceptStatus: "failed" });
+    const failed = await seedReview({ submittedById: adminId, stage: "gags", visualConceptStatus: "failed" });
     const r1 = await request(makeApp()).post(`/admin/reviews/${failed.reviewId}/approve-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({});
     assert.equal(r1.status, 409);
     assert.equal(r1.body.code, "IDEAS_NOT_GENERATED");
 
-    const never = await seedReview({ submittedById: adminId, stage: "concept_review", visualConceptStatus: null });
+    const never = await seedReview({ submittedById: adminId, stage: "gags", visualConceptStatus: null });
     const r2 = await request(makeApp()).post(`/admin/reviews/${never.reviewId}/approve-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({});
     assert.equal(r2.status, 409);
     assert.equal(r2.body.code, "IDEAS_NOT_GENERATED");
@@ -267,14 +267,14 @@ describe("POST /admin/reviews/:id/approve-visual-concept — preconditions", () 
 
 describe("POST /admin/reviews/:id/approve-visual-concept — happy path + concurrency", () => {
   it("advances to production_review and enqueues one iteration-render job", async () => {
-    const { reviewId } = await seedReview({ submittedById: adminId, stage: "concept_review", visualConceptStatus: "ok" });
+    const { reviewId } = await seedReview({ submittedById: adminId, stage: "gags", visualConceptStatus: "ok" });
     const res = await request(makeApp()).post(`/admin/reviews/${reviewId}/approve-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({});
     assert.equal(res.status, 200, JSON.stringify(res.body));
-    assert.equal(res.body.workflowStage, "production_review");
+    assert.equal(res.body.workflowStage, "test_renders");
     assert.equal(typeof res.body.renderPrepareJobId, "number");
 
     const [row] = await db.select({ stage: pendingReviewsTable.workflowStage }).from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
-    assert.equal(row!.stage, "production_review");
+    assert.equal(row!.stage, "test_renders");
 
     const jobs = await prepareJobsFor(reviewId);
     assert.equal(jobs.length, 1, "exactly one iteration-render job");
@@ -282,10 +282,10 @@ describe("POST /admin/reviews/:id/approve-visual-concept — happy path + concur
 
   it("stale-but-saved concept still advances (visualConcepts.current false is allowed)", async () => {
     // A saved concept + ok ideas is enough; staleness of the AI cards never blocks.
-    const { reviewId } = await seedReview({ submittedById: adminId, stage: "concept_review", visualConceptStatus: "ok" });
+    const { reviewId } = await seedReview({ submittedById: adminId, stage: "gags", visualConceptStatus: "ok" });
     const res = await request(makeApp()).post(`/admin/reviews/${reviewId}/approve-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({});
     assert.equal(res.status, 200);
-    assert.equal(res.body.workflowStage, "production_review");
+    assert.equal(res.body.workflowStage, "test_renders");
   });
 
   it("approves with 200 production_review after a Concept or bubble save leaves the stored ideas stale (GET reads current false)", async () => {
@@ -308,7 +308,7 @@ describe("POST /admin/reviews/:id/approve-visual-concept — happy path + concur
     ];
     for (const [what, edit] of edits) {
       const { reviewId, stagingFactId } = await seedReview({
-        submittedById: adminId, stage: "concept_review", gag: saved({}),
+        submittedById: adminId, stage: "gags", gag: saved({}),
       });
       assert.ok(stagingFactId);
       // The review owns the fact's ideas, as every enqueue path claims it (migration 0140).
@@ -327,14 +327,14 @@ describe("POST /admin/reviews/:id/approve-visual-concept — happy path + concur
 
       const res = await request(makeApp()).post(`/admin/reviews/${reviewId}/approve-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({});
       assert.equal(res.status, 200, `${what}: ${JSON.stringify(res.body)}`);
-      assert.equal(res.body.workflowStage, "production_review");
+      assert.equal(res.body.workflowStage, "test_renders");
       const [row] = await db.select({ stage: pendingReviewsTable.workflowStage }).from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
-      assert.equal(row!.stage, "production_review");
+      assert.equal(row!.stage, "test_renders");
     }
   });
 
   it("two concurrent approvals → exactly one advances, one 409s, exactly one iteration-render job", async () => {
-    const { reviewId } = await seedReview({ submittedById: adminId, stage: "concept_review", visualConceptStatus: "ok" });
+    const { reviewId } = await seedReview({ submittedById: adminId, stage: "gags", visualConceptStatus: "ok" });
     const [a, b] = await Promise.all([
       request(makeApp()).post(`/admin/reviews/${reviewId}/approve-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({}),
       request(makeApp()).post(`/admin/reviews/${reviewId}/approve-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({}),
@@ -351,25 +351,25 @@ describe("POST /admin/reviews/:id/approve-visual-concept — happy path + concur
 
 describe("POST /admin/reviews/:id/back-to-visual-concept", () => {
   it("403 for a non-admin", async () => {
-    const { reviewId } = await seedReview({ submittedById: adminId, stage: "production_review", visualConceptStatus: "ok" });
+    const { reviewId } = await seedReview({ submittedById: adminId, stage: "test_renders", visualConceptStatus: "ok" });
     const res = await request(makeApp()).post(`/admin/reviews/${reviewId}/back-to-visual-concept`).set("authorization", `Bearer ${plainSid}`).send({});
     assert.equal(res.status, 403);
   });
 
   it("409 from a stage other than production_review", async () => {
-    const { reviewId } = await seedReview({ submittedById: adminId, stage: "concept_review", visualConceptStatus: "ok" });
+    const { reviewId } = await seedReview({ submittedById: adminId, stage: "gags", visualConceptStatus: "ok" });
     const res = await request(makeApp()).post(`/admin/reviews/${reviewId}/back-to-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({});
     assert.equal(res.status, 409);
   });
 
   it("bounces production_review → concept_review; re-approval keeps prior renders for reuse and enqueues the iteration job", async () => {
-    const { reviewId, stagingFactId } = await seedReview({ submittedById: adminId, stage: "production_review", visualConceptStatus: "ok" });
+    const { reviewId, stagingFactId } = await seedReview({ submittedById: adminId, stage: "test_renders", visualConceptStatus: "ok" });
     assert.ok(stagingFactId);
     const priorAttemptId = await seedReviewRenderAttempt(reviewId, stagingFactId);
 
     const back = await request(makeApp()).post(`/admin/reviews/${reviewId}/back-to-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({});
     assert.equal(back.status, 200);
-    assert.equal(back.body.workflowStage, "concept_review");
+    assert.equal(back.body.workflowStage, "gags");
 
     const reApprove = await request(makeApp()).post(`/admin/reviews/${reviewId}/approve-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({});
     assert.equal(reApprove.status, 200);

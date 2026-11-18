@@ -10,6 +10,8 @@ export const ADMIN_ACTION_VALUES = [
   "provisional_approval",
   "wording_edit",
   "duplicate_check",
+  "reading_requested",
+  "reading_approval",
   "humor_note_save",
   "gag_approval",
   "back_to_gags",

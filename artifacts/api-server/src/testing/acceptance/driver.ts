@@ -292,7 +292,7 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
     const queue = await admin.json<{ reviews: Array<{ id: number; workflowStage: string; submittedById: string | null }> }>("2", "GET", "/api/admin/reviews?status=pending&limit=100");
     const listed = queue.reviews.find((r) => r.id === reviewId);
     if (!listed) throw new JourneyError("2", "the moderation queue", `review ${reviewId} is not listed`);
-    if (listed.workflowStage !== "triage_pending") throw new JourneyError("2", "the moderation queue", `review ${reviewId} is at ${listed.workflowStage}, expected triage_pending`);
+    if (listed.workflowStage !== "triage") throw new JourneyError("2", "the moderation queue", `review ${reviewId} is at ${listed.workflowStage}, expected triage`);
     Object.assign(ev, { reviewId, stage: listed.workflowStage, duplicateConfidence: dup.confidence, suggestedHashtags: hashtags });
   });
 
@@ -300,12 +300,22 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
   let factId = 0;
   await run("3", ["2"], async (ev) => {
     await admin.json("3", "POST", `/api/admin/reviews/${reviewId}/provisional-approve`, { adminNote: "AI baseline" });
+    // The Reading step: the reading's draft humor note, approved as written.
+    const read = await poll(
+      "3",
+      "the reading (research, then a draft humor note)",
+      () => admin.json<any>("3", "GET", `/api/admin/reviews/${reviewId}`),
+      (r) => r.workflowStage === "reading" && r.reading?.latest?.status === "ok",
+      (r) => (r.reading?.latest?.status === "failed" ? `reading failed: ${r.reading.latest.error}` : null),
+      15 * 60_000,
+    );
+    await admin.json("3", "POST", `/api/admin/reviews/${reviewId}/approve-reading`, { text: read.reading.latest.draftNote, readingId: read.reading.latest.id });
     const prepared = await poll(
       "3",
-      "preparation (enrichment, then Visual Ideas)",
+      "Visual Ideas from the approved note",
       () => admin.json<any>("3", "GET", `/api/admin/reviews/${reviewId}`),
-      (r) => r.workflowStage === "concept_review" && r.visualConcepts?.status === "ok",
-      (r) => (r.workflowStage === "prep_failed" ? "prep_failed" : r.visualConcepts?.status === "failed" ? "visual concepts failed" : null),
+      (r) => r.workflowStage === "gags" && r.visualConcepts?.status === "ok",
+      (r) => (r.visualConcepts?.status === "failed" ? "visual concepts failed" : null),
       15 * 60_000,
     );
     const stagingFactId: number = prepared.stagingFactId;

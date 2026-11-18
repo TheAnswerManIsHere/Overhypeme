@@ -43,7 +43,7 @@ const holdFor = new Map<number, Promise<void>>();
 
 async function triageReview(text = `{NAME} submitted wording ${RUN} ${randomUUID().slice(0, 6)}.`): Promise<number> {
   const [row] = await db.insert(pendingReviewsTable).values({
-    submittedText: text, submittedById: submitterId, status: "pending", workflowStage: "triage_pending",
+    submittedText: text, submittedById: submitterId, status: "pending", workflowStage: "triage",
   }).returning({ id: pendingReviewsTable.id });
   reviewIds.push(row!.id);
   return row!.id;
@@ -187,7 +187,7 @@ describe("Reject past triage: the wording needs replacing", () => {
     assert.equal(res.status, 200, JSON.stringify(res.body));
     const row = await reviewRow(id);
     assert.equal(row.status, "rejected");
-    assert.equal(row.workflowStage, "production_rejected");
+    assert.equal(row.workflowStage, "rejected");
     assert.equal(row.reviewedById, adminId);
     assert.equal(await unresolved(), pendingBefore - 1, "the submitter's pending count drops");
 
@@ -208,7 +208,7 @@ describe("Reject past triage: the wording needs replacing", () => {
     await advanceReviewForStagingFactEnrichment({ factId, outcome: "success" });
     await advanceReviewForStagingFactEnrichment({ factId, outcome: "terminal_failed" });
     const row = await reviewRow(id);
-    assert.equal(row.workflowStage, "production_rejected");
+    assert.equal(row.workflowStage, "rejected");
     assert.equal(row.status, "rejected");
   });
 
@@ -227,7 +227,7 @@ describe("Reject past triage: the wording needs replacing", () => {
         await tx.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).for("update");
         taken();
         await held;
-        await tx.update(pendingReviewsTable).set({ status: "rejected", workflowStage: "production_rejected", reason: "lame", reviewedById: adminId }).where(eq(pendingReviewsTable.id, id));
+        await tx.update(pendingReviewsTable).set({ status: "rejected", workflowStage: "rejected", reason: "lame", reviewedById: adminId }).where(eq(pendingReviewsTable.id, id));
       });
     });
     await lockTaken;
@@ -238,7 +238,7 @@ describe("Reject past triage: the wording needs replacing", () => {
     const res = await retry;
     assert.equal(res.status, 409, JSON.stringify(res.body));
     const row = await reviewRow(id);
-    assert.equal(row.workflowStage, "production_rejected");
+    assert.equal(row.workflowStage, "rejected");
     assert.equal(row.status, "rejected");
   });
 

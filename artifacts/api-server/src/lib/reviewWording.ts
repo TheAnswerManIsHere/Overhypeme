@@ -1,5 +1,5 @@
 /**
- * @purpose A submission's wording: edited only at triage, locked from acceptance on, and a submission past triage withdrawn when its wording needs replacing.
+ * @purpose A submission's wording: edited only at triage, and locked from acceptance on.
  * @subsystem moderation
  *
  * Plan docs/plans/PLAN_THREE_GAGS.md, increment 3, section G (David,
@@ -16,19 +16,13 @@
  *   accepted fact carries the edited wording, or the edit is refused.
  * - **The lock** is the database's: once the staging fact exists its text never
  *   changes (`facts_text_is_locked`, migration 0141).
- * - **Withdraw: wording needs replacing** ends a first-time submission past
- *   triage, up to production approval: the review is terminal, it leaves the
- *   pending queue and the submitter's pending count, and its staging fact can
- *   never go live (`facts_withdrawn_stays_inactive`). A prep result or a stale
- *   action arriving afterwards finds a resolved review and does nothing.
  */
-import { eq, sql } from "drizzle-orm";
-import { db, factsTable, pendingReviewsTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
+import { db, pendingReviewsTable } from "@workspace/db";
 import { canEditWording, SUBMISSION_TEXT_MAX_CHARS, SUBMISSION_TEXT_MIN_CHARS, type ReviewWorkflowStage } from "@workspace/api-zod";
 import { normalizeFactTemplateForPendingReview } from "./normalizeFactTemplateForStorage";
 import { runDetector, storedDuplicateColumns, type DuplicateDetector } from "./duplicateVerdict";
 
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export class WordingError extends Error {
   constructor(
@@ -41,12 +35,8 @@ export class WordingError extends Error {
   }
 }
 
-
-/** Lock a review row; the same lock acceptance (provisional approval) takes first. */
-export async function lockReview(tx: Tx, reviewId: number) {
-  const [review] = await tx.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId)).for("update").limit(1);
-  return review ?? null;
-}
+import { lockReview } from "./reviewLocks";
+export { lockReview };
 
 /** Validate and normalise a proposed wording exactly as a submission is. */
 export function normaliseWording(raw: string): string {

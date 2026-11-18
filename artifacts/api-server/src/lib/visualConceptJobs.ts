@@ -5,9 +5,11 @@
  * to the review's fact (`facts.visual_concept_candidates` + `visual_concept_status`).
  * Registered on the shared async-jobs worker.
  *
- * REVIEW-AWARE: the job resolves `{text, enrichment}` through
- * `resolveReviewCycleEnrichment`, which reads the staging fact's own
- * `facts.enrichment`, so concepts reflect what the moderator is reviewing.
+ * REVIEW-AWARE: the job reads the staging fact's text, its gags and its humor
+ * note (the approved one, else the latest reading's draft: `humorNoteFor`),
+ * so concepts reflect what the moderator is reviewing. The taxonomy is not an
+ * input (Issue #1018, increment 1.2c-ii): ideas are written as soon as the
+ * reading's draft note exists, whether or not the taxonomy run has finished.
  *
  * Lifecycle of `facts.visual_concept_status`:
  *   "pending"  — set by the enqueuer; the job is queued or retrying ("working").
@@ -21,7 +23,7 @@
  * handler writes NOTHING and retires as a successful no-op — mirroring the
  * enrichment queue.
  *
- * GATING: Visual Ideas are the Step 2 (Visual Concept) gate's "ideas generated"
+ * GATING: Visual Ideas are the Gags step's "ideas generated"
  * artifact — a BLOCKING prep artifact, not best-effort. "approve-visual-concept"
  * refuses while the status is pending/failed/never-run (see routes/reviews.ts),
  * and re-prep/regenerate is blocked while the status is "pending" so a new cycle
@@ -31,15 +33,13 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
-import { factsTable, pendingReviewsTable, type AsyncJobRow } from "@workspace/db/schema";
+import { factReadingsTable, factsTable, pendingReviewsTable, type AsyncJobRow } from "@workspace/db/schema";
 import {
   isUnresolvedSubmissionStage,
   resolveRenderPolicy,
-  validateEnrichment,
   visualConceptCandidatesBlobSchema,
-  type FactEnrichment,
   type ReviewWorkflowStage,
   type VisualConceptCandidatesBlob,
   type VisualConceptSource,
@@ -47,7 +47,6 @@ import {
   type VisualConceptStaleReason,
   type VisualStrategyBubble,
 } from "@workspace/api-zod";
-import { resolveReviewCycleEnrichment } from "./moderationStaging";
 import { loadGags, normaliseGagContent, openReviewForFact } from "./gags/resolver";
 import { type Executor,
   claimConceptsForReview,
@@ -198,7 +197,6 @@ export interface ResolvedConceptCycle {
   stage: ReviewWorkflowStage | null;
   stagingFactId: number;
   factText: string;
-  enrichment: FactEnrichment;
   source: VisualConceptSource;
 }
 
@@ -207,8 +205,8 @@ type ConceptCycleResult =
   | { ok: false; reason: string; stage?: ReviewWorkflowStage };
 
 /**
- * Load the review + resolve the cycle's `{text, enrichment}` the way the render
- * path does (the staging fact's enrichment). Pure read; no LLM.
+ * Load the review and its staging fact's text. Pure read; no LLM. The
+ * taxonomy is not read: the gag writer no longer receives it.
  */
 export async function resolveVisualConceptCycle(reviewId: number): Promise<ConceptCycleResult> {
   const [review] = await db
@@ -223,42 +221,50 @@ export async function resolveVisualConceptCycle(reviewId: number): Promise<Conce
   if (!review) return { ok: false, reason: "review_not_found" };
   const stage = review.workflowStage as ReviewWorkflowStage;
   if (review.stagingFactId == null) return { ok: false, reason: "no_staging_fact", stage };
-  const cycle = await resolveReviewCycleEnrichment(review);
-  if (!cycle) return { ok: false, reason: "staging_fact_missing", stage };
-  const ev = validateEnrichment(cycle.rawEnrichment);
-  if (!ev.ok) return { ok: false, reason: `enrichment_invalid: ${ev.error}`, stage };
+  const [fact] = await db.select({ text: factsTable.text }).from(factsTable).where(eq(factsTable.id, review.stagingFactId)).limit(1);
+  if (!fact) return { ok: false, reason: "staging_fact_missing", stage };
   return {
     ok: true,
-    cycle: {
-      reviewId,
-      stage,
-      stagingFactId: review.stagingFactId,
-      factText: cycle.text,
-      enrichment: ev.data,
-      source: "staging_fact",
-    },
+    cycle: { reviewId, stage, stagingFactId: review.stagingFactId, factText: fact.text, source: "staging_fact" },
   };
 }
 
 /**
- * A live fact's `{text, enrichment}` for Draft more gags: the fact must be
- * live with no open review (a review's own cycle owns its ideas). Pure read.
+ * A live fact's text for Draft more gags: the fact must be live with no open
+ * review (a review's own cycle owns its ideas). Pure read.
  */
 export async function resolveLiveConceptCycle(factId: number): Promise<ConceptCycleResult> {
   const [fact] = await db
-    .select({ id: factsTable.id, text: factsTable.text, enrichment: factsTable.enrichment, isActive: factsTable.isActive })
+    .select({ id: factsTable.id, text: factsTable.text, isActive: factsTable.isActive })
     .from(factsTable)
     .where(eq(factsTable.id, factId))
     .limit(1);
   if (!fact) return { ok: false, reason: "fact_not_found" };
   if (!fact.isActive) return { ok: false, reason: "fact_not_live" };
   if (await openReviewForFact(factId)) return { ok: false, reason: "review_open" };
-  const ev = validateEnrichment(fact.enrichment);
-  if (!ev.ok) return { ok: false, reason: `enrichment_invalid: ${ev.error}` };
   return {
     ok: true,
-    cycle: { reviewId: null, stage: null, stagingFactId: factId, factText: fact.text, enrichment: ev.data, source: "live_fact" },
+    cycle: { reviewId: null, stage: null, stagingFactId: factId, factText: fact.text, source: "live_fact" },
   };
+}
+
+/**
+ * The humor note the gag writer is given for a fact: the approved note, else
+ * the latest finished reading's draft (Issue #1018, increment 1.2c-ii: ideas
+ * are written from the draft as soon as it exists, and again from the approved
+ * note when the moderator changes it). Null when neither exists.
+ */
+export async function humorNoteFor(factId: number, executor: Executor = db): Promise<string | null> {
+  const [fact] = await executor.select({ humorNote: factsTable.humorNote }).from(factsTable).where(eq(factsTable.id, factId)).limit(1);
+  const approved = fact?.humorNote?.trim();
+  if (approved) return approved;
+  const [reading] = await executor
+    .select({ draftNote: factReadingsTable.draftNote })
+    .from(factReadingsTable)
+    .where(and(eq(factReadingsTable.factId, factId), eq(factReadingsTable.status, "ok")))
+    .orderBy(desc(factReadingsTable.id))
+    .limit(1);
+  return reading?.draftNote?.trim() || null;
 }
 
 /**
@@ -288,7 +294,6 @@ export async function computeCurrentInputHash(cycle: ResolvedConceptCycle, gags?
     reviewId: cycle.reviewId,
     source: cycle.source,
     factText: cycle.factText,
-    enrichment: cycle.enrichment,
     systemPromptHash,
     engineId: settings.provenance.engineId,
     model: settings.provenance.model,
@@ -334,9 +339,9 @@ export async function runVisualConceptsJob(
   }
   const cycle = resolved.cycle;
 
-  // COST GUARD: only draft while the review is still unresolved (prep_pending /
-  // concept_review / production_review). Once approved/rejected, concepts are
-  // useless — no-op. concept_review is where these Visual Ideas actually gate.
+  // COST GUARD: only draft while the review is still unresolved (Reading, Gags
+  // or Test Renders). Once approved/rejected, concepts are useless — no-op.
+  // Gags is where these Visual Ideas actually gate.
   if (cycle.stage != null && !isUnresolvedSubmissionStage(cycle.stage)) {
     logger.info({ reviewId, factId, stage: cycle.stage }, "[fact_visual_concepts] no-op (review resolved)");
     return { ok: true };
@@ -345,24 +350,23 @@ export async function runVisualConceptsJob(
   const draftScene = payload.moderatorDraftScene?.trim() ?? "";
   const draft: ContextGag | null = draftScene ? { scene: draftScene, bubbles: payload.moderatorDraftBubbles ?? [] } : null;
 
-  // The fact row holds the approved humor note; the request lists every gag
-  // the fact already has (plan PLAN_THREE_GAGS.md, increment 2). One read,
-  // used for both the request and the input hash.
-  const [fact] = await db
-    .select({ humorNote: factsTable.humorNote })
-    .from(factsTable)
-    .where(eq(factsTable.id, cycle.stagingFactId))
-    .limit(1);
+  // The humor note (approved, else the reading's draft); the request lists
+  // every gag the fact already has (plan PLAN_THREE_GAGS.md, increment 2). One
+  // read, used for both the request and the input hash.
   const existingGags = await contextGagsFor(cycle.stagingFactId);
-  const humorNote = fact?.humorNote?.trim() || null;
+  const humorNote = await humorNoteFor(cycle.stagingFactId);
 
   let result;
   try {
     await assertJobOwnership(); // paid AI call: only while this run owns its job (Issue #1000)
     result = await deps.generate({
       factText: cycle.factText,
-      enrichment: cycle.enrichment,
-      renderPolicy: resolveRenderPolicy(cycle.enrichment),
+      // The taxonomy is not an input: the blind check (plan
+      // PLAN_FACT_LIFECYCLE_REBUILD.md, 1A) passed, and the writer runs
+      // before the taxonomy run may have finished.
+      enrichment: null,
+      classification: "omit",
+      renderPolicy: resolveRenderPolicy(null),
       humorNote,
       existingGags,
       draft,
@@ -394,13 +398,23 @@ export async function runVisualConceptsJob(
 
   // Written only while this generation still owns the fact: a live draft
   // that finishes after a review opened, or a review's generation after a
-  // later one took over, writes nothing (plan section F).
-  const written = await fencedTransaction(db, (tx) => tx
-    .update(factsTable)
-    .set({ visualConceptCandidates: blob, visualConceptStatus: "ok" })
-    .where(ownedFact(factId, owner))
-    .returning({ id: factsTable.id }));
-  if (written.length === 0) {
+  // later one took over, writes nothing (plan section F). Ideas written from a
+  // note the moderator has since replaced (approving an edited draft while
+  // they were being written) are not stored: the job runs again, from the
+  // note as it is now (Issue #1018, increment 1.2c-ii).
+  const outcome = await fencedTransaction(db, async (tx) => {
+    if ((await humorNoteFor(factId, tx)) !== humorNote) return "note_changed" as const;
+    const rows = await tx
+      .update(factsTable)
+      .set({ visualConceptCandidates: blob, visualConceptStatus: "ok" })
+      .where(ownedFact(factId, owner))
+      .returning({ id: factsTable.id });
+    return rows.length > 0 ? "written" as const : "not_owner" as const;
+  });
+  if (outcome === "note_changed") {
+    return { ok: false, error: "the humor note changed while the ideas were being written; writing them again from the new note" };
+  }
+  if (outcome === "not_owner") {
     logger.info({ reviewId, factId, owner }, "[fact_visual_concepts] result dropped (another generation owns the fact)");
   }
 
@@ -523,8 +537,8 @@ export async function buildVisualConceptsResponse(review: ConceptsRow & { id: nu
 /**
  * The `visualConcepts` block for a live fact's Draft more gags (plan
  * PLAN_THREE_GAGS.md, increment 2). Candidates are current only when a live
- * draft wrote them and its inputs (the fact, its classification, every gag,
- * the engine) are unchanged; a review's leftover candidates read as stale.
+ * draft wrote them and its inputs (the fact, every gag, the engine) are
+ * unchanged; a review's leftover candidates read as stale.
  */
 export async function buildLiveVisualConceptsResponse(fact: ConceptsRow & { id: number; visualConceptOwner: string | null }): Promise<VisualConceptsResponse> {
   // "Working" on the live fact means a live draft is: a review's leftover

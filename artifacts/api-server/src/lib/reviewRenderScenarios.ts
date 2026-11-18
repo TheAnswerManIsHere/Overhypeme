@@ -23,7 +23,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { db, imagePromptAttemptsTable, pendingReviewsTable, factGagsTable, type ImagePromptAttempt, type FactGag } from "@workspace/db";
 import {
   defaultIdentityPolicyForRenderMode,
-  validateEnrichment,
+  validateGagRenderInput,
   RENDER_SCENARIO_DESCRIPTORS,
   SOURCE_IMAGE_ANALYZER_VERSION,
   GAG_EXAMPLE_KINDS,
@@ -33,7 +33,7 @@ import {
   type GagExampleKind,
   type PerKind,
   type ContentMode,
-  type FactEnrichment,
+  type GagRenderInput,
   type FallbackSubjectGender,
   type ReferenceIdentityType,
   type RenderScenarioCard,
@@ -64,7 +64,7 @@ import {
   type RenderControlsWithRefs,
 } from "./imagePromptAttempts";
 import { defaultPreviewSubjectForReference, resolveRenderReviewInput } from "./imagePrompt/resolveRenderReviewInput";
-import { gagRenderInput, loadGagRenderContext, loadGags, workingContent } from "./gags/resolver";
+import { loadGagRenderContext, loadGags, workingContent } from "./gags/resolver";
 import { assertCanRunGagRenders, GagError, type GagActor } from "./gags/gagStore";
 import { renderPersonalized } from "./renderCanonical";
 import { RESUMES_FROM_CHECKPOINTS, enqueueJob, registerJobHandler, type EnqueueJobResult, type HandlerResult, type JobHandler } from "./asyncJobs";
@@ -119,7 +119,7 @@ export function computeScenarioInputHash(
   scenarioKey: RenderScenarioKey,
   stagingFactId: number,
   factText: string,
-  enrichment: FactEnrichment,
+  enrichment: GagRenderInput,
   imageEngines: ImageEngineIds,
 ): string {
   const desc = RENDER_SCENARIO_DESCRIPTORS[scenarioKey];
@@ -164,7 +164,7 @@ export function computeScenarioInputHash(
 async function attemptForContent(
   gagId: number,
   scenarioKey: RenderScenarioKey,
-  enrichment: FactEnrichment,
+  enrichment: GagRenderInput,
 ): Promise<ImagePromptAttempt | null> {
   const want = pictureIdentity(enrichment);
   if (want == null) return null;
@@ -173,11 +173,11 @@ async function attemptForContent(
     .from(imagePromptAttemptsTable)
     .where(and(eq(imagePromptAttemptsTable.gagId, gagId), eq(imagePromptAttemptsTable.reviewRenderScenarioKey, scenarioKey)))
     .orderBy(desc(imagePromptAttemptsTable.createdAt));
-  return rows.find((r) => pictureIdentity(r.factEnrichmentSnapshot as FactEnrichment) === want) ?? null;
+  return rows.find((r) => pictureIdentity(r.factEnrichmentSnapshot as GagRenderInput) === want) ?? null;
 }
 
 /** The picture-shaping part of a render input, as one comparable string; null for a snapshot it cannot read (no match). */
-function pictureIdentity(enrichment: FactEnrichment | null | undefined): string | null {
+function pictureIdentity(enrichment: GagRenderInput | null | undefined): string | null {
   try {
     // Through JSON first, as the stored snapshot was: a key left undefined in
     // a fresh input is absent from the stored one, and must not split them.
@@ -204,7 +204,7 @@ interface EnqueueScenarioArgs {
   gagId: number;
   stagingFactId: number;
   factText: string;
-  enrichment: FactEnrichment;
+  enrichment: GagRenderInput;
   scenarioKey: RenderScenarioKey;
   adminUserId: string;
   batchId: string;
@@ -333,7 +333,7 @@ export interface GagRenderTarget {
   stagingFactId: number;
   factText: string;
   /** The render input: the classification renders are drawn against, with this gag's working content. */
-  enrichment: FactEnrichment;
+  enrichment: GagRenderInput;
   /** The open review's stage, or null with no review. */
   stage: string | null;
   /** The engine per mode a render would be routed to now; folded into every hash. */
@@ -356,14 +356,11 @@ export async function loadGagRenderTarget(
   if (!ctx) return { ok: false, reason: "fact_missing" };
   const content = workingContent(gag);
   if (!content) return { ok: false, reason: "gag_empty", stage: ctx.stage };
-  // Validate the joined render input, as the whole blob was validated before
-  // gags had their own table: the schema's normalisation of the gag is part
-  // of what the hash and the render read.
-  const ev = validateEnrichment(
-    ctx.classification && typeof ctx.classification === "object"
-      ? gagRenderInput(ctx.classification as FactEnrichment, content)
-      : ctx.classification,
-  );
+  // The render input is the gag alone, validated and normalised as the render
+  // reads it: the taxonomy is not on the render path, so a fact whose
+  // taxonomy is missing or failed draws like any other (Issue #1018,
+  // increment 1.2c-ii).
+  const ev = validateGagRenderInput({ visualPromptStrategyOverride: content });
   if (!ev.ok) return { ok: false, reason: `enrichment_invalid: ${ev.error}`, stage: ctx.stage };
   return {
     ok: true,
@@ -462,7 +459,7 @@ export async function scheduleIterationRender(gagId: number, adminUserId: string
  * What approving a review's Gags step draws: the iteration render of each
  * surviving gag with a new or changed content, and nothing for an unchanged
  * gag (grandfathered ones included). Existing renders are kept and reused.
- * Stage-guarded to production_review: a delayed job must not spend once the
+ * Stage-guarded to Test Renders: a delayed job must not spend once the
  * review has left it.
  */
 export async function ensureReviewIterationRenders(
@@ -471,8 +468,8 @@ export async function ensureReviewIterationRenders(
 ): Promise<{ scheduled: number }> {
   const review = await loadReviewRow(reviewId);
   if (!review || review.stagingFactId == null) return { scheduled: 0 };
-  if (review.workflowStage !== "production_review") {
-    logger.info({ reviewId, stage: review.workflowStage }, "[moderation] iteration renders skipped (not production_review)");
+  if (review.workflowStage !== "test_renders") {
+    logger.info({ reviewId, stage: review.workflowStage }, "[moderation] iteration renders skipped (not at Test Renders)");
     return { scheduled: 0 };
   }
   const gags = (await loadGags(review.stagingFactId)).filter((g) => g.pendingContent != null);

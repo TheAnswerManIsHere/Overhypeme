@@ -58,7 +58,7 @@ const realDeps: FactCharacterFillDeps = {
 };
 
 /** First-time moderation stages at which a fact already has a valid baseline. */
-const FIRST_TIME_FILLABLE_STAGES = ["concept_review", "production_review"] as const;
+const FIRST_TIME_FILLABLE_STAGES = ["gags", "test_renders"] as const;
 
 export function fillDedupeKey(p: FactCharacterFillPayload): string {
   return p.target === "fact" ? `fact_character_fill:fact:${p.factId}` : `fact_character_fill:candidate:${p.versionId}`;

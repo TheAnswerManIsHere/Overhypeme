@@ -98,7 +98,7 @@ describe("advanceReviewForStagingFactEnrichment — Step-2 rewire", () => {
     await advanceReviewForStagingFactEnrichment({ factId, outcome: "success" });
 
     const [review] = await db.select({ stage: pendingReviewsTable.workflowStage }).from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
-    assert.equal(review!.stage, "concept_review", "advances to Step 2, not production_review");
+    assert.equal(review!.stage, "gags", "advances to Step 2, not production_review");
 
     const [fact] = await db.select({ vcs: factsTable.visualConceptStatus }).from(factsTable).where(eq(factsTable.id, factId));
     assert.equal(fact!.vcs, "pending", "visual concept status set pending");

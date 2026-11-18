@@ -384,8 +384,8 @@ function ReviewModal({
   const modalBodyRef = useRef<HTMLDivElement | null>(null);
 
   const stagingFactId = detail?.stagingFact?.id ?? review.stagingFactId ?? 0;
-  const isConceptReview = stage === "concept_review";
-  const isProductionReview = stage === "production_review";
+  const isConceptReview = stage === "gags";
+  const isProductionReview = stage === "test_renders";
   // Both Step 2 and Step 3 expose the enrichment/Visual-Concept editor.
   const isEditableStep = isConceptReview || isProductionReview;
   const isResolved = review.status !== "pending";
@@ -401,7 +401,7 @@ function ReviewModal({
     reviewId: review.id,
     submittedText: wording.submittedText,
     view: wording.duplicate,
-    canCheck: stage === "triage_pending",
+    canCheck: stage === "triage",
     onView: setDuplicate,
     onChecked: onActionDone,
   });
@@ -742,7 +742,7 @@ function ReviewModal({
           view={wording.duplicate}
           checking={duplicateCheck.checking}
           failed={duplicateCheck.failed}
-          canCheck={stage === "triage_pending"}
+          canCheck={stage === "triage"}
           onRetry={() => void duplicateCheck.check()}
           showClosest={showClosest}
           onShowClosest={() => setShowClosest(true)}
@@ -1132,7 +1132,7 @@ function ReviewModal({
           {/* ── Stage-specific actions ── */}
           <div className="pt-2 border-t border-border space-y-3">
             {/* Triage-step decisions: provisional approve / reject. */}
-            {!isResolved && step === "triage" && stage === "triage_pending" && (
+            {!isResolved && step === "triage" && stage === "triage" && (
               <div className="flex flex-wrap gap-3">
                 <Button onClick={onProvisionalApprove} isLoading={loading} disabled={loading || wordingDirty}
                   className="bg-green-600 hover:bg-green-700 text-white gap-2">
@@ -1454,17 +1454,17 @@ function FactReviewsPanel() {
                     </p>
                   )}
                   {/* Per-row live prep status (rule 8: per-item, in place). */}
-                  {r.stagingFact && (r.workflowStage === "prep_pending" || r.workflowStage === "prep_failed" || r.workflowStage === "concept_review" || r.workflowStage === "production_review") && (
+                  {r.stagingFact && (r.workflowStage === "prep_pending" || r.workflowStage === "prep_failed" || r.workflowStage === "gags" || r.workflowStage === "test_renders") && (
                     <div className="flex flex-wrap gap-2 mt-2">
-                      <PrepStepPill icon={Sparkles} label="Enrichment" status={r.workflowStage === "concept_review" || r.workflowStage === "production_review" ? "ok" : r.stagingFact.enrichmentStatus} />
+                      <PrepStepPill icon={Sparkles} label="Enrichment" status={r.workflowStage === "gags" || r.workflowStage === "test_renders" ? "ok" : r.stagingFact.enrichmentStatus} />
                       {/* Step 2: Visual ideas are the required gate. A null status
                           (e.g. an old row bounced back) reads as "not generated",
                           never a spinner. */}
-                      {r.workflowStage === "concept_review" && (
+                      {r.workflowStage === "gags" && (
                         <PrepStepPill icon={Wand2} label="Visual ideas" status={r.stagingFact.visualConceptStatus} attentionWhenNull />
                       )}
                       {/* Step 3: test renders in flight (re-run, or the forced batch). */}
-                      {r.workflowStage === "production_review" && r.rendersRunning && (
+                      {r.workflowStage === "test_renders" && r.rendersRunning && (
                         <PrepStepPill icon={Wand2} label="Test renders" status="pending" />
                       )}
                     </div>

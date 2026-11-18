@@ -45,13 +45,13 @@ export function deriveModerationQueueState(review: {
 
   // status === "pending"
   switch (workflowStage) {
-    case "triage_pending":
+    case "triage":
       return { label: "Needs triage", spinner: false, actionStep: "triage", tone: "neutral" };
     case "prep_pending":
       return { label: "Preparing…", spinner: true, actionStep: "triage", tone: "working" };
     case "prep_failed":
       return { label: "Prep failed", spinner: false, actionStep: "triage", tone: "attention" };
-    case "concept_review": {
+    case "gags": {
       const cs = review.visualConceptStatus;
       if (cs === "pending") return { label: "Generating visual ideas…", spinner: true, actionStep: "concept", tone: "working" };
       if (cs === "ok") return { label: "Ready for concept review", spinner: false, actionStep: "concept", tone: "ready" };
@@ -59,7 +59,7 @@ export function deriveModerationQueueState(review: {
       // null/undefined: never generated (e.g. an old-flow row bounced back to Step 2).
       return { label: "Visual ideas not generated", spinner: false, actionStep: "concept", tone: "attention" };
     }
-    case "production_review": {
+    case "test_renders": {
       const rs = review.renderReviewState;
       if (rs === "ready") return { label: "Renders ready — needs review", spinner: false, actionStep: "render", tone: "ready" };
       if (rs === "needs_attention") return { label: "Renders need attention", spinner: false, actionStep: "render", tone: "attention" };
@@ -82,13 +82,13 @@ export function deriveModerationQueueState(review: {
 /** Map a workflow stage to its wizard step (null for terminal/resolved stages). */
 export function stageToWizardStep(stage: ReviewWorkflowStage): WizardStep | null {
   switch (stage) {
-    case "triage_pending":
+    case "triage":
     case "prep_pending":
     case "prep_failed":
       return "triage";
-    case "concept_review":
+    case "gags":
       return "concept";
-    case "production_review":
+    case "test_renders":
       return "render";
     default:
       return null;

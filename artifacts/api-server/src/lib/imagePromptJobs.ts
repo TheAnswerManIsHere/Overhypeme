@@ -37,12 +37,12 @@ import {
 } from "@workspace/db";
 import type { AsyncJobRow } from "@workspace/db/schema";
 import {
-  validateEnrichment,
+  validateGagRenderInput,
   type SubjectRenderMode,
   type RenderControls,
   type SourceImageAnalysis,
   type GenerationMode,
-  type FactEnrichment,
+  type GagRenderInput,
 } from "@workspace/api-zod";
 import { registerJobHandler, enqueueJob, terminalFailure, type JobHandler, type HandlerResult } from "./asyncJobs";
 import { assertJobOwnership, fencedTransaction, rethrowIfOwnershipLost } from "./jobFence";
@@ -145,10 +145,11 @@ export const imagePromptGenerationHandler: JobHandler = {
       return { ok: true, result: { attemptId: p.attemptId, reusedSavedPrompt: true } };
     }
 
-    // Reproducible inputs: validate the enrichment SNAPSHOT frozen on the
-    // attempt at insert time — NOT the fact's current enrichment, which may
-    // have been re-classified since this render was requested.
-    const enrichmentValidation = validateEnrichment(attempt.factEnrichmentSnapshot);
+    // Reproducible inputs: validate the gag SNAPSHOT frozen on the attempt at
+    // insert time — NOT the gag as it is now. A snapshot frozen before the
+    // taxonomy left moderation also carries the classification, which is
+    // ignored (validateGagRenderInput).
+    const enrichmentValidation = validateGagRenderInput(attempt.factEnrichmentSnapshot);
     if (!enrichmentValidation.ok) {
       // The frozen enrichment snapshot is invalid — re-running can't fix stored
       // data, so this is terminal (§12).
@@ -801,7 +802,7 @@ type MirrorTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
  */
 async function directArgsForAttempt(
   attempt: ImagePromptAttempt,
-  enrichment: FactEnrichment,
+  enrichment: GagRenderInput,
   renderedSubject: { name: string; pronouns: string | null },
 ): Promise<DirectCompileArgs> {
   const subjectRenderMode = attempt.subjectRenderMode as SubjectRenderMode;
@@ -827,7 +828,7 @@ export async function recompileStoredAttempt(
   attempt: ImagePromptAttempt,
   recipe: ResolvedRecipe,
 ): Promise<CompiledImagePrompt | null> {
-  const enrichment = validateEnrichment(attempt.factEnrichmentSnapshot);
+  const enrichment = validateGagRenderInput(attempt.factEnrichmentSnapshot);
   if (!enrichment.ok) return null;
   const renderedSubject = await resolveAttemptIdentity(attempt);
   try {

@@ -447,7 +447,7 @@ async function insertStagingFact(): Promise<{ id: number; reviewId: number }> {
   const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok", isActive: false });
   const [fact] = await db.select({ text: factsTable.text }).from(factsTable).where(eq(factsTable.id, id));
   const [review] = await db.insert(pendingReviewsTable).values({
-    submittedText: fact.text, status: "pending", workflowStage: "concept_review", stagingFactId: id,
+    submittedText: fact.text, status: "pending", workflowStage: "gags", stagingFactId: id,
   }).returning({ id: pendingReviewsTable.id });
   return { id, reviewId: review!.id };
 }

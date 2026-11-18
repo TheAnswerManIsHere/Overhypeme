@@ -257,7 +257,7 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // Source of truth: lib/db/src/schema/{evalRuns,imagePromptAttempts,facts}.ts.
   "0081_eval_harness",
 
-  // Hand-authored DDL adding the `concept_review` stage (Step 2: Visual Concept
+  // Hand-authored DDL adding the `gags` stage (Step 2: Visual Concept
   // gate) to the review_workflow_stage enum via a text-cast recreate (0027
   // precedent — the runner wraps migrations in a transaction, so ALTER TYPE ADD
   // VALUE is avoided). No new table/column, so no schema delta beyond the enum;

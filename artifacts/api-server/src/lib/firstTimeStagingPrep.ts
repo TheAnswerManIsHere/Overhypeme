@@ -1,26 +1,19 @@
 /**
- * Shared first-time staging prep lifecycle (Plan v4 §F).
+ * @purpose Provisional approval's prep: create the staging fact, move the review to Reading with its reading run, and start the taxonomy run beside it.
+ * @subsystem moderation
  *
- * The single primitive for "(re)start text-derived prep for a first-time
- * staging fact", so stage transitions, statuses, enqueue order and recovery
- * live in one place. (The staging-fact text edit that also restarted prep went
- * with the wording lock, plan PLAN_THREE_GAGS.md, increment 3.)
- *
- * Two phases, deliberately split so the transactional state change and the
- * (non-transactional) durable-job dispatch don't hold a DB lock across the
- * enqueue:
+ * Two phases (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1B; Issue #1018, increment
+ * 1.2c-ii):
  *
  *   1. prepareFirstTimeStagingPrep(tx, …) — in the caller's transaction:
- *      create-or-reuse the staging fact, mark enrichment "pending", move the
- *      review back to prep_pending. Does NOT write fact text — the caller owns
- *      that (a text edit writes the new wording + clears the signature in the
- *      same tx; provisional approval seeds the submitted text via ensureStagingFact).
+ *      create-or-reuse the staging fact, mark the taxonomy "pending", move the
+ *      review to Reading and start its reading run (readingJobs.ts), so a
+ *      review never waits at Reading with no run behind it.
  *
- *   2. ensureFirstTimeStagingPrepJobs(factId) — after commit: ENSURE the durable
- *      enrichment job exists (create if missing, dedupe if present) and heal its
- *      status projection. (A Pexels stock-photo job ran beside it until launch
- *      Phase 4, removal 6 deleted stock photos.) Idempotent, so it is also the recovery path
- *      for a stranded "pending" projection with no job behind it.
+ *   2. ensureFirstTimeStagingPrepJobs(factId) — after commit: ENSURE the
+ *      durable taxonomy job exists (create if missing, dedupe if present). The
+ *      taxonomy is stored data beside moderation: it never moves the review and
+ *      never blocks a step, so a failed enqueue is only recorded as failed.
  */
 
 import { eq } from "drizzle-orm";
@@ -28,6 +21,7 @@ import { db } from "@workspace/db";
 import { factsTable, pendingReviewsTable, type AsyncJobStatus } from "@workspace/db/schema";
 import { enqueueJob } from "./asyncJobs";
 import { ensureStagingFact, type StagingReviewRow } from "./moderationStaging";
+import { startReading } from "./readingJobs";
 import { logger } from "./logger";
 
 type DbLike = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -44,11 +38,9 @@ export interface PrepDispatchResult {
 }
 
 /**
- * Phase 1 (in the caller's transaction). Create-or-reuse the staging fact, mark
- * enrichment prep "pending" for immediate UI feedback, and move the review to
- * prep_pending. `submittedText` is only used when the staging fact does not yet
- * exist (first provisional approval); a staging text edit passes the already-
- * existing `stagingFactId` and writes the new wording itself before calling this.
+ * Phase 1 (in the caller's transaction, which holds the review's lock).
+ * Create-or-reuse the staging fact, mark the taxonomy "pending", move the
+ * review to Reading and start its reading run.
  */
 export async function prepareFirstTimeStagingPrep(
   tx: DbLike,
@@ -63,26 +55,25 @@ export async function prepareFirstTimeStagingPrep(
   await tx
     .update(pendingReviewsTable)
     .set({
-      workflowStage: "prep_pending",
+      workflowStage: "reading",
       stagingFactId: factId,
       ...(args.reviewedById != null ? { reviewedById: args.reviewedById } : {}),
       ...(args.adminNote != null ? { adminNote: args.adminNote } : {}),
     })
     .where(eq(pendingReviewsTable.id, args.review.id));
+  await startReading(tx, { factId, reviewId: args.review.id, requestedBy: args.reviewedById ?? null });
   return { factId };
 }
 
 /**
- * Phase 2 (after commit). ENSURE the durable enrichment job exists and heal its
- * status projection. Enrichment is workflow-gating, so an enqueue
- * failure marks the projection "failed" (visible + retryable) rather than
- * leaving a fake "pending" with no job behind it. Safe to call repeatedly —
- * `enqueueJob` dedupes on the in-flight job.
+ * Phase 2 (after commit). ENSURE the durable taxonomy job exists and heal its
+ * status projection. An enqueue failure is recorded as "failed" rather than a
+ * fake "pending" with no job behind it; it blocks nothing. Safe to call
+ * repeatedly — `enqueueJob` dedupes on the in-flight job.
  */
 export async function ensureFirstTimeStagingPrepJobs(factId: number): Promise<PrepDispatchResult> {
-  // Enrichment (workflow-gating): heal the projection to "pending" and ensure
-  // the durable job. On a hard enqueue failure, surface "failed" so the
-  // moderation UI shows a retryable state instead of a permanent fake-pending.
+  // The taxonomy: heal the projection to "pending" and ensure the durable job.
+  // On a hard enqueue failure, record "failed" instead of a fake "pending".
   let enrichment: PrepQueueDispatch;
   try {
     await db.update(factsTable).set({ enrichmentStatus: "pending" }).where(eq(factsTable.id, factId));
@@ -93,7 +84,7 @@ export async function ensureFirstTimeStagingPrepJobs(factId: number): Promise<Pr
     });
     enrichment = { status: res.status, inserted: res.inserted };
   } catch (err) {
-    logger.error({ err, factId }, "[staging-prep] enrichment enqueue failed; marking status failed (retryable)");
+    logger.error({ err, factId }, "[staging-prep] taxonomy enqueue failed; marking status failed");
     await db.update(factsTable).set({ enrichmentStatus: "failed" }).where(eq(factsTable.id, factId)).catch(() => {});
     enrichment = { status: "failed", inserted: false };
   }

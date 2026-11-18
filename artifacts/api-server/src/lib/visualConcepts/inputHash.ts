@@ -3,31 +3,28 @@
  *
  * The stored candidate blob carries this hash so the SERVER can decide whether
  * the candidates are still current for the review (the FE never recomputes it).
- * A change to any render-affecting input — fact text, the render-affecting
- * enrichment projection, the concept prompt/config version, the authored-strategy
- * version, the system-prompt content, or the resolved engine id/model/effort —
- * flips the hash and stales the stored candidates. Timestamps and the generated
+ * A change to any input the writer reads — fact text, the concept
+ * prompt/config version, the authored-strategy version, the system-prompt
+ * content, the resolved engine id/model/effort, or the fact's gags — flips the
+ * hash and stales the stored candidates. Timestamps and the generated
  * candidate text are deliberately EXCLUDED (generating new candidates for the
  * same inputs must not stale them).
  *
- * The classification fields it hashes are the writer's own list
- * (`writerAffectingEnrichment`): since the switch a render reads none of them
- * (plan PLAN_GAG_DIRECT_RENDER.md, D), so the two freshness checks no longer
- * share a projection. Saved bubble edits stale candidate ideas exactly as
- * saved core-scene edits do (deliberate, Option A of the bubble plan §E6). Since
- * migration 0139 a fact's gags live in fact_gags, not the enrichment, so the
- * hash carries them itself: every gag the request lists (prompt v4). The
- * approved humor note is kept out of this hash on purpose
- * (visualConceptJobs.ts, buildVisualConceptsResponse).
+ * The taxonomy is not hashed: the writer no longer reads it (Issue #1018,
+ * increment 1.2c-ii, after the blind check of plan
+ * PLAN_FACT_LIFECYCLE_REBUILD.md, 1A, passed), so a taxonomy run finishing
+ * after the ideas leaves them current. Saved bubble edits stale candidate
+ * ideas exactly as saved core-scene edits do (deliberate, Option A of the
+ * bubble plan §E6). Since migration 0139 a fact's gags live in fact_gags, so
+ * the hash carries them itself: every gag the request lists (prompt v4). The
+ * humor note is kept out of this hash on purpose (visualConceptJobs.ts,
+ * buildVisualConceptsResponse).
  */
 
 import { createHash } from "node:crypto";
 import {
   VISUAL_CONCEPTS_PROMPT_VERSION,
   VISUAL_STRATEGY_VERSION,
-  isRetiredTextModifier,
-  withoutCast,
-  type FactEnrichment,
   type VisualConceptSource,
 } from "@workspace/api-zod";
 import { stableStringify } from "../factRenderScenarios";
@@ -47,7 +44,6 @@ export interface VisualConceptHashInputs {
   reviewId: number | null;
   source: VisualConceptSource;
   factText: string;
-  enrichment: FactEnrichment;
   /** sha256 of the resolved `fact_visual_concepts_system` prompt content. */
   systemPromptHash: string;
   /** Resolved concept engine identity (from resolveVisualConceptsLLMSettings). */
@@ -63,33 +59,6 @@ export interface VisualConceptHashInputs {
   gags: HashedContextGag[];
 }
 
-/**
- * The classification fields whose edit marks the gag writer's ideas out of
- * date. The writer's request reads the archetype and subtype (its subtype
- * guidance), the cultural references and the semantic entities
- * (`buildVisualConceptsUserMessage`), and the fact's gag content (its
- * derived cast left out: the writer is shown scenes and bubbles). The
- * modifiers (retired text/logo modifiers left out), literalness and
- * complexity are NOT read by the writer; they stay in this hash only because
- * it was the render projection minus the character list until the switch,
- * and keeping its values unchanged means no stored idea goes out of date by
- * the split. The fact character list is not read by the writer
- * (PLAN_BUBBLE_SPEAKERS.md, F) and stays out.
- */
-function writerAffectingEnrichment(e: FactEnrichment): Record<string, unknown> {
-  const ov = e.visualPromptStrategyOverride ?? null;
-  return {
-    primaryArchetype: e.primaryArchetype,
-    subtype: e.subtype,
-    modifiers: e.modifiers.filter((m) => !isRetiredTextModifier(m)).sort(),
-    visualLiteralness: e.visualLiteralness,
-    visualComplexity: e.visualComplexity,
-    culturalReferences: e.culturalReferences,
-    semanticEntities: e.semanticEntities,
-    visualPromptStrategyOverride: ov ? withoutCast(ov) : null,
-  };
-}
-
 export function buildVisualConceptInputHash(inputs: VisualConceptHashInputs): string {
   const canonical = {
     conceptPromptVersion: VISUAL_CONCEPTS_PROMPT_VERSION,
@@ -100,7 +69,6 @@ export function buildVisualConceptInputHash(inputs: VisualConceptHashInputs): st
     candidateVersionId: null,
     source: inputs.source,
     factText: inputs.factText,
-    enrichment: writerAffectingEnrichment(inputs.enrichment),
     systemPromptHash: inputs.systemPromptHash,
     engineId: inputs.engineId,
     model: inputs.model,

@@ -245,7 +245,7 @@ describe("POST /facts/submit-review", () => {
     assert.equal(row.status, "pending");
     assert.equal(row.submittedById, userId);
     // COST GATE: the new submission must not trigger any paid prep.
-    assert.equal(row.workflowStage, "triage_pending");
+    assert.equal(row.workflowStage, "triage");
     assert.equal(row.enrichment, null);
     assert.equal(row.enrichmentStatus, null);
   });
@@ -302,7 +302,7 @@ describe("POST /facts/submit-review", () => {
         submittedText: `cap filler ${randomUUID()}`,
         submittedById: userId,
         status: "pending" as const,
-        workflowStage: "triage_pending" as const,
+        workflowStage: "triage" as const,
       })),
     );
 
@@ -330,10 +330,10 @@ describe("POST /facts/submit-review", () => {
         submittedText: `unresolved ${randomUUID()}`,
         submittedById: userId,
         status: "pending" as const,
-        workflowStage: "triage_pending" as const,
+        workflowStage: "triage" as const,
       })),
-      { submittedText: `done ${randomUUID()}`, submittedById: userId, status: "approved" as const, workflowStage: "production_approved" as const },
-      { submittedText: `rej ${randomUUID()}`, submittedById: userId, status: "rejected" as const, workflowStage: "triage_rejected" as const },
+      { submittedText: `done ${randomUUID()}`, submittedById: userId, status: "approved" as const, workflowStage: "approved" as const },
+      { submittedText: `rej ${randomUUID()}`, submittedById: userId, status: "rejected" as const, workflowStage: "rejected" as const },
     ]);
 
     const res = await request(makeApp())
@@ -378,7 +378,7 @@ describe("POST /admin/reviews/:id/provisional-approve", () => {
       submittedText: text,
       submittedById: submitterId,
       status: "pending",
-      workflowStage: "triage_pending",
+      workflowStage: "triage",
     }).returning();
     return r.id;
   }
@@ -450,7 +450,7 @@ describe("POST /admin/reviews/:id/provisional-approve", () => {
     const submitterId = await createTestUser();
     const sid = await bearerForUser(adminId, { isAdmin: true });
     const [r] = await db.insert(pendingReviewsTable).values({
-      submittedText: "already live", submittedById: submitterId, status: "approved", workflowStage: "production_approved",
+      submittedText: "already live", submittedById: submitterId, status: "approved", workflowStage: "approved",
     }).returning();
     const res = await request(makeApp())
       .post(`/admin/reviews/${r.id}/provisional-approve`)
@@ -475,7 +475,7 @@ describe("staging-fact enrichment stage advancement", () => {
     const [f] = await db.select().from(factsTable).where(eq(factsTable.id, fact.id));
     assert.equal(f.enrichmentStatus, "ok");
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
-    assert.equal(r.workflowStage, "concept_review");
+    assert.equal(r.workflowStage, "gags");
   });
 
   it("the stage advance and the Visual-Idea job commit with the enrichment or not at all, so a resumed run is never stranded (Issue #1000 §F)", async () => {
@@ -503,7 +503,7 @@ describe("staging-fact enrichment stage advancement", () => {
     assert.equal(result.ok, true);
     assert.equal(classified, 1, "the retry classifies (nothing was committed before)");
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
-    assert.equal(r.workflowStage, "concept_review");
+    assert.equal(r.workflowStage, "gags");
     assert.equal((await conceptJobs()).length, 1, "exactly one Visual-Idea job");
 
     let again = 0;
@@ -517,7 +517,7 @@ describe("staging-fact enrichment stage advancement", () => {
     const [fact] = await db.insert(factsTable).values({ text: "{NAME} runs fast", submittedById: submitterId, isActive: false }).returning();
     await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} runs fast", submittedById: submitterId, status: "rejected",
-      workflowStage: "production_rejected", stagingFactId: fact.id,
+      workflowStage: "rejected", stagingFactId: fact.id,
     });
 
     let classifyCalled = false;
@@ -647,7 +647,7 @@ describe("GET /admin/reviews/:id", () => {
     await addGag(staging.id);
     const [r] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
-      workflowStage: "concept_review", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
+      workflowStage: "gags", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
     }).returning();
 
     const res = await request(makeApp()).get(`/admin/reviews/${r.id}`).set("authorization", `Bearer ${sid}`);
@@ -661,7 +661,7 @@ describe("GET /admin/reviews/:id", () => {
     const submitterId = await createTestUser();
     const sid = await bearerForUser(adminId, { isAdmin: true });
     const [r] = await db.insert(pendingReviewsTable).values({
-      submittedText: "{NAME} prep status check", submittedById: submitterId, status: "pending", workflowStage: "triage_pending",
+      submittedText: "{NAME} prep status check", submittedById: submitterId, status: "pending", workflowStage: "triage",
     }).returning();
 
     await request(makeApp()).post(`/admin/reviews/${r.id}/provisional-approve`).set("authorization", `Bearer ${sid}`).send({});
@@ -741,7 +741,7 @@ describe("POST /admin/reviews/:id/reject", () => {
     assert.equal(after.reviewedById, adminId);
     const actions = await db.select({ action: adminActionsTable.action, actorId: adminActionsTable.actorId, detail: adminActionsTable.detail })
       .from(adminActionsTable).where(eq(adminActionsTable.reviewId, r.id));
-    assert.deepEqual(actions, [{ action: "reject", actorId: adminId, detail: { reason: "spam", adminNote: "doesn't fit", stage: "triage_pending", gagsDiscarded: 0 } }]);
+    assert.deepEqual(actions, [{ action: "reject", actorId: adminId, detail: { reason: "spam", adminNote: "doesn't fit", stage: "triage", gagsDiscarded: 0 } }]);
   });
 });
 
@@ -787,7 +787,7 @@ describe("approval renderability gating", () => {
         submittedText: "{NAME} bench-presses the Earth.",
         submittedById: submitterId,
         status: "pending",
-        workflowStage: "production_review",
+        workflowStage: "test_renders",
         stagingFactId: staging.id,
         enrichment,
         enrichmentStatus: "ok",
@@ -855,7 +855,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     await addGag(staging.id);
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
-      workflowStage: "production_review", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
+      workflowStage: "test_renders", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
     }).returning();
     return { reviewId: review.id, stagingFactId: staging.id, submitterId };
   }
@@ -882,7 +882,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
       .from(adminActionsTable).where(eq(adminActionsTable.factId, stagingFactId));
     assert.deepEqual(actions, [{ action: "approve_for_production", reviewId, actorId: adminId }]);
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
-    assert.equal(r.workflowStage, "production_approved");
+    assert.equal(r.workflowStage, "approved");
     assert.equal(r.status, "approved");
     assert.equal(r.approvedFactId, stagingFactId);
 
@@ -899,7 +899,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
   it("refuses to activate a triage_pending review (no shortcut to live)", async () => {
     const submitterId = await createTestUser();
     const [review] = await db.insert(pendingReviewsTable).values({
-      submittedText: "not prepped yet", submittedById: submitterId, status: "pending", workflowStage: "triage_pending",
+      submittedText: "not prepped yet", submittedById: submitterId, status: "pending", workflowStage: "triage",
     }).returning();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
@@ -927,7 +927,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     await addGag(staging.id);
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
-      workflowStage: "production_review", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
+      workflowStage: "test_renders", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
     }).returning();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
@@ -1005,7 +1005,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     await addGag(staging.id);
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
-      workflowStage: "production_review", stagingFactId: staging.id,
+      workflowStage: "test_renders", stagingFactId: staging.id,
       enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
     }).returning();
     const adminId = await createTestUser({ isAdmin: true });
@@ -1038,7 +1038,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     }).returning();
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
-      workflowStage: "production_review", stagingFactId: staging.id, enrichment: withoutConcept, enrichmentStatus: "ok",
+      workflowStage: "test_renders", stagingFactId: staging.id, enrichment: withoutConcept, enrichmentStatus: "ok",
     }).returning();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
@@ -1074,7 +1074,7 @@ describe("PATCH /admin/reviews/:id (draft autosave)", () => {
     await addGag(staging.id);
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} does a thing", submittedById: submitterId, status: "pending",
-      workflowStage: "production_review", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
+      workflowStage: "test_renders", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
     }).returning();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
@@ -1097,7 +1097,7 @@ describe("PATCH /admin/reviews/:id (draft autosave)", () => {
 });
 
 describe("reject from every step (PLAN_FACT_LIFECYCLE_REBUILD.md item 13)", () => {
-  async function seedPastTriage(stage: "prep_pending" | "prep_failed" | "concept_review" | "production_review") {
+  async function seedPastTriage(stage: "prep_pending" | "prep_failed" | "gags" | "test_renders") {
     const submitterId = await createTestUser();
     const [staging] = await db.insert(factsTable).values({
       text: "{NAME} does a thing", submittedById: submitterId, isActive: false, enrichment: VALID_APPROVAL_ENRICHMENT,
@@ -1111,7 +1111,7 @@ describe("reject from every step (PLAN_FACT_LIFECYCLE_REBUILD.md item 13)", () =
     return { submitterId, staging, review };
   }
 
-  for (const stage of ["prep_pending", "prep_failed", "concept_review", "production_review"] as const) {
+  for (const stage of ["prep_pending", "prep_failed", "gags", "test_renders"] as const) {
     it(`rejects from ${stage}: production_rejected, the gags discarded, the staging fact never live, recorded, the submitter told`, async () => {
       const { submitterId, staging, review } = await seedPastTriage(stage);
       const adminId = await createTestUser({ isAdmin: true });
@@ -1125,7 +1125,7 @@ describe("reject from every step (PLAN_FACT_LIFECYCLE_REBUILD.md item 13)", () =
 
       const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
       assert.equal(r.status, "rejected");
-      assert.equal(r.workflowStage, "production_rejected");
+      assert.equal(r.workflowStage, "rejected");
       assert.equal(r.reason, "visual");
       assert.equal(r.adminNote, "no picture lands");
       assert.equal(r.productionRejectedById, adminId);
@@ -1145,7 +1145,7 @@ describe("reject from every step (PLAN_FACT_LIFECYCLE_REBUILD.md item 13)", () =
   }
 
   it("waits for a gag being added and discards it too; a gag action after the rejection is refused (PR #1036 round 1)", async () => {
-    const { staging, review } = await seedPastTriage("concept_review");
+    const { staging, review } = await seedPastTriage("gags");
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
 
@@ -1191,7 +1191,7 @@ describe("reject from every step (PLAN_FACT_LIFECYCLE_REBUILD.md item 13)", () =
   it("a triage-stage reject stays triage_rejected", async () => {
     const submitterId = await createTestUser();
     const [review] = await db.insert(pendingReviewsTable).values({
-      submittedText: "junk", submittedById: submitterId, status: "pending", workflowStage: "triage_pending",
+      submittedText: "junk", submittedById: submitterId, status: "pending", workflowStage: "triage",
     }).returning();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
@@ -1201,14 +1201,14 @@ describe("reject from every step (PLAN_FACT_LIFECYCLE_REBUILD.md item 13)", () =
       .send({ rejectionReason: "spam" });
     assert.equal(res.status, 200);
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
-    assert.equal(r.workflowStage, "triage_rejected");
+    assert.equal(r.workflowStage, "rejected");
     assert.equal(r.productionRejectedAt, null);
   });
 
   it("refuses a review that is already live, and leaves it untouched", async () => {
     const submitterId = await createTestUser();
     const [review] = await db.insert(pendingReviewsTable).values({
-      submittedText: "live one", submittedById: submitterId, status: "approved", workflowStage: "production_approved",
+      submittedText: "live one", submittedById: submitterId, status: "approved", workflowStage: "approved",
     }).returning();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
@@ -1218,13 +1218,13 @@ describe("reject from every step (PLAN_FACT_LIFECYCLE_REBUILD.md item 13)", () =
       .send({ rejectionReason: "lame" });
     assert.equal(res.status, 409);
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
-    assert.equal(r.workflowStage, "production_approved");
+    assert.equal(r.workflowStage, "approved");
     const actions = await db.select().from(adminActionsTable).where(eq(adminActionsTable.reviewId, review.id));
     assert.equal(actions.length, 0);
   });
 
   it("refuses without a reason, and leaves the gags", async () => {
-    const { staging, review } = await seedPastTriage("concept_review");
+    const { staging, review } = await seedPastTriage("gags");
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
     const res = await request(makeApp())
