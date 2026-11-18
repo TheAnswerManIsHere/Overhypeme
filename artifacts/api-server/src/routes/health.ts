@@ -5,6 +5,7 @@ import { stripeProcessedEventsTable } from "@workspace/db/schema";
 import { desc } from "drizzle-orm";
 import { laneHealth } from "../lib/queueHealth";
 import { logger } from "../lib/logger";
+import { operationalHealthCached, publicSummary } from "../lib/operationalHealth";
 
 const router: IRouter = Router();
 
@@ -97,6 +98,30 @@ router.get("/health/queues", async (_req, res) => {
     // field set as the healthy one.
     logger.error({ err }, "[health] queue liveness evaluation failed");
     res.status(503).json({ ok: false, ts: new Date().toISOString(), laneCount: 0, stalledLaneCount: 0 });
+  }
+});
+
+/**
+ * The combined alert address: the one Sentry uptime check calls (launch
+ * Phase 16, amendment 1 on David's Q13: 2 — one check on the free plan).
+ *
+ * 503 when any polled source is unhealthy — a job lane stalled fleet-wide, a
+ * recurring task whose last completed run is overdue, a due job nobody has
+ * claimed or a claim held far too long, a Stripe event the webhook has not
+ * processed — and 503 when any of them cannot be judged. It also fails when
+ * the site or the API is down, because then nothing answers. Which part failed
+ * is on the admin Operations page.
+ *
+ * Unauthenticated, like `/health/queues`, so it says only a state and a count
+ * per part: no queue names, ids, event ids or error text.
+ */
+router.get("/health/alerts", async (_req, res) => {
+  try {
+    const health = await operationalHealthCached();
+    res.status(health.healthy ? 200 : 503).json(publicSummary(health));
+  } catch (err) {
+    logger.error({ err }, "[health] combined alert evaluation failed");
+    res.status(503).json({ ok: false, ts: new Date().toISOString() });
   }
 });
 

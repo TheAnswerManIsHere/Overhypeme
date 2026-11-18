@@ -31,6 +31,8 @@ export interface StripeApi {
   checkout: { sessions: Pick<Stripe["checkout"]["sessions"], "create" | "list" | "listLineItems" | "retrieve"> };
   customers: Pick<Stripe["customers"], "create" | "retrieve">;
   disputes: Pick<Stripe["disputes"], "retrieve">;
+  /** Read by the payments health check (launch Phase 16): events the webhook should have processed. */
+  events: Pick<Stripe["events"], "list">;
   invoicePayments: Pick<Stripe["invoicePayments"], "list">;
   invoices: Pick<Stripe["invoices"], "createPreview" | "list" | "retrieve">;
   paymentIntents: Pick<Stripe["paymentIntents"], "retrieve">;
@@ -44,6 +46,7 @@ export interface StripeApi {
 export type StripeSyncApi = Pick<
   StripeSyncInstance,
   | "getAccountId"
+  | "getSupportedEventTypes"
   | "findOrCreateManagedWebhook"
   | "syncBackfill"
   | "processWebhook"

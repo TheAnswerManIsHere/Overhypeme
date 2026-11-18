@@ -227,6 +227,7 @@ export const TIMER_SITES: readonly TimerSite[] = [
     kind: "not-recurring",
     note: "In-memory expiry of the request limiter's keys: no database, no work that can quietly stop mattering.",
   },
+  { file: "lib/operationsDrill.ts", calls: 1, kind: "not-recurring", note: "The drill job's wait, inside one run." },
   { file: "jobs/factOfTheDay.ts", calls: 1, kind: "not-recurring", note: "A pause between sends." },
   { file: "lib/bookkeepingTimeout.ts", calls: 1, kind: "not-recurring", note: "A per-call timeout." },
   { file: "lib/cliJobPoller.ts", calls: 1, kind: "not-recurring", note: "A sleep between polls of one job." },

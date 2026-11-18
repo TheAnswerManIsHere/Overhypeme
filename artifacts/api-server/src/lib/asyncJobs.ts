@@ -127,6 +127,7 @@ const LANE_OF_QUEUE = new Map<string, JobLane>();
 /** Per-queue run settings beyond the lane. Kept in lockstep with HANDLERS. */
 interface QueueSettings {
   executionLimitMs: number;
+  alertWhenHeldMs: number;
   recoveryProtocol: number | null;
   fastReclaim: boolean;
   retriesRecover: boolean;
@@ -176,6 +177,22 @@ export interface RegisterJobHandlerOptions {
    * protection. Needs `recoveryProtocol`.
    */
   retriesRecover?: boolean;
+  /**
+   * How long one claim of this queue may be held before the health check
+   * (`/api/health/alerts`, launch Phase 16) reads it as wedged. Telemetry only:
+   * it changes nothing about claiming, leasing, renewal or reclaim. Omit for
+   * the execution limit plus `HELD_ALERT_MARGIN_MS`, which a healthy run
+   * cannot reach because the limit ends it first.
+   */
+  alertWhenHeldMs?: number;
+}
+
+/** What a held claim may exceed its queue's execution limit by before it reads as wedged. */
+export const HELD_ALERT_MARGIN_MS = 15 * 60_000;
+
+/** How long a claim of `queue` may be held before the health check reads it as wedged. */
+export function heldAlertMsOf(queue: string): number {
+  return SETTINGS_OF_QUEUE.get(queue)?.alertWhenHeldMs ?? DEFAULT_EXECUTION_LIMIT_MS + HELD_ALERT_MARGIN_MS;
 }
 
 /**
@@ -197,8 +214,13 @@ export function registerJobHandler(
   if (opts?.retriesRecover && opts.recoveryProtocol == null) {
     throw new Error(`[asyncJobs] ${queue}: retriesRecover needs a recoveryProtocol`);
   }
+  const alertWhenHeldMs = opts?.alertWhenHeldMs ?? executionLimitMs + HELD_ALERT_MARGIN_MS;
+  if (!(Number.isFinite(alertWhenHeldMs) && alertWhenHeldMs > 0)) {
+    throw new Error(`[asyncJobs] ${queue}: alertWhenHeldMs must be a positive number of milliseconds`);
+  }
   SETTINGS_OF_QUEUE.set(queue, {
     executionLimitMs,
+    alertWhenHeldMs,
     recoveryProtocol: opts?.recoveryProtocol ?? null,
     fastReclaim: opts?.fastReclaim ?? false,
     retriesRecover: opts?.retriesRecover ?? false,

@@ -39,6 +39,7 @@ const REGISTERED_QUEUES = [
   "gag_fold",
   "image_generation",
   "image_prompt_generation",
+  "operations_drill",
   "projection_repair",
   "review_render_scenarios_prepare",
 ] as const;

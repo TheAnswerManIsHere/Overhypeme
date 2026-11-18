@@ -31,6 +31,7 @@ import { registerFactCharacterFillHandler } from "./lib/factCharacterFillJob.js"
 import { registerGagFoldHandler } from "./lib/gags/foldJob.js";
 import { registerFactAiMemeBackfillHandler } from "./lib/aiMemeBackfillJobs.js";
 import { registerVisualConceptJobHandlers } from "./lib/visualConceptJobs.js";
+import { registerOperationsDrillHandler } from "./lib/operationsDrill.js";
 import { runAsyncJobsWorker } from "./lib/asyncJobs.js";
 import { ALL_ENGINES } from "./lib/engines";
 import { ensureFalConfigured, getFalApiKey } from "./lib/falClient";
@@ -547,4 +548,5 @@ registerFactAiMemeBackfillHandler();
 registerReviewRenderScenarioHandlers();
 registerComparisonHandlers();
 registerVisualConceptJobHandlers();
+registerOperationsDrillHandler();
 runAsyncJobsWorker();
