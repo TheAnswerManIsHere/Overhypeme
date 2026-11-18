@@ -432,6 +432,21 @@ describe("a landing address's campaign tags reach GA4 (fix after PR #1059)", () 
     expect(JSON.stringify(gaCalls())).not.toContain("Alice");
   });
 
+  it("the tags are those of the address the page loaded with, not of a later one", async () => {
+    vi.stubEnv("VITE_GA_MEASUREMENT_ID", "G-TEST123");
+    vi.stubEnv("VITE_POSTHOG_KEY", "");
+    window.history.replaceState(null, "", "/?utm_source=newsletter");
+    vi.resetModules();
+    const fresh = await import("./analytics");
+    // The app moves on before analytics starts (Phase 14's admission check).
+    window.history.replaceState(null, "", "/pricing");
+    window.dataLayer = [];
+    fresh.startAnalytics();
+    fresh.page("/pricing");
+    expect(gaCalls()).toContainEqual(["event", "page_view", { page_location: `${window.location.origin}/pricing?utm_source=newsletter`, page_title: "/pricing" }]);
+    fresh.__resetAnalyticsForTests();
+  });
+
   it("an address with no campaign tags sends the bare pattern", () => {
     vi.stubEnv("VITE_GA_MEASUREMENT_ID", "G-TEST123");
     vi.stubEnv("VITE_POSTHOG_KEY", "");
