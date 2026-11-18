@@ -233,7 +233,7 @@ export async function stubConceptReview(
     matchingFactId: null,
     matchingSimilarity: 0,
     status: "pending",
-    workflowStage: "concept_review",
+    workflowStage: "gags",
     stagingFactId: review.stagingFactId,
     stagingFact: stagingSlice,
     reason: null,
@@ -267,7 +267,7 @@ export async function stubConceptReview(
     row: adminFactRow({ id: review.stagingFactId, text: review.submittedText, isActive: false }),
     enrichment: review.enrichment,
     listed: false,
-    review: { id: review.id, stage: "concept_review", refresh: false },
+    review: { id: review.id, stage: "gags", refresh: false },
     cast: review.cast,
   }]);
 }

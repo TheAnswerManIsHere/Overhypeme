@@ -5,18 +5,15 @@ import { factsTable } from "./facts";
 export const reviewStatusEnum = pgEnum("review_status", ["pending", "approved", "rejected"]);
 export const reviewReasonEnum = pgEnum("review_reason", ["duplicate", "spam", "offensive", "lame", "visual"]);
 
-// Fine-grained two-gate moderation lifecycle (see @workspace/api-zod
-// moderationWorkflow). The labels here MUST stay in sync with
-// REVIEW_WORKFLOW_STAGE_VALUES.
+// The moderation steps (see @workspace/api-zod moderationWorkflow; migration
+// 0155). The labels here MUST stay in sync with REVIEW_WORKFLOW_STAGE_VALUES.
 export const reviewWorkflowStageEnum = pgEnum("review_workflow_stage", [
-  "triage_pending",
-  "triage_rejected",
-  "prep_pending",
-  "prep_failed",
-  "concept_review",
-  "production_review",
-  "production_rejected",
-  "production_approved",
+  "triage",
+  "reading",
+  "gags",
+  "test_renders",
+  "approved",
+  "rejected",
 ]);
 
 export const pendingReviewsTable = pgTable("pending_reviews", {
@@ -44,11 +41,11 @@ export const pendingReviewsTable = pgTable("pending_reviews", {
   enrichmentStatus: varchar("enrichment_status", { length: 16 }),
   status: reviewStatusEnum("status").notNull().default("pending"),
   /**
-   * Fine-grained two-gate lifecycle stage. `status` stays as the coarse bucket;
-   * this drives provisional vs production gates and the moderation UI. New rows
-   * start at "triage_pending" (cheap human triage, no paid prep work).
+   * The moderation step. `status` stays as the coarse bucket; this drives the
+   * transitions and the moderation UI. New rows start at "triage" (cheap human
+   * triage, no paid prep work).
    */
-  workflowStage: reviewWorkflowStageEnum("workflow_stage").notNull().default("triage_pending"),
+  workflowStage: reviewWorkflowStageEnum("workflow_stage").notNull().default("triage"),
   /**
    * The inactive (isActive=false) staging fact created at provisional approval.
    * All production-prep tooling (enrichment, CPP, test memes, override
@@ -80,13 +77,6 @@ export const pendingReviewsTable = pgTable("pending_reviews", {
   /** Who last edited the wording at triage, and when (migration 0141). */
   wordingEditedBy: varchar("wording_edited_by").references(() => usersTable.id, { onDelete: "set null" }),
   wordingEditedAt: timestamp("wording_edited_at", { withTimezone: true }),
-  /**
-   * Withdraw: wording needs replacing (migration 0141). RETIRED with Withdraw
-   * (Issue #1018, increment 1.2c-i): nothing writes or reads it; dropped by the
-   * stage cutover's contract migration (1.2c-ii).
-   */
-  withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),
-  withdrawnBy: varchar("withdrawn_by").references(() => usersTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
 }, (table) => [

@@ -695,7 +695,7 @@ describe("POST /admin/facts/import", () => {
     // The valid row became a Stage-1 review (normalized), NOT an active fact.
     const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.submittedText, expectedText));
     assert.ok(review, "valid row should have been queued as a review");
-    assert.equal(review.workflowStage, "triage_pending");
+    assert.equal(review.workflowStage, "triage");
     const factRows = await db.select().from(factsTable).where(eq(factsTable.text, expectedText));
     assert.equal(factRows.length, 0, "bulk import must not write the fact directly");
   });
@@ -726,7 +726,7 @@ describe("POST /admin/facts/import-csv", () => {
     // The valid line became a Stage-1 review (normalized), NOT an active fact.
     const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.submittedText, expectedText));
     assert.ok(review, "valid line should have been queued as a review");
-    assert.equal(review.workflowStage, "triage_pending");
+    assert.equal(review.workflowStage, "triage");
 
     const factRows = await db.select().from(factsTable).where(eq(factsTable.text, expectedText));
     assert.equal(factRows.length, 0, "bulk CSV import must not write the fact directly");
@@ -1036,7 +1036,7 @@ describe("POST /admin/facts/import — caps and dedup", () => {
     await db.insert(pendingReviewsTable).values({
       submittedText: reviewText,
       status: "pending",
-      workflowStage: "triage_pending",
+      workflowStage: "triage",
       submittedById: adminUserId,
     } as typeof pendingReviewsTable.$inferInsert);
 

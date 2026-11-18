@@ -12,6 +12,10 @@
  * gag a refresh owned loses that refresh's change and picks; references to a
  * left-out review are nulled. The freshness predicates of left-out or changed
  * rows are not checked on either side, since no recorded outcome describes them.
+ *
+ * Migration 0155's stage map is applied here too, for the same reason: the
+ * fixture's reviews carry the stage labels 0155 replaced, which the loaded
+ * schema no longer has (`fixtureStage`).
  */
 import type { Row } from "./export";
 import type { PredicateRecord } from "./predicates";
@@ -31,6 +35,23 @@ export interface FixtureRetirement {
   attemptIds: Set<number>;
   /** Reviews whose staging fact's gag-idea set the retirement clears (a refresh review shared its live fact). */
   clearedBlobReviewIds: Set<number>;
+  /** Facts with an approved humor note (0155 maps their prep-stage reviews to gags, the rest to reading). */
+  notedFacts: Set<number>;
+}
+
+/** A review's stage as migration 0155 maps it (lib/db/migrations/0155_moderation_four_steps.sql). */
+export function fixtureStage(stage: unknown, stagingFactId: number | null, notedFacts: Set<number>): unknown {
+  switch (stage) {
+    case "triage_pending": return "triage";
+    case "prep_pending":
+    case "prep_failed":
+    case "concept_review": return stagingFactId != null && notedFacts.has(stagingFactId) ? "gags" : "reading";
+    case "production_review": return "test_renders";
+    case "production_approved": return "approved";
+    case "triage_rejected":
+    case "production_rejected": return "rejected";
+    default: return stage;
+  }
 }
 
 const num = (v: unknown): number | null => (typeof v === "number" ? v : typeof v === "string" && v !== "" ? Number(v) : null);
@@ -72,7 +93,7 @@ export function fixtureRetirement(read: (table: string) => Row[]): FixtureRetire
   for (const f of read("facts")) {
     const owner = f["visual_concept_owner"];
     const blob = f["visual_concept_candidates"] as Record<string, unknown> | null | undefined;
-    const ownedByRetired = typeof owner === "string" && owner.startsWith("review:") && reviewIds.has(Number(owner.slice(7)));
+    const ownedByRetired = typeof owner === "string" && owner.startsWith("review:") && reviewIds.has(parseInt(owner.slice(7), 10));
     if (ownedByRetired || (blob && typeof blob === "object" && blob["source"] === "candidate_version")) clearedFacts.add(num(f["id"])!);
   }
   const clearedBlobReviewIds = new Set<number>();
@@ -80,10 +101,12 @@ export function fixtureRetirement(read: (table: string) => Row[]): FixtureRetire
     const staging = num(r["staging_fact_id"]);
     if (staging != null && clearedFacts.has(staging)) clearedBlobReviewIds.add(num(r["id"])!);
   }
-  return { reviewIds, refreshIds, openReviewFacts, refreshGagIds, versionIds, attemptIds, clearedBlobReviewIds };
+  const notedFacts = new Set<number>();
+  for (const f of read("facts")) if (f["humor_note_approved_at"] != null) notedFacts.add(num(f["id"])!);
+  return { reviewIds, refreshIds, openReviewFacts, refreshGagIds, versionIds, attemptIds, clearedBlobReviewIds, notedFacts };
 }
 
-/** The table's rows as 0151 leaves them. */
+/** The table's rows as 0151 (and 0155's stage map) leaves them. */
 export function retireRows(table: string, rows: Row[], r: FixtureRetirement, now: string): Row[] {
   const nullRef = (row: Row, col: string): Row => {
     const v = num(row[col]);
@@ -91,7 +114,9 @@ export function retireRows(table: string, rows: Row[], r: FixtureRetirement, now
   };
   switch (table) {
     case "pending_reviews":
-      return rows.filter((row) => !r.reviewIds.has(num(row["id"])!)).map((row) => nullRef(row, "matching_review_id"));
+      return rows
+        .filter((row) => !r.reviewIds.has(num(row["id"])!))
+        .map((row) => ({ ...nullRef(row, "matching_review_id"), workflow_stage: fixtureStage(row["workflow_stage"], num(row["staging_fact_id"]), r.notedFacts) }));
     case "fact_enrichment_versions":
       return rows.filter((row) => !r.versionIds.has(num(row["id"])!)).map((row) => nullRef(row, "source_review_id"));
     case "image_prompt_attempts":
@@ -109,7 +134,7 @@ export function retireRows(table: string, rows: Row[], r: FixtureRetirement, now
       return rows.map((row) => {
         let out = row;
         const owner = row["visual_concept_owner"];
-        if (typeof owner === "string" && owner.startsWith("review:") && r.reviewIds.has(Number(owner.slice(7)))) {
+        if (typeof owner === "string" && owner.startsWith("review:") && r.reviewIds.has(parseInt(owner.slice(7), 10))) {
           out = { ...out, visual_concept_owner: null, visual_concept_status: null, visual_concept_candidates: null };
         }
         const blob = out["visual_concept_candidates"];

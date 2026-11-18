@@ -217,11 +217,13 @@ review. There is no third path in the running product, which is what makes
 ### Moderation
 
 The staged, cost-gated approval workflow for submissions, living in
-`pending_reviews` with a `review_workflow_stage`. Three human gates:
-`triage_pending → prep_pending/prep_failed → concept_review (Step 2: Visual
-Concept) → production_review (Step 3: Test Renders) →
-production_approved/production_rejected`. No render runs in triage or prep.
-From the Gags step (Step 2) on, each saved gag version gets one male render
+`pending_reviews` with a `review_workflow_stage`. Four steps (migration 0155;
+plan `docs/plans/PLAN_FACT_LIFECYCLE_REBUILD.md`, 1D): `triage → reading →
+gags → test_renders`, ending `approved` or `rejected`; Reject is on every step
+until a fact goes live. The Reading step shows the reading's draft humor note
+and the reference research it was written from; the taxonomy runs beside
+moderation and gates nothing. No render runs in triage or reading.
+From the Gags step on, each saved gag version gets one male render
 (and approving the Gags step draws it for any gag still without one); its
 female and pet renders are drawn when the moderator asks
 ([decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)).
@@ -356,7 +358,7 @@ builder's example media, `hero_examples`, went in launch Phase 4.)
 
 How the joke works *as a picture*. Since migration 0139 (plan
 `docs/plans/PLAN_THREE_GAGS.md`) a fact has one to three, each its own
-[gag](#gag) record. At the Gags step (`concept_review`) each
+[gag](#gag) record. At the Gags step (`gags`) each
 saved gag version gets one male test render, and approving the gags draws it
 for any new or changed gag still without one; nothing more is drawn until the
 moderator asks. What reaches users is decided later, gag by gag,

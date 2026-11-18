@@ -101,8 +101,12 @@ export interface ContextGag {
 export interface GenerateVisualConceptsInput {
   /** Fact template with {NAME}/pronoun tokens intact. */
   factText: string;
-  /** The review cycle's effective enrichment (meanings, mechanism, policy). */
-  enrichment: FactEnrichment;
+  /**
+   * The fact's classification, read only when `classification` is "include".
+   * The product sends null with "omit" (Issue #1018, increment 1.2c-ii); the
+   * blind-check harness still sends one.
+   */
+  enrichment: FactEnrichment | null;
   renderPolicy: RenderPolicy;
   /** The fact's approved humor note, or null. */
   humorNote: string | null;
@@ -117,11 +121,10 @@ export interface GenerateVisualConceptsInput {
   /**
    * Whether the request carries the classification's reference meanings and
    * joke-mechanism line ("include", the default and today's request) or leaves
-   * both out ("omit"). "omit" exists for the blind check of plan
-   * PLAN_FACT_LIFECYCLE_REBUILD.md (1A), where the meanings travel in the
-   * humor note instead; nothing in the product sends it yet. Temporary: that
-   * plan's stage cutover (1.2) either removes these blocks for good or keeps
-   * them, and this option and blindCheck.ts go with the outcome.
+   * both out ("omit"). The blind check of plan PLAN_FACT_LIFECYCLE_REBUILD.md
+   * (1A) passed, so the product sends "omit" from the stage cutover (1.2c-ii)
+   * on: the meanings travel in the humor note. The option, these blocks and
+   * blindCheck.ts leave with the gag-writer relock (1.2d).
    */
   classification?: "include" | "omit";
 }
@@ -253,7 +256,7 @@ export function buildVisualConceptsUserMessage(input: GenerateVisualConceptsInpu
     blocks.push(["APPROVED HUMOR NOTE (written or confirmed by a moderator; the correct reading of this joke):", input.humorNote.trim()]);
   }
 
-  if (input.classification !== "omit") {
+  if (input.classification !== "omit" && e) {
     const meanings = referenceMeaningLines(e);
     if (meanings.length) blocks.push(["WHAT THE REFERENCES MEAN:", ...meanings]);
 

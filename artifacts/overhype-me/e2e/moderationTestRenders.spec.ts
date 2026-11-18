@@ -37,7 +37,7 @@ function gag(id: number, slot: number): GagView {
   };
 }
 
-async function stubReview(page: Page, stage: "concept_review" | "production_review" = "production_review"): Promise<{ approvals: () => unknown[] }> {
+async function stubReview(page: Page, stage: "gags" | "test_renders" = "test_renders"): Promise<{ approvals: () => unknown[] }> {
   const approvals: unknown[] = [];
   const row = {
     id: REVIEW_ID, submittedText: TEXT, matchingFactId: null, matchingSimilarity: 0, status: "pending",
@@ -121,7 +121,7 @@ test.describe("Admin · moderation · Test Renders per gag", () => {
   // Saving a gag draws a paid male render (plan PLAN_GAG_EXAMPLES.md), so the
   // Gags step must not tell the moderator its edits are free (build report, PR #972).
   test("the Gags step says a save draws a paid male render, never that it spends nothing", async ({ page }) => {
-    await stubReview(page, "concept_review");
+    await stubReview(page, "gags");
     await page.goto("/admin/moderation");
     await page.getByText(`"${TEXT}"`, { exact: true }).first().click();
 

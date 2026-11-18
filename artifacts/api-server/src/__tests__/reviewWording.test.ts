@@ -26,7 +26,7 @@ import { UNRESOLVED_SUBMISSION_STAGE_VALUES } from "@workspace/api-zod";
 import reviewsRouter from "../routes/reviews.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import { findPendingReviewWithText } from "../routes/ai.js";
-import { advanceReviewForStagingFactEnrichment } from "../lib/moderationStaging.js";
+import { latestReading, runReadingJob } from "../lib/readingJobs.js";
 
 const RUN = randomUUID().slice(0, 8);
 let adminId = "";
@@ -43,7 +43,7 @@ const holdFor = new Map<number, Promise<void>>();
 
 async function triageReview(text = `{NAME} submitted wording ${RUN} ${randomUUID().slice(0, 6)}.`): Promise<number> {
   const [row] = await db.insert(pendingReviewsTable).values({
-    submittedText: text, submittedById: submitterId, status: "pending", workflowStage: "triage_pending",
+    submittedText: text, submittedById: submitterId, status: "pending", workflowStage: "triage",
   }).returning({ id: pendingReviewsTable.id });
   reviewIds.push(row!.id);
   return row!.id;
@@ -187,7 +187,7 @@ describe("Reject past triage: the wording needs replacing", () => {
     assert.equal(res.status, 200, JSON.stringify(res.body));
     const row = await reviewRow(id);
     assert.equal(row.status, "rejected");
-    assert.equal(row.workflowStage, "production_rejected");
+    assert.equal(row.workflowStage, "rejected");
     assert.equal(row.reviewedById, adminId);
     assert.equal(await unresolved(), pendingBefore - 1, "the submitter's pending count drops");
 
@@ -199,26 +199,26 @@ describe("Reject past triage: the wording needs replacing", () => {
     assert.equal((await request(app).post(url(id, "approve-for-production")).send({})).status >= 400, true, "a resolved review cannot be approved");
   });
 
-  it("stays final when prep finishes after it: the late result moves nothing", async () => {
+  it("stays final when the reading finishes after it: the late run makes no paid call and moves nothing", async () => {
     const id = await triageReview();
     assert.equal((await accept(id)).status, 200);
     assert.equal((await request(app).post(url(id, "reject")).send({ rejectionReason: "lame" })).status, 200);
     const factId = (await reviewRow(id)).stagingFactId!;
-    // A rejected review is resolved, so the late result finds nothing to advance.
-    await advanceReviewForStagingFactEnrichment({ factId, outcome: "success" });
-    await advanceReviewForStagingFactEnrichment({ factId, outcome: "terminal_failed" });
+    const run = await latestReading(factId);
+    let calls = 0;
+    await runReadingJob({ readingId: run!.id }, { read: async () => { calls++; throw new Error("must not be called"); } });
+    assert.equal(calls, 0, "no paid call for a closed review");
+    assert.equal((await latestReading(factId))!.status, "failed");
     const row = await reviewRow(id);
-    assert.equal(row.workflowStage, "production_rejected");
+    assert.equal(row.workflowStage, "rejected");
     assert.equal(row.status, "rejected");
   });
 
   it("a stale acceptance re-check refuses a review rejected since its first read", async () => {
-    // Acceptance from prep_failed (a retry) reads the review, then locks it. A
-    // rejection landing between the two leaves the locked row resolved, and
-    // acceptance answers 409 rather than writing prep_pending over it.
+    // Acceptance reads the review, then locks it. A rejection landing between
+    // the two leaves the locked row resolved, and acceptance answers 409
+    // (REVIEW_MOVED) rather than writing reading over it.
     const id = await triageReview();
-    assert.equal((await accept(id)).status, 200);
-    await db.update(pendingReviewsTable).set({ workflowStage: "prep_failed" }).where(eq(pendingReviewsTable.id, id));
     let release!: () => void;
     const held = new Promise<void>((r) => { release = r; });
     let lockHolder!: Promise<unknown>;
@@ -227,7 +227,7 @@ describe("Reject past triage: the wording needs replacing", () => {
         await tx.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).for("update");
         taken();
         await held;
-        await tx.update(pendingReviewsTable).set({ status: "rejected", workflowStage: "production_rejected", reason: "lame", reviewedById: adminId }).where(eq(pendingReviewsTable.id, id));
+        await tx.update(pendingReviewsTable).set({ status: "rejected", workflowStage: "rejected", reason: "lame", reviewedById: adminId }).where(eq(pendingReviewsTable.id, id));
       });
     });
     await lockTaken;
@@ -237,8 +237,9 @@ describe("Reject past triage: the wording needs replacing", () => {
     await lockHolder;
     const res = await retry;
     assert.equal(res.status, 409, JSON.stringify(res.body));
+    assert.equal(res.body.code, "REVIEW_MOVED");
     const row = await reviewRow(id);
-    assert.equal(row.workflowStage, "production_rejected");
+    assert.equal(row.workflowStage, "rejected");
     assert.equal(row.status, "rejected");
   });
 

@@ -29,6 +29,7 @@ import {
   activityFeedTable,
   asyncJobsTable,
   adminActionsTable,
+  factReadingsTable,
 } from "@workspace/db/schema";
 import { and, eq, gte, like, sql, count, inArray } from "drizzle-orm";
 import type { FactEnrichment } from "@workspace/api-zod";
@@ -37,8 +38,7 @@ import reviewsRouter, { __settleSubmitDuplicateChecksForTest } from "../routes/r
 import { __setUtilityLLMClientForTest } from "../lib/utilityLLM.js";
 import { materializeEnrichment } from "../lib/factEnrichment.js";
 import { FACT_SUBMIT_PENDING_CAP, FACT_SUBMIT_MAX } from "../lib/rateLimit.js";
-import { runEnrichmentForFact } from "../lib/enrichmentJobs.js";
-import { blockChildJobsForFact } from "./helpers/blockChildJob.js";
+import { enrichmentJobHandler, runEnrichmentForFact } from "../lib/enrichmentJobs.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 
@@ -245,7 +245,7 @@ describe("POST /facts/submit-review", () => {
     assert.equal(row.status, "pending");
     assert.equal(row.submittedById, userId);
     // COST GATE: the new submission must not trigger any paid prep.
-    assert.equal(row.workflowStage, "triage_pending");
+    assert.equal(row.workflowStage, "triage");
     assert.equal(row.enrichment, null);
     assert.equal(row.enrichmentStatus, null);
   });
@@ -302,7 +302,7 @@ describe("POST /facts/submit-review", () => {
         submittedText: `cap filler ${randomUUID()}`,
         submittedById: userId,
         status: "pending" as const,
-        workflowStage: "triage_pending" as const,
+        workflowStage: "triage" as const,
       })),
     );
 
@@ -330,10 +330,10 @@ describe("POST /facts/submit-review", () => {
         submittedText: `unresolved ${randomUUID()}`,
         submittedById: userId,
         status: "pending" as const,
-        workflowStage: "triage_pending" as const,
+        workflowStage: "triage" as const,
       })),
-      { submittedText: `done ${randomUUID()}`, submittedById: userId, status: "approved" as const, workflowStage: "production_approved" as const },
-      { submittedText: `rej ${randomUUID()}`, submittedById: userId, status: "rejected" as const, workflowStage: "triage_rejected" as const },
+      { submittedText: `done ${randomUUID()}`, submittedById: userId, status: "approved" as const, workflowStage: "approved" as const },
+      { submittedText: `rej ${randomUUID()}`, submittedById: userId, status: "rejected" as const, workflowStage: "rejected" as const },
     ]);
 
     const res = await request(makeApp())
@@ -378,7 +378,7 @@ describe("POST /admin/reviews/:id/provisional-approve", () => {
       submittedText: text,
       submittedById: submitterId,
       status: "pending",
-      workflowStage: "triage_pending",
+      workflowStage: "triage",
     }).returning();
     return r.id;
   }
@@ -397,7 +397,14 @@ describe("POST /admin/reviews/:id/provisional-approve", () => {
       .where(and(eq(asyncJobsTable.queue, "fact_pexels"), sql`${asyncJobsTable.payload}->>'factId' = ${String(factId)}`));
   }
 
-  it("creates exactly one inactive staging fact, enters prep_pending, enqueues one enrichment job", async () => {
+  async function readingJobsForFact(factId: number) {
+    const runs = await db.select({ id: factReadingsTable.id, status: factReadingsTable.status }).from(factReadingsTable).where(eq(factReadingsTable.factId, factId));
+    const jobs = await db.select({ id: asyncJobsTable.id }).from(asyncJobsTable)
+      .where(and(eq(asyncJobsTable.queue, "fact_reading"), inArray(sql`(${asyncJobsTable.payload}->>'readingId')::int`, runs.length ? runs.map((r) => r.id) : [-1])));
+    return { runs, jobs };
+  }
+
+  it("creates exactly one inactive staging fact, enters reading with one reading run, and starts one taxonomy job", async () => {
     const adminId = await createTestUser({ isAdmin: true });
     const submitterId = await createTestUser();
     const sid = await bearerForUser(adminId, { isAdmin: true });
@@ -408,7 +415,7 @@ describe("POST /admin/reviews/:id/provisional-approve", () => {
       .set("authorization", `Bearer ${sid}`)
       .send({});
     assert.equal(res.status, 200);
-    assert.equal(res.body.workflowStage, "prep_pending");
+    assert.equal(res.body.workflowStage, "reading");
     const stagingFactId: number = res.body.stagingFactId;
     assert.equal(typeof stagingFactId, "number");
 
@@ -416,16 +423,19 @@ describe("POST /admin/reviews/:id/provisional-approve", () => {
     assert.equal(fact.isActive, false, "staging fact must be inactive");
 
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
-    assert.equal(r.workflowStage, "prep_pending");
+    assert.equal(r.workflowStage, "reading");
     assert.equal(r.stagingFactId, stagingFactId);
 
+    const reading = await readingJobsForFact(stagingFactId);
+    assert.deepEqual(reading.runs.map((x) => x.status), ["pending"], "one reading run, pending");
+    assert.equal(reading.jobs.length, 1, "with its job");
     const jobs = await enrichmentJobsForFact(stagingFactId);
-    assert.equal(jobs.length, 1, "exactly one fact-backed enrichment job");
+    assert.equal(jobs.length, 1, "exactly one taxonomy job beside it");
     const pexels = await pexelsJobsForFact(stagingFactId);
     assert.equal(pexels.length, 0, "no stock-photo job: staging prep is enrichment only since launch Phase 4, removal 6");
   });
 
-  it("is idempotent on re-click: no second fact, no duplicate job", async () => {
+  it("a second click finds the review moved: no second fact, run or job", async () => {
     const adminId = await createTestUser({ isAdmin: true });
     const submitterId = await createTestUser();
     const sid = await bearerForUser(adminId, { isAdmin: true });
@@ -435,14 +445,14 @@ describe("POST /admin/reviews/:id/provisional-approve", () => {
     const stagingFactId: number = first.body.stagingFactId;
 
     const second = await request(makeApp()).post(`/admin/reviews/${reviewId}/provisional-approve`).set("authorization", `Bearer ${sid}`).send({});
-    assert.equal(second.status, 200);
-    assert.equal(second.body.stagingFactId, stagingFactId);
-    assert.equal(second.body.alreadyPrepping, true);
+    assert.equal(second.status, 409);
+    assert.equal(second.body.code, "REVIEW_MOVED");
+    assert.equal(second.body.workflowStage, "reading");
 
     const facts = await db.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.submittedById, submitterId));
     assert.equal(facts.length, 1, "no second staging fact");
-    const jobs = await enrichmentJobsForFact(stagingFactId);
-    assert.equal(jobs.length, 1, "no duplicate enrichment job");
+    assert.equal((await enrichmentJobsForFact(stagingFactId)).length, 1, "no duplicate taxonomy job");
+    assert.equal((await readingJobsForFact(stagingFactId)).runs.length, 1, "no second reading run");
   });
 
   it("returns 409 for a terminal (already-decided) review", async () => {
@@ -450,7 +460,7 @@ describe("POST /admin/reviews/:id/provisional-approve", () => {
     const submitterId = await createTestUser();
     const sid = await bearerForUser(adminId, { isAdmin: true });
     const [r] = await db.insert(pendingReviewsTable).values({
-      submittedText: "already live", submittedById: submitterId, status: "approved", workflowStage: "production_approved",
+      submittedText: "already live", submittedById: submitterId, status: "approved", workflowStage: "approved",
     }).returning();
     const res = await request(makeApp())
       .post(`/admin/reviews/${r.id}/provisional-approve`)
@@ -460,64 +470,49 @@ describe("POST /admin/reviews/:id/provisional-approve", () => {
   });
 });
 
-describe("staging-fact enrichment stage advancement", () => {
-  it("success advances the linked review prep_pending → concept_review (Step 2)", async () => {
+describe("the taxonomy run beside moderation (Issue #1018, increment 1.2c-ii)", () => {
+  for (const stage of ["reading", "gags", "test_renders"] as const) {
+    it(`classifies a staging fact at ${stage}, and never moves the review or starts idea writing`, async () => {
+      const submitterId = await createTestUser();
+      const [fact] = await db.insert(factsTable).values({ text: `{NAME} lifts a car at ${stage}`, submittedById: submitterId, isActive: false }).returning();
+      const [review] = await db.insert(pendingReviewsTable).values({
+        submittedText: `{NAME} lifts a car at ${stage}`, submittedById: submitterId, status: "pending",
+        workflowStage: stage, stagingFactId: fact.id,
+      }).returning();
+
+      const result = await runEnrichmentForFact(fact.id, { classify: async () => VALID_APPROVAL_ENRICHMENT });
+      assert.equal(result.ok, true);
+
+      const [f] = await db.select().from(factsTable).where(eq(factsTable.id, fact.id));
+      assert.equal(f.enrichmentStatus, "ok");
+      const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
+      assert.equal(r.workflowStage, stage, "the review stays where it was");
+      const conceptJobs = await db.select({ id: asyncJobsTable.id }).from(asyncJobsTable)
+        .where(and(eq(asyncJobsTable.queue, "fact_visual_concepts"), like(asyncJobsTable.dedupeKey, `fact_visual_concepts:review:${review.id}:%`)));
+      assert.equal(conceptJobs.length, 0, "no idea writing started by the taxonomy");
+    });
+  }
+
+  it("a taxonomy run that gives up is recorded as failed and moves nothing", async () => {
     const submitterId = await createTestUser();
-    const [fact] = await db.insert(factsTable).values({ text: "{NAME} lifts a car", submittedById: submitterId, isActive: false }).returning();
-    const [review] = await db.insert(pendingReviewsTable).values({
-      submittedText: "{NAME} lifts a car", submittedById: submitterId, status: "pending",
-      workflowStage: "prep_pending", stagingFactId: fact.id,
-    }).returning();
-
-    const result = await runEnrichmentForFact(fact.id, { classify: async () => VALID_APPROVAL_ENRICHMENT });
-    assert.equal(result.ok, true);
-
-    const [f] = await db.select().from(factsTable).where(eq(factsTable.id, fact.id));
-    assert.equal(f.enrichmentStatus, "ok");
-    const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
-    assert.equal(r.workflowStage, "concept_review");
-  });
-
-  it("the stage advance and the Visual-Idea job commit with the enrichment or not at all, so a resumed run is never stranded (Issue #1000 §F)", async () => {
-    const submitterId = await createTestUser();
-    const [fact] = await db.insert(factsTable).values({ text: "{NAME} bends a girder", submittedById: submitterId, isActive: false }).returning();
+    const [fact] = await db.insert(factsTable).values({ text: "{NAME} bends a girder", submittedById: submitterId, isActive: false, enrichmentStatus: "pending" }).returning();
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} bends a girder", submittedById: submitterId, status: "pending",
-      workflowStage: "prep_pending", stagingFactId: fact.id,
+      workflowStage: "reading", stagingFactId: fact.id,
     }).returning();
-    const conceptJobs = () => db.select({ id: asyncJobsTable.id }).from(asyncJobsTable)
-      .where(and(eq(asyncJobsTable.queue, "fact_visual_concepts"), eq(asyncJobsTable.dedupeKey, `fact_visual_concepts:review:${review.id}`)));
-
-    const unblock = await blockChildJobsForFact(fact.id);
-    try {
-      await assert.rejects(runEnrichmentForFact(fact.id, { classify: async () => VALID_APPROVAL_ENRICHMENT }));
-    } finally {
-      await unblock();
-    }
-    const [stuck] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
-    assert.equal(stuck.workflowStage, "prep_pending", "no stage advance without its job");
-    assert.equal((await conceptJobs()).length, 0);
-
-    let classified = 0;
-    const result = await runEnrichmentForFact(fact.id, { classify: async () => { classified++; return VALID_APPROVAL_ENRICHMENT; } });
-    assert.equal(result.ok, true);
-    assert.equal(classified, 1, "the retry classifies (nothing was committed before)");
+    await enrichmentJobHandler.onAbandon!({ payload: { factId: fact.id } } as never);
+    const [f] = await db.select().from(factsTable).where(eq(factsTable.id, fact.id));
+    assert.equal(f.enrichmentStatus, "failed");
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
-    assert.equal(r.workflowStage, "concept_review");
-    assert.equal((await conceptJobs()).length, 1, "exactly one Visual-Idea job");
-
-    let again = 0;
-    await runEnrichmentForFact(fact.id, { classify: async () => { again++; return VALID_APPROVAL_ENRICHMENT; } });
-    assert.equal(again, 0, "a successor after the commit makes no second paid call");
-    assert.equal((await conceptJobs()).length, 1, "and no second job");
+    assert.equal(r.workflowStage, "reading");
   });
 
-  it("COST GUARD: skips classification when the linked review left prep_pending", async () => {
+  it("COST GUARD: skips classification once the review is rejected", async () => {
     const submitterId = await createTestUser();
     const [fact] = await db.insert(factsTable).values({ text: "{NAME} runs fast", submittedById: submitterId, isActive: false }).returning();
     await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} runs fast", submittedById: submitterId, status: "rejected",
-      workflowStage: "production_rejected", stagingFactId: fact.id,
+      workflowStage: "rejected", stagingFactId: fact.id,
     });
 
     let classifyCalled = false;
@@ -525,7 +520,7 @@ describe("staging-fact enrichment stage advancement", () => {
       classify: async () => { classifyCalled = true; return VALID_APPROVAL_ENRICHMENT; },
     });
     assert.equal(result.ok, true);
-    assert.equal(classifyCalled, false, "no paid classification after the review left prep_pending");
+    assert.equal(classifyCalled, false, "no paid classification for a rejected submission");
   });
 
   it("live-fact re-enrich (no linked review) still classifies normally", async () => {
@@ -647,7 +642,7 @@ describe("GET /admin/reviews/:id", () => {
     await addGag(staging.id);
     const [r] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
-      workflowStage: "concept_review", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
+      workflowStage: "gags", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
     }).returning();
 
     const res = await request(makeApp()).get(`/admin/reviews/${r.id}`).set("authorization", `Bearer ${sid}`);
@@ -656,29 +651,29 @@ describe("GET /admin/reviews/:id", () => {
     assert.equal(res.body.stagingFact.enrichment.visualPromptStrategyOverride, undefined);
   });
 
-  it("hydrates the staging fact's prep status (enrichment) once prep starts", async () => {
+  it("hydrates the Reading step once the submission is accepted: the run, pending, on the detail and the list row", async () => {
     const adminId = await createTestUser({ isAdmin: true });
     const submitterId = await createTestUser();
     const sid = await bearerForUser(adminId, { isAdmin: true });
     const [r] = await db.insert(pendingReviewsTable).values({
-      submittedText: "{NAME} prep status check", submittedById: submitterId, status: "pending", workflowStage: "triage_pending",
+      submittedText: "{NAME} prep status check", submittedById: submitterId, status: "pending", workflowStage: "triage",
     }).returning();
 
     await request(makeApp()).post(`/admin/reviews/${r.id}/provisional-approve`).set("authorization", `Bearer ${sid}`).send({});
 
     const detail = await request(makeApp()).get(`/admin/reviews/${r.id}`).set("authorization", `Bearer ${sid}`);
     assert.equal(detail.status, 200);
-    assert.equal(detail.body.workflowStage, "prep_pending");
+    assert.equal(detail.body.workflowStage, "reading");
     assert.ok(detail.body.stagingFact, "staging fact hydrated");
-    assert.equal(detail.body.stagingFact.enrichmentStatus, "pending");
-    assert.equal("pexelsStatus" in detail.body.stagingFact, false, "no stock-photo status since removal 6");
     assert.equal(detail.body.stagingFact.isActive, false);
+    assert.equal(detail.body.reading.latest.status, "pending");
+    assert.equal(detail.body.reading.approved, null);
+    assert.equal("pexelsStatus" in detail.body.stagingFact, false, "no stock-photo status since removal 6");
 
-    // The list endpoint carries the same lightweight prep slice per row.
+    // The list row carries the reading's status.
     const list = await request(makeApp()).get(`/admin/reviews?status=pending`).set("authorization", `Bearer ${sid}`);
-    const row = (list.body.reviews as { id: number; stagingFact: { enrichmentStatus: string } | null }[]).find((x) => x.id === r.id);
-    assert.ok(row?.stagingFact, "list row carries staging prep slice");
-    assert.equal(row!.stagingFact!.enrichmentStatus, "pending");
+    const row = (list.body.reviews as { id: number; readingStatus: string | null }[]).find((x) => x.id === r.id);
+    assert.equal(row?.readingStatus, "pending");
   });
 });
 
@@ -710,7 +705,7 @@ describe("POST /admin/reviews/:id/reject", () => {
       .set("authorization", `Bearer ${sid}`)
       .send({ rejectionReason: "spam" });
     assert.equal(res.status, 409);
-    assert.match(res.body.error, /already approved/);
+    assert.equal(res.body.code, "REVIEW_MOVED");
   });
 
   it("happy path: marks the review rejected", async () => {
@@ -741,7 +736,7 @@ describe("POST /admin/reviews/:id/reject", () => {
     assert.equal(after.reviewedById, adminId);
     const actions = await db.select({ action: adminActionsTable.action, actorId: adminActionsTable.actorId, detail: adminActionsTable.detail })
       .from(adminActionsTable).where(eq(adminActionsTable.reviewId, r.id));
-    assert.deepEqual(actions, [{ action: "reject", actorId: adminId, detail: { reason: "spam", adminNote: "doesn't fit", stage: "triage_pending", gagsDiscarded: 0 } }]);
+    assert.deepEqual(actions, [{ action: "reject", actorId: adminId, detail: { reason: "spam", adminNote: "doesn't fit", stage: "triage", gagsDiscarded: 0 } }]);
   });
 });
 
@@ -765,7 +760,7 @@ describe("POST /admin/reviews/:id/approve-variant — retired with variants", ()
 // check and its waiver. These tests pin that contract.
 describe("approval renderability gating", () => {
   // A review that has finished prep: it owns an inactive staging fact carrying
-  // the effective enrichment, and sits at production_review — the precondition
+  // the effective enrichment, and sits at Test Renders — the precondition
   // for production approval.
   async function seedPendingReview(
     enrichment: FactEnrichment = VALID_APPROVAL_ENRICHMENT,
@@ -787,7 +782,7 @@ describe("approval renderability gating", () => {
         submittedText: "{NAME} bench-presses the Earth.",
         submittedById: submitterId,
         status: "pending",
-        workflowStage: "production_review",
+        workflowStage: "test_renders",
         stagingFactId: staging.id,
         enrichment,
         enrichmentStatus: "ok",
@@ -855,12 +850,12 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     await addGag(staging.id);
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
-      workflowStage: "production_review", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
+      workflowStage: "test_renders", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
     }).returning();
     return { reviewId: review.id, stagingFactId: staging.id, submitterId };
   }
 
-  it("activates the staging fact, marks production_approved, and is idempotent", async () => {
+  it("activates the staging fact, marks the review approved, and is idempotent", async () => {
     const { reviewId, stagingFactId } = await seedProductionReview();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
@@ -882,7 +877,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
       .from(adminActionsTable).where(eq(adminActionsTable.factId, stagingFactId));
     assert.deepEqual(actions, [{ action: "approve_for_production", reviewId, actorId: adminId }]);
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
-    assert.equal(r.workflowStage, "production_approved");
+    assert.equal(r.workflowStage, "approved");
     assert.equal(r.status, "approved");
     assert.equal(r.approvedFactId, stagingFactId);
 
@@ -896,10 +891,10 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     assert.equal(again.body.factId, stagingFactId);
   });
 
-  it("refuses to activate a triage_pending review (no shortcut to live)", async () => {
+  it("refuses to activate a review at triage (no shortcut to live)", async () => {
     const submitterId = await createTestUser();
     const [review] = await db.insert(pendingReviewsTable).values({
-      submittedText: "not prepped yet", submittedById: submitterId, status: "pending", workflowStage: "triage_pending",
+      submittedText: "not prepped yet", submittedById: submitterId, status: "pending", workflowStage: "triage",
     }).returning();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
@@ -927,7 +922,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     await addGag(staging.id);
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
-      workflowStage: "production_review", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
+      workflowStage: "test_renders", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
     }).returning();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
@@ -970,7 +965,67 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     assert.equal((r.enrichment as FactEnrichment).visualComplexity, "medium");
   });
 
-  it("refuses a review still at prep_pending with 409 and leaves its staging fact inactive", async () => {
+  for (const taxonomy of [{ label: "absent", enrichment: null, enrichmentStatus: null }, { label: "failed", enrichment: null, enrichmentStatus: "failed" }] as const) {
+    it(`goes live with the taxonomy ${taxonomy.label} (the taxonomy is off the moderation path)`, async () => {
+      const submitterId = await createTestUser();
+      const [staging] = await db.insert(factsTable).values({
+        text: `{NAME} bench-presses the Moon (${taxonomy.label}).`, submittedById: submitterId, isActive: false,
+        enrichment: taxonomy.enrichment, enrichmentStatus: taxonomy.enrichmentStatus,
+      }).returning();
+      await addGag(staging.id);
+      const [review] = await db.insert(pendingReviewsTable).values({
+        submittedText: `{NAME} bench-presses the Moon (${taxonomy.label}).`, submittedById: submitterId, status: "pending",
+        workflowStage: "test_renders", stagingFactId: staging.id, hashtags: ["strength"],
+      }).returning();
+      const adminId = await createTestUser({ isAdmin: true });
+      const sid = await bearerForUser(adminId, { isAdmin: true });
+
+      const res = await request(makeApp())
+        .post(`/admin/reviews/${review.id}/approve-for-production`)
+        .set("authorization", `Bearer ${sid}`)
+        .send({});
+      assert.equal(res.status, 200, JSON.stringify(res.body));
+      const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
+      assert.equal(fact.isActive, true);
+      const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
+      assert.equal(r.workflowStage, "approved");
+      assert.equal(r.enrichment, null, "no taxonomy snapshot when there was none");
+    });
+  }
+
+  it("Reject against Approve for production, at once: one succeeds, the other is told the review moved (the lock rule)", async () => {
+    const adminId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+    const outcomes = new Map<string, number>();
+    for (let i = 0; i < 6; i++) {
+      const { reviewId, stagingFactId } = await seedProductionReview();
+      const [approve, reject] = await Promise.all([
+        request(makeApp()).post(`/admin/reviews/${reviewId}/approve-for-production`).set("authorization", `Bearer ${sid}`).send({}),
+        request(makeApp()).post(`/admin/reviews/${reviewId}/reject`).set("authorization", `Bearer ${sid}`).send({ rejectionReason: "lame" }),
+      ]);
+      const statuses = [approve.status, reject.status].sort();
+      assert.deepEqual(statuses, [200, 409], `one success and one refusal, never a server error: ${JSON.stringify([approve.body, reject.body])}`);
+      const loser = approve.status === 409 ? approve : reject;
+      assert.equal(loser.body.code, "REVIEW_MOVED", JSON.stringify(loser.body));
+      const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
+      const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, stagingFactId));
+      if (approve.status === 200) {
+        assert.equal(r.workflowStage, "approved");
+        assert.equal(fact.isActive, true);
+        assert.equal(loser.body.workflowStage, "approved");
+      } else {
+        assert.equal(r.workflowStage, "rejected");
+        assert.equal(fact.isActive, false);
+        assert.equal(fact.approvedAt, null, "a rejected submission is never recorded approved");
+        const gags = await db.select({ id: factGagsTable.id }).from(factGagsTable).where(eq(factGagsTable.factId, stagingFactId));
+        assert.equal(gags.length, 0, "its gags are deleted");
+      }
+      outcomes.set(approve.status === 200 ? "approved" : "rejected", (outcomes.get(approve.status === 200 ? "approved" : "rejected") ?? 0) + 1);
+    }
+    assert.ok(outcomes.size >= 1);
+  });
+
+  it("refuses a review still at Reading with 409 REVIEW_MOVED and leaves its staging fact inactive", async () => {
     const submitterId = await createTestUser();
     const [staging] = await db.insert(factsTable).values({
       text: "{NAME} bench-presses the Earth.", submittedById: submitterId, isActive: false, enrichment: VALID_APPROVAL_ENRICHMENT,
@@ -978,7 +1033,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     await addGag(staging.id);
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
-      workflowStage: "prep_pending", stagingFactId: staging.id,
+      workflowStage: "reading", stagingFactId: staging.id,
     }).returning();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
@@ -988,11 +1043,12 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
       .set("authorization", `Bearer ${sid}`)
       .send({});
     assert.equal(res.status, 409, JSON.stringify(res.body));
+    assert.equal(res.body.code, "REVIEW_MOVED");
 
     const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
-    assert.equal(fact.isActive, false, "a prep_pending review's staging fact must stay inactive");
+    assert.equal(fact.isActive, false, "a review at Reading keeps its staging fact inactive");
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
-    assert.equal(r.workflowStage, "prep_pending");
+    assert.equal(r.workflowStage, "reading");
     assert.equal(r.status, "pending");
   });
 
@@ -1005,7 +1061,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     await addGag(staging.id);
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
-      workflowStage: "production_review", stagingFactId: staging.id,
+      workflowStage: "test_renders", stagingFactId: staging.id,
       enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
     }).returning();
     const adminId = await createTestUser({ isAdmin: true });
@@ -1030,7 +1086,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     assert.deepEqual(entry.metadata, { reviewId: review.id, factId: staging.id, adminNote: null });
   });
 
-  it("returns 409 CONCEPT_MISSING for a production_review with no approved gag, then 200 and an active fact once a gag is approved", async () => {
+  it("returns 409 CONCEPT_MISSING at Test Renders with no approved gag, then 200 and an active fact once a gag is approved", async () => {
     const submitterId = await createTestUser();
     const withoutConcept = VALID_APPROVAL_ENRICHMENT;
     const [staging] = await db.insert(factsTable).values({
@@ -1038,7 +1094,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     }).returning();
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
-      workflowStage: "production_review", stagingFactId: staging.id, enrichment: withoutConcept, enrichmentStatus: "ok",
+      workflowStage: "test_renders", stagingFactId: staging.id, enrichment: withoutConcept, enrichmentStatus: "ok",
     }).returning();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
@@ -1074,7 +1130,7 @@ describe("PATCH /admin/reviews/:id (draft autosave)", () => {
     await addGag(staging.id);
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} does a thing", submittedById: submitterId, status: "pending",
-      workflowStage: "production_review", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
+      workflowStage: "test_renders", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
     }).returning();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
@@ -1097,11 +1153,11 @@ describe("PATCH /admin/reviews/:id (draft autosave)", () => {
 });
 
 describe("reject from every step (PLAN_FACT_LIFECYCLE_REBUILD.md item 13)", () => {
-  async function seedPastTriage(stage: "prep_pending" | "prep_failed" | "concept_review" | "production_review") {
+  async function seedPastTriage(stage: "reading" | "gags" | "test_renders") {
     const submitterId = await createTestUser();
     const [staging] = await db.insert(factsTable).values({
       text: "{NAME} does a thing", submittedById: submitterId, isActive: false, enrichment: VALID_APPROVAL_ENRICHMENT,
-      enrichmentStatus: stage === "prep_pending" ? "pending" : "ok",
+      enrichmentStatus: stage === "reading" ? "pending" : "ok",
     }).returning();
     await addGag(staging.id);
     const [review] = await db.insert(pendingReviewsTable).values({
@@ -1111,8 +1167,8 @@ describe("reject from every step (PLAN_FACT_LIFECYCLE_REBUILD.md item 13)", () =
     return { submitterId, staging, review };
   }
 
-  for (const stage of ["prep_pending", "prep_failed", "concept_review", "production_review"] as const) {
-    it(`rejects from ${stage}: production_rejected, the gags discarded, the staging fact never live, recorded, the submitter told`, async () => {
+  for (const stage of ["reading", "gags", "test_renders"] as const) {
+    it(`rejects from ${stage}: rejected, the gags deleted, the staging fact never live, recorded, the submitter told`, async () => {
       const { submitterId, staging, review } = await seedPastTriage(stage);
       const adminId = await createTestUser({ isAdmin: true });
       const sid = await bearerForUser(adminId, { isAdmin: true });
@@ -1125,7 +1181,7 @@ describe("reject from every step (PLAN_FACT_LIFECYCLE_REBUILD.md item 13)", () =
 
       const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
       assert.equal(r.status, "rejected");
-      assert.equal(r.workflowStage, "production_rejected");
+      assert.equal(r.workflowStage, "rejected");
       assert.equal(r.reason, "visual");
       assert.equal(r.adminNote, "no picture lands");
       assert.equal(r.productionRejectedById, adminId);
@@ -1133,7 +1189,7 @@ describe("reject from every step (PLAN_FACT_LIFECYCLE_REBUILD.md item 13)", () =
       const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
       assert.equal(fact.isActive, false, "the staging fact never goes live");
       assert.equal(fact.approvedAt, null, "and is never recorded as approved");
-      if (stage === "prep_pending") assert.equal(fact.enrichmentStatus, null, "a pending enrichment is cleared");
+      if (stage === "reading") assert.equal(fact.enrichmentStatus, null, "a pending taxonomy run is cleared");
       const gags = await db.select().from(factGagsTable).where(eq(factGagsTable.factId, staging.id));
       assert.equal(gags.length, 0, "the submission's gags are discarded");
       const actions = await db.select({ action: adminActionsTable.action, actorId: adminActionsTable.actorId, factId: adminActionsTable.factId, detail: adminActionsTable.detail })
@@ -1145,7 +1201,7 @@ describe("reject from every step (PLAN_FACT_LIFECYCLE_REBUILD.md item 13)", () =
   }
 
   it("waits for a gag being added and discards it too; a gag action after the rejection is refused (PR #1036 round 1)", async () => {
-    const { staging, review } = await seedPastTriage("concept_review");
+    const { staging, review } = await seedPastTriage("gags");
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
 
@@ -1188,10 +1244,10 @@ describe("reject from every step (PLAN_FACT_LIFECYCLE_REBUILD.md item 13)", () =
     );
   });
 
-  it("a triage-stage reject stays triage_rejected", async () => {
+  it("a reject at triage records no production rejection", async () => {
     const submitterId = await createTestUser();
     const [review] = await db.insert(pendingReviewsTable).values({
-      submittedText: "junk", submittedById: submitterId, status: "pending", workflowStage: "triage_pending",
+      submittedText: "junk", submittedById: submitterId, status: "pending", workflowStage: "triage",
     }).returning();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
@@ -1201,14 +1257,14 @@ describe("reject from every step (PLAN_FACT_LIFECYCLE_REBUILD.md item 13)", () =
       .send({ rejectionReason: "spam" });
     assert.equal(res.status, 200);
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
-    assert.equal(r.workflowStage, "triage_rejected");
+    assert.equal(r.workflowStage, "rejected");
     assert.equal(r.productionRejectedAt, null);
   });
 
   it("refuses a review that is already live, and leaves it untouched", async () => {
     const submitterId = await createTestUser();
     const [review] = await db.insert(pendingReviewsTable).values({
-      submittedText: "live one", submittedById: submitterId, status: "approved", workflowStage: "production_approved",
+      submittedText: "live one", submittedById: submitterId, status: "approved", workflowStage: "approved",
     }).returning();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
@@ -1218,13 +1274,13 @@ describe("reject from every step (PLAN_FACT_LIFECYCLE_REBUILD.md item 13)", () =
       .send({ rejectionReason: "lame" });
     assert.equal(res.status, 409);
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
-    assert.equal(r.workflowStage, "production_approved");
+    assert.equal(r.workflowStage, "approved");
     const actions = await db.select().from(adminActionsTable).where(eq(adminActionsTable.reviewId, review.id));
     assert.equal(actions.length, 0);
   });
 
   it("refuses without a reason, and leaves the gags", async () => {
-    const { staging, review } = await seedPastTriage("concept_review");
+    const { staging, review } = await seedPastTriage("gags");
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
     const res = await request(makeApp())

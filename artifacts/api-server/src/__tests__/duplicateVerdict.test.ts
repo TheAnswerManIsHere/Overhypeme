@@ -91,7 +91,7 @@ async function fact(text: string, embedding?: number[], isActive = true): Promis
 }
 async function review(text: string, extra: Partial<typeof pendingReviewsTable.$inferInsert> = {}): Promise<number> {
   const [row] = await db.insert(pendingReviewsTable).values({
-    submittedText: text, submittedById: userId, status: "pending", workflowStage: "triage_pending", ...extra,
+    submittedText: text, submittedById: userId, status: "pending", workflowStage: "triage", ...extra,
   }).returning({ id: pendingReviewsTable.id });
   return row!.id;
 }
@@ -238,7 +238,7 @@ describe("a review's stored result", () => {
   it("is not written when the review left triage while the check ran", async () => {
     const id = await review(`{NAME} left triage ${RUN} ${randomUUID().slice(0, 4)}`);
     await checkReviewDuplicate(id, async () => {
-      await db.update(pendingReviewsTable).set({ status: "rejected", workflowStage: "triage_rejected" }).where(eq(pendingReviewsTable.id, id));
+      await db.update(pendingReviewsTable).set({ status: "rejected", workflowStage: "rejected" }).where(eq(pendingReviewsTable.id, id));
       return { outcome: "distinct", confidence: 0 };
     });
     assert.equal((await reviewRow(id)).duplicateOutcome, null);
@@ -327,7 +327,7 @@ describe("the routes", () => {
     await request(admin).post(`/api/admin/reviews/${id}/duplicate-check`);
     assert.equal(calls, 2, "couldn't-check is retried");
 
-    const past = await review(`{NAME} past triage ${RUN}`, { workflowStage: "prep_pending" });
+    const past = await review(`{NAME} past triage ${RUN}`, { workflowStage: "reading" });
     const r = await request(admin).post(`/api/admin/reviews/${past}/duplicate-check`);
     assert.equal(r.body.duplicate.state, "not_checked");
     assert.equal(calls, 2, "nothing is spent past triage");

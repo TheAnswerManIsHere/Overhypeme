@@ -240,9 +240,10 @@ deliberately excludes them and points here instead.
   the row back `recovering`, so a person can send a held-back email and only a
   worker that sends under the key takes it. The email queue page reads the
   job vocabulary (`pending`, `recovering`, `processing`, `done`, `failed`).
-  **Completion checkpoints (plan §F).** Enrichment's write, its review's move to
-  `concept_review` and the Visual-Idea job commit in one fenced transaction. A
-  stop therefore never strands a review with no job, as it could before.
+  **Completion checkpoints (plan §F).** A reading run's result and the
+  Visual-Idea job it starts commit in one fenced transaction (the taxonomy
+  run no longer moves a review, Issue #1018 increment 1.2c-ii). A stop
+  therefore never strands a review with no job.
   **Every AI text call checks ownership at the one dispatch point**
   (`callUtilityLLM`, Issue #1010) and carries the run's abort signal; a
   helper that absorbs its own failures lets the refusal through

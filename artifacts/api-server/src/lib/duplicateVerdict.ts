@@ -51,7 +51,7 @@ type ReviewRow = typeof pendingReviewsTable.$inferSelect;
 
 /** Whether a review's wording can still take a duplicate result: a submission at triage. */
 export function isAtDuplicateTriage(review: Pick<ReviewRow, "status" | "workflowStage">): boolean {
-  return review.status === "pending" && review.workflowStage === "triage_pending";
+  return review.status === "pending" && review.workflowStage === "triage";
 }
 
 /** The columns a detector result writes onto its review. */
@@ -92,7 +92,7 @@ export async function checkReviewDuplicate(reviewId: number, detector: Duplicate
       eq(pendingReviewsTable.id, reviewId),
       eq(pendingReviewsTable.submittedText, checkedText),
       eq(pendingReviewsTable.status, "pending"),
-      eq(pendingReviewsTable.workflowStage, "triage_pending"),
+      eq(pendingReviewsTable.workflowStage, "triage"),
     ))
     .returning();
   if (updated) return updated;

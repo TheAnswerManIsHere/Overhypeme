@@ -120,7 +120,7 @@ const [duplicateFact] = await db.insert(t.factsTable).values({
   text: KEPT_FACT_TEXT, submittedById: otherId, isActive: false, hasPronouns: false, createdAt: at,
 }).returning({ id: t.factsTable.id });
 const [duplicateReview] = await db.insert(t.pendingReviewsTable).values({
-  submittedText: KEPT_FACT_TEXT, submittedById: otherId, status: "rejected", workflowStage: "triage_rejected",
+  submittedText: KEPT_FACT_TEXT, submittedById: otherId, status: "rejected", workflowStage: "rejected",
   hashtags: ["zqxduplicatetag"], createdAt: at,
 }).returning({ id: t.pendingReviewsTable.id });
 
@@ -135,11 +135,11 @@ await db.insert(t.factHashtagsTable).values([{ factId: pendingFact!.id, hashtagI
 // Reviews: an older approved review whose wording differs from today's live text; a review of the live fact
 // (a refresh, before 0151 retired them; kept as the case of a review of its own live fact); a pending submission.
 const [approved] = await db.insert(t.pendingReviewsTable).values({
-  submittedText: S.oldApprovedText, submittedById: userId, status: "approved", workflowStage: "production_approved",
+  submittedText: S.oldApprovedText, submittedById: userId, status: "approved", workflowStage: "approved",
   approvedFactId: activeFact!.id, reviewedById: adminId, adminNote: S.adminNote, createdAt: at,
 }).returning({ id: t.pendingReviewsTable.id });
 const [refresh] = await db.insert(t.pendingReviewsTable).values({
-  submittedText: KEPT_FACT_TEXT, submittedById: userId, status: "pending", workflowStage: "production_review",
+  submittedText: KEPT_FACT_TEXT, submittedById: userId, status: "pending", workflowStage: "test_renders",
   stagingFactId: activeFact!.id, enrichment, productionRejectionNote: S.rejectionNote,
   visualRenderApprovalWaiver: {
     waivedAt: "2026-01-01T00:00:00Z", waivedByAdminUserId: adminId,
@@ -149,7 +149,7 @@ const [refresh] = await db.insert(t.pendingReviewsTable).values({
   createdAt: at,
 }).returning({ id: t.pendingReviewsTable.id });
 const [submission] = await db.insert(t.pendingReviewsTable).values({
-  submittedText: S.pendingFactText, submittedById: userId, status: "pending", workflowStage: "concept_review",
+  submittedText: S.pendingFactText, submittedById: userId, status: "pending", workflowStage: "gags",
   stagingFactId: pendingFact!.id, hashtags: ["zqxprivatetag"], createdAt: at,
 }).returning({ id: t.pendingReviewsTable.id });
 

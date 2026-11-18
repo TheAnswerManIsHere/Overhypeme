@@ -24,7 +24,7 @@ import {
   IMAGE_PROMPT_GENERATION_VERSION,
   RENDER_SCENARIO_DESCRIPTORS,
   REQUIRED_RENDER_SCENARIO_KEYS,
-  type FactEnrichment,
+  type GagRenderInput,
   type GenerationMode,
   type IdentityPolicy,
   type RenderControls,
@@ -78,7 +78,7 @@ export interface ScenarioHashInputs {
   /** RENDERED fact text (tokens resolved) the generator will receive. */
   renderedFactText: string;
   /** Validated effective enrichment, including any visualPromptStrategyOverride. */
-  enrichment: FactEnrichment;
+  enrichment: GagRenderInput;
   referenceIdentityType: string | null;
   referenceAssetVersion: string | null;
   renderControls: Pick<RenderControls, "aspectRatio" | "contentMode" | "negativeSpacePreference" | "fallbackSubjectGender">;
@@ -101,7 +101,7 @@ export interface ScenarioHashInputs {
  * cast's extraction marker is left out too; a cast read again with the same
  * entries changes nothing drawn.
  */
-export function renderAffectingEnrichment(e: FactEnrichment): Record<string, unknown> {
+export function renderAffectingEnrichment(e: GagRenderInput): Record<string, unknown> {
   return { gag: renderedGagProjection(e.visualPromptStrategyOverride ?? null) };
 }
 

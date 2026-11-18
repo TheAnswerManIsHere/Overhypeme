@@ -37,7 +37,7 @@ export interface ConceptAction {
 
 const STALE_COPY: Record<VisualConceptStaleReason, string> = {
   review_mismatch: "These ideas were drafted for a different review.",
-  input_hash_mismatch: "The fact, its enrichment or the gag writer changed since these ideas were drafted.",
+  input_hash_mismatch: "The fact, its gags or the gag writer changed since these ideas were drafted.",
   humor_note_changed: "These ideas were drafted for a different reading of the joke than the humor note now says.",
 };
 

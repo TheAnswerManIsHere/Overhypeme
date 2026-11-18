@@ -123,7 +123,7 @@ describe("migration 0142: variants are retired", () => {
     const review = async (key: string, cols: { staging?: number; approved?: number; matching?: number; parent?: number; stage?: string }) => {
       ids[key] = (await one<{ id: number }>(sql`
         INSERT INTO pending_reviews (submitted_text, submitted_by_id, status, workflow_stage, staging_fact_id, approved_fact_id, matching_fact_id, parent_fact_id)
-        VALUES (${P + key}, ${userId}, 'pending', ${cols.stage ?? "triage_pending"}::review_workflow_stage,
+        VALUES (${P + key}, ${userId}, 'pending', ${cols.stage ?? "triage"}::review_workflow_stage,
                 ${cols.staging ?? null}, ${cols.approved ?? null}, ${cols.matching ?? null}, ${cols.parent ?? null})
         RETURNING id`)).id;
       return ids[key]!;
@@ -169,9 +169,9 @@ describe("migration 0142: variants are retired", () => {
     await db.execute(sql`INSERT INTO fact_hashtags (fact_id, hashtag_id) VALUES (${root}, ${ids.tag}), (${bystander}, ${ids.tag}), (${vActive}, ${ids.tag})`);
 
     // Reviews: the ones that staged or approved a variant are owned...
-    const rApproved = await review("rApproved", { staging: vActive, approved: vActive, stage: "production_approved" });
-    const rRemove = await review("rRemove", { staging: vRemove, stage: "concept_review" });
-    const rExample = await review("rExample", { staging: vExample, stage: "concept_review" });
+    const rApproved = await review("rApproved", { staging: vActive, approved: vActive, stage: "approved" });
+    const rRemove = await review("rRemove", { staging: vRemove, stage: "gags" });
+    const rExample = await review("rExample", { staging: vExample, stage: "gags" });
     // ...one that only matched a variant is not, nor one that carried a parent and never became a fact.
     const rMatch = await review("rMatch", { matching: vActive });
     const rHalfMade = await review("rHalfMade", { parent: root });
@@ -255,7 +255,7 @@ describe("migration 0142: variants are retired", () => {
     const match = snapAfter.get(`pending_reviews:${ids.rMatch}`)!;
     assert.equal(match.matching_fact_id, null);
     const half = snapAfter.get(`pending_reviews:${ids.rHalfMade}`)!;
-    assert.equal(half.workflow_stage, "triage_pending");
+    assert.equal(half.workflow_stage, "triage");
     assert.equal(half.status, "pending");
     assert.equal("parent_fact_id" in half, false);
     const reworded = [...snapAfter.values()].filter((r) => r.user_id === userId && String(r.message).includes("possible duplicate at 91%"));

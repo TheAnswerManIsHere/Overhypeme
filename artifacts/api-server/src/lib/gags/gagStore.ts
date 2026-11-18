@@ -13,14 +13,14 @@
  *     content becomes the approved version and the picks its approved set
  *     (Q8). There is no waiver and no other way to approve.
  *
- * Every function locks the fact row first, then its gags: the order activation
- * and the live-fact trigger use, so they serialise and never
- * deadlock against each other.
+ * Every function locks the fact row first, then its gags, and a fact in
+ * moderation has its review locked before the fact: the one lock rule every
+ * moderation transition, activation and the live-fact trigger follow
+ * (lib/reviewLocks.ts), so they serialise and never deadlock.
  */
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import {
   db,
-  factsTable,
   factGagsTable,
   imagePromptAttemptsTable,
   type FactGag,
@@ -43,6 +43,7 @@ import { renderedGagProjection } from "../imagePrompt/directInput";
 import { stableStringify } from "../factRenderScenarios";
 import { openReviewForFact, type GagContent } from "./resolver";
 import { CANONICAL_SUBJECT_NAME_FORMS_LC } from "../renderCanonical";
+import { lockFactRow, lockReview } from "../reviewLocks";
 import { applyPendingSetIfComplete, clearPendingExamples, endGrandfatheringIfComplete, examplesFor, loadExamples, putExample } from "./examples";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -74,7 +75,7 @@ export class GagError extends Error {
 }
 
 /** Stages of a review in which its gags may be worked on: the gags step and Test Renders. */
-const GAG_EDITABLE_STAGES = new Set(["concept_review", "production_review"]);
+const GAG_EDITABLE_STAGES = new Set(["gags", "test_renders"]);
 
 /**
  * Who is acting, and from where. `reviewId` names the review screen the action
@@ -179,13 +180,15 @@ export function validateGagContent(raw: unknown): GagContent {
   return content;
 }
 
+/**
+ * Lock the fact row, under the lock rule (lib/reviewLocks.ts): a fact in
+ * moderation has its open review's row locked first, so a gag action and a
+ * moderation transition on the same submission serialise on the review.
+ */
 async function lockFact(tx: Tx, factId: number) {
-  const [fact] = await tx
-    .select({ id: factsTable.id, isActive: factsTable.isActive })
-    .from(factsTable)
-    .where(eq(factsTable.id, factId))
-    .for("update")
-    .limit(1);
+  const open = await openReviewForFact(factId, tx);
+  if (open) await lockReview(tx, open.id);
+  const fact = await lockFactRow(tx, factId);
   if (!fact) throw new GagError("FACT_NOT_FOUND", `Fact ${factId} not found.`, 404);
   return fact;
 }

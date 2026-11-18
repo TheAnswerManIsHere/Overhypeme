@@ -89,7 +89,7 @@ async function bearer(userId: string, isAdmin: boolean): Promise<string> {
   }, userId);
 }
 
-async function seedReview(submittedById: string, stage = "production_review"): Promise<number> {
+async function seedReview(submittedById: string, stage = "test_renders"): Promise<number> {
   const [fact] = await db.insert(factsTable).values({
     text: "{NAME} bench-presses the Earth.", submittedById, isActive: false, enrichment: ENRICHMENT,
   }).returning({ id: factsTable.id });

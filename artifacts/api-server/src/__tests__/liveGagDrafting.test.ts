@@ -106,7 +106,7 @@ const liveJob = async (factId: number) =>
 /** Open a review on a fact at the Gags step; it takes the fact's ideas, as a review does when it opens. */
 async function openReview(factId: number): Promise<number> {
   const [review] = await db.insert(pendingReviewsTable).values({
-    submittedText: `{NAME} review ${RUN}`, submittedById: adminId, status: "pending", workflowStage: "concept_review", stagingFactId: factId,
+    submittedText: `{NAME} review ${RUN}`, submittedById: adminId, status: "pending", workflowStage: "gags", stagingFactId: factId,
   }).returning({ id: pendingReviewsTable.id });
   await claimConceptsForReview(db, factId, review!.id);
   return review!.id;
@@ -255,7 +255,7 @@ describe("one owner per generation (plan section F)", () => {
 
 describe("a fact is never left drafting with no job that can end it (Codex, PR #958 round 1)", () => {
   const decline = async (reviewId: number) =>
-    db.update(pendingReviewsTable).set({ status: "rejected", workflowStage: "production_rejected" }).where(eq(pendingReviewsTable.id, reviewId));
+    db.update(pendingReviewsTable).set({ status: "rejected", workflowStage: "rejected" }).where(eq(pendingReviewsTable.id, reviewId));
 
   it("a second draft after a declined review gets its own job, while the first is still unfinished", async () => {
     const { factId } = await liveFact();

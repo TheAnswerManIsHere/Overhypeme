@@ -1,5 +1,15 @@
 # Moderation Workflow
 
+> **Out of date below this banner, until the batched documentation pass.**
+> Increments 1.2a–1.2c-ii of Issue #1018 rebuilt the lifecycle: refresh and
+> resubmission reviews are gone, Reject is on every step and Withdraw is gone,
+> and the stages are now `triage → reading → gags → test_renders`, ending
+> `approved` or `rejected` (migration 0155). The reading (research, then a
+> draft humor note the moderator approves) is `artifacts/api-server/src/lib/readingJobs.ts`; the
+> taxonomy runs beside moderation and gates nothing; every transition takes
+> its rows in one order (`artifacts/api-server/src/lib/reviewLocks.ts`). Trust the code and
+> `docs/plans/PLAN_FACT_LIFECYCLE_REBUILD.md` over the sections below.
+
 > Staged, cost-gated review of user-submitted facts. Source of truth for the
 > stages: `lib/api-zod/src/moderationWorkflow.ts`. Route logic:
 > `artifacts/api-server/src/routes/reviews.ts`. Admin UI:

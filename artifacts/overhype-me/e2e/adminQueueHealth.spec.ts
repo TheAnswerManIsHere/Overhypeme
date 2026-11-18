@@ -35,6 +35,7 @@ const REGISTERED_QUEUES = [
   "fact_ai_meme_backfill",
   "fact_character_fill",
   "fact_enrichment_backfill",
+  "fact_reading",
   "fact_visual_concepts",
   "gag_fold",
   "image_generation",

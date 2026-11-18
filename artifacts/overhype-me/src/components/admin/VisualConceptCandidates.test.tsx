@@ -75,7 +75,7 @@ describe("VisualConceptCandidates", () => {
       />,
     );
     expect(screen.queryByTestId("visual-concepts-cards")).toBeNull();
-    expect(screen.getByTestId("visual-concepts-stale").textContent).toMatch(/enrichment or the gag writer changed/i);
+    expect(screen.getByTestId("visual-concepts-stale").textContent).toMatch(/its gags or the gag writer changed/i);
   });
 
   it("ok + current → renders the three cards with title + whyItWorks; scene is collapsed until expanded", () => {

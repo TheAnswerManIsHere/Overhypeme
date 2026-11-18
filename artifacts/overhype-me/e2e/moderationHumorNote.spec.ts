@@ -59,7 +59,7 @@ async function stubGagServer(page: Page): Promise<{ notesSaved: () => string[]; 
     if (route.request().method() !== "GET") return route.continue();
     return route.fulfill({ json: {
       id: REVIEW_ID, submittedText: TEXT, matchingFactId: null, matchingSimilarity: 0, status: "pending",
-      workflowStage: "concept_review", stagingFactId: FACT_ID,
+      workflowStage: "gags", stagingFactId: FACT_ID,
       stagingFact: { id: FACT_ID, isActive: false, enrichmentStatus: "ok", visualConceptStatus: "ok", enrichment: enrichmentWithConcept("{NAME} slams a revolving door.") },
       reason: null, adminNote: null, createdAt: "2026-11-13T12:00:00.000Z", reviewedAt: null, submitter: null, matchingFact: null,
       approvedFactId: null, hashtags: ["legend"], enrichment: null, enrichmentStatus: "ok",

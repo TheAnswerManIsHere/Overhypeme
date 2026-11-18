@@ -102,7 +102,7 @@ async function bearer(userId: string, isAdmin: boolean): Promise<string> {
 
 async function seedReview(
   submittedById: string,
-  stage = "production_review",
+  stage = "test_renders",
   enrichment: FactEnrichment = ENRICHMENT,
 ): Promise<{ reviewId: number; factId: number }> {
   // The gag lives in fact_gags (migration 0139): a first-time submission's
@@ -184,7 +184,7 @@ describe("fact_visual_concepts handler", () => {
   });
 
   it("no-ops (writes nothing) when the review is already resolved", async () => {
-    const { reviewId, factId } = await seedReview(adminId, "production_rejected");
+    const { reviewId, factId } = await seedReview(adminId, "rejected");
     const res = await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate() });
     assert.equal(res.ok, true);
     const state = await factConceptState(factId);
@@ -207,7 +207,7 @@ describe("fact_visual_concepts handler", () => {
 });
 
 describe("buildVisualConceptsResponse — server-computed current flag", () => {
-  it("current=true right after a fresh write, then stale after the enrichment changes", async () => {
+  it("current=true right after a fresh write; a taxonomy change leaves it current, a gag change stales it", async () => {
     const { reviewId, factId } = await seedReview(adminId);
     await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate() });
 
@@ -221,10 +221,19 @@ describe("buildVisualConceptsResponse — server-computed current flag", () => {
     assert.equal(fresh.current, true);
     assert.equal(fresh.staleReason, undefined);
 
-    // Change a render-affecting enrichment field → the input hash moves.
+    // The taxonomy is not a writer input (Issue #1018, increment 1.2c-ii): a
+    // taxonomy run finishing after the ideas leaves them current.
     await db.update(factsTable)
       .set({ enrichment: { ...ENRICHMENT, primaryArchetype: "impossible_knowledge_or_skill" } })
       .where(eq(factsTable.id, factId));
+    const still = await buildVisualConceptsResponse({
+      id: reviewId,
+      visualConceptStatus: state.status, visualConceptCandidates: state.blob,
+    });
+    assert.equal(still.current, true);
+
+    // A gag the writer is shown → the input hash moves.
+    await db.insert(factGagsTable).values({ factId, slot: 1, pendingContent: { version: 1, requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [], bubbles: [], coreSceneOverride: "{NAME} hoists the planet overhead." } as never });
     const stale = await buildVisualConceptsResponse({
       id: reviewId,
       visualConceptStatus: state.status, visualConceptCandidates: state.blob,
@@ -257,7 +266,7 @@ describe("buildVisualConceptsResponse — server-computed current flag", () => {
   for (const { name, edit } of editCases) {
     it(`${name} makes the stored ideas stale (input_hash_mismatch) with the archetype untouched`, async () => {
       const original = withOverride({ bubbles: [{ type: "speech", entity: "subject", text: "Heavy." }] });
-      const { reviewId, factId } = await seedReview(adminId, "concept_review", original);
+      const { reviewId, factId } = await seedReview(adminId, "gags", original);
       await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate() });
       const state = await factConceptState(factId);
       const review = { id: reviewId, visualConceptStatus: state.status, visualConceptCandidates: state.blob };
@@ -303,8 +312,8 @@ describe("buildVisualConceptsResponse — server-computed current flag", () => {
 describe("POST /admin/reviews/:id/visual-concepts/regenerate", () => {
   const app = makeApp();
 
-  it("202 + sets status pending for an admin on a concept_review", async () => {
-    const { reviewId, factId } = await seedReview(adminId, "concept_review");
+  it("202 + sets status pending for an admin at Gags", async () => {
+    const { reviewId, factId } = await seedReview(adminId, "gags");
     const res = await request(app)
       .post(`/admin/reviews/${reviewId}/visual-concepts/regenerate`)
       .set("authorization", `Bearer ${adminSid}`)
@@ -316,13 +325,13 @@ describe("POST /admin/reviews/:id/visual-concepts/regenerate", () => {
     // A job was enqueued for this review.
     const [job] = await db.select({ id: asyncJobsTable.id })
       .from(asyncJobsTable)
-      .where(and(eq(asyncJobsTable.queue, "fact_visual_concepts"), eq(asyncJobsTable.dedupeKey, `fact_visual_concepts:review:${reviewId}`)))
+      .where(and(eq(asyncJobsTable.queue, "fact_visual_concepts"), like(asyncJobsTable.dedupeKey, `fact_visual_concepts:review:${reviewId}:%`)))
       .limit(1);
     assert.ok(job, "enqueued a fact_visual_concepts job");
   });
 
   it("rejects a non-admin (auth drift)", async () => {
-    const { reviewId } = await seedReview(adminId, "concept_review");
+    const { reviewId } = await seedReview(adminId, "gags");
     const res = await request(app)
       .post(`/admin/reviews/${reviewId}/visual-concepts/regenerate`)
       .set("authorization", `Bearer ${plainSid}`)
@@ -330,8 +339,8 @@ describe("POST /admin/reviews/:id/visual-concepts/regenerate", () => {
     assert.ok(res.status === 401 || res.status === 403, `expected 401/403, got ${res.status}`);
   });
 
-  it("409 when the review is not in concept_review (regenerate is a Step-2 action)", async () => {
-    const { reviewId } = await seedReview(adminId, "prep_pending");
+  it("409 when the review is not at Gags (regenerate is a Gags action)", async () => {
+    const { reviewId } = await seedReview(adminId, "reading");
     const res = await request(app)
       .post(`/admin/reviews/${reviewId}/visual-concepts/regenerate`)
       .set("authorization", `Bearer ${adminSid}`)
@@ -340,7 +349,7 @@ describe("POST /admin/reviews/:id/visual-concepts/regenerate", () => {
   });
 
   it("409 IDEAS_PENDING: regenerate is blocked while a concept job is in flight (no coalescing on stale)", async () => {
-    const { reviewId, factId } = await seedReview(adminId, "concept_review");
+    const { reviewId, factId } = await seedReview(adminId, "gags");
     await db.update(factsTable).set({ visualConceptStatus: "pending" }).where(eq(factsTable.id, factId));
     const res = await request(app)
       .post(`/admin/reviews/${reviewId}/visual-concepts/regenerate`)
@@ -389,7 +398,7 @@ describe("the gag writer: humor note, joke read and freshness", () => {
 
   it("the job sends the saved note, the fact's gags, the render policy and the draft with its bubbles", async () => {
     const live = { ...ENRICHMENT, visualPromptStrategyOverride: { version: 1, coreSceneOverride: "{NAME} lifts the moon (gag A).", bubbles: [{ type: "speech", entity: "subject", text: "Light." }], violencePolicyOverride: { mode: "soften", intensity: "strong" } } } as unknown as FactEnrichment;
-    const { reviewId, factId } = await seedReview(adminId, "concept_review", live);
+    const { reviewId, factId } = await seedReview(adminId, "gags", live);
     await db.update(factsTable).set({ humorNote: "Alex lifts what nobody can.", humorNoteApprovedBy: adminId, humorNoteApprovedAt: new Date() }).where(eq(factsTable.id, factId));
     let seen: Parameters<VisualConceptsJobDeps["generate"]>[0] | null = null;
     const res = await runVisualConceptsJob(
@@ -410,7 +419,7 @@ describe("the gag writer: humor note, joke read and freshness", () => {
 
   it("sends each gag's version being worked on: its pending change over the approved one (plan PLAN_THREE_GAGS.md, increment 2)", async () => {
     // The gag holds an approved version A and a pending change B.
-    const { reviewId, factId } = await seedReview(adminId, "concept_review");
+    const { reviewId, factId } = await seedReview(adminId, "gags");
     await db.insert(factGagsTable).values({
       factId, slot: 1,
       approvedContent: { version: 1, coreSceneOverride: "{NAME} approved gag A." } as never, approvedCarriedOver: true,
@@ -421,11 +430,12 @@ describe("the gag writer: humor note, joke read and freshness", () => {
     const got = seen as unknown as Parameters<VisualConceptsJobDeps["generate"]>[0];
     assert.deepEqual(got.existingGags.map((g) => g.scene), ["{NAME} pending change B."]);
     assert.equal(got.draft?.scene, "{NAME} draft C.");
-    assert.equal((got.enrichment as unknown as { visualPromptStrategyOverride: { coreSceneOverride: string } }).visualPromptStrategyOverride.coreSceneOverride, "{NAME} pending change B.", "the review works on the gag's pending change");
+    assert.equal(got.enrichment, null, "the taxonomy is not sent (Issue #1018, increment 1.2c-ii)");
+    assert.equal(got.classification, "omit");
   });
 
   it("stores the joke read, and the response carries it with no saved note", async () => {
-    const { reviewId, factId } = await seedReview(adminId, "concept_review");
+    const { reviewId, factId } = await seedReview(adminId, "gags");
     await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate("", "Revolving doors cannot slam.") });
     const r = await response(reviewId, factId);
     assert.equal(r.jokeRead, "Revolving doors cannot slam.");
@@ -434,7 +444,7 @@ describe("the gag writer: humor note, joke read and freshness", () => {
   });
 
   it("confirming the read keeps the gags current; a correction marks them out of date; regenerating under it makes them current", async () => {
-    const { reviewId, factId } = await seedReview(adminId, "concept_review");
+    const { reviewId, factId } = await seedReview(adminId, "gags");
     await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate("", "Read one.") });
     const confirm = await request(app).put(`/admin/reviews/${reviewId}/humor-note`).set("authorization", `Bearer ${adminSid}`).send({ text: "Read one." });
     assert.equal(confirm.status, 200, JSON.stringify(confirm.body));
@@ -461,7 +471,7 @@ describe("the gag writer: humor note, joke read and freshness", () => {
 
   it("a changed gag still marks the ideas out of date whatever the note says", async () => {
     // A fact's wording never changes (migration 0141); its gags do.
-    const { reviewId, factId } = await seedReview(adminId, "concept_review");
+    const { reviewId, factId } = await seedReview(adminId, "gags");
     await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate("", "Read.") });
     await db.update(factsTable).set({ humorNote: "Read." }).where(eq(factsTable.id, factId));
     await db.insert(factGagsTable).values({ factId, slot: 1, pendingContent: { version: 1, coreSceneOverride: "{NAME} a gag saved after the ideas." } as never });
@@ -471,15 +481,15 @@ describe("the gag writer: humor note, joke read and freshness", () => {
   });
 
   it("the note route refuses an empty note, a non-admin, and a resolved review", async () => {
-    const { reviewId } = await seedReview(adminId, "concept_review");
+    const { reviewId } = await seedReview(adminId, "gags");
     assert.equal((await request(app).put(`/admin/reviews/${reviewId}/humor-note`).set("authorization", `Bearer ${adminSid}`).send({ text: "  " })).status, 400);
     assert.notEqual((await request(app).put(`/admin/reviews/${reviewId}/humor-note`).set("authorization", `Bearer ${plainSid}`).send({ text: "x" })).status, 200);
-    const resolved = await seedReview(adminId, "production_rejected");
+    const resolved = await seedReview(adminId, "rejected");
     assert.equal((await request(app).put(`/admin/reviews/${resolved.reviewId}/humor-note`).set("authorization", `Bearer ${adminSid}`).send({ text: "x" })).status, 409);
   });
 
   it("an old (pre-v3) blob parses and reads as out of date", async () => {
-    const { reviewId, factId } = await seedReview(adminId, "concept_review");
+    const { reviewId, factId } = await seedReview(adminId, "gags");
     await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate() });
     const [row] = await db.select({ blob: factsTable.visualConceptCandidates }).from(factsTable).where(eq(factsTable.id, factId));
     const old = { ...(row!.blob as Record<string, unknown>), inputHash: "hash-from-the-v2-contract" };
@@ -495,7 +505,7 @@ describe("the gag writer: humor note, joke read and freshness", () => {
 
 describe("the gag writer has no fallback model", () => {
   it("an unusable engine fails the job at once, and the review response still loads with the reason", async () => {
-    const { reviewId, factId } = await seedReview(adminId, "concept_review");
+    const { reviewId, factId } = await seedReview(adminId, "gags");
     await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate() });
     // As an enqueue leaves it: pending, with the earlier ideas and a saved note.
     await db.update(factsTable).set({ humorNote: "Saved.", visualConceptStatus: "pending" }).where(eq(factsTable.id, factId));
@@ -526,7 +536,10 @@ describe("the gag writer has no fallback model", () => {
       gagWriter.isActive = prevActive;
       const regen = await request(makeApp()).post(`/admin/reviews/${reviewId}/visual-concepts/regenerate`).set("authorization", `Bearer ${adminSid}`).send({});
       assert.equal(regen.status, 202, JSON.stringify(regen.body));
-      const again = await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate("", "After repair.") });
+      // The job Regenerate queued, run from its own payload: it carries the new generation.
+      const [queued] = await db.select({ payload: asyncJobsTable.payload }).from(asyncJobsTable)
+        .where(and(eq(asyncJobsTable.queue, "fact_visual_concepts"), like(asyncJobsTable.dedupeKey, `fact_visual_concepts:review:${reviewId}:%`), eq(asyncJobsTable.status, "pending")));
+      const again = await runVisualConceptsJob(queued!.payload as Parameters<typeof runVisualConceptsJob>[0], { generate: stubGenerate("", "After repair.") });
       assert.equal(again.ok, true);
       const [after] = await db.select({ status: factsTable.visualConceptStatus, note: factsTable.humorNote }).from(factsTable).where(eq(factsTable.id, factId));
       assert.equal(after!.status, "ok");

@@ -11,6 +11,12 @@ export const SENSITIVE_KEY_PATTERNS: RegExp[] = [
   /otp/i,
   /code/i,
   /signature/i,
+  // Personal text a page address can carry (launch Phase 14): a share link's
+  // friend's name and pronouns, and a search's words. The Privacy page lists
+  // "pages visited" for analytics, not what a person typed or was called.
+  /^displayName$/i,
+  /^pronouns$/i,
+  /^q$/i,
 ];
 
 export function isSensitiveKey(key: string): boolean {
