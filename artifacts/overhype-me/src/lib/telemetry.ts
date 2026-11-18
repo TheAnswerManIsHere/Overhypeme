@@ -5,11 +5,8 @@
 import { startMonitoring } from "./sentry";
 import { startAnalytics } from "./analytics";
 
-let started = false;
-
+/** Each part is idempotent, so calling this twice starts nothing twice. */
 export function startTelemetry(): void {
-  if (started) return;
-  started = true;
   startMonitoring();
   startAnalytics();
 }

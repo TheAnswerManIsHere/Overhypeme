@@ -3,7 +3,8 @@
  * @subsystem public-site
  */
 import { LEGAL_SLUGS } from "@/generated/legal";
-import type { PostHog, CaptureResult } from "posthog-js";
+import { browserStorage } from "@/hooks/use-person-name";
+import type { PostHog, CaptureResult } from "posthog-js/dist/module.slim";
 
 declare global {
   interface Window {
@@ -25,40 +26,41 @@ export type FunnelEvent =
   | "share"
   | "upgrade";
 
+export const SIGN_UP_METHODS = ["password", "google", "apple"] as const;
+export const SHARE_PLATFORMS = ["twitter", "web_share", "copy_link", "email"] as const;
+export type SignUpMethod = (typeof SIGN_UP_METHODS)[number];
+export type SharePlatform = (typeof SHARE_PLATFORMS)[number];
+
 /**
  * The only properties an event may carry. Each is an enumerated value or an
  * opaque code, never a name, an email or free text.
  */
 export type FunnelProperties = {
   /** How an account was created. */
-  method?: "password" | "google" | "apple";
+  method?: SignUpMethod;
   /** Where a share went. */
-  platform?: "twitter" | "web_share" | "copy_link" | "email";
+  platform?: SharePlatform;
   /** What was bought: a plan or pack code, never a description. */
   plan?: string;
 };
 
 const PLAN_CODE = /^[a-z0-9_-]{1,40}$/;
 
-/** GA4's recommended names where one exists; ours otherwise. */
-const GA_EVENT_NAME: Record<FunnelEvent, string> = {
-  personalise: "personalise",
-  sign_up: "sign_up",
-  verify: "verify",
-  submit: "submit",
-  meme_made: "meme_made",
-  share: "share",
-  upgrade: "purchase",
-};
+function isOneOf<T extends string>(list: readonly T[], value: unknown): value is T {
+  return typeof value === "string" && (list as readonly string[]).includes(value);
+}
+
+/** GA4's recommended name where one exists; ours otherwise. */
+function gaEventName(event: FunnelEvent): string {
+  return event === "upgrade" ? "purchase" : event;
+}
 
 /** Drops any key not on the list and any plan value that is not a code. */
 export function cleanProperties(props: FunnelProperties | undefined): Record<string, string> {
   const out: Record<string, string> = {};
   if (!props) return out;
-  if (props.method === "password" || props.method === "google" || props.method === "apple") out.method = props.method;
-  if (props.platform === "twitter" || props.platform === "web_share" || props.platform === "copy_link" || props.platform === "email") {
-    out.platform = props.platform;
-  }
+  if (isOneOf(SIGN_UP_METHODS, props.method)) out.method = props.method;
+  if (isOneOf(SHARE_PLATFORMS, props.platform)) out.platform = props.platform;
   if (typeof props.plan === "string" && PLAN_CODE.test(props.plan)) out.plan = props.plan;
   return out;
 }
@@ -132,12 +134,30 @@ const POSTHOG_HOST = "https://us.i.posthog.com";
 
 let started = false;
 let currentPattern = "/";
+/** This visit's referrer as sent: computed once, since it cannot change in a single-page app. */
+let referrer = "";
+/** Each vendor is on only when its ID was set at build; decided once, at start. */
+let gaOn = false;
+let posthogOn = false;
 let posthog: PostHog | null = null;
 /** Calls made before PostHog's code has loaded, replayed once it has. */
 let posthogQueue: Array<(ph: PostHog) => void> = [];
 
+/** Carries the page a PostHog call was made on through to `before_send`. */
+const PAGE_PATTERN = "__page_pattern";
+
+/** A PostHog capture, stamped with the page it was made on. */
+function capture(event: string, props: Record<string, string>): void {
+  const madeOn = currentPattern;
+  withPosthog((ph) => ph.capture(event, { ...props, [PAGE_PATTERN]: madeOn }));
+}
+
+function ga(...args: unknown[]): void {
+  if (gaOn && window.gtag) window.gtag(...args);
+}
+
 function withPosthog(fn: (ph: PostHog) => void): void {
-  if (!posthogKey()) return;
+  if (!posthogOn) return;
   if (posthog) fn(posthog);
   else posthogQueue.push(fn);
 }
@@ -152,6 +172,12 @@ function withPosthog(fn: (ph: PostHog) => void): void {
  */
 export function scrubPosthogEvent(event: CaptureResult | null): CaptureResult | null {
   if (!event) return event;
+  // The page the call was made on (see `capture`), not the page that is open
+  // when PostHog sends it: a call queued before PostHog loaded would
+  // otherwise be filed under a later page.
+  const props = event.properties as Record<string, unknown>;
+  const madeOn = typeof props?.[PAGE_PATTERN] === "string" ? (props[PAGE_PATTERN] as string) : currentPattern;
+  if (props) delete props[PAGE_PATTERN];
   const scrubBag = (bag: Record<string, unknown> | undefined) => {
     if (!bag) return;
     for (const key of Object.keys(bag)) {
@@ -160,7 +186,9 @@ export function scrubPosthogEvent(event: CaptureResult | null): CaptureResult | 
       if (lower.endsWith("title") || lower.endsWith("href") || lower === "$elements_chain" || lower === "$elements") {
         delete bag[key];
       } else if (lower === "$current_url") {
-        bag[key] = patternUrl(currentPattern);
+        bag[key] = patternUrl(madeOn);
+      } else if (lower === "$pathname") {
+        bag[key] = madeOn;
       } else if (typeof value === "string" && /^https?:\/\//i.test(value)) {
         bag[key] = cleanReferrer(value);
       } else if (typeof value === "string" && lower.endsWith("pathname")) {
@@ -190,7 +218,7 @@ function startGa(id: string): void {
     allow_ad_personalization_signals: false,
     page_location: patternUrl(currentPattern),
     page_title: currentPattern,
-    page_referrer: cleanReferrer(document.referrer),
+    page_referrer: referrer,
   });
   const s = document.createElement("script");
   s.async = true;
@@ -198,8 +226,13 @@ function startGa(id: string): void {
   document.head.appendChild(s);
 }
 
+/**
+ * Loads PostHog's slim build (its core, without the bundled extensions this
+ * configuration turns off) once the browser is idle, so it does not compete
+ * with the first render; calls made before then are queued and replayed.
+ */
 function startPosthog(key: string): void {
-  void import("posthog-js").then(({ default: ph }) => {
+  const load = () => void import("posthog-js/dist/module.slim").then(({ default: ph }) => {
     ph.init(key, {
       api_host: POSTHOG_HOST,
       autocapture: false,
@@ -228,6 +261,8 @@ function startPosthog(key: string): void {
   }).catch(() => {
     posthogQueue = [];
   });
+  if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(load, { timeout: 2000 });
+  else setTimeout(load, 0);
 }
 
 /**
@@ -239,9 +274,12 @@ export function startAnalytics(): void {
   if (started) return;
   started = true;
   currentPattern = routePattern(window.location.pathname);
+  referrer = cleanReferrer(document.referrer);
   const id = gaId();
-  if (id) startGa(id);
   const key = posthogKey();
+  gaOn = Boolean(id);
+  posthogOn = Boolean(key);
+  if (id) startGa(id);
   if (key) startPosthog(key);
 }
 
@@ -250,20 +288,36 @@ export function page(path: string): void {
   if (!started) return;
   currentPattern = routePattern(path);
   const location = patternUrl(currentPattern);
-  if (gaId() && window.gtag) {
-    // `set` carries the pattern into every later hit on this page.
-    window.gtag("set", { page_location: location, page_title: currentPattern, page_referrer: cleanReferrer(document.referrer) });
-    window.gtag("event", "page_view", { page_location: location, page_title: currentPattern });
-  }
-  withPosthog((ph) => ph.capture("$pageview", { $current_url: location, $pathname: currentPattern }));
+  // `set` carries the pattern into every later hit on this page.
+  ga("set", { page_location: location, page_title: currentPattern, page_referrer: referrer });
+  ga("event", "page_view", { page_location: location, page_title: currentPattern });
+  capture("$pageview", {});
 }
 
 /** One confirmed funnel outcome. */
 export function track(event: FunnelEvent, props?: FunnelProperties): void {
   if (!started) return;
   const clean = cleanProperties(props);
-  if (gaId() && window.gtag) window.gtag("event", GA_EVENT_NAME[event], clean);
-  withPosthog((ph) => ph.capture(event, clean));
+  ga("event", gaEventName(event), clean);
+  capture(event, clean);
+}
+
+const UPGRADE_COUNTED_KEY = "overhype.analytics.upgradeCounted";
+
+/**
+ * The funnel's `upgrade`: counted once per completed checkout, keyed on
+ * Stripe's checkout session id, so reopening the success address in this
+ * browser (a bookmark, a second tab) never counts the same purchase twice;
+ * one key holds the last session counted. A confirmation with no session id
+ * (an old in-flight checkout, or the address typed by hand) is not counted:
+ * an undercount is preferred to a double count.
+ */
+export function trackUpgradeOnce(checkoutSessionId: string | null): void {
+  if (!checkoutSessionId) return;
+  const storage = browserStorage();
+  if (storage.get(UPGRADE_COUNTED_KEY) === checkoutSessionId) return;
+  storage.set(UPGRADE_COUNTED_KEY, checkoutSessionId);
+  track("upgrade", { plan: "legendary" });
 }
 
 let identifiedAs: string | null = null;
@@ -272,7 +326,7 @@ let identifiedAs: string | null = null;
 export function identify(userId: string): void {
   if (!started || !userId || identifiedAs === userId) return;
   identifiedAs = userId;
-  if (gaId() && window.gtag) window.gtag("set", { user_id: userId });
+  ga("set", { user_id: userId });
   withPosthog((ph) => ph.identify(userId));
 }
 
@@ -286,7 +340,7 @@ export function resetIdentity(): void {
   if (!started) return;
   const wasIdentified = identifiedAs !== null;
   identifiedAs = null;
-  if (wasIdentified && gaId() && window.gtag) window.gtag("set", { user_id: null });
+  if (wasIdentified) ga("set", { user_id: null });
   withPosthog((ph) => {
     if (ph.get_property("$user_state") === "identified") ph.reset();
   });
@@ -296,6 +350,9 @@ export function resetIdentity(): void {
 export function __resetAnalyticsForTests(): void {
   started = false;
   currentPattern = "/";
+  referrer = "";
+  gaOn = false;
+  posthogOn = false;
   posthog = null;
   posthogQueue = [];
   identifiedAs = null;

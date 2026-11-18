@@ -123,10 +123,11 @@ export default function Onboard() {
   // is sent from a page that stays open.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const method = params.get("signup");
+    const signup = params.get("signup");
+    const provider = signup === "google" || signup === "apple" ? signup : null;
     const verified = params.get("verified") === "1";
-    if (method !== "google" && method !== "apple" && !verified) return;
-    if (method === "google" || method === "apple") track("sign_up", { method });
+    if (!provider && !verified) return;
+    if (provider) track("sign_up", { method: provider });
     if (verified) track("verify");
     params.delete("signup");
     params.delete("verified");

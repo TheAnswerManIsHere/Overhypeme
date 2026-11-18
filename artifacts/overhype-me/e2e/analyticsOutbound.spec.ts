@@ -19,6 +19,7 @@
 import { gunzipSync } from "node:zlib";
 import { randomUUID } from "node:crypto";
 import { expect, test, type Page, type Request } from "@playwright/test";
+import { currentUser } from "./helpers/testAccounts";
 
 // A fresh browser, and an ordinary browser's identity: PostHog drops events
 // from a browser that looks automated, as headless Chromium does (see the
@@ -34,14 +35,12 @@ const SEARCH_WORD = "Quixotic";
 type PhEvent = { event: string; properties?: Record<string, unknown>; [k: string]: unknown };
 
 function decodePosthog(req: Request): PhEvent[] {
-  const url = new URL(req.url());
   const buf = req.postDataBuffer();
   if (!buf) return [];
   let text: string;
   // PostHog gzips a batch when the browser can; the body then starts with gzip's magic bytes.
   if (buf[0] === 0x1f && buf[1] === 0x8b) text = gunzipSync(buf).toString("utf8");
   else text = buf.toString("utf8");
-  void url;
   if (text.startsWith("data=")) text = Buffer.from(decodeURIComponent(text.slice(5)), "base64").toString("utf8");
   const parsed = JSON.parse(text) as PhEvent | PhEvent[] | { batch: PhEvent[] };
   if (Array.isArray(parsed)) return parsed;
@@ -126,8 +125,8 @@ test("analytics send route patterns and funnel events, never a name, a search or
   await page.getByPlaceholder("Min 8 characters").fill(`Pw-${randomUUID()}`);
   await page.getByRole("button", { name: /create account/i }).click();
   await expect(page.getByRole("heading", { name: "CHECK YOUR EMAIL" })).toBeVisible();
-  const me = (await page.evaluate(async () => (await (await fetch("/api/auth/user", { credentials: "include" })).json()) as { user?: { id?: string } })).user;
-  expect(me?.id).toBeTruthy();
+  const userId = (await currentUser(page))?.["id"] as string | undefined;
+  expect(userId).toBeTruthy();
 
   await expect.poll(() => phEvents.some((e) => e.event === "sign_up"), { timeout: 15_000 }).toBe(true);
   expect(phEvents.find((e) => e.event === "sign_up")?.properties?.["method"]).toBe("password");
@@ -138,8 +137,8 @@ test("analytics send route patterns and funnel events, never a name, a search or
   await page.goto("/check-email");
   await expect.poll(() => phEvents.some((e) => e.event === "$identify"), { timeout: 15_000 }).toBe(true);
   const identifyEvent = phEvents.find((e) => e.event === "$identify")!;
-  expect(identifyEvent.properties?.["distinct_id"] ?? identifyEvent["distinct_id"], "known by internal id").toBe(me!.id);
-  expect(gaCommands).toContainEqual(["set", { user_id: me!.id }]);
+  expect(identifyEvent.properties?.["distinct_id"] ?? identifyEvent["distinct_id"], "known by internal id").toBe(userId);
+  expect(gaCommands).toContainEqual(["set", { user_id: userId }]);
 
   await page.getByRole("button", { name: "Sign out" }).click();
   await page.waitForURL((u) => u.pathname === "/");

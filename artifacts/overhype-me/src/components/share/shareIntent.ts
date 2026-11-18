@@ -1,6 +1,6 @@
-import { track } from "@/lib/analytics";
+import { track, type SharePlatform } from "@/lib/analytics";
 
-export type ShareIntentPlatform = "twitter" | "web_share" | "copy_link" | "email";
+export type ShareIntentPlatform = SharePlatform;
 
 /**
  * Fire-and-forget share-intent logger.

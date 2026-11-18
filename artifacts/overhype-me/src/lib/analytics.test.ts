@@ -12,7 +12,7 @@ const { phInit, phCapture, phIdentify, phReset, phGetProperty } = vi.hoisted(() 
   phGetProperty: vi.fn(),
 }));
 
-vi.mock("posthog-js", () => ({
+vi.mock("posthog-js/dist/module.slim", () => ({
   default: { init: phInit, capture: phCapture, identify: phIdentify, reset: phReset, get_property: phGetProperty },
 }));
 
@@ -27,9 +27,13 @@ import {
   scrubPosthogEvent,
   startAnalytics,
   track,
+  trackUpgradeOnce,
 } from "./analytics";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
-const flush = () => new Promise((r) => setTimeout(r, 0));
+// PostHog loads on an idle callback (or a zero timeout), then imports: wait past both.
+const flush = () => new Promise((r) => setTimeout(r, 20));
 
 function gaCalls(): unknown[][] {
   return (window.dataLayer ?? []).map((args) => Array.from(args as ArrayLike<unknown>));
@@ -61,6 +65,16 @@ describe("addresses leave as route patterns", () => {
     expect(routePattern("/reset-password?token=secret")).toBe("/reset-password");
     expect(routePattern("/privacy")).toBe("/privacy");
     expect(routePattern("/")).toBe("/");
+  });
+
+  it("every route the app defines has a pattern: a new route cannot silently report as '(other)'", () => {
+    const app = readFileSync(resolve(__dirname, "../App.tsx"), "utf8");
+    const paths = [...app.matchAll(/<Route path="([^"]+)"/g)].map((m) => m[1]);
+    expect(paths.length).toBeGreaterThan(20);
+    for (const path of paths) {
+      const sample = path.replace(/\/:[a-zA-Z]+\?$/, "").replace(/:[a-zA-Z]+\??/g, "x1");
+      expect(routePattern(sample), `App.tsx route ${path}`).not.toBe("/(other)");
+    }
   });
 
   it("an unknown address can carry no text out", () => {
@@ -121,8 +135,8 @@ describe("with one vendor set", () => {
     await flush();
     expect(window.gtag).toBeUndefined();
     expect(document.querySelector("script[src*='googletagmanager']")).toBeNull();
-    expect(phCapture).toHaveBeenCalledWith("$pageview", { $current_url: `${window.location.origin}/search`, $pathname: "/search" });
-    expect(phCapture).toHaveBeenCalledWith("submit", {});
+    expect(phCapture).toHaveBeenCalledWith("$pageview", { __page_pattern: "/search" });
+    expect(phCapture).toHaveBeenCalledWith("submit", { __page_pattern: "/search" });
   });
 });
 
@@ -158,7 +172,7 @@ describe("with both vendors set", () => {
     page("/facts/7?displayName=Alice&q=Bob");
     const views = gaCalls().filter((c) => c[0] === "event" && c[1] === "page_view");
     expect(views).toHaveLength(1);
-    expect(phCapture).toHaveBeenCalledWith("$pageview", { $current_url: `${window.location.origin}/facts/:id`, $pathname: "/facts/:id" });
+    expect(phCapture).toHaveBeenCalledWith("$pageview", { __page_pattern: "/facts/:id" });
     const everything = JSON.stringify([gaCalls(), phCapture.mock.calls]);
     expect(everything).not.toContain("Alice");
     expect(everything).not.toContain("Bob");
@@ -171,8 +185,8 @@ describe("with both vendors set", () => {
     track("sign_up", { method: "google" });
     expect(gaCalls()).toContainEqual(["event", "purchase", { plan: "legendary" }]);
     expect(gaCalls()).toContainEqual(["event", "sign_up", { method: "google" }]);
-    expect(phCapture).toHaveBeenCalledWith("upgrade", { plan: "legendary" });
-    expect(phCapture).toHaveBeenCalledWith("sign_up", { method: "google" });
+    expect(phCapture).toHaveBeenCalledWith("upgrade", { plan: "legendary", __page_pattern: "/" });
+    expect(phCapture).toHaveBeenCalledWith("sign_up", { method: "google", __page_pattern: "/" });
   });
 
   it("an event before PostHog's code has loaded is sent once it has", async () => {
@@ -180,7 +194,19 @@ describe("with both vendors set", () => {
     track("submit");
     expect(phCapture).not.toHaveBeenCalled();
     await flush();
-    expect(phCapture).toHaveBeenCalledWith("submit", {});
+    expect(phCapture).toHaveBeenCalledWith("submit", { __page_pattern: "/" });
+  });
+
+  it("a call queued before PostHog loads is filed under the page it was made on", async () => {
+    startAnalytics();
+    page("/search?q=Alice");
+    page("/pricing");
+    await flush();
+    const searchView = phCapture.mock.calls.find((c) => c[0] === "$pageview" && c[1].__page_pattern === "/search")!;
+    const sent = scrubPosthogEvent({ uuid: "u", event: "$pageview", properties: { ...searchView[1], $current_url: `${window.location.origin}/pricing`, $pathname: "/pricing" } } as never)!;
+    expect(sent.properties.$pathname).toBe("/search");
+    expect(sent.properties.$current_url).toBe(`${window.location.origin}/search`);
+    expect(sent.properties.__page_pattern).toBeUndefined();
   });
 
   it("knows a member by internal id only, and forgets on sign-out", async () => {
@@ -204,6 +230,21 @@ describe("with both vendors set", () => {
     phGetProperty.mockReturnValue("anonymous");
     resetIdentity();
     expect(phReset).toHaveBeenCalledOnce();
+  });
+});
+
+describe("an upgrade is counted once per checkout", () => {
+  it("counts a checkout session once in this browser, and nothing without a session id", async () => {
+    vi.stubEnv("VITE_POSTHOG_KEY", "phc_test123");
+    window.localStorage.clear();
+    startAnalytics();
+    await flush();
+    trackUpgradeOnce("cs_test_1");
+    trackUpgradeOnce("cs_test_1");
+    trackUpgradeOnce(null);
+    expect(phCapture.mock.calls.filter((c) => c[0] === "upgrade")).toEqual([["upgrade", { plan: "legendary", __page_pattern: "/" }]]);
+    trackUpgradeOnce("cs_test_2");
+    expect(phCapture.mock.calls.filter((c) => c[0] === "upgrade")).toHaveLength(2);
   });
 });
 

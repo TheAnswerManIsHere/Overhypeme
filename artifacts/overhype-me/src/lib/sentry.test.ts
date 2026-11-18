@@ -2,17 +2,14 @@ import { vi, describe, it, expect, afterEach, beforeAll } from "vitest";
 
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
-const { mockInit, mockReplayIntegration } = vi.hoisted(() => ({
+const { mockInit } = vi.hoisted(() => ({
   mockInit: vi.fn(),
-  mockReplayIntegration: vi.fn((opts?: unknown) => ({ name: "Replay", _opts: opts })),
 }));
-
 
 vi.mock("@sentry/react", () => ({
   init: mockInit,
   browserTracingIntegration: () => ({ name: "BrowserTracing" }),
   feedbackIntegration: () => ({ name: "Feedback" }),
-  replayIntegration: mockReplayIntegration,
 }));
 
 vi.mock("@workspace/redact", async (importOriginal) => {
@@ -33,7 +30,6 @@ async function loadSentry(dropDebugEvents: boolean): Promise<{ mod: typeof impor
   vi.resetModules();
   vi.stubEnv("VITE_DROP_DEBUG_EVENTS", dropDebugEvents ? "true" : "false");
   mockInit.mockClear();
-  mockReplayIntegration.mockClear();
   const mod = await import("./sentry");
   mod.startMonitoring();
   const initArg = mockInit.mock.calls[0][0] as SentryHooks;
@@ -45,7 +41,6 @@ beforeAll(async () => {
   (await import("./sentry")).startMonitoring();
   vi.unstubAllEnvs();
   mockInit.mockClear();
-  mockReplayIntegration.mockClear();
 });
 
 afterEach(() => {
@@ -57,7 +52,6 @@ describe("sentry.ts init options", () => {
     const { hooks } = await loadSentry(false);
     const names = hooks.integrations.map((i) => i.name);
     expect(names).not.toContain("Replay");
-    expect(mockReplayIntegration).not.toHaveBeenCalled();
     expect(hooks.replaysSessionSampleRate).toBeUndefined();
     expect(hooks.replaysOnErrorSampleRate).toBeUndefined();
   });
