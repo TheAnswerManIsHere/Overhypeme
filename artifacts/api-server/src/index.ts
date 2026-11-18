@@ -276,7 +276,7 @@ function scheduleAccountDeletionWorker() {
 
 // Hourly: delete expired sign-in sessions (lib/sessionSweep.ts), and expired
 // email and password tokens, searches over 90 days old, picture costs over 13
-// months old and Stripe webhook audit rows over 90 days old
+// months old and Stripe webhook audit rows and processed-event ids over 90 days old
 // (lib/dataLifecycle.ts), launch Phase 14, increment 6. The daily maintenance
 // call runs both too; this keeps an awake site tidy between calls, as the
 // other cleanups' timers do. Safe on several instances at once: the session

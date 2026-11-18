@@ -207,9 +207,10 @@ export const RETENTION_SCHEDULE: Readonly<Record<string, RetentionEntry>> = {
     ],
   },
   image_prompt_attempts: {
-    personal: "a description of a member's photo and the account (both cleared when the account is deleted)",
-    // David, Q15, 2026-11-18: the purge clears the photo's description and
-    // fingerprint; the attempt, which no longer names anyone, stays with its fact.
+    personal: "a description of a member's photo, its fingerprint, the name the picture was made with (in the rendered fact text, the engine prompt and the legacy plan), and the account; all cleared when the account is deleted",
+    // David, Q15 and Q17, 2026-11-18: the purge clears the photo's description
+    // and fingerprint, the rendered fact text, the engine prompt, the legacy
+    // plan and the subject check; the attempt, naming no one, stays with its fact.
     rules: [
       { kind: "account-deletion", effect: "anonymised" },
       { kind: "with-parent", parent: "facts" },
@@ -234,7 +235,9 @@ export const RETENTION_SCHEDULE: Readonly<Record<string, RetentionEntry>> = {
   membership_leases: systemKept("short-lived locks released by the code that took them"),
   stripe_processed_events: {
     personal: "Stripe event ids, each of which Stripe resolves to the customer it concerns",
-    rules: [{ kind: "kept", reason: "kept so a replayed event is never applied twice" }],
+    // David, Q18, 2026-11-18. Kept so a redelivered event is never applied
+    // twice; Stripe stops redelivering within days.
+    rules: [{ kind: "job", job: "retention-windows", window: "90 days" }],
   },
   stripe_webhook_audit: {
     // Its one writer is WebhookHandlers.audit (api-server lib/webhookHandlers.ts):

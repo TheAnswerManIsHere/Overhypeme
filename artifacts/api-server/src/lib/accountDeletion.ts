@@ -638,14 +638,18 @@ async function purgeAccount(userId: string): Promise<void> {
       await refreshTargetCounts(tx, t.type as ReactionTargetType, t.id);
     }
 
-    // Records that would otherwise outlive the account (David, Q15,
-    // 2026-11-18): what the person's pictures cost goes, and the description
-    // of their photo is cleared from each picture attempt (the column cannot
-    // be null, so it keeps a marker). The attempt itself stays with its fact.
+    // Records that would otherwise outlive the account (David, Q15 and Q17,
+    // 2026-11-18): what the person's pictures cost goes, and each picture
+    // attempt loses the description of their photo (the column cannot be null,
+    // so it keeps a marker), its fingerprint, and everything written with the
+    // name or from the photo: the rendered fact text, the engine prompt, the
+    // legacy picture plan and the subject check. The attempt stays with its
+    // fact, naming no one.
     await tx.delete(userGenerationCostsTable).where(eq(userGenerationCostsTable.userId, userId));
     await tx.execute(sql`
       UPDATE image_prompt_attempts
-      SET source_image_analysis = ${JSON.stringify(CLEARED_PHOTO_DESCRIPTION)}::jsonb, source_image_sha256 = NULL
+      SET source_image_analysis = ${JSON.stringify(CLEARED_PHOTO_DESCRIPTION)}::jsonb, source_image_sha256 = NULL,
+          rendered_fact_text = NULL, compiled_prompt = NULL, visual_plan = NULL, subject_fact_compatibility = NULL
       WHERE user_id = ${userId}
     `);
 
