@@ -24,7 +24,7 @@
 import { loadMembershipConfig } from "./membershipTiming.js";
 import { sweepExpiredGrace } from "./membershipGraceSweep.js";
 import { logger } from "./logger.js";
-import { recordTaskCompleted } from "./recurringTasks.js";
+import { nextRunDelayMs, recordTaskCompleted } from "./recurringTasks.js";
 
 /**
  * Null until a sweep has actually succeeded.
@@ -39,8 +39,6 @@ import { recordTaskCompleted } from "./recurringTasks.js";
 let lastSuccessfulSweepAt: number | null = null;
 const processStartedAt = Date.now();
 let lastRunAt: number | null = null;
-/** One sweep at a time. See `scheduleMembershipJobs`. */
-let sweepInFlight = false;
 let lastConverged: number | null = null;
 let lastError: string | null = null;
 let consecutiveFailures = 0;
@@ -103,7 +101,8 @@ export async function graceSweepHealth(now: number = Date.now()): Promise<GraceS
   };
 }
 
-export async function runGraceSweepOnce(opts: { asOf?: Date } = {}): Promise<void> {
+/** Resolves true when the sweep completed, false when it failed (already reported here). */
+export async function runGraceSweepOnce(opts: { asOf?: Date } = {}): Promise<boolean> {
   // The config read used to sit HERE, outside the try, and it is a database
   // call: a transient DB failure escaped before `lastRunAt`, `lastError` and the
   // failure counters could record anything, so the run that failed was invisible
@@ -120,6 +119,7 @@ export async function runGraceSweepOnce(opts: { asOf?: Date } = {}): Promise<voi
     if (result.converged > 0) {
       logger.info(result, "grace sweep converged stored tiers");
     }
+    return true;
   } catch (err) {
     lastError = err instanceof Error ? err.message.slice(0, 400) : String(err);
     consecutiveFailures += 1;
@@ -150,6 +150,7 @@ export async function runGraceSweepOnce(opts: { asOf?: Date } = {}): Promise<voi
     } else {
       logger.warn({ err, staleForSeconds: staleFor }, "grace sweep failed");
     }
+    return false;
   }
 }
 
@@ -161,31 +162,32 @@ export async function runGraceSweepOnce(opts: { asOf?: Date } = {}): Promise<voi
 export async function scheduleMembershipJobs(): Promise<void> {
   const config = await loadMembershipConfig();
 
-  setInterval(() => {
-    // One at a time. The interval is operator-tunable down to a second while a
-    // run performs up to 500 sequential recompute transactions, so a slow sweep
-    // would otherwise have the next tick start on top of it — concurrent
-    // recomputes of the same users, unbounded accumulating work, and racing
-    // writes to the shared health counters. A skipped tick is harmless: the
-    // sweep converges a projection the read path already enforces.
-    if (sweepInFlight) {
-      logger.warn("grace sweep tick skipped — the previous run is still in flight");
-      return;
-    }
-    sweepInFlight = true;
-    // An explicit catch at the scheduling boundary, not just a `finally`.
-    // `runGraceSweepOnce` guards its own body, but a detached promise with no
-    // rejection handler turns any escape into an unhandled rejection — which
-    // Node terminates the process for by default. A projection-convergence job
-    // must not be able to take the API down.
-    void runGraceSweepOnce()
-      .catch((err) => {
-        logger.error({ err }, "grace sweep tick failed outside its own error handling");
-      })
-      .finally(() => {
-        sweepInFlight = false;
-      });
-  }, config.grace_sweep_interval_seconds * 1000).unref();
+  const intervalMs = config.grace_sweep_interval_seconds * 1000;
+  // Each run arms the next when it finishes, so runs never overlap: the
+  // interval is operator-tunable down to a second while a run performs up to
+  // 500 sequential recompute transactions, and overlapping runs would mean
+  // concurrent recomputes of the same users and racing writes to the shared
+  // health counters. A failed run tries again in minutes rather than a full
+  // interval, so one database blip never reads as a stopped task on the health
+  // check (recurringTasks.ts, RETRY_AFTER_FAILURE_MS).
+  const schedule = (delayMs: number) => {
+    setTimeout(() => {
+      // An explicit catch at the scheduling boundary, not just a `finally`.
+      // `runGraceSweepOnce` guards its own body, but a detached promise with no
+      // rejection handler turns any escape into an unhandled rejection — which
+      // Node terminates the process for by default. A projection-convergence job
+      // must not be able to take the API down.
+      void runGraceSweepOnce()
+        .catch((err) => {
+          logger.error({ err }, "grace sweep tick failed outside its own error handling");
+          return false;
+        })
+        .then((ok) => {
+          schedule(nextRunDelayMs(ok, intervalMs));
+        });
+    }, delayMs).unref();
+  };
+  schedule(intervalMs);
 
   logger.info(
     {
