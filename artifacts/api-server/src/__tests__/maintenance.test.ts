@@ -39,7 +39,7 @@ const OK_RESULTS: Record<JobName, unknown> = {
   "media-backup": "skipped: not the published deployment",
 };
 const { sweepExpiredSessions } = await import("../lib/sessionSweep.js");
-const { runRetentionWindowJobs } = await import("../lib/dataLifecycle.js");
+const { runRetentionWindowJobs, monthsBefore } = await import("../lib/dataLifecycle.js");
 const { default: jobsRouter } = await import("../routes/jobs.js");
 const { buildTestApp } = await import("./helpers/buildTestApp.js");
 
@@ -85,6 +85,26 @@ describe("the retention-window job", () => {
     assert.ok(result.oldSearchHistoryDeleted >= 1);
     const left = await db.execute(sql`SELECT query FROM search_history WHERE user_id = ${user!.id}`);
     assert.deepEqual(left.rows.map((r) => (r as { query: string }).query), ["new search"]);
+  });
+
+  // PR #1048 round 2: 31 March less 13 months is the end of February, not 3 March.
+  it("the 13-month cutoff lands on the target month's last day when the day does not exist there", () => {
+    const cases: Array<[string, string]> = [
+      ["2026-03-31T12:00:00.000Z", "2025-02-28T12:00:00.000Z"],
+      ["2026-05-31T12:00:00.000Z", "2025-04-30T12:00:00.000Z"],
+      ["2029-03-31T12:00:00.000Z", "2028-02-29T12:00:00.000Z"],
+      ["2026-11-18T12:00:00.000Z", "2025-10-18T12:00:00.000Z"],
+      ["2026-01-15T00:00:00.000Z", "2024-12-15T00:00:00.000Z"],
+    ];
+    for (const [run, cutoff] of cases) assert.equal(monthsBefore(new Date(run), 13).toISOString(), cutoff, run);
+    let wrong = 0;
+    for (let t = Date.UTC(2026, 0, 1, 12); t < Date.UTC(2030, 0, 1); t += 86_400_000) {
+      const run = new Date(t);
+      const cut = monthsBefore(run, 13);
+      const expectedMonth = (run.getUTCFullYear() * 12 + run.getUTCMonth()) - 13;
+      if (cut.getUTCFullYear() * 12 + cut.getUTCMonth() !== expectedMonth || cut.getUTCHours() !== 12) wrong++;
+    }
+    assert.equal(wrong, 0, "every day from 2026 to 2029 cuts in the month exactly 13 before");
   });
 
   // Q15 (David, 2026-11-18).
