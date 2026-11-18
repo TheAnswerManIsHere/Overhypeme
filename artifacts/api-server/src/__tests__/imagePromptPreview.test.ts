@@ -200,7 +200,7 @@ describe("image-prompt preview — validation", () => {
   });
 
   it("previews a fact whose taxonomy is unusable: the picture is drawn from the gag alone (Issue #1018, increment 1.2c-ii)", async () => {
-    const factId = await seedFact({ enrichment: { primaryArchetype: "nope" } });
+    const factId = await seedFact({ enrichment: { primaryArchetype: "nope", visualPromptStrategyOverride: DEFAULT_GAG } });
     const res = await request(adminApp()).post("/api/admin/image-prompt/preview").send({ factId, subjectRenderMode: "human_identity_i2i" });
     assert.equal(res.status, 200, JSON.stringify(res.body));
   });

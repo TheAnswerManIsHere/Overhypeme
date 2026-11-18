@@ -64,8 +64,8 @@ DECLARE
   v_unmapped text;
 BEGIN
   IF EXISTS (
-    SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
-     WHERE t.typname = 'review_workflow_stage' AND e.enumlabel = 'reading'
+    SELECT 1 FROM pg_enum e
+     WHERE e.enumtypid = to_regtype('review_workflow_stage') AND e.enumlabel = 'reading'
   ) THEN
     RAISE NOTICE '0155_moderation_four_steps: stages already recast; no-op';
     RETURN;
