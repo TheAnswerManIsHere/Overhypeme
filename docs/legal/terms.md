@@ -1,6 +1,6 @@
 ---
 title: Terms of Service
-version: 2026-11-17
+version: 2026-11-18
 summary: The agreement between you and the company that runs Overhype.me.
 ---
 
@@ -81,7 +81,7 @@ These Terms are governed by the laws of the State of New York and the federal la
 
 ## 13. Changes to these Terms
 
-We may change these Terms. When we do, we will update the version at the top of this page, and if the change is significant we will ask you to accept the new version before you continue using your account. If you do not accept it, you can delete your account.
+We may change these Terms. When we do, we will update the version at the top of this page and ask you to accept the new version before you continue using your account. If you do not accept it, you can delete your account.
 
 ## 14. Contact
 

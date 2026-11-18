@@ -10,19 +10,19 @@ export const LEGAL_DOCS: LegalDocMeta[] = [
   {
     "slug": "terms",
     "title": "Terms of Service",
-    "version": "2026-11-17",
+    "version": "2026-11-18",
     "summary": "The agreement between you and the company that runs Overhype.me."
   },
   {
     "slug": "privacy",
     "title": "Privacy Policy",
-    "version": "2026-11-18",
+    "version": "2026-11-18.2",
     "summary": "What we collect, why, who receives it, how long we keep it, and your choices."
   },
   {
     "slug": "copyright",
     "title": "Copyright Policy",
-    "version": "2026-11-17",
+    "version": "2026-11-18",
     "summary": "How to report copyright infringement on Overhype.me, how to respond to a report, and our repeat-infringer policy."
   },
   {
@@ -35,8 +35,8 @@ export const LEGAL_DOCS: LegalDocMeta[] = [
 
 /** The current version of each document, which an acceptance record stores. */
 export const LEGAL_VERSIONS: Record<string, string> = {
-  "terms": "2026-11-17",
-  "privacy": "2026-11-18",
-  "copyright": "2026-11-17",
+  "terms": "2026-11-18",
+  "privacy": "2026-11-18.2",
+  "copyright": "2026-11-18",
   "guidelines": "2026-11-17"
 };

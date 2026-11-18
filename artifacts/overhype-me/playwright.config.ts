@@ -1,4 +1,5 @@
 import { defineConfig } from "@playwright/test";
+import { dismissedNoticesState } from "./e2e/helpers/dismissedNotices";
 
 const baseURL = process.env["E2E_BASE_URL"]
   ?? (process.env["REPLIT_DEV_DOMAIN"] ? `https://${process.env["REPLIT_DEV_DOMAIN"]}` : "http://localhost:5173");
@@ -13,6 +14,9 @@ export default defineConfig({
   reporter: [["list"]],
   use: {
     baseURL,
+    // Every test starts with the analytics notice already dismissed, so the
+    // fixed card never covers a control it clicks (e2e/helpers/dismissedNotices.ts).
+    storageState: dismissedNoticesState(baseURL),
     ignoreHTTPSErrors: true,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",

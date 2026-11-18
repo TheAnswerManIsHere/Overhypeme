@@ -1,6 +1,6 @@
 ---
 title: Privacy Policy
-version: 2026-11-18
+version: 2026-11-18.2
 summary: What we collect, why, who receives it, how long we keep it, and your choices.
 ---
 
@@ -13,7 +13,7 @@ Overhype.me is offered only in the places listed in our [Terms](/terms) and only
 **When you browse, signed in or not**
 
 - **Technical information**: your IP address, browser and device type, the pages you visit, and when. Our hosting and security providers process this to deliver and protect the site.
-- **How you use the site, for fixing errors.** Our error-monitoring provider records some visits, and every visit in which an error happens: what the page showed and how it was used, with anything you type into a field hidden but other text on the page, including names shown in facts, visible. It also receives error details and page-speed measurements.
+- **How you use the site, for fixing errors.** Our error-monitoring provider records some visits, and every visit in which an error happens: the layout of the page and how it was used, with everything you type and all text on the page hidden. It also receives error details and page-speed measurements. A notice tells you this the first time you visit.
 - **Your approximate location** (country), worked out from your IP address by our network provider. We use it to decide which marketing-email default to show you and, as described in our Terms, where the Service is offered.
 - **Names you type to personalise facts** are kept in your browser, and sent to our servers when they are needed to show or make something with them.
 
@@ -32,7 +32,7 @@ Overhype.me is offered only in the places listed in our [Terms](/terms) and only
 
 ## How we use it
 
-To run the Service and your account; to make the pictures you ask for; to moderate content and keep people safe; to process payments; to send you emails about your account and, if you agreed, our newsletter; to prevent abuse and fraud; to fix problems; and to meet our legal obligations, including reporting apparent child sexual abuse material to the National Center for Missing & Exploited Children.
+To run the Service and your account; to make the pictures you ask for; to moderate content and keep people safe; to process payments; to send you emails about your account and, if you agreed, news about the site; to prevent abuse and fraud; to fix problems; and to meet our legal obligations, including reporting apparent child sexual abuse material to the National Center for Missing & Exploited Children.
 
 **We do not sell your personal information**, and we do not share it for advertising targeted on other sites.
 
@@ -46,14 +46,13 @@ We share personal information only with the providers that run parts of the Serv
 |---|---|---|
 | Replit (with Google Cloud) | Hosts the site, database and stored files | Everything the Service stores |
 | Cloudflare | Network, security, bot checks | Your IP address and requests |
-| fal.ai and the image models it runs | Makes AI pictures | Your photo and the prompt for that picture |
-| OpenAI | Writing aids and content checks | Fact and comment text, and in some checks a photo |
+| fal.ai and the image models it runs, which come from several AI companies | Makes AI pictures | Your photo and the prompt for that picture |
+| OpenAI | Writing aids and content checks | Fact and comment text, a first name when suggesting pronouns, and in some checks a photo |
 | Project Arachnid (Canadian Centre for Child Protection) | Detects known child sexual abuse material | Uploaded images |
 | Stripe | Payments | Your email, account reference and purchases |
 | Resend | Sends email | Your email address and the message |
-| Sentry | Finds and diagnoses errors in the site | Error details and page-speed measurements; recordings of some visits and of every visit with an error, showing the page's text but not what you type; for signed-in members, your account ID, email address and name; and anything you send through its feedback button |
+| Sentry | Finds and diagnoses errors in the site | Error details and page-speed measurements; recordings of some visits and of every visit with an error, with all text and everything you type hidden; for signed-in members, your account ID; and anything you send through its feedback button |
 | Google Analytics | Counts visits | Your IP address, pages visited and device information, with a random identifier |
-| Google Fonts | Serves a typeface | Your IP address |
 | Google and Apple | Sign-in, if you choose them | What you approve in their sign-in screen |
 
 We also disclose information when the law requires it, to protect people from harm, in connection with a sale or reorganisation of the business, or with your permission.
@@ -79,7 +78,7 @@ We also disclose information when the law requires it, to protect people from ha
 
 - **Delete your account** from your profile at any time.
 - **Delete any photo, meme or picture** from "My content".
-- **Marketing emails**: you choose at sign-up.
+- **Marketing emails**: you choose at sign-up. Today, Legendary members also receive a daily "Fact of the Day" email whatever they chose, without an unsubscribe link; we are changing it so it goes only to members who agreed and carries an unsubscribe link. Until then, write to support@overhype.me to stop it.
 - **Ask us** to tell you what we hold about you or to correct it: write to privacy@overhype.me. We will verify that the request comes from you and answer within the time the law of your state requires.
 - **California residents**: you have the rights above. We do not sell or share personal information as California law defines those terms. You will not be treated differently for asking about your information.
 

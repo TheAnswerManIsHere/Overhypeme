@@ -14,6 +14,15 @@ const release = (import.meta.env.VITE_SENTRY_RELEASE as string | undefined) ?? "
 // so no subsequent unrelated errors are affected.
 let _debugTestPending = false;
 
+/**
+ * The member as error monitoring sees them: the account id and nothing else.
+ * No email or name leaves the browser for monitoring (launch Phase 14,
+ * increment 2), so the feedback widget no longer pre-fills them.
+ */
+export function sentryUserFor(user: { id?: string | null } | null | undefined): { id: string } | null {
+  return user?.id ? { id: user.id } : null;
+}
+
 export function markNextEventAsDebugTest(): void {
   _debugTestPending = true;
 }
@@ -43,9 +52,12 @@ Sentry.init({
     Sentry.feedbackIntegration({
       colorScheme: "system",
     }),
+    // Every piece of text and every input is masked in a recording: a
+    // recording shows the page's layout and what was clicked, never what it
+    // said (launch Phase 14, increment 2; the Privacy page says so).
     Sentry.replayIntegration({
       maskAllInputs: true,
-      maskAllText: false,
+      maskAllText: true,
     }),
   ],
   replaysSessionSampleRate: 0.1,

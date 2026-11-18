@@ -1,6 +1,6 @@
 ---
 title: Copyright Policy
-version: 2026-11-17
+version: 2026-11-18
 summary: How to report copyright infringement on Overhype.me, how to respond to a report, and our repeat-infringer policy.
 ---
 
@@ -14,7 +14,7 @@ Send notices of claimed infringement to our designated agent:
 - 745 5th Ave., Suite 500, New York, NY 10151, United States
 - Email: copyright@overhype.me
 
-Our agent's designation with the U.S. Copyright Office's DMCA Designated Agent Directory, which will also list a telephone number, is being filed.
+Our agent's designation with the U.S. Copyright Office's DMCA Designated Agent Directory, which will also list a telephone number, has not yet been filed. Until it is, send notices to the address above.
 
 ## Reporting infringement
 

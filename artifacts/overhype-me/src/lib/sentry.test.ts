@@ -80,10 +80,10 @@ describe("sentry.ts init options", () => {
     );
   });
 
-  it("configures replayIntegration with maskAllText: false to preserve replay utility", async () => {
+  it("configures replayIntegration with maskAllText: true, so a recording carries no page text (launch Phase 14, increment 2)", async () => {
     await loadSentry(false);
     expect(mockReplayIntegration).toHaveBeenCalledWith(
-      expect.objectContaining({ maskAllText: false })
+      expect.objectContaining({ maskAllText: true })
     );
   });
 });
