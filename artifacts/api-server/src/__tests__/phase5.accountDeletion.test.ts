@@ -482,7 +482,7 @@ describe("the account deletion state machine (T3)", () => {
     const userId = await createUser();
     const admin = await createUser({ admin: true });
     const [review] = await db.insert(pendingReviewsTable)
-      .values({ submittedText: `${PREFIX}{NAME} outlived the account`, submittedById: userId, status: "pending", workflowStage: "triage_pending" } as never)
+      .values({ submittedText: `${PREFIX}{NAME} outlived the account`, submittedById: userId, status: "pending", workflowStage: "triage" } as never)
       .returning();
     await acceptAccountDeletion(userId, { requestedBy: "self", purgeAfter: past(), kick: false });
     assert.equal(await advanceAccountDeletion(userId), "done");

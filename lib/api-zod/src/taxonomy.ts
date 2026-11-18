@@ -741,6 +741,31 @@ export function validateEnrichment(raw: unknown): EnrichmentValidationResult {
   return { ok: false, error, subtypeMismatch };
 }
 
+/**
+ * What a picture is drawn from: one gag's content and nothing else (plan
+ * PLAN_GAG_DIRECT_RENDER.md, A; the classification left the render path with
+ * the planner). A render attempt freezes this as its snapshot. Parsing keeps
+ * only the gag, normalised exactly as inside a full classification, so a
+ * snapshot frozen before the taxonomy left moderation (Issue #1018, increment
+ * 1.2c-ii), which carries the whole classification beside the gag, reads the
+ * same as one frozen after. A fact whose taxonomy is missing or failed draws
+ * like any other.
+ */
+export const gagRenderInputSchema = z.object({
+  visualPromptStrategyOverride: visualPromptStrategyOverrideSchema.optional(),
+});
+export type GagRenderInput = z.infer<typeof gagRenderInputSchema>;
+
+export type GagRenderInputValidationResult =
+  | { ok: true; data: GagRenderInput }
+  | { ok: false; error: string };
+
+export function validateGagRenderInput(raw: unknown): GagRenderInputValidationResult {
+  const result = gagRenderInputSchema.safeParse(raw);
+  if (result.success) return { ok: true, data: result.data };
+  return { ok: false, error: result.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ") };
+}
+
 // ─── Strict "wire" schemas for OpenAI Structured Outputs ───────────────────
 
 /**

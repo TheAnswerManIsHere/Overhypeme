@@ -14,7 +14,7 @@
 import { randomUUID } from "node:crypto";
 import { db, imagePromptAttemptsTable, type ImagePromptAttempt } from "@workspace/db";
 import type {
-  FactEnrichment,
+  GagRenderInput,
   IdentityPolicy,
   RenderControls,
   SourceImageAnalysis,
@@ -61,7 +61,7 @@ export interface BuildImagePromptAttemptArgs {
   factId: number;
   userId: string | null;
   /** Already-validated enrichment, frozen onto the attempt for reproducibility. */
-  enrichment: FactEnrichment;
+  enrichment: GagRenderInput;
   /** Already token-resolved (no {NAME}/{SUBJ}); the generator never sees a template. */
   renderedFactText: string;
   analysis: SourceImageAnalysis;

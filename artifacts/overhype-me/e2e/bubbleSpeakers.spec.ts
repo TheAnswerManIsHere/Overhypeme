@@ -72,14 +72,11 @@ test.describe("Bubble speakers", () => {
     await page.screenshot({ path: test.info().outputPath("bubble-speakers.png"), fullPage: false });
   });
 
-  test("the moderation screen keeps the fact's characters and leaves the taxonomy editor to the Facts editor", async ({ page }) => {
+  test("the moderation screen shows neither the fact's characters nor the taxonomy editor: both are the Facts editor's (Issue #1018, increment 1.2c-ii)", async ({ page }) => {
     await stubConceptReview(page, { id: 96803, submittedText: TEXT, stagingFactId: 96804, enrichment: hospitalEnrichment(), cast: [MOM] });
     await openReview(page);
     await page.getByRole("button", { name: /Advanced Options/ }).click();
-    const editor = page.getByTestId("characters-editor");
-    await expect(editor).toBeVisible();
-    await expect(editor.getByTestId("character-label")).toHaveValue("mom");
-    await expect(editor.getByTestId("character-display")).toContainText("Alex's mom");
+    await expect(page.getByTestId("characters-editor")).toHaveCount(0);
     await expect(page.getByTestId("enrichment-editor")).toHaveCount(0);
     await expect(page.getByText(/Primary archetype/i)).toHaveCount(0);
   });

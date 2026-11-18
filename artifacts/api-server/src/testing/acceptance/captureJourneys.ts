@@ -61,12 +61,21 @@ export async function driveCaptures(base: string, opts: { doc: CaptureDoc; out: 
       const { reviewId } = await admin.json<{ reviewId: number }>("pr229", "POST", "/api/facts/submit-review", { text: template, hashtags: ["capture"] }, [201]);
       pr229.reviewId = reviewId;
       await admin.json("pr229", "POST", `/api/admin/reviews/${reviewId}/provisional-approve`, { adminNote: "UAT capture" });
+      const read = await poll(
+        "pr229",
+        "the reading (research, then a draft humor note)",
+        () => admin.json<any>("pr229", "GET", `/api/admin/reviews/${reviewId}`),
+        (r) => r.workflowStage === "reading" && r.reading?.latest?.status === "ok",
+        (r) => (r.reading?.latest?.status === "failed" ? `reading failed: ${r.reading.latest.error}` : null),
+        15 * 60_000,
+      );
+      await admin.json("pr229", "POST", `/api/admin/reviews/${reviewId}/approve-reading`, { text: read.reading.latest.draftNote, readingId: read.reading.latest.id });
       const prepared = await poll(
         "pr229",
-        "preparation (enrichment, then Visual Ideas)",
+        "Visual Ideas from the approved note",
         () => admin.json<any>("pr229", "GET", `/api/admin/reviews/${reviewId}`),
-        (r) => r.workflowStage === "concept_review" && r.visualConcepts?.status === "ok",
-        (r) => (r.workflowStage === "prep_failed" ? "prep_failed" : r.visualConcepts?.status === "failed" ? "visual concepts failed" : null),
+        (r) => r.workflowStage === "gags" && r.visualConcepts?.status === "ok",
+        (r) => (r.visualConcepts?.status === "failed" ? "visual concepts failed" : null),
         15 * 60_000,
       );
       const stagingFactId: number = prepared.stagingFactId;

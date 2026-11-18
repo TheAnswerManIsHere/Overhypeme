@@ -3,6 +3,8 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { runFactOfTheDayJob } from "../jobs/factOfTheDay";
 import { logger } from "../lib/logger";
 import { runRetentionWindowJobs } from "../lib/dataLifecycle";
+import { runDailyMaintenance } from "../lib/maintenance";
+import { timingSafeEqual } from "node:crypto";
 
 const router: IRouter = Router();
 
@@ -17,9 +19,13 @@ if (!CRON_SECRET) {
   );
 }
 
+/** Compared in constant time, so the answer's timing says nothing about the secret. */
 function isCronAuthorized(req: Request): boolean {
   const auth = req.headers["x-cron-secret"];
-  return auth === CRON_SECRET;
+  if (typeof auth !== "string") return false;
+  const given = Buffer.from(auth);
+  const expected = Buffer.from(CRON_SECRET!);
+  return given.length === expected.length && timingSafeEqual(given, expected);
 }
 
 // POST /jobs/fact-of-the-day — run manually (cron or admin-triggered)
@@ -58,4 +64,19 @@ router.post("/jobs/data-retention", async (req: Request, res: Response) => {
     logger.error({ err }, "Data retention job error");
     res.status(500).json({ error: "Job failed" });
   }
+});
+
+// POST /jobs/maintenance — the daily maintenance run (launch Phase 14,
+// increment 6; lib/maintenance.ts), called once a day by a Cloudflare
+// scheduled trigger. Answers 200 when every job succeeded and 500 when any
+// failed, with each job's outcome either way, so the caller's own log shows a
+// failed day.
+router.post("/jobs/maintenance", async (req: Request, res: Response) => {
+  // Operational privilege: the REAL admin flag, as for the jobs above.
+  if (!isCronAuthorized(req) && !isRealAdminRequest(req)) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  const run = await runDailyMaintenance();
+  res.status(run.ok ? 200 : 500).json(run);
 });

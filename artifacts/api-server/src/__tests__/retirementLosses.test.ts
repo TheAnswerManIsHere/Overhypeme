@@ -96,9 +96,9 @@ async function plant(): Promise<{ bystander: number; userId: string }> {
     (${userId}, 'fact', ${bystander}, 'up')`);
   const review = await one<{ id: number }>(sql`
     INSERT INTO pending_reviews (submitted_text, submitted_by_id, status, workflow_stage, staging_fact_id, approved_fact_id)
-    VALUES (${P + "review"}, ${userId}, 'approved', 'production_approved', ${v1}, ${v1}) RETURNING id`);
+    VALUES (${P + "review"}, ${userId}, 'approved', 'approved', ${v1}, ${v1}) RETURNING id`);
   await db.execute(sql`INSERT INTO pending_reviews (submitted_text, submitted_by_id, status, workflow_stage, matching_fact_id)
-    VALUES (${P + "match"}, ${userId}, 'pending', 'triage_pending', ${v2})`);
+    VALUES (${P + "match"}, ${userId}, 'pending', 'triage', ${v2})`);
   await db.execute(sql`INSERT INTO activity_feed (user_id, action_type, message, metadata) VALUES
     (${userId}, 'review_approved', 'approved', ${JSON.stringify({ reviewId: review.id, factId: v1 })}::jsonb),
     (${userId}, 'comment_posted', 'commented', ${JSON.stringify({ commentId: comment.id, factId: v2 })}::jsonb),

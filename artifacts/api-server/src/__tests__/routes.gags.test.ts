@@ -381,7 +381,7 @@ describe("gag routes: while a review is open, gags change only inside it", () =>
   // review is opened on the fact directly, as the scope rule holds for any.
   async function openReview(factId: number): Promise<number> {
     const [review] = await db.insert(pendingReviewsTable).values({
-      submittedText: "review", submittedById: adminId, status: "pending", workflowStage: "production_review",
+      submittedText: "review", submittedById: adminId, status: "pending", workflowStage: "test_renders",
       stagingFactId: factId, enrichment: buildPlaceholderFactEnrichment() as never, enrichmentStatus: "ok",
     }).returning({ id: pendingReviewsTable.id });
     return review!.id;

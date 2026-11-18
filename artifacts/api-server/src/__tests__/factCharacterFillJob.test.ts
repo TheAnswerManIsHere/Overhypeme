@@ -45,7 +45,7 @@ async function liveFact(baseline: FactEnrichment = buildPlaceholderFactEnrichmen
   return row.id;
 }
 
-async function stagingFact(stage: "triage_pending" | "concept_review"): Promise<number> {
+async function stagingFact(stage: "triage" | "gags"): Promise<number> {
   const id = await liveFact();
   await db.update(factsTable).set({ isActive: false }).where(eq(factsTable.id, id));
   await db.insert(pendingReviewsTable).values({
@@ -79,8 +79,8 @@ after(async () => {
 describe("pickCharacterFillTargets", () => {
   it("targets live facts and first-time facts at the Gags step, not triage submissions or already-filled facts", async () => {
     const live = await liveFact();
-    const atGags = await stagingFact("concept_review");
-    const atTriage = await stagingFact("triage_pending");
+    const atGags = await stagingFact("gags");
+    const atTriage = await stagingFact("triage");
     const filled = await liveFact({ ...buildPlaceholderFactEnrichment(), characters: MOM, charactersExtraction: { promptVersion: "v1", extractedAt: "x" } });
     const factTargets = new Set((await pickCharacterFillTargets()).filter((t) => t.target === "fact").map((t) => t.factId));
     assert.equal(factTargets.has(live), true);
@@ -92,7 +92,7 @@ describe("pickCharacterFillTargets", () => {
   it("targets an open refresh candidate", async () => {
     const id = await liveFact();
     const [review] = await db.insert(pendingReviewsTable).values({
-      submittedText: "refresh", submittedById: adminId, status: "pending", workflowStage: "concept_review", stagingFactId: id,
+      submittedText: "refresh", submittedById: adminId, status: "pending", workflowStage: "gags", stagingFactId: id,
     }).returning({ id: pendingReviewsTable.id });
     const { columns } = materializeFromBaseline(buildPlaceholderFactEnrichment());
     const [cand] = await db.insert(factEnrichmentVersionsTable).values({

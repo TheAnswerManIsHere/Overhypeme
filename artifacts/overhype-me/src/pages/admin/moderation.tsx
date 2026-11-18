@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/Button";
 import {
   CheckCircle, CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight,
   ExternalLink, ClipboardList, Loader2, AlertTriangle,
-  MessageSquare, Trash2, User, Sparkles, RefreshCw, Rocket,
-  CheckCheck, SlidersHorizontal, Wand2, Search, Save,
+  MessageSquare, Trash2, User, Rocket,
+  CheckCheck, SlidersHorizontal, Wand2, Search,
 } from "lucide-react";
 import {
   type FactEnrichment,
@@ -16,6 +16,7 @@ import {
   type VisualConceptsResponse,
   type StoredCandidateConcept,
   type FactGagsView,
+  type ReviewReadingView,
   canEditWording,
   joinWithAnd,
   REJECTION_REASON_VALUES,
@@ -27,9 +28,7 @@ import {
   stageToWizardStep,
   type WizardStep,
 } from "@/components/admin/moderationQueueState";
-import { EnrichmentSummary, isApprovable } from "@/components/admin/EnrichmentEditor";
-import { CharactersEditor } from "@/components/admin/CharactersEditor";
-import { useFactEnrichmentEditing } from "@/components/admin/useFactEnrichmentEditing";
+import { ReadingStep } from "@/components/admin/ReadingStep";
 import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { FinalHashtagsEditor } from "@/components/admin/FinalHashtagsEditor";
@@ -59,12 +58,16 @@ type PrepStatus = "pending" | "ok" | "failed" | null;
 interface StagingFactSlice {
   id: number;
   isActive: boolean;
-  enrichmentStatus: PrepStatus;
   /** Visual-Idea generation lifecycle (facts.visual_concept_status). */
   visualConceptStatus: PrepStatus;
 }
 
-/** Full staging-fact slice returned on the review detail (adds the blob to tune). */
+/**
+ * The staging-fact slice on the review detail. Its stored taxonomy is not
+ * shown or edited here (Issue #1018, increment 1.2c-ii); two things are read
+ * from it when it exists: the fact's characters (naming hints for a gag's
+ * cast) and its suggested hashtags.
+ */
 interface StagingFactDetail extends StagingFactSlice {
   enrichment: FactEnrichment | null;
 }
@@ -87,12 +90,12 @@ interface Review {
   duplicate?: DuplicateView;
   approvedFactId: number | null;
   hashtags: string[] | null;
-  enrichment: FactEnrichment | null;
-  enrichmentStatus: string | null;
   /** True while a test render (auto-batch or manual re-run) is queued/rendering. */
   rendersRunning?: boolean;
-  /** Coarse Step-3 render state (production_review rows only; null otherwise). */
+  /** Coarse render state (Test Renders rows only; null otherwise). */
   renderReviewState?: RenderReviewState | null;
+  /** The latest reading run's status (Reading rows only; null otherwise). */
+  readingStatus?: PrepStatus;
 }
 
 interface ReviewsResponse {
@@ -134,8 +137,9 @@ function useReviews(status: string, page: number, query: string) {
 
 const STAGE_GROUP_STYLE: Record<string, string> = {
   needs_first_pass: "bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border-yellow-500/30",
-  prep:             "bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30",
-  production_review:"bg-primary/15 text-primary border-primary/30",
+  reading:          "bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30",
+  gags:             "bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30",
+  test_renders:     "bg-primary/15 text-primary border-primary/30",
   resolved:         "bg-muted text-muted-foreground border-border",
 };
 
@@ -153,96 +157,34 @@ function StageBadge({ stage }: { stage: ReviewWorkflowStage }) {
 }
 
 /**
- * One prep step's live state. null/"pending" render as "working" (spinner).
- *
- * `optional` steps (e.g. best-effort seeding) never block approval, so they use a
- * softened palette: a failure reads as muted "unavailable" (not the alarming
- * destructive red of a required step), and a `null` status means "not run yet"
- * (muted, no spinner) rather than "working".
- *
- * `attentionWhenNull` is for a REQUIRED step whose `null` means "never generated
- * for this cycle" (e.g. Visual ideas on an old Step-3 row bounced back to Visual
- * Concept) — an actionable not-ready state, NOT work in progress. It renders as
- * amber "not generated" with no spinner, so the prep summary never masks it.
+ * One background step's live state on a queue row: null/"pending" render as
+ * "working" (spinner). `attentionWhenNull` is for a step whose `null` means
+ * "never run for this cycle" (e.g. Visual ideas on a review the stage cutover
+ * moved to Gags) — an actionable not-ready state, NOT work in progress. It
+ * renders as amber "not generated" with no spinner.
  */
-function PrepStepPill({ icon: Icon, label, status, optional, attentionWhenNull }: { icon: typeof Sparkles; label: string; status: PrepStatus; optional?: boolean; attentionWhenNull?: boolean }) {
+function PrepStepPill({ icon: Icon, label, status, attentionWhenNull }: { icon: typeof Wand2; label: string; status: PrepStatus; attentionWhenNull?: boolean }) {
   const ok = status === "ok";
   const failed = status === "failed";
-  const notGenerated = !optional && attentionWhenNull === true && status == null;
-  const notStarted = optional && status == null;
+  const notGenerated = attentionWhenNull === true && status == null;
   const tone = ok
     ? "text-green-600 dark:text-green-400 border-green-500/30 bg-green-500/10"
     : failed
-    ? (optional ? "text-amber-700 dark:text-amber-400 border-amber-500/30 bg-amber-500/10" : "text-destructive border-destructive/30 bg-destructive/10")
+    ? "text-destructive border-destructive/30 bg-destructive/10"
     : notGenerated
     ? "text-amber-700 dark:text-amber-400 border-amber-500/30 bg-amber-500/10"
-    : notStarted
-    ? "text-muted-foreground border-border bg-muted/40"
     : "text-blue-600 dark:text-blue-400 border-blue-500/30 bg-blue-500/10";
-  const word = ok ? "ready" : failed ? (optional ? "unavailable" : "failed") : notGenerated ? "not generated" : notStarted ? "not run" : "working…";
+  const word = ok ? "ready" : failed ? "failed" : notGenerated ? "not generated" : "working…";
   return (
     <span className={`inline-flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-sm border ${tone}`}>
       <Icon className="w-3.5 h-3.5 shrink-0" />
       <span className="font-semibold">{label}</span>
       {ok ? <CheckCircle2 className="w-3.5 h-3.5" />
-        : failed ? (optional ? <AlertTriangle className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />)
+        : failed ? <XCircle className="w-3.5 h-3.5" />
         : notGenerated ? <AlertTriangle className="w-3.5 h-3.5" />
-        : notStarted ? null
         : <Loader2 className="w-3.5 h-3.5 animate-spin" />}
       <span>{word}</span>
-      {optional && <span className="text-[10px] font-mono opacity-70">optional</span>}
     </span>
-  );
-}
-
-/**
- * Two-altitude prep status for a staging fact (CLAUDE.md rule 8): an aggregate
- * tally plus a per-step live pill for enrichment (and, at Step 2, the Visual
- * ideas).
- */
-function PrepStatusPanel({
-  enrichmentStatus,
-  visualConceptStatus,
-  conceptRequired,
-}: {
-  enrichmentStatus: PrepStatus;
-  /** Candidate Visual ideas (facts.visual_concept_status). */
-  visualConceptStatus?: PrepStatus;
-  /**
-   * Step 2 (Visual Concept): Visual Ideas are a REQUIRED gate — counted in the
-   * tally alongside Enrichment. Elsewhere (prep / Step 3) the tally is
-   * Enrichment alone and Visual ideas render as an optional bonus pill.
-   */
-  conceptRequired?: boolean;
-}) {
-  const tallySteps: PrepStatus[] = conceptRequired
-    ? [enrichmentStatus, visualConceptStatus ?? null]
-    : [enrichmentStatus];
-  const done = tallySteps.filter((s) => s === "ok").length;
-  const failed = tallySteps.filter((s) => s === "failed").length;
-  // A required Visual-ideas step that's `null` means "never generated for this
-  // cycle" — an actionable not-ready state, NOT work in progress. Keep it out of
-  // the running count so the summary doesn't mask it as a spinner.
-  const notGenerated = conceptRequired === true && visualConceptStatus == null ? 1 : 0;
-  const running = tallySteps.length - done - failed - notGenerated;
-  return (
-    <div className="space-y-2">
-      <p className="text-xs font-mono text-muted-foreground">
-        Prep: {done} of {tallySteps.length} ready
-        {failed > 0 ? ` · ${failed} failed` : ""}
-        {notGenerated > 0 ? ` · ${notGenerated} not generated` : ""}
-        {running > 0 ? ` · ${running} working` : ""}
-      </p>
-      <div className="flex flex-wrap gap-2">
-        <PrepStepPill icon={Sparkles} label="Enrichment" status={enrichmentStatus} />
-        {conceptRequired && (
-          <PrepStepPill icon={Wand2} label="Visual ideas" status={visualConceptStatus ?? null} attentionWhenNull />
-        )}
-        {!conceptRequired && visualConceptStatus !== undefined && (
-          <PrepStepPill icon={Wand2} label="Visual ideas" status={visualConceptStatus} optional />
-        )}
-      </div>
-    </div>
   );
 }
 
@@ -284,11 +226,14 @@ interface ReviewDetail extends Review {
   stagingFact: StagingFactDetail | null;
   /** Slice 2A: normalized candidate Visual concepts (server-computed `current`). */
   visualConcepts?: VisualConceptsResponse;
+  /** The Reading step: the latest reading run and the approved note (null before acceptance). */
+  reading?: ReviewReadingView | null;
 }
 
-/** Three-step wizard for a non-terminal review (WizardStep from the shared helper). */
+/** Four-step wizard for a non-terminal review (WizardStep from the shared helper). */
 const WIZARD_STEPS: { id: WizardStep; label: string }[] = [
   { id: "triage", label: "Triage" },
+  { id: "reading", label: "Reading" },
   { id: "concept", label: "Gags" },
   { id: "render", label: "Test Renders" },
 ];
@@ -328,28 +273,23 @@ function StepIndicator({ step }: { step: WizardStep }) {
 }
 
 /**
- * Stage-aware review modal for the three-gate moderation lifecycle, presented as
- * a three-step wizard for non-terminal reviews:
+ * Stage-aware review modal, presented as a four-step wizard for non-terminal
+ * reviews (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1D; Issue #1018, increment
+ * 1.2c-ii):
  *
- *  - Step 1 "Triage": keep/reject decision + duplicate context + submitter info.
- *  - Step 2 "Gags": the Gags panel (each gag's scene, bubbles and art
- *    direction; plan docs/plans/PLAN_THREE_GAGS.md) + Visual-Idea candidates,
- *    each usable on a gag + Advanced Options (enrichment / prompt diagnostics).
- *    NO renders yet — "Approve the Gags" advances to Step 3 and fires renders.
- *  - Step 3 "Test Renders": output-first scenario grid + the Gags panel with each
- *    gag's renders, where approving a render makes it that gag's example; final
- *    "Approve for Production" (existing render gate) or "Back to Gags".
+ *  - Triage: keep/reject decision + duplicate context + submitter info.
+ *  - Reading: how the fact was read — the draft humor note (editable) and,
+ *    beneath it, the reference research it was written from. "Approve the
+ *    humor note" opens Gags.
+ *  - Gags: the Gags panel + Visual-Idea candidates, each usable on a gag.
+ *    NO renders yet — "Approve the Gags" advances to Test Renders.
+ *  - Test Renders: each gag's renders, where approving a render makes it that
+ *    gag's example; final hashtags; "Approve for Production" or "Back to Gags".
+ *  - resolved → read-only summary + link to the live fact.
  *
- * Stage mapping:
- *  - triage_pending     → Step 1 only (provisional approve / reject —
- *    the ONLY stage a first-time submission can be rejected from).
- *  - prep_pending        → Step 1 + LIVE prep status, polled until terminal (rule 8).
- *  - prep_failed         → Step 1 + retry prep. Stays pending until it succeeds.
- *  - concept_review      → Step 2 default (approve the gags / send back).
- *  - production_review   → Step 3 default (approve for production / back to gags).
- *  - resolved            → read-only summary + link to the live fact.
- *
- * Reject (with a reason) is available on every step until the fact goes live.
+ * The taxonomy is not on this screen: it runs beside moderation and blocks
+ * nothing. Reject (with a reason) is available on every step until the fact
+ * goes live; past triage it asks for confirmation first.
  */
 function ReviewModal({
   review,
@@ -384,11 +324,13 @@ function ReviewModal({
   const modalBodyRef = useRef<HTMLDivElement | null>(null);
 
   const stagingFactId = detail?.stagingFact?.id ?? review.stagingFactId ?? 0;
-  const isConceptReview = stage === "concept_review";
-  const isProductionReview = stage === "production_review";
-  // Both Step 2 and Step 3 expose the enrichment/Visual-Concept editor.
-  const isEditableStep = isConceptReview || isProductionReview;
+  const isReading = stage === "reading";
+  const isConceptReview = stage === "gags";
+  const isProductionReview = stage === "test_renders";
   const isResolved = review.status !== "pending";
+  // Reject past triage asks first: it deletes the submission's gags and emails
+  // the submitter, and cannot be undone.
+  const [confirmReject, setConfirmReject] = useState(false);
 
   // The duplicate verdict belongs to the saved wording: the on-open check
   // (David, Q1) applies only while that wording stands, and a wording save
@@ -401,30 +343,17 @@ function ReviewModal({
     reviewId: review.id,
     submittedText: wording.submittedText,
     view: wording.duplicate,
-    canCheck: stage === "triage_pending",
+    canCheck: stage === "triage",
     onView: setDuplicate,
     onChecked: onActionDone,
   });
   const duplicateSeq = duplicateCheck.seq;   // stable
-  const liveEnrichmentStatus: PrepStatus = detail?.stagingFact?.enrichmentStatus ?? review.stagingFact?.enrichmentStatus ?? null;
 
-  // Production-review enrichment editing — the SHARED engine (same hook as the
-  // Edit Fact screen, so the two flows stay in lockstep): tracked fields persist
-  // instantly as per-field overrides on the staging fact (chips / Revert to AI /
-  // "AI changed — review"); the Visual Strategy Override is the only untracked
-  // field ... none: a fact's gags live in their own table and are edited in the
-  // Gags panel (plan docs/plans/PLAN_THREE_GAGS.md). Every successful mutation
-  // reloads the Gags panel: a render is matched to its input, so the tiles
-  // show what the edited enrichment would draw (plan PLAN_GAG_EXAMPLES.md).
+  // The stored taxonomy, read-only and only for two conveniences: the fact's
+  // characters (naming hints for a gag's cast) and its suggested hashtags. It
+  // is absent until (and unless) the taxonomy run succeeds; nothing waits on it.
+  const classification = detail?.stagingFact?.enrichment ?? null;
   const [gagsReloadKey, setGagsReloadKey] = useState(0);
-  const enrichEditing = useFactEnrichmentEditing({
-    target: { kind: "fact", factId: stagingFactId },
-    // Editable in BOTH Step 2 (Visual Concept) and Step 3 (Test Renders).
-    enabled: isEditableStep && stagingFactId > 0,
-    editableUntrackedFields: [],
-    onAfterMutation: () => setGagsReloadKey((k) => k + 1),
-  });
-  const { enrichment, draft: enrichmentDraft, jobs } = enrichEditing;
 
   // The fact's gags, as the Gags panel last loaded them (plan
   // docs/plans/PLAN_THREE_GAGS.md). `gagsReloadKey` reloads the panel after an
@@ -448,26 +377,26 @@ function ReviewModal({
   );
 
   // Moderator-curated FINAL discovery tags — what actually ships on approval.
-  // Seeded from the submitter's tags, or the AI suggestions when the submitter
-  // left none, so the editor opens on what would ship. `finalHashtagsDirtyRef`
-  // keeps the moderator's edits from being reseeded by polling / enrichment
-  // reloads. Sent in the approve body; a fact can't be approved with none.
+  // Seeded from the submitter's tags, or the taxonomy's suggestions when the
+  // submitter left none, so the editor opens on what would ship.
+  // `finalHashtagsDirtyRef` keeps the moderator's edits from being reseeded by
+  // polling. Sent in the approve body; a fact can't be approved with none.
   const [finalHashtags, setFinalHashtags] = useState<string[]>([]);
   const finalHashtagsDirtyRef = useRef(false);
+  const suggestedHashtags = classification?.suggestedHashtags;
   useEffect(() => {
     if (finalHashtagsDirtyRef.current) return;
     const submitter = review.hashtags ?? [];
-    setFinalHashtags(submitter.length > 0 ? submitter : (enrichment?.suggestedHashtags ?? []));
-  }, [review.hashtags, enrichment]);
+    setFinalHashtags(submitter.length > 0 ? submitter : (suggestedHashtags ?? []));
+  }, [review.hashtags, suggestedHashtags]);
   const onFinalHashtagsChange = (tags: string[]) => {
     finalHashtagsDirtyRef.current = true;
     setFinalHashtags(tags);
   };
 
-  // Wizard step. The step follows the stage: concept_review opens on Step 2,
-  // production_review on Step 3, everything else on Triage. When the stage first
-  // reaches a NEW value (e.g. prep finishing → concept_review, or the dedicated
-  // approve/back handlers moving it), auto-navigate to the matching step — but
+  // Wizard step. The step follows the stage. When the stage first reaches a NEW
+  // value (e.g. acceptance → reading, or the dedicated approve/back handlers
+  // moving it), auto-navigate to the matching step — but
   // only ONCE per newly-seen stage, so a moderator who manually flips back isn't
   // yanked forward again by polling.
   const [step, setStep] = useState<WizardStep>(stageToWizardStep(review.workflowStage) ?? "triage");
@@ -502,22 +431,21 @@ function ReviewModal({
     setStage(d.workflowStage);
     setNote((cur) => (cur === "" && d.adminNote ? d.adminNote : cur));
     setReason((cur) => (cur === "" && d.reason ? (d.reason as RejectionReason) : cur));
-    // Enrichment state is owned by the shared useFactEnrichmentEditing hook
-    // (it fetches the staging fact itself once production_review is reached).
   }, [review.id, duplicateSeq]);
 
   useEffect(() => { void loadDetail(); }, [loadDetail]);
 
-  // Live prep polling (rule 8): while prep runs, poll ~1.2s with NO timeout so
-  // the per-step status stays current until prep is terminal (then it stops).
+  // Live reading polling (rule 8): while the reading run is in flight, poll
+  // ~1.2s with NO timeout so the Reading step updates until it is terminal.
+  const readingPending = isReading && detail?.reading?.latest?.status === "pending";
   useEffect(() => {
-    if (stage !== "prep_pending") return;
+    if (!readingPending) return;
     const h = setInterval(() => { void loadDetail(); }, 1200);
     return () => clearInterval(h);
-  }, [stage, loadDetail]);
+  }, [readingPending, loadDetail]);
 
-  // Finite candidate-concept polling: the concept job runs during
-  // production_review (async), so poll ONLY while its status is "pending" and
+  // Finite candidate-concept polling: the concept job runs in the background,
+  // so poll ONLY while its status is "pending" and
   // stop on any terminal state. `null` = not started (no poll — the picker shows
   // a manual Generate), so old/pre-feature rows never poll forever.
   const visualConceptStatus: PrepStatus = detail?.visualConcepts?.status ?? null;
@@ -623,34 +551,15 @@ function ReviewModal({
     if (wordingDirty) { setError("Save or undo the wording edit before accepting."); return; }
     void runAction("provisional-approve", body);
   };
-  const onReject = async () => {
+  const onReject = () => {
     // The rejection reason judges whether the FACT belongs in the database.
     if (!reason) { setError("Please select a rejection reason before rejecting."); return; }
-    // Drain any in-flight per-field override write first so a field just
-    // blurred by this click does not surface a spurious error.
-    await enrichEditing.flushOverrides();
+    // Past triage, Reject deletes the submission's gags: ask first.
+    if (stage !== "triage" && !confirmReject) { setError(""); setConfirmReject(true); return; }
+    setConfirmReject(false);
     void runAction("reject", { rejectionReason: reason, adminNote: note || undefined });
   };
-  const onApproveProduction = async () => {
-    // Land any in-flight per-field override write BEFORE approval. A tracked
-    // field (semantic entity, or a Revert-to-AI reset that never marks the
-    // draft dirty) blurred by this very click fires an un-awaited PUT/DELETE.
-    // Awaiting also lets adoptServerSlice reconcile the draft, so the
-    // unsaved-VSO gate below reads true (post-flush) state.
-    const flushed = await enrichEditing.flushOverrides();
-    if (!flushed) {
-      setError("A field edit didn't save — resolve it (retry the field) before approving.");
-      return;
-    }
-    // Approval publishes the SAVED enrichment of the staging fact — the client
-    // never sends a blob. An unsaved Visual Strategy draft therefore wouldn't ship;
-    // force a Save/Discard first so nothing silently diverges from what the
-    // moderator sees. Read isDirty() (ref-based) so it reflects the just-flushed
-    // reconcile, not the stale value this closure captured before the await.
-    if (enrichmentDraft.isDirty()) {
-      setError("You have unsaved enrichment edits — Save or Discard them before approving (approval publishes the saved staging fact).");
-      return;
-    }
+  const onApproveProduction = () => {
     const body: Record<string, unknown> = {
       adminNote: note || undefined,
       hashtags: finalHashtags,
@@ -658,7 +567,7 @@ function ReviewModal({
     void runAction("approve-for-production", body);
   };
 
-  // Dedicated Step-2/Step-3 transition handlers. Unlike runAction (which CLOSES
+  // Dedicated step-transition handlers. Unlike runAction (which CLOSES
   // the modal on success), these keep it OPEN: apply the returned workflowStage,
   // move the wizard step, and reload detail + the list row.
   const applyTransition = useCallback((nextStage: ReviewWorkflowStage, nextStep: WizardStep) => {
@@ -668,6 +577,43 @@ function ReviewModal({
     void loadDetail();
     onRendersEnqueued(); // refresh the list row (stage / render state)
   }, [loadDetail, onRendersEnqueued]);
+
+  // Reading → Gags: approve the note as shown. Resolves to an error message
+  // for the Reading step, or null when the review moved on.
+  const onApproveReading = useCallback(async (text: string, readingId: number): Promise<string | null> => {
+    try {
+      const r = await fetch(`/api/admin/reviews/${review.id}/approve-reading`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, readingId }),
+      });
+      const d = (await r.json().catch(() => ({}))) as { error?: string; workflowStage?: ReviewWorkflowStage };
+      if (r.ok && d.workflowStage) { applyTransition(d.workflowStage, "concept"); return null; }
+      void loadDetail();
+      return d.error ?? `Could not approve the humor note (${r.status}).`;
+    } catch {
+      return "Network error: the humor note was not approved.";
+    }
+  }, [review.id, applyTransition, loadDetail]);
+
+  // The Reading step's "Try again" / "Write the reading".
+  const onRetryReading = useCallback(async (): Promise<void> => {
+    setError("");
+    try {
+      const r = await fetch(`/api/admin/reviews/${review.id}/reading/retry`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" }, body: "{}",
+      });
+      if (!r.ok) {
+        const d = (await r.json().catch(() => ({}))) as { error?: string };
+        setError(d.error ?? `Could not start the reading (${r.status}).`);
+      }
+    } catch {
+      setError("Network error — could not start the reading.");
+    } finally {
+      void loadDetail();
+      onRendersEnqueued();
+    }
+  }, [review.id, loadDetail, onRendersEnqueued]);
 
   const onApproveVisualConcept = useCallback(async (): Promise<void> => {
     setLoading(true); setError("");
@@ -695,9 +641,9 @@ function ReviewModal({
       });
       const d = (await r.json().catch(() => ({}))) as { error?: string; workflowStage?: ReviewWorkflowStage };
       if (r.ok && d.workflowStage) { applyTransition(d.workflowStage, "concept"); return; }
-      setError(d.error ?? `Could not send back to Visual Concept (${r.status}).`);
+      setError(d.error ?? `Could not go back to Gags (${r.status}).`);
     } catch {
-      setError("Network error — could not send back to Visual Concept.");
+      setError("Network error — could not go back to Gags.");
     } finally {
       setLoading(false);
     }
@@ -712,15 +658,14 @@ function ReviewModal({
   const gagsLive = gagsView?.gags ?? [];
   const hasSavedGag = gagsLive.some((g) => !!(g.pendingContent ?? g.approvedContent)?.coreSceneOverride?.trim());
   const hasApprovedGag = gagsLive.some((g) => g.approvedContent != null);
-  const canApproveProduction = isApprovable(enrichment)
-    && finalHashtags.length > 0
+  const canApproveProduction = finalHashtags.length > 0
     && hasApprovedGag
     && !gagsUnsaved;
   const ideasPending = visualConceptStatus === "pending";
   const ideasFailed = visualConceptStatus === "failed";
   const ideasTerminalOk = visualConceptStatus === "ok";
-  // The AI candidate cards are stale relative to the current enrichment input,
-  // but a SAVED concept is what drives renders — so this is non-blocking.
+  // The AI candidate cards are stale relative to the current inputs, but a
+  // SAVED gag is what drives renders — so this is non-blocking.
   const ideasStaleButSaved = ideasTerminalOk && detail?.visualConcepts?.current === false && hasSavedGag;
   // "Approve the gags": enabled with a saved gag AND terminal-OK ideas.
   const canApproveGag = hasSavedGag && ideasTerminalOk && !gagsUnsaved;
@@ -742,7 +687,7 @@ function ReviewModal({
           view={wording.duplicate}
           checking={duplicateCheck.checking}
           failed={duplicateCheck.failed}
-          canCheck={stage === "triage_pending"}
+          canCheck={stage === "triage"}
           onRetry={() => void duplicateCheck.check()}
           showClosest={showClosest}
           onShowClosest={() => setShowClosest(true)}
@@ -803,7 +748,7 @@ function ReviewModal({
     </div>
   );
 
-  // The submitted/live fact card, repeated at the top of Step 2 and Step 3 (each
+  // The submitted/live fact card, repeated at the top of Reading, Gags and Test Renders (each
   // may be reviewed in a separate pass, so the fact must be in view on both).
   const SubmittedFactCard = (
     <div className="bg-background border-2 border-border rounded-sm p-4">
@@ -814,113 +759,39 @@ function ReviewModal({
     </div>
   );
 
-  // Draft status + Save/Discard bar — shared by Step 2 and Step 3, kept OUTSIDE
-  // (above) the collapsed Advanced Options so an edit made with the section
-  // collapsed always has a visible way to persist it.
-  const DraftSaveBar = (
-    <>
-      {enrichmentDraft.hasUncommittedChanges && !enrichmentDraft.commitError && (
-        <div className="flex items-center justify-between gap-2 rounded-sm border border-amber-500/40 bg-amber-500/10 px-3 py-2" data-testid="enrichment-unsaved">
-          <p className="text-xs text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
-            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-            {enrichmentDraft.committing
-              ? "Saving to server…"
-              : `Unsaved changes (${enrichmentDraft.draftLabel || "draft kept locally"}) — Save to persist your render inputs.`}
-          </p>
-          <div className="flex items-center gap-3 shrink-0">
-            <button
-              type="button"
-              onClick={() => void enrichmentDraft.save()}
-              disabled={enrichmentDraft.committing}
-              className="text-xs font-bold px-2 py-1 rounded-sm border border-amber-500/50 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 disabled:opacity-50"
-              data-testid="enrichment-save"
-            >
-              Save
-            </button>
-            <button
-              type="button"
-              onClick={enrichmentDraft.discard}
-             
-              className="text-xs text-primary underline hover:opacity-80 disabled:opacity-50 disabled:no-underline"
-            >
-              Discard
-            </button>
-          </div>
-        </div>
-      )}
-      {!enrichmentDraft.hasUncommittedChanges && enrichmentDraft.committedAt != null && (
-        <p className="text-xs text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5" data-testid="enrichment-saved">
-          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-          Saved.
-        </p>
-      )}
-      {enrichmentDraft.commitError && (
-        <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
-          <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-          <p className="text-sm text-destructive">{enrichmentDraft.commitError}</p>
-        </div>
-      )}
-    </>
-  );
-
-  // Advanced Options — the technical machinery, collapsed by default. Shared by
-  // Step 2 (tune the concept) and Step 3 (all knobs for render tweaking).
-  const AdvancedOptions = (
+  // Advanced Options — prompt diagnostics, collapsed by default. Shared by the
+  // Gags and Test Renders steps. The taxonomy is not here: it is stored data
+  // beside moderation (Issue #1018, increment 1.2c-ii).
+  const AdvancedOptions = stagingFactId > 0 ? (
     <CollapsibleSection
       title="Advanced Options"
       icon={<SlidersHorizontal className="w-4 h-4 text-muted-foreground" />}
-      description="The fact's characters and prompt diagnostics. The AI classification is edited on the Facts editor."
+      description="Prompt diagnostics: the image prompt a gag would compile to."
       storageKey={`overhype:moderation:advanced:${review.id}`}
     >
-      {/* The taxonomy editor is not on this screen (plan PLAN_GAG_DIRECT_RENDER.md,
-          F; David, Q2: 1): the classification is the AI's, kept for AI and code,
-          and edited on the Facts editor under "AI classification". The fact's
-          characters stay here: they name who the fact mentions, and a gag's
-          cast is labelled from them. Hashtags and the humor note are on the
-          steps above. */}
-      {enrichment && (
-        <div className="space-y-2" data-testid="moderation-characters">
-          <CharactersEditor
-            characters={enrichment.characters ?? []}
-            disabled={loading || enrichmentDraft.committing}
-            onChange={(next) => {
-              enrichmentDraft.setValue({ ...enrichment, characters: next });
-              enrichEditing.overrideContext?.onOverride("/characters", next);
-            }}
-          />
-          {enrichmentDraft.hasUncommittedChanges && (
-            <button
-              type="button"
-              onClick={() => void enrichmentDraft.save()}
-              disabled={loading || enrichmentDraft.committing}
-              data-testid="moderation-characters-save"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium border border-border rounded-sm hover:bg-muted text-foreground disabled:opacity-50"
-            >
-              <Save className="w-3.5 h-3.5" /> Save characters
-            </button>
-          )}
-        </div>
-      )}
-      {jobs.error && (
-        <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
-          <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-          <p className="text-sm text-destructive">{jobs.error}</p>
-        </div>
-      )}
-      {enrichEditing.overrideError && (
-        <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2" data-testid="override-error">
-          <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-          <p className="text-sm text-destructive">{enrichEditing.overrideError}</p>
-        </div>
-      )}
-      {stagingFactId > 0 && (
-        <RuntimePromptPreview
-          factId={stagingFactId}
-          reviewIdForRender={review.id}
-          onPreviewNameChange={setPreviewSubjectName}
-        />
-      )}
+      <RuntimePromptPreview
+        factId={stagingFactId}
+        reviewIdForRender={review.id}
+        onPreviewNameChange={setPreviewSubjectName}
+      />
     </CollapsibleSection>
+  ) : null;
+
+  // Reject past triage, confirmed first.
+  const RejectConfirm = confirmReject && (
+    <div className="rounded-sm border-2 border-destructive/60 bg-destructive/10 p-4 space-y-3" data-testid="reject-confirm">
+      <p className="text-sm text-foreground">
+        <strong>Reject this submission?</strong> Its gags are deleted, it never goes live, and the submitter is emailed
+        the reason{note ? " and your note" : ""}. This can't be undone.
+      </p>
+      <div className="flex flex-wrap gap-3">
+        <Button onClick={onReject} isLoading={loading} disabled={loading}
+          className="bg-destructive hover:bg-destructive/90 text-destructive-foreground gap-2" data-testid="reject-confirm-yes">
+          <XCircle className="w-4 h-4" /> Yes, reject it
+        </Button>
+        <Button variant="outline" onClick={() => setConfirmReject(false)} disabled={loading}>Keep it</Button>
+      </div>
+    </div>
   );
 
   // data-modal-overlay: FieldInfo's popover uses this to close ONLY itself
@@ -953,39 +824,20 @@ function ReviewModal({
             <p className="text-sm text-muted-foreground">{REVIEW_WORKFLOW_STAGE_DISPLAY[stage].hint}</p>
           )}
 
-          {/* ── Live prep status (prep + concept + Test Renders), on Triage step ── */}
-          {step === "triage" && (stage === "prep_pending" || stage === "prep_failed" || isConceptReview || isProductionReview) && (
-            <div className="bg-background border-2 border-border rounded-sm p-4">
-              <PrepStatusPanel
-                enrichmentStatus={isEditableStep ? "ok" : liveEnrichmentStatus}
-                visualConceptStatus={isEditableStep ? visualConceptStatus : undefined}
-                conceptRequired={isConceptReview}
+          {/* ── READING: the draft humor note and the research beneath it ── */}
+          {!isResolved && step === "reading" && isReading && (
+            <div className="space-y-4">
+              {SubmittedFactCard}
+              <ReadingStep
+                reading={detail?.reading}
+                disabled={loading}
+                onApprove={onApproveReading}
+                onRetry={onRetryReading}
               />
-              {stage === "prep_pending" && (
-                <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1.5">
-                  <Loader2 className="w-3 h-3 animate-spin" /> Prep is running — this view updates live; you don't need to refresh.
-                </p>
-              )}
-              {stage === "prep_failed" && (
-                <p className="text-xs text-destructive mt-2 flex items-center gap-1.5">
-                  <AlertTriangle className="w-3.5 h-3.5" />
-                  Enrichment failed after retries. Retry prep, or reject.
-                </p>
-              )}
-              {isConceptReview && (
-                <p className="text-xs text-muted-foreground mt-2">
-                  Prep is complete. Go to <strong>Gags</strong> to review the gags and approve them.
-                </p>
-              )}
-              {isProductionReview && (
-                <p className="text-xs text-muted-foreground mt-2">
-                  Go to <strong>Test Renders</strong> to check the test renders and approve for production.
-                </p>
-              )}
             </div>
           )}
 
-          {/* ── STEP 2: VISUAL CONCEPT (concept_review) — NO renders yet ── */}
+          {/* ── GAGS — NO renders yet ── */}
           {!isResolved && step === "concept" && isConceptReview && (
             <div className="space-y-4">
               {SubmittedFactCard}
@@ -1002,7 +854,7 @@ function ReviewModal({
               {stagingFactId > 0 && (
                 <GagsPanel
                   factId={stagingFactId}
-                  characters={enrichment?.characters}
+                  characters={classification?.characters}
                   reviewId={review.id}
                   rendersEnabled={false}
                   subjectNames={subjectNames}
@@ -1013,7 +865,7 @@ function ReviewModal({
                 />
               )}
 
-              {/* Visual ideas — REQUIRED gate in Step 2: each card offers the
+              {/* Visual ideas — REQUIRED gate on Gags: each card offers the
                   ways to use it on a gag. */}
               <VisualConceptCandidates
                 visualConcepts={detail?.visualConcepts}
@@ -1028,13 +880,13 @@ function ReviewModal({
               {ideasPending && (
                 <p className="text-xs text-muted-foreground flex items-center gap-1.5" data-testid="ideas-pending-note">
                   <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                  Visual ideas are still generating. Wait for them to finish, then retry, edit, reject, or send back to prep.
+                  Visual ideas are still generating from the humor note. This updates live; wait for them to finish.
                 </p>
               )}
               {ideasFailed && (
                 <p className="text-xs text-destructive flex items-center gap-1.5" data-testid="ideas-failed-note">
                   <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                  Visual-ideas generation failed. Regenerate them (above), or reject / send back to prep.
+                  Visual-ideas generation failed. Regenerate them (above), or reject.
                 </p>
               )}
               {visualConceptStatus == null && (
@@ -1051,12 +903,11 @@ function ReviewModal({
                 </p>
               )}
 
-              {DraftSaveBar}
               {AdvancedOptions}
             </div>
           )}
 
-          {/* ── STEP 3: TEST RENDERS (production_review) — renders + all knobs ── */}
+          {/* ── TEST RENDERS — renders, final hashtags ── */}
           {!isResolved && step === "render" && isProductionReview && (
             <div className="space-y-4">
               {SubmittedFactCard}
@@ -1068,7 +919,7 @@ function ReviewModal({
                   <FinalHashtagsEditor
                     finalHashtags={finalHashtags}
                     onFinalHashtagsChange={onFinalHashtagsChange}
-                    aiSuggestions={enrichment?.suggestedHashtags ?? []}
+                    aiSuggestions={suggestedHashtags ?? []}
                   />
                 </div>
               )}
@@ -1079,7 +930,7 @@ function ReviewModal({
               {stagingFactId > 0 && (
                 <GagsPanel
                   factId={stagingFactId}
-                  characters={enrichment?.characters}
+                  characters={classification?.characters}
                   reviewId={review.id}
                   rendersEnabled
                   rendersExpected
@@ -1091,14 +942,8 @@ function ReviewModal({
                 />
               )}
 
-              {DraftSaveBar}
               {AdvancedOptions}
             </div>
-          )}
-
-          {/* ── Resolved: read-only enrichment summary ── */}
-          {isResolved && (detail?.stagingFact?.enrichment ?? review.enrichment) && (
-            <EnrichmentSummary e={(detail?.stagingFact?.enrichment ?? review.enrichment) as FactEnrichment} />
           )}
 
           {/* ── Decision inputs on the Triage step (Gags and Test Renders show them beside their actions) ── */}
@@ -1131,8 +976,9 @@ function ReviewModal({
 
           {/* ── Stage-specific actions ── */}
           <div className="pt-2 border-t border-border space-y-3">
+            {RejectConfirm}
             {/* Triage-step decisions: provisional approve / reject. */}
-            {!isResolved && step === "triage" && stage === "triage_pending" && (
+            {!isResolved && step === "triage" && stage === "triage" && (
               <div className="flex flex-wrap gap-3">
                 <Button onClick={onProvisionalApprove} isLoading={loading} disabled={loading || wordingDirty}
                   className="bg-green-600 hover:bg-green-700 text-white gap-2">
@@ -1146,21 +992,12 @@ function ReviewModal({
               </div>
             )}
 
-            {!isResolved && step === "triage" && stage === "prep_pending" && (
+            {/* A later step reachable from Triage: a "next" affordance. */}
+            {!isResolved && step === "triage" && (isReading || isConceptReview || isProductionReview) && (
               <div className="flex flex-wrap gap-3">
-                <Button variant="outline" onClick={onReject} isLoading={loading}
-                  className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                  <XCircle className="w-4 h-4" /> Reject (cancels prep)
-                </Button>
-                <Button variant="outline" onClick={onClose} disabled={loading}>Close</Button>
-              </div>
-            )}
-
-            {!isResolved && step === "triage" && stage === "prep_failed" && (
-              <div className="flex flex-wrap gap-3">
-                <Button onClick={onProvisionalApprove} isLoading={loading} disabled={loading || wordingDirty}
+                <Button onClick={() => setStep(isReading ? "reading" : isConceptReview ? "concept" : "render")} disabled={loading}
                   className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2">
-                  <RefreshCw className="w-4 h-4" /> Retry Prep
+                  {isReading ? "Continue to Reading" : isConceptReview ? "Continue to Gags" : "Continue to Test Renders"} <ChevronRight className="w-4 h-4" />
                 </Button>
                 <Button variant="outline" onClick={onReject} isLoading={loading}
                   className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
@@ -1170,22 +1007,24 @@ function ReviewModal({
               </div>
             )}
 
-            {/* Concept / Test-Renders reachable from Triage: a "next" affordance. */}
-            {!isResolved && step === "triage" && (isConceptReview || isProductionReview) && (
-              <div className="flex flex-wrap gap-3">
-                <Button onClick={() => setStep(isConceptReview ? "concept" : "render")} disabled={loading}
-                  className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2">
-                  {isConceptReview ? "Continue to Gags" : "Continue to Test Renders"} <ChevronRight className="w-4 h-4" />
-                </Button>
-                <Button variant="outline" onClick={onReject} isLoading={loading}
-                  className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                  <XCircle className="w-4 h-4" /> Reject
-                </Button>
-                <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
+            {/* Reading: approving the note is in the step body; here, reject. */}
+            {!isResolved && step === "reading" && isReading && (
+              <div className="space-y-3">
+                {DecisionInputs}
+                <div className="flex flex-wrap gap-3">
+                  <Button variant="outline" onClick={() => setStep("triage")} disabled={loading} className="gap-2">
+                    <ChevronLeft className="w-4 h-4" /> Back to Triage
+                  </Button>
+                  <Button variant="outline" onClick={onReject} isLoading={loading}
+                    className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
+                    <XCircle className="w-4 h-4" /> Reject
+                  </Button>
+                  <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
+                </div>
               </div>
             )}
 
-            {/* Step 2 (Visual Concept): approve the gag (unlocks renders), or reject. */}
+            {/* Gags: approve the gags (unlocks renders), or reject. */}
             {!isResolved && step === "concept" && isConceptReview && (
               <div className="space-y-3">
                 {DecisionInputs}
@@ -1221,7 +1060,7 @@ function ReviewModal({
               </div>
             )}
 
-            {/* Step 3 (Test Renders): approve for production. */}
+            {/* Test Renders: approve for production. */}
             {!isResolved && step === "render" && isProductionReview && (
               <div className="space-y-3">
                 {DecisionInputs}
@@ -1245,9 +1084,7 @@ function ReviewModal({
                 {!canApproveProduction && (
                   <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                    {!isApprovable(enrichment)
-                      ? "Approve is locked until the enrichment is valid. Re-run classification or fill it in manually."
-                      : gagsUnsaved
+                    {gagsUnsaved
                       ? `Save or undo your edits to ${unsavedGagsWords} first: approving uses the saved gags.`
                       : !hasApprovedGag
                       ? "Approve is locked until a gag has its male, female and pet examples: render them above and approve all three."
@@ -1308,6 +1145,7 @@ function FactReviewsPanel() {
     (r) => deriveModerationQueueState({
       status: r.status,
       workflowStage: r.workflowStage,
+      readingStatus: r.readingStatus ?? null,
       visualConceptStatus: r.stagingFact?.visualConceptStatus ?? null,
       renderReviewState: r.renderReviewState ?? null,
     }).spinner,
@@ -1330,7 +1168,7 @@ function FactReviewsPanel() {
     void load();
   }, [load]);
 
-  const preppingCount = data?.reviews.filter((r) => r.workflowStage === "prep_pending").length ?? 0;
+  const preppingCount = data?.reviews.filter((r) => r.workflowStage === "reading" && r.readingStatus === "pending").length ?? 0;
 
   const totalPages = data ? Math.ceil(data.total / data.limit) : 1;
 
@@ -1378,7 +1216,7 @@ function FactReviewsPanel() {
       {preppingCount > 0 && (
         <div className="p-3 rounded-sm text-sm bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center gap-2">
           <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-          {preppingCount} {preppingCount === 1 ? "fact is" : "facts are"} in AI prep — updating live.
+          {preppingCount} {preppingCount === 1 ? "fact is" : "facts are"} being read — updating live.
         </div>
       )}
 
@@ -1414,6 +1252,7 @@ function FactReviewsPanel() {
             const qs = deriveModerationQueueState({
               status: r.status,
               workflowStage: r.workflowStage,
+              readingStatus: r.readingStatus ?? null,
               visualConceptStatus: r.stagingFact?.visualConceptStatus ?? null,
               renderReviewState: r.renderReviewState ?? null,
             });
@@ -1454,17 +1293,18 @@ function FactReviewsPanel() {
                     </p>
                   )}
                   {/* Per-row live prep status (rule 8: per-item, in place). */}
-                  {r.stagingFact && (r.workflowStage === "prep_pending" || r.workflowStage === "prep_failed" || r.workflowStage === "concept_review" || r.workflowStage === "production_review") && (
+                  {r.stagingFact && (r.workflowStage === "reading" || r.workflowStage === "gags" || r.workflowStage === "test_renders") && (
                     <div className="flex flex-wrap gap-2 mt-2">
-                      <PrepStepPill icon={Sparkles} label="Enrichment" status={r.workflowStage === "concept_review" || r.workflowStage === "production_review" ? "ok" : r.stagingFact.enrichmentStatus} />
-                      {/* Step 2: Visual ideas are the required gate. A null status
-                          (e.g. an old row bounced back) reads as "not generated",
-                          never a spinner. */}
-                      {r.workflowStage === "concept_review" && (
+                      {r.workflowStage === "reading" && (
+                        <PrepStepPill icon={Wand2} label="Reading" status={r.readingStatus ?? null} attentionWhenNull />
+                      )}
+                      {/* Gags: Visual ideas are the required gate. A null status
+                          reads as "not generated", never a spinner. */}
+                      {r.workflowStage === "gags" && (
                         <PrepStepPill icon={Wand2} label="Visual ideas" status={r.stagingFact.visualConceptStatus} attentionWhenNull />
                       )}
-                      {/* Step 3: test renders in flight (re-run, or the forced batch). */}
-                      {r.workflowStage === "production_review" && r.rendersRunning && (
+                      {/* Test Renders: renders in flight (re-run, or the forced batch). */}
+                      {r.workflowStage === "test_renders" && r.rendersRunning && (
                         <PrepStepPill icon={Wand2} label="Test renders" status="pending" />
                       )}
                     </div>

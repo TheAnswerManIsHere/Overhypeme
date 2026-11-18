@@ -21,6 +21,7 @@ import { getConfigString, getConfigInt } from "./lib/adminConfig";
 import { attachShutdownHandlers } from "./shutdown";
 import { registerEmailHandler } from "./lib/email.js";
 import { registerEnrichmentJobHandlers } from "./lib/enrichmentJobs.js";
+import { registerReadingJobHandlers } from "./lib/readingJobs.js";
 import { registerImagePromptHandlers } from "./lib/imagePromptJobs.js";
 import { registerReviewRenderScenarioHandlers } from "./lib/reviewRenderScenarios.js";
 import { registerComparisonHandlers } from "./lib/comparison/runs.js";
@@ -516,6 +517,7 @@ initPricingCache().catch((err: unknown) =>
 // (future fal_*) call their own register* function here.
 registerEmailHandler();
 registerEnrichmentJobHandlers();
+registerReadingJobHandlers();
 registerImagePromptHandlers();
 registerProjectionRepairHandler();
 registerFactEnrichmentBackfillHandler();

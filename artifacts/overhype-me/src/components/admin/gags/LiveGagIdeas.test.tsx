@@ -59,7 +59,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 describe("LiveGagIdeas", () => {
   it("is not shown while a review is open, or for a fact that is not live", () => {
     stubFetch([{ status: null, current: false, candidates: [], humorNote: null }]);
-    const { container, rerender } = render(<LiveGagIdeas factId={5} gagsView={{ ...VIEW, review: { id: 9, stage: "concept_review" } }} onApplied={() => {}} unsavedGagEdits={false} />);
+    const { container, rerender } = render(<LiveGagIdeas factId={5} gagsView={{ ...VIEW, review: { id: 9, stage: "gags" } }} onApplied={() => {}} unsavedGagEdits={false} />);
     expect(container.innerHTML).toBe("");
     rerender(<LiveGagIdeas factId={5} gagsView={{ ...VIEW, isActive: false }} onApplied={() => {}} unsavedGagEdits={false} />);
     expect(container.innerHTML).toBe("");

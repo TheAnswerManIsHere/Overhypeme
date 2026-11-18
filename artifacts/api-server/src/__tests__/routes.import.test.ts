@@ -3,7 +3,7 @@
  *
  * The endpoint is gated by requireApiKey middleware (X-API-Key vs.
  * ADMIN_API_KEY). Since the Phase 2 fact-lifecycle closure it no longer inserts
- * active facts — each valid row becomes a Stage-1 (`triage_pending`) review, so
+ * active facts — each valid row becomes a Stage-1 (`triage`) review, so
  * bulk import LOADS the moderation queue. The API-key path has no user, so its
  * reviews are SYSTEM imports (`submittedById = null`). Tests exercise the auth
  * gate, body-shape guards, Zod per-item validation, dryRun mode, the queue-write
@@ -196,7 +196,7 @@ describe("POST /admin/import/facts — queue-write path", () => {
     const reviews = await reviewsFor(TEXT_PREFIX);
     assert.equal(reviews.length, 2, "two triage reviews queued");
     for (const r of reviews) {
-      assert.equal(r.workflowStage, "triage_pending");
+      assert.equal(r.workflowStage, "triage");
       assert.equal(r.submittedById, null, "API-key import is a system import");
       assert.equal(r.enrichment, null, "no enrichment at ingest (cost gate)");
     }
@@ -220,7 +220,7 @@ describe("POST /admin/import/facts — queue-write path", () => {
 
   it("skips items whose text already exists as an UNRESOLVED review", async () => {
     const text = `${TEXT_PREFIX}dup-review-${randomUUID()}`;
-    await db.insert(pendingReviewsTable).values({ submittedText: text, workflowStage: "triage_pending", status: "pending" });
+    await db.insert(pendingReviewsTable).values({ submittedText: text, workflowStage: "triage", status: "pending" });
 
     const res = await request(makeApp())
       .post("/admin/import/facts")
