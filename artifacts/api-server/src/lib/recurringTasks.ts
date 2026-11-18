@@ -112,6 +112,22 @@ export const RECURRING_TASKS = [
     graceMs: 30 * MINUTE,
   },
   {
+    id: "session_sweep",
+    label: "Expired sign-in session sweep",
+    site: "index.ts",
+    cadenceMs: () => HOUR,
+    firstRunMs: 9 * MINUTE,
+    graceMs: 30 * MINUTE,
+  },
+  {
+    id: "retention_windows",
+    label: "Retention window deletions",
+    site: "index.ts",
+    cadenceMs: () => HOUR,
+    firstRunMs: 9 * MINUTE,
+    graceMs: 30 * MINUTE,
+  },
+  {
     id: "media_backup",
     label: "Media backup",
     site: "index.ts",
@@ -195,10 +211,10 @@ export type TimerSite =
 export const TIMER_SITES: readonly TimerSite[] = [
   {
     file: "index.ts",
-    calls: 9,
+    calls: 10,
     kind: "tasks",
     note:
-      "Seven recurring schedulers (the transient-render timer also runs the provenance purge). Not recurring: the meme-bake backfill (once per boot) and the fatal-exit safety timer.",
+      "Eight recurring schedulers (the transient-render timer also runs the provenance purge; the session timer also runs the retention windows). Not recurring: the meme-bake backfill (once per boot) and the fatal-exit safety timer.",
   },
   { file: "routes/auth.ts", calls: 1, kind: "tasks", note: "Expired sign-in states, every 5 minutes." },
   { file: "lib/membershipSchedules.ts", calls: 1, kind: "tasks", note: "The grace sweep." },
