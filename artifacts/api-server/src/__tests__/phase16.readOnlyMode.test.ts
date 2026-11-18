@@ -176,6 +176,16 @@ describe("with the switch on", () => {
     assert.equal(config.body.readOnlyMode, true);
   });
 
+  it("the general settings page neither lists nor edits the switch", async () => {
+    const app = createApp();
+    const list = await request(app).get("/api/admin/config").set("authorization", `Bearer ${adminSid}`);
+    assert.equal(list.status, 200);
+    assert.ok(!(list.body as Array<{ key: string }>).some((r) => r.key === READ_ONLY_CONFIG_KEY), "listed on the settings page");
+    const edit = await request(app).patch(`/api/admin/config/${READ_ONLY_CONFIG_KEY}`).set("authorization", `Bearer ${adminSid}`).send({ value: "false" });
+    assert.equal(edit.status, 403);
+    assert.equal(await isReadOnly(), true, "still on");
+  });
+
   it("the Stripe webhook is not refused", async () => {
     const res = await request(createApp()).post("/api/stripe/webhook").set("content-type", "application/json").send("{}");
     assert.notEqual(res.body?.code, READ_ONLY_CODE);

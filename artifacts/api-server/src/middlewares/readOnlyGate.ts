@@ -18,7 +18,9 @@ export const READ_ONLY_ROUTES: Readonly<Record<RouteKey, { allowed: boolean; why
   // Signing in and out, and recovering a sign-in (plan D: "signing in and out").
   "POST /auth/local-login": { allowed: true, why: "signing in", beforeLookup: true },
   "POST /auth/logout": { allowed: true, why: "signing out", beforeLookup: true },
-  "POST /callback/apple": { allowed: true, why: "signing in with Apple", beforeLookup: true },
+  // A first Google or Apple sign-in creates the account, so those sign-ups
+  // continue while paused (signing in stays open; PR #1067's follow-up).
+  "POST /callback/apple": { allowed: true, why: "signing in with Apple (a first sign-in creates the account)", beforeLookup: true },
   "POST /auth/dev-admin-login": { allowed: true, why: "signing in (dev admin)", beforeLookup: true },
   "POST /auth/forgot-password": { allowed: true, why: "recovering a sign-in, so an admin can reach the switch", beforeLookup: true },
   "POST /auth/reset-password": { allowed: true, why: "recovering a sign-in, so an admin can reach the switch", beforeLookup: true },
@@ -37,6 +39,10 @@ export const READ_ONLY_ROUTES: Readonly<Record<RouteKey, { allowed: boolean; why
   "POST /activity-feed/mark-read": { allowed: true, why: "bookkeeping opening the activity feed makes" },
   "POST /facts/:factId/share": { allowed: true, why: "the share count opening the share sheet bumps" },
   "POST /share-intents": { allowed: true, why: "the record of which way a meme was shared" },
+  // Undoing harm the pause must not make worse: the deletion job keeps running
+  // (Q3: 1), and a buyer back from Stripe has already paid.
+  "POST /users/me/deletion/cancel": { allowed: true, why: "keeps an account the still-running deletion job would remove" },
+  "POST /stripe/checkout/confirm": { allowed: true, why: "confirms a purchase already paid for" },
   // Q11: 1 — a member may save a name and pronouns, and nothing else (checked on the body below).
   "PATCH /users/me": { allowed: true, why: "a name and pronouns only (Q11); any other field is refused" },
 
@@ -49,7 +55,7 @@ export const READ_ONLY_ROUTES: Readonly<Record<RouteKey, { allowed: boolean; why
   "PUT /users/me/onboarding/draft": { allowed: false, why: "account set-up" },
   "POST /users/me/onboarding": { allowed: false, why: "account set-up" },
   "POST /users/me/deletion": { allowed: false, why: "schedules an account deletion" },
-  "POST /users/me/deletion/cancel": { allowed: false, why: "changes a scheduled deletion" },
+
   "PATCH /users/me/notifications": { allowed: false, why: "changes a profile setting" },
   "POST /users/me/profile-image": { allowed: false, why: "changes a profile" },
   "DELETE /users/me/uploads": { allowed: false, why: "deletes uploads" },
@@ -72,7 +78,7 @@ export const READ_ONLY_ROUTES: Readonly<Record<RouteKey, { allowed: boolean; why
   "POST /memes/:slug/restore": { allowed: false, why: "restores a meme" },
   "POST /share/invite": { allowed: false, why: "sends an invitation email" },
   "POST /stripe/checkout": { allowed: false, why: "starts a purchase" },
-  "POST /stripe/checkout/confirm": { allowed: false, why: "confirms a purchase in the browser; the payment webhook still grants it" },
+
   "POST /stripe/portal": { allowed: false, why: "opens billing management" },
   "POST /stripe/subscription/cancel": { allowed: false, why: "changes a subscription" },
   "POST /stripe/subscription/reactivate": { allowed: false, why: "changes a subscription" },
