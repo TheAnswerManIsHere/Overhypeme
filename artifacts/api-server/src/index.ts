@@ -290,6 +290,7 @@ function scheduleSessionAndRetentionWindowJobs() {
         const { sweepExpiredSessions } = await import("./lib/sessionSweep");
         const result = await sweepExpiredSessions();
         if (result.deleted > 0) logger.info(result, "[session-sweep] run");
+        void recordTaskCompleted("session_sweep");
       } catch (err) {
         logger.error({ err }, "[session-sweep] run failed");
       }
@@ -297,6 +298,7 @@ function scheduleSessionAndRetentionWindowJobs() {
         const { runRetentionWindowJobs } = await import("./lib/dataLifecycle");
         const result = await runRetentionWindowJobs();
         if (Object.values(result).some((n) => n > 0)) logger.info(result, "[retention-windows] run");
+        void recordTaskCompleted("retention_windows");
       } catch (err) {
         logger.error({ err }, "[retention-windows] run failed");
       }
