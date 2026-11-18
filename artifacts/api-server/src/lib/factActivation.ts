@@ -22,6 +22,7 @@
 
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { db, factsTable, factGagsTable } from "@workspace/db";
+import { lockFactRow } from "./reviewLocks";
 
 type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -73,12 +74,7 @@ export async function activateFact(
   { factId, expectedText }: { factId: number; expectedText: string },
 ): Promise<{ id: number }> {
   // 1. Lock the row inside the tx, then assert an approved gag.
-  const [row] = await tx
-    .select({ id: factsTable.id })
-    .from(factsTable)
-    .where(eq(factsTable.id, factId))
-    .for("no key update")
-    .limit(1);
+  const row = await lockFactRow(tx, factId);
   if (!row || !(await hasApprovedGag(tx, factId))) {
     throw new ConceptMissingError(factId);
   }

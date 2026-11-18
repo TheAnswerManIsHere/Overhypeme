@@ -32,6 +32,7 @@ import {
   canApproveReading,
   canRetryReading,
   canSendBackToGags,
+  canEditApprovedNote,
   canProductionApprove,
   canReject,
   approveReadingSchema,
@@ -76,7 +77,7 @@ import { resolveDefaultReferenceUrl, ReferenceAssetUnavailableError } from "../l
 import { referenceAssetHealth } from "../lib/defaultReferenceResolver";
 import { logger } from "../lib/logger";
 import { editTriageWording, WordingError } from "../lib/reviewWording";
-import { lockFactRow, lockReview, ReviewMovedError, reviewMovedBody } from "../lib/reviewLocks";
+import { lockFactRow, lockReviewAt, ReviewMovedError, reviewMovedBody, sendIfReviewMoved } from "../lib/reviewLocks";
 import { latestReading, readingView, startReading } from "../lib/readingJobs";
 import { checkDuplicateInternal } from "./ai";
 import { recordAdminAction } from "../lib/adminActions";
@@ -350,7 +351,7 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
   const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id));
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
 
-  const [submitter, matchingFact, stagingFact, duplicate] = await Promise.all([
+  const [submitter, matchingFact, stagingFact, duplicate, latestRun] = await Promise.all([
     review.submittedById
       ? db.select({ id: usersTable.id, email: usersTable.email, displayName: usersTable.displayName })
           .from(usersTable).where(and(eq(usersTable.id, review.submittedById), eq(usersTable.isActive, true))).limit(1)
@@ -372,6 +373,7 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
           visualConceptStatus: factsTable.visualConceptStatus,
           visualConceptCandidates: factsTable.visualConceptCandidates,
           humorNote: factsTable.humorNote,
+          humorNoteReadingId: factsTable.humorNoteReadingId,
           humorNoteApprovedBy: factsTable.humorNoteApprovedBy,
           humorNoteApprovedAt: factsTable.humorNoteApprovedAt,
         })
@@ -379,8 +381,9 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
           .then((r) => r[0] ?? null)
       : null,
     duplicateView(review),
+    review.stagingFactId != null ? latestReading(review.stagingFactId) : null,
   ]);
-  const reading = review.stagingFactId != null ? await readingView(review.stagingFactId) : null;
+  const reading = stagingFact ? readingView(latestRun, stagingFact) : null;
 
   // Slice 2A: normalized candidate Visual concepts with a SERVER-computed
   // `current` flag (stored reviewId/inputHash vs. the review's
@@ -543,10 +546,8 @@ async function approveForProduction(
   const validatedText = stagingFact.text;
   try {
     await db.transaction(async (tx) => {
-      const locked = await lockReview(tx, reviewId);
-      if (!locked || !canProductionApprove(locked.workflowStage as ReviewWorkflowStage, locked.status) || locked.stagingFactId !== stagingFact.id) {
-        throw new ReviewMovedError(locked?.workflowStage ?? "gone", locked?.status ?? "gone");
-      }
+      const locked = await lockReviewAt(tx, reviewId, canProductionApprove);
+      if (!locked || locked.stagingFactId !== stagingFact.id) throw new ReviewMovedError(locked?.workflowStage ?? "gone", locked?.status ?? "gone");
       // Sole activation chokepoint: locks the fact (after the review, the lock
       // rule's order), re-reads the approved gag in-tx and does the
       // compare-and-set flip. Throws ConceptMissingError /
@@ -670,11 +671,8 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
   let stagingFactId = 0;
   try {
     await db.transaction(async (tx) => {
-      const locked = await lockReview(tx, review.id);
+      const locked = await lockReviewAt(tx, review.id, canProvisionallyApprove);
       if (!locked) throw new ReviewMovedError("gone", "gone");
-      if (!canProvisionallyApprove(locked.workflowStage as ReviewWorkflowStage, locked.status)) {
-        throw new ReviewMovedError(locked.workflowStage, locked.status);
-      }
       const { factId } = await prepareFirstTimeStagingPrep(tx, {
         review: { id: review.id, submittedText: locked.submittedText, submittedById: review.submittedById, submitterDeletedAt: review.submitterDeletedAt, stagingFactId: locked.stagingFactId },
         reviewedById: req.user.id,
@@ -684,8 +682,8 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
       await recordAdminAction({ factId, reviewId: review.id }, req.user.id, "provisional_approval", { adminNote }, tx);
     });
   } catch (err) {
-    if (err instanceof ReviewMovedError) { res.status(409).json(reviewMovedBody(err)); return; }
-    throw err;
+    if (!sendIfReviewMoved(err, res)) throw err;
+    return;
   }
 
   // The taxonomy run (deduped): stored data beside moderation; it never moves
@@ -709,11 +707,8 @@ router.post("/admin/reviews/:id/reading/retry", requireAdmin, async (req: Authen
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   try {
     const outcome = await db.transaction(async (tx) => {
-      const review = await lockReview(tx, id);
-      if (!review) return { kind: "not_found" as const };
-      if (!canRetryReading(review.workflowStage as ReviewWorkflowStage, review.status) || review.stagingFactId == null) {
-        throw new ReviewMovedError(review.workflowStage, review.status);
-      }
+      const review = await lockReviewAt(tx, id, canRetryReading);
+      if (!review || review.stagingFactId == null) return { kind: "not_found" as const };
       const latest = await latestReading(review.stagingFactId, tx);
       if (latest?.status === "pending") return { kind: "running" as const };
       const { readingId } = await startReading(tx, { factId: review.stagingFactId, reviewId: id, requestedBy: req.user.id });
@@ -727,8 +722,8 @@ router.post("/admin/reviews/:id/reading/retry", requireAdmin, async (req: Authen
     }
     res.status(202).json({ success: true, readingId: outcome.readingId });
   } catch (err) {
-    if (err instanceof ReviewMovedError) { res.status(409).json(reviewMovedBody(err)); return; }
-    throw err;
+    if (!sendIfReviewMoved(err, res)) throw err;
+    return;
   }
 });
 
@@ -746,11 +741,8 @@ router.post("/admin/reviews/:id/approve-reading", requireAdmin, async (req: Auth
   const { text, readingId } = parsed.data;
   try {
     const outcome = await db.transaction(async (tx) => {
-      const review = await lockReview(tx, id);
-      if (!review) return { kind: "not_found" as const };
-      if (!canApproveReading(review.workflowStage as ReviewWorkflowStage, review.status) || review.stagingFactId == null) {
-        throw new ReviewMovedError(review.workflowStage, review.status);
-      }
+      const review = await lockReviewAt(tx, id, canApproveReading);
+      if (!review || review.stagingFactId == null) return { kind: "not_found" as const };
       const factId = review.stagingFactId;
       const latest = await latestReading(factId, tx);
       if (!latest || latest.status !== "ok") return { kind: "no_reading" as const };
@@ -784,8 +776,8 @@ router.post("/admin/reviews/:id/approve-reading", requireAdmin, async (req: Auth
     }
     res.json({ success: true, workflowStage: "gags", humorNote: { text, readingId, approvedBy: req.user.id, approvedAt: outcome.approvedAt.toISOString() }, ideasRewritten: outcome.ideasRewritten });
   } catch (err) {
-    if (err instanceof ReviewMovedError) { res.status(409).json(reviewMovedBody(err)); return; }
-    throw err;
+    if (!sendIfReviewMoved(err, res)) throw err;
+    return;
   }
 });
 
@@ -876,10 +868,11 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
   // Every other transition takes the review first too, so a Reject racing an
   // approval serialises on the review row and the second is told the review
   // moved.
-  const outcome = await db.transaction(async (tx) => {
-    const review = await lockReview(tx, id);
+  let outcome;
+  try {
+    outcome = await db.transaction(async (tx) => {
+    const review = await lockReviewAt(tx, id, canReject);
     if (!review) return { kind: "not_found" as const };
-    if (!canReject(review.workflowStage as ReviewWorkflowStage, review.status)) throw new ReviewMovedError(review.workflowStage, review.status);
     const atTriage = review.workflowStage === "triage";
     const now = new Date();
     await tx.update(pendingReviewsTable).set({
@@ -910,13 +903,13 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
     }
     await recordAdminAction({ reviewId: id, factId: review.stagingFactId }, req.user.id, "reject", { reason: rejectionReason, adminNote, stage: review.workflowStage, gagsDiscarded }, tx);
     return { kind: "rejected" as const, review };
-  }).catch((err: unknown) => {
-    if (err instanceof ReviewMovedError) return { kind: "moved" as const, err };
-    throw err;
-  });
+    });
+  } catch (err) {
+    if (!sendIfReviewMoved(err, res)) throw err;
+    return;
+  }
 
   if (outcome.kind === "not_found") { res.status(404).json({ error: "Review not found" }); return; }
-  if (outcome.kind === "moved") { res.status(409).json(reviewMovedBody(outcome.err)); return; }
   const review = outcome.review;
 
   if (review.submittedById) {
@@ -990,16 +983,13 @@ router.post("/admin/reviews/:id/approve-visual-concept", requireAdmin, async (re
   const stagingFactId = review.stagingFactId;
   try {
     await db.transaction(async (tx) => {
-      const locked = await lockReview(tx, id);
-      if (!locked || !canApproveGags(locked.workflowStage as ReviewWorkflowStage, locked.status)) {
-        throw new ReviewMovedError(locked?.workflowStage ?? "gone", locked?.status ?? "gone");
-      }
+      if (!(await lockReviewAt(tx, id, canApproveGags))) throw new ReviewMovedError("gone", "gone");
       await tx.update(pendingReviewsTable).set({ workflowStage: "test_renders" }).where(eq(pendingReviewsTable.id, id));
       await recordAdminAction({ reviewId: id, factId: stagingFactId }, req.user.id, "gag_approval", {}, tx);
     });
   } catch (err) {
-    if (err instanceof ReviewMovedError) { res.status(409).json(reviewMovedBody(err)); return; }
-    throw err;
+    if (!sendIfReviewMoved(err, res)) throw err;
+    return;
   }
 
   // Post-commit — ONLY because THIS request made the transition: draw the
@@ -1031,19 +1021,16 @@ router.post("/admin/reviews/:id/back-to-visual-concept", requireAdmin, async (re
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   try {
     const moved = await db.transaction(async (tx) => {
-      const review = await lockReview(tx, id);
+      const review = await lockReviewAt(tx, id, canSendBackToGags);
       if (!review) return false;
-      if (!canSendBackToGags(review.workflowStage as ReviewWorkflowStage, review.status)) {
-        throw new ReviewMovedError(review.workflowStage, review.status);
-      }
       await tx.update(pendingReviewsTable).set({ workflowStage: "gags" }).where(eq(pendingReviewsTable.id, id));
       await recordAdminAction({ reviewId: id, factId: review.stagingFactId }, req.user.id, "back_to_gags", {}, tx);
       return true;
     });
     if (!moved) { res.status(404).json({ error: "Review not found" }); return; }
   } catch (err) {
-    if (err instanceof ReviewMovedError) { res.status(409).json(reviewMovedBody(err)); return; }
-    throw err;
+    if (!sendIfReviewMoved(err, res)) throw err;
+    return;
   }
   logger.info({ reviewId: id, adminUserId: req.user.id }, "[moderation] review sent back to Gags");
   res.json({ success: true, workflowStage: "gags" });
@@ -1372,10 +1359,7 @@ router.post("/admin/reviews/:id/visual-concepts/regenerate", requireAdmin, async
   const stagingFactId = review.stagingFactId;
   try {
     await db.transaction(async (tx) => {
-      const locked = await lockReview(tx, id);
-      if (!locked || locked.status !== "pending" || locked.workflowStage !== "gags") {
-        throw new ReviewMovedError(locked?.workflowStage ?? "gone", locked?.status ?? "gone");
-      }
+      if (!(await lockReviewAt(tx, id, canApproveGags))) throw new ReviewMovedError("gone", "gone");
       await lockFactRow(tx, stagingFactId);
       await enqueueVisualConceptsForReview({
         reviewId: id,
@@ -1386,8 +1370,8 @@ router.post("/admin/reviews/:id/visual-concepts/regenerate", requireAdmin, async
       await recordAdminAction({ reviewId: id, factId: stagingFactId }, req.user.id, "gag_ideas_requested", { withDraft: draft != null }, tx);
     });
   } catch (err) {
-    if (err instanceof ReviewMovedError) { res.status(409).json(reviewMovedBody(err)); return; }
-    throw err;
+    if (!sendIfReviewMoved(err, res)) throw err;
+    return;
   }
   logger.info({ reviewId: id, hasDraft: draft != null, adminId: req.user.id }, "[moderation] visual concepts regenerate");
   res.status(202).json({ success: true, visualConceptStatus: "pending" });
@@ -1408,11 +1392,8 @@ router.put("/admin/reviews/:id/humor-note", requireAdmin, async (req: Authentica
   try {
     const saved = await db.transaction(async (tx) => {
       // The lock rule (lib/reviewLocks.ts): the review, then the fact.
-      const review = await lockReview(tx, id);
-      if (!review) return { kind: "not_found" as const };
-      if (review.status !== "pending" || (review.workflowStage !== "gags" && review.workflowStage !== "test_renders") || review.stagingFactId == null) {
-        throw new ReviewMovedError(review.workflowStage, review.status);
-      }
+      const review = await lockReviewAt(tx, id, canEditApprovedNote);
+      if (!review || review.stagingFactId == null) return { kind: "not_found" as const };
       const factId = review.stagingFactId;
       await lockFactRow(tx, factId);
       const rows = await tx
@@ -1428,8 +1409,8 @@ router.put("/admin/reviews/:id/humor-note", requireAdmin, async (req: Authentica
     logger.info({ reviewId: id, factId: saved.factId, adminId: req.user.id }, "[moderation] humor note saved");
     res.json({ humorNote: { text: saved.text, approvedBy: req.user.id, approvedAt: approvedAt.toISOString() } });
   } catch (err) {
-    if (err instanceof ReviewMovedError) { res.status(409).json(reviewMovedBody(err)); return; }
-    throw err;
+    if (!sendIfReviewMoved(err, res)) throw err;
+    return;
   }
 });
 

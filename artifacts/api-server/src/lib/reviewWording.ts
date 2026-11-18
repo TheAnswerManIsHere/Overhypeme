@@ -22,6 +22,7 @@ import { db, pendingReviewsTable } from "@workspace/db";
 import { canEditWording, SUBMISSION_TEXT_MAX_CHARS, SUBMISSION_TEXT_MIN_CHARS, type ReviewWorkflowStage } from "@workspace/api-zod";
 import { normalizeFactTemplateForPendingReview } from "./normalizeFactTemplateForStorage";
 import { runDetector, storedDuplicateColumns, type DuplicateDetector } from "./duplicateVerdict";
+import { lockReview } from "./reviewLocks";
 
 
 export class WordingError extends Error {
@@ -35,8 +36,6 @@ export class WordingError extends Error {
   }
 }
 
-import { lockReview } from "./reviewLocks";
-export { lockReview };
 
 /** Validate and normalise a proposed wording exactly as a submission is. */
 export function normaliseWording(raw: string): string {

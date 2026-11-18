@@ -90,31 +90,16 @@ function toView(row: typeof factReadingsTable.$inferSelect): FactReadingView {
   };
 }
 
-/** What the Reading step shows for a fact: its latest run and its approved note. */
-export async function readingView(factId: number, executor: Executor = db): Promise<ReviewReadingView> {
-  const [latest, [fact]] = await Promise.all([
-    latestReading(factId, executor),
-    executor
-      .select({
-        humorNote: factsTable.humorNote,
-        humorNoteReadingId: factsTable.humorNoteReadingId,
-        humorNoteApprovedBy: factsTable.humorNoteApprovedBy,
-        humorNoteApprovedAt: factsTable.humorNoteApprovedAt,
-      })
-      .from(factsTable)
-      .where(eq(factsTable.id, factId))
-      .limit(1),
-  ]);
-  const text = fact?.humorNote?.trim();
+/** What the Reading step shows: the fact's latest run and its approved note, from rows the caller read. */
+export function readingView(
+  latest: typeof factReadingsTable.$inferSelect | null,
+  fact: { humorNote: string | null; humorNoteReadingId: number | null; humorNoteApprovedBy: string | null; humorNoteApprovedAt: Date | null },
+): ReviewReadingView {
+  const text = fact.humorNote?.trim();
   return {
     latest: latest ? toView(latest) : null,
     approved: text
-      ? {
-          text,
-          readingId: fact!.humorNoteReadingId ?? null,
-          approvedBy: fact!.humorNoteApprovedBy ?? null,
-          approvedAt: (fact!.humorNoteApprovedAt ?? new Date(0)).toISOString(),
-        }
+      ? { text, readingId: fact.humorNoteReadingId, approvedBy: fact.humorNoteApprovedBy, approvedAt: (fact.humorNoteApprovedAt ?? new Date(0)).toISOString() }
       : null,
   };
 }
@@ -169,16 +154,21 @@ export class ReadingOutputInvalid extends Error {
   }
 }
 
-/** Read one fact: one web-search call returning the research and the draft note. */
-export async function readFact(factText: string): Promise<ReadingCallResult> {
-  const started = Date.now();
-  const raw = await callWebSearchModel(buildWebSearchRequest({
-    systemPrompt: await getReadingSystem(),
+/** The reading's request body: the web-search call with its schema and budget. Pure; the AI settings page reads it too. */
+export function buildReadingRequest(systemPrompt: string, factText: string) {
+  return buildWebSearchRequest({
+    systemPrompt,
     userMessage: `FACT:\n${factText.trim()}`,
     schemaName: "fact_reading",
     schema: READING_JSON_SCHEMA,
     maxOutputTokens: READING_MAX_OUTPUT_TOKENS,
-  }));
+  });
+}
+
+/** Read one fact: one web-search call returning the research and the draft note. */
+export async function readFact(factText: string): Promise<ReadingCallResult> {
+  const started = Date.now();
+  const raw = await callWebSearchModel(buildReadingRequest(await getReadingSystem(), factText));
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);

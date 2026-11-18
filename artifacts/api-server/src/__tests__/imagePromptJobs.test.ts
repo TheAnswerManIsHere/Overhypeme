@@ -379,9 +379,9 @@ describe("image_prompt_generation handler — deterministic failures are termina
     assert.equal(await generationJob(attemptId), undefined, "no image_generation job enqueued");
   }
 
-  it("a corrupt frozen enrichment → invalid_persisted_enrichment", async () => {
+  it("a corrupt frozen gag → invalid_persisted_enrichment (the classification beside it is not read)", async () => {
     installLlmCounter();
-    const attemptId = await seedHandlerAttempt({ snapshot: { primaryArchetype: "nope" } });
+    const attemptId = await seedHandlerAttempt({ snapshot: { primaryArchetype: "nope", visualPromptStrategyOverride: { version: 99 } } });
     await assertTerminal(attemptId, "invalid_persisted_enrichment");
     assert.equal(llmCalls, 0);
   });

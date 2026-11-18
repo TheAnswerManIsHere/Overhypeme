@@ -24,7 +24,7 @@ import { db, pool, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
-import { sqlAsOf0155 } from "../lib/stageLabelsAsOf0155.js";
+import { sqlAsOf0155 } from "../testing/stageLabelsAsOf0155.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../../../..");

@@ -87,6 +87,11 @@ export function canApproveGags(stage: ReviewWorkflowStage, status: string): bool
   return status === "pending" && stage === "gags";
 }
 
+/** Correct the approved humor note: on Gags or Test Renders (it is first approved at Reading). */
+export function canEditApprovedNote(stage: ReviewWorkflowStage, status: string): boolean {
+  return status === "pending" && (stage === "gags" || stage === "test_renders");
+}
+
 /** Back to gags: Test Renders → Gags. */
 export function canSendBackToGags(stage: ReviewWorkflowStage, status: string): boolean {
   return status === "pending" && stage === "test_renders";

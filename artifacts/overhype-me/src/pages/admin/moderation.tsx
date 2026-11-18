@@ -90,8 +90,6 @@ interface Review {
   duplicate?: DuplicateView;
   approvedFactId: number | null;
   hashtags: string[] | null;
-  enrichment: FactEnrichment | null;
-  enrichmentStatus: string | null;
   /** True while a test render (auto-batch or manual re-run) is queued/rendering. */
   rendersRunning?: boolean;
   /** Coarse render state (Test Renders rows only; null otherwise). */
@@ -159,44 +157,33 @@ function StageBadge({ stage }: { stage: ReviewWorkflowStage }) {
 }
 
 /**
- * One prep step's live state. null/"pending" render as "working" (spinner).
- *
- * `optional` steps (e.g. best-effort seeding) never block approval, so they use a
- * softened palette: a failure reads as muted "unavailable" (not the alarming
- * destructive red of a required step), and a `null` status means "not run yet"
- * (muted, no spinner) rather than "working".
- *
- * `attentionWhenNull` is for a REQUIRED step whose `null` means "never generated
- * for this cycle" (e.g. Visual ideas on a review the stage cutover moved to
- * Gags) — an actionable not-ready state, NOT work in progress. It renders as
- * amber "not generated" with no spinner.
+ * One background step's live state on a queue row: null/"pending" render as
+ * "working" (spinner). `attentionWhenNull` is for a step whose `null` means
+ * "never run for this cycle" (e.g. Visual ideas on a review the stage cutover
+ * moved to Gags) — an actionable not-ready state, NOT work in progress. It
+ * renders as amber "not generated" with no spinner.
  */
-function PrepStepPill({ icon: Icon, label, status, optional, attentionWhenNull }: { icon: typeof Wand2; label: string; status: PrepStatus; optional?: boolean; attentionWhenNull?: boolean }) {
+function PrepStepPill({ icon: Icon, label, status, attentionWhenNull }: { icon: typeof Wand2; label: string; status: PrepStatus; attentionWhenNull?: boolean }) {
   const ok = status === "ok";
   const failed = status === "failed";
-  const notGenerated = !optional && attentionWhenNull === true && status == null;
-  const notStarted = optional && status == null;
+  const notGenerated = attentionWhenNull === true && status == null;
   const tone = ok
     ? "text-green-600 dark:text-green-400 border-green-500/30 bg-green-500/10"
     : failed
-    ? (optional ? "text-amber-700 dark:text-amber-400 border-amber-500/30 bg-amber-500/10" : "text-destructive border-destructive/30 bg-destructive/10")
+    ? "text-destructive border-destructive/30 bg-destructive/10"
     : notGenerated
     ? "text-amber-700 dark:text-amber-400 border-amber-500/30 bg-amber-500/10"
-    : notStarted
-    ? "text-muted-foreground border-border bg-muted/40"
     : "text-blue-600 dark:text-blue-400 border-blue-500/30 bg-blue-500/10";
-  const word = ok ? "ready" : failed ? (optional ? "unavailable" : "failed") : notGenerated ? "not generated" : notStarted ? "not run" : "working…";
+  const word = ok ? "ready" : failed ? "failed" : notGenerated ? "not generated" : "working…";
   return (
     <span className={`inline-flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-sm border ${tone}`}>
       <Icon className="w-3.5 h-3.5 shrink-0" />
       <span className="font-semibold">{label}</span>
       {ok ? <CheckCircle2 className="w-3.5 h-3.5" />
-        : failed ? (optional ? <AlertTriangle className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />)
+        : failed ? <XCircle className="w-3.5 h-3.5" />
         : notGenerated ? <AlertTriangle className="w-3.5 h-3.5" />
-        : notStarted ? null
         : <Loader2 className="w-3.5 h-3.5 animate-spin" />}
       <span>{word}</span>
-      {optional && <span className="text-[10px] font-mono opacity-70">optional</span>}
     </span>
   );
 }

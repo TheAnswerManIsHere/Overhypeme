@@ -17,7 +17,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { sql } from "drizzle-orm";
 import { db, pool } from "@workspace/db";
-import { sqlAsOf0155 } from "../lib/stageLabelsAsOf0155.js";
+import { sqlAsOf0155 } from "../testing/stageLabelsAsOf0155.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../../../..");

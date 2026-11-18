@@ -30,7 +30,7 @@ import { memeKey } from "../../lib/storageKeys";
 import { includedTables, primaryKey, quoteIdent, sqlColumnRules, sqlName } from "./allowlist";
 import type { ExportManifest, Row } from "./export";
 import { journalHead, migrationSql } from "./journal";
-import { sqlAsOf0155 } from "../../lib/stageLabelsAsOf0155";
+import { sqlAsOf0155 } from "../stageLabelsAsOf0155";
 import { RETIRED_ADMIN_CONFIG_KEYS } from "../../lib/retirementLosses";
 import { objectPathOf, type MediaPlaceholder } from "./media";
 import { fixtureRetirement, retireRows, withoutRetired, type FixtureRetirement } from "./retired";

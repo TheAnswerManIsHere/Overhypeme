@@ -2,7 +2,6 @@
  * @purpose The one lock rule for a submission's rows: the review, then its staging fact, then that fact's gags.
  * @subsystem moderation
  *
- * Issue #1018, increment 1.2c-ii (named requirement from PR #1036 round 1).
  * Every transaction that changes a submission takes its row locks in this
  * order, and no other:
  *
@@ -26,19 +25,19 @@
  * review to decide whether to write (the reading job) takes level 1 first.
  */
 import { eq } from "drizzle-orm";
-import { db, factsTable, pendingReviewsTable } from "@workspace/db";
-import { REVIEW_MOVED_CODE } from "@workspace/api-zod";
-
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+import type { Response } from "express";
+import { factsTable, pendingReviewsTable } from "@workspace/db";
+import { REVIEW_MOVED_CODE, type ReviewWorkflowStage } from "@workspace/api-zod";
+import type { Executor } from "./visualConceptOwner";
 
 /** Level 1: lock a review row and return it as it stands under the lock. */
-export async function lockReview(tx: Tx, reviewId: number) {
+export async function lockReview(tx: Executor, reviewId: number) {
   const [review] = await tx.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId)).for("no key update").limit(1);
   return review ?? null;
 }
 
 /** Level 2: lock a fact row. Call after the review's lock when there is a review. */
-export async function lockFactRow(tx: Tx, factId: number): Promise<{ id: number; isActive: boolean } | null> {
+export async function lockFactRow(tx: Executor, factId: number): Promise<{ id: number; isActive: boolean } | null> {
   const [fact] = await tx
     .select({ id: factsTable.id, isActive: factsTable.isActive })
     .from(factsTable)
@@ -57,7 +56,32 @@ export class ReviewMovedError extends Error {
   }
 }
 
+/**
+ * Level 1 for a transition: lock the review and check it is where the
+ * transition acts (`allowed`, one of the moderationWorkflow guards). Returns
+ * the locked row, or null when there is no such review; throws
+ * ReviewMovedError when it is somewhere else.
+ */
+export async function lockReviewAt(
+  tx: Executor,
+  reviewId: number,
+  allowed: (stage: ReviewWorkflowStage, status: string) => boolean,
+) {
+  const review = await lockReview(tx, reviewId);
+  if (review && !allowed(review.workflowStage as ReviewWorkflowStage, review.status)) {
+    throw new ReviewMovedError(review.workflowStage, review.status);
+  }
+  return review;
+}
+
 /** The response body every route sends for a ReviewMovedError. */
 export function reviewMovedBody(err: ReviewMovedError): { error: string; code: typeof REVIEW_MOVED_CODE; workflowStage: string } {
   return { error: err.message, code: REVIEW_MOVED_CODE, workflowStage: err.stage };
+}
+
+/** Answer a route's ReviewMovedError with the one 409; false for any other error (the caller rethrows). */
+export function sendIfReviewMoved(err: unknown, res: Response): boolean {
+  if (!(err instanceof ReviewMovedError)) return false;
+  res.status(409).json(reviewMovedBody(err));
+  return true;
 }

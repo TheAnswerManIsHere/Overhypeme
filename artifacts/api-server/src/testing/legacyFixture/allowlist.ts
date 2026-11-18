@@ -598,6 +598,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
   exclude(s.shareIntentsTable, "telemetry", "per-visitor share events"),
   exclude(s.activityFeedTable, "telemetry", "per-user notification prose"),
   exclude(s.adminActionsTable, "telemetry", "who did what to which fact: admin identities and their edits, written from 0152 on"),
+  exclude(s.factReadingsTable, "not-catalogue", "moderation reading runs (paid research and draft notes), written from 0155 on; the committed fixture predates them"),
   exclude(s.userFactPreferencesTable, "telemetry", "per-user viewing state"),
   exclude(s.referenceResearchCacheTable, "not-catalogue", "cached admin research calls"),
   exclude(s.evalRunsTable, "not-catalogue", "the eval lane, dropped with image_prompt_attempts.eval_*"),
