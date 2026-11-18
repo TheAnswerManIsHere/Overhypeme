@@ -32,7 +32,7 @@ import {
   widestStaleThresholdMs,
   type JobLane,
 } from "./asyncJobs";
-import { heartbeatTtlMinutes } from "./workerHeartbeats";
+import { heartbeatTtlMinutes, NOT_A_TASK_ROW } from "./workerHeartbeats";
 
 /** The five raw statuses `async_jobs.status` can hold (`recovering`: Issue #1000). */
 export const RAW_JOB_STATUSES = ["pending", "recovering", "processing", "done", "failed"] as const;
@@ -168,7 +168,7 @@ export async function laneHealth(
       inFlightCount: sql<number>`coalesce(sum(${workerLaneHeartbeatsTable.inFlightCount}), 0)::int`,
     })
     .from(workerLaneHeartbeatsTable)
-    .where(sql`${workerLaneHeartbeatsTable.lastScheduledAt} >= ${liveCutoff}`)
+    .where(sql`${workerLaneHeartbeatsTable.lastScheduledAt} >= ${liveCutoff} AND ${NOT_A_TASK_ROW}`)
     .groupBy(workerLaneHeartbeatsTable.lane);
 
   const byLane = new Map(rows.map((r) => [r.lane, r]));

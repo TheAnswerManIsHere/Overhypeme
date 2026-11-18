@@ -111,6 +111,22 @@ const noneById = (kind: string) => (id: string) => Promise.reject(resourceMissin
 const webhookEndpoints = new Map<string, Stripe.WebhookEndpoint>();
 let webhookSeq = 0;
 
+/**
+ * Events the fake account holds, newest first, as Stripe lists them. Empty
+ * unless a test seeds some: the event channel itself is a later increment.
+ */
+let fakeEvents: Stripe.Event[] = [];
+export function __setFakeStripeEventsForTests(events: readonly Stripe.Event[]): void {
+  fakeEvents = [...events].sort((a, b) => b.created - a.created);
+}
+
+function listEvents(params?: unknown): Stripe.ApiListPromise<Stripe.Event> {
+  const created = ((params ?? {}) as { created?: { gte?: number; lte?: number } }).created ?? {};
+  const inRange = fakeEvents.filter((e) =>
+    (created.gte === undefined || e.created >= created.gte) && (created.lte === undefined || e.created <= created.lte));
+  return list(inRange, params);
+}
+
 function findById<T extends { id: string }>(items: readonly T[], kind: string, id: string): Promise<Stripe.Response<T>> {
   const found = items.find((i) => i.id === id);
   return found ? respond(found) : Promise.reject(resourceMissing(kind, id));
@@ -157,6 +173,7 @@ const appSurface: StripeApi = {
     retrieve: noneById("customer"),
   },
   disputes: { retrieve: noneById("dispute") },
+  events: { list: listEvents },
   invoicePayments: {
     list: empty<Stripe.InvoicePayment>,
   },

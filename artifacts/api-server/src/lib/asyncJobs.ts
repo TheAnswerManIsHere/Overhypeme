@@ -40,6 +40,8 @@ import {
   pruneDepartedInstances,
   heartbeatTtlMinutes,
 } from "./workerHeartbeats";
+import { recordTaskCompleted } from "./recurringTasks";
+import { reportOperationalAlert } from "./operationalAlerts";
 
 // ─── Handler registry ───────────────────────────────────────────────────────
 
@@ -126,6 +128,7 @@ const LANE_OF_QUEUE = new Map<string, JobLane>();
 /** Per-queue run settings beyond the lane. Kept in lockstep with HANDLERS. */
 interface QueueSettings {
   executionLimitMs: number;
+  alertWhenHeldMs: number;
   recoveryProtocol: number | null;
   fastReclaim: boolean;
   retriesRecover: boolean;
@@ -175,6 +178,22 @@ export interface RegisterJobHandlerOptions {
    * protection. Needs `recoveryProtocol`.
    */
   retriesRecover?: boolean;
+  /**
+   * How long one claim of this queue may be held before the health check
+   * (`/api/health/alerts`, launch Phase 16) reads it as wedged. Telemetry only:
+   * it changes nothing about claiming, leasing, renewal or reclaim. Omit for
+   * the execution limit plus `HELD_ALERT_MARGIN_MS`, which a healthy run
+   * cannot reach because the limit ends it first.
+   */
+  alertWhenHeldMs?: number;
+}
+
+/** What a held claim may exceed its queue's execution limit by before it reads as wedged. */
+export const HELD_ALERT_MARGIN_MS = 15 * 60_000;
+
+/** How long a claim of `queue` may be held before the health check reads it as wedged. */
+export function heldAlertMsOf(queue: string): number {
+  return SETTINGS_OF_QUEUE.get(queue)?.alertWhenHeldMs ?? DEFAULT_EXECUTION_LIMIT_MS + HELD_ALERT_MARGIN_MS;
 }
 
 /**
@@ -196,8 +215,13 @@ export function registerJobHandler(
   if (opts?.retriesRecover && opts.recoveryProtocol == null) {
     throw new Error(`[asyncJobs] ${queue}: retriesRecover needs a recoveryProtocol`);
   }
+  const alertWhenHeldMs = opts?.alertWhenHeldMs ?? executionLimitMs + HELD_ALERT_MARGIN_MS;
+  if (!(Number.isFinite(alertWhenHeldMs) && alertWhenHeldMs > 0)) {
+    throw new Error(`[asyncJobs] ${queue}: alertWhenHeldMs must be a positive number of milliseconds`);
+  }
   SETTINGS_OF_QUEUE.set(queue, {
     executionLimitMs,
+    alertWhenHeldMs,
     recoveryProtocol: opts?.recoveryProtocol ?? null,
     fastReclaim: opts?.fastReclaim ?? false,
     retriesRecover: opts?.retriesRecover ?? false,
@@ -701,6 +725,9 @@ async function finalizeOutcome(
       { ...laneField(lane), queue: row.queue, id: row.id, error: outcomeError },
       `${lanePrefix(lane)} job failed terminally (deterministic, not retried)`,
     );
+    // Launch Phase 16: a job that failed for good, reported from the one place
+    // the core finalises a failure. No database write; never throws.
+    reportOperationalAlert("job_failed", { queue: row.queue, jobId: row.id, attempts: newAttempts, how: "failed_without_retry" });
     return;
   }
 
@@ -709,6 +736,7 @@ async function finalizeOutcome(
       { ...laneField(lane), queue: row.queue, id: row.id, error: outcomeError },
       `${lanePrefix(lane)} job abandoned after max retries`,
     );
+    reportOperationalAlert("job_failed", { queue: row.queue, jobId: row.id, attempts: newAttempts, how: "retries_exhausted" });
     // Reached only after the fenced terminal transition succeeded (plan §A).
     if (handler.onAbandon) {
       try {
@@ -1004,6 +1032,10 @@ export async function recoverStuckProcessing(
       { id: r.id, queue: r.queue, previousOwner: r.claimOwner, to: r.status },
       "[asyncJobs] reclaimed a job whose holder stopped renewing its lease",
     );
+    // Launch Phase 16: recorded in Sentry at warning level and shown in admin;
+    // the phone rule leaves this source out (David's Q6: 1 — a job that
+    // resumes on its own does not ring).
+    reportOperationalAlert("job_interrupted", { queue: r.queue, jobId: r.id, to: String(r.status) });
   }
 
   // Taken back from a stopped holder like any other row (plan §A): a queue
@@ -1020,6 +1052,7 @@ export async function recoverStuckProcessing(
     .returning({ id: asyncJobsTable.id, queue: asyncJobsTable.queue, status: asyncJobsTable.status });
   for (const r of legacy) {
     logger.info({ id: r.id, queue: r.queue, to: r.status }, "[asyncJobs] reclaimed an unleased job left processing by an earlier release");
+    reportOperationalAlert("job_interrupted", { queue: r.queue, jobId: r.id, to: String(r.status) });
   }
   return leased.length + legacy.length;
 }
@@ -1286,13 +1319,16 @@ export function createLaneRunner(
     // rows stranded in `processing` runs on its own timer, plan §A.)
     if (Date.now() - lastPurgeAt >= PURGE_INTERVAL_MS) {
       lastPurgeAt = Date.now();
+      let purgedEveryQueue = true;
       for (const queue of HANDLERS.keys()) {
         try {
           await purgeTerminalJobs(defaultDb, queue);
         } catch (err) {
+          purgedEveryQueue = false;
           logger.error({ lane: config.lane, err, queue }, `[asyncJobs:${config.lane}] retention purge failed`);
         }
       }
+      if (purgedEveryQueue) void recordTaskCompleted("job_retention_purge");
       // Same cadence as the purge: drop heartbeat rows for instances that have
       // stopped writing. Without this, every autoscale scale-down leaves a row
       // that never advances again and the lane reads as permanently stalled.
@@ -1441,6 +1477,7 @@ export function startLeaseTimers(
     renewing = true;
     try {
       await renewHeldLeases(defaultDb);
+      void recordTaskCompleted("lease_renewal");
     } catch (err) {
       // A failed renewal is not a lost lease yet: the next one, inside the
       // lease's 90 s, either renews or finds the lease gone and stops the run.
@@ -1454,6 +1491,7 @@ export function startLeaseTimers(
     reclaiming = true;
     try {
       await recoverStuckProcessing(defaultDb, RECOVER_STUCK_CUTOFF_MIN);
+      void recordTaskCompleted("job_reclaim");
     } catch (err) {
       logger.error({ err }, "[asyncJobs] reclaim sweep failed");
     } finally {

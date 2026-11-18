@@ -384,6 +384,17 @@ deliberately excludes them and points here instead.
     names, payloads, or error text, on either path — and a routine
     autoscale scale-down (one instance quietly going away) never trips it,
     since only a fleet-wide stall or an evaluation failure does.
+  - `GET /api/health/alerts` — **unauthenticated**, the address the one
+    Sentry uptime check calls (launch Phase 16, increment 2;
+    `lib/operationalHealth.ts`). 503 when a lane is stalled fleet-wide, a
+    recurring task's last completed run is overdue (`lib/recurringTasks.ts`:
+    the inventory of every timer, held to the source by a test; completions
+    in `worker_lane_heartbeats` as `task:<id>` rows, outside the lane
+    pruning), a due job is unclaimed or a claim is held past its queue's
+    `alertWhenHeldMs`, or Stripe holds an expected event the webhook has not
+    processed; and 503 when any part cannot be judged. States and counts
+    only; the verdict is cached 20 s. The admin Operations page shows the
+    same verdict with its detail.
 - **Two derived display states**, because raw `async_jobs.status` collapses
   distinctions the async-UI contract ([`async-ui-status.md`](./async-ui-status.md))
   requires as first-class:

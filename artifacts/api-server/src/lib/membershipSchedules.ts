@@ -24,6 +24,7 @@
 import { loadMembershipConfig } from "./membershipTiming.js";
 import { sweepExpiredGrace } from "./membershipGraceSweep.js";
 import { logger } from "./logger.js";
+import { recordTaskCompleted } from "./recurringTasks.js";
 
 /**
  * Null until a sweep has actually succeeded.
@@ -112,6 +113,7 @@ export async function runGraceSweepOnce(opts: { asOf?: Date } = {}): Promise<voi
   try {
     const result = await sweepExpiredGrace(opts);
     lastSuccessfulSweepAt = (opts.asOf ?? new Date()).getTime();
+    void recordTaskCompleted("grace_sweep");
     lastConverged = result.converged;
     lastError = null;
     consecutiveFailures = 0;

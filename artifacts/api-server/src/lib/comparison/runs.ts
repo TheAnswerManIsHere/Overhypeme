@@ -49,7 +49,8 @@ import {
   type FactEnrichment,
 } from "@workspace/api-zod";
 import { RESUMES_FROM_CHECKPOINTS, enqueueJob, registerJobHandler, terminalFailure, type HandlerResult } from "../asyncJobs";
-import { assertJobOwnership, fencedTransaction } from "../jobFence";
+import { JobOwnershipLostError, assertJobOwnership, fencedTransaction } from "../jobFence";
+import { reportOperationalAlert } from "../operationalAlerts";
 import { defaultScenarioRenderControls, syntheticAnalysisForReference } from "../reviewRenderScenarios";
 import { ReferenceAssetUnavailableError, resolveDefaultReferenceUrl } from "../defaultReferenceResolver";
 import { resolveRenderReviewInput } from "../imagePrompt/resolveRenderReviewInput";
@@ -209,10 +210,32 @@ async function release(reservationId: number): Promise<void> {
  * No bill is read (David's override, 2026-11-07); fal's dashboard is the
  * record of what was actually billed.
  */
-async function settleAtBound(reservationId: number): Promise<void> {
+const writeSettlement = async (reservationId: number): Promise<void> => {
   await fencedTransaction(db, (tx) => tx.update(comparisonReservationsTable)
     .set({ state: "settled", settledUsd: sql`${comparisonReservationsTable.boundUsd}`, settledAt: new Date() })
     .where(and(eq(comparisonReservationsTable.id, reservationId), eq(comparisonReservationsTable.state, "reserved"))));
+};
+let settlementWrite = writeSettlement;
+/** Test seam: the settlement write, so a test can make it fail. */
+export function __setSettlementWriteForTest(fn: typeof writeSettlement | null): void {
+  settlementWrite = fn ?? writeSettlement;
+}
+
+export async function settleAtBound(reservationId: number): Promise<void> {
+  try {
+    await settlementWrite(reservationId);
+  } catch (err) {
+    // The paid render has already returned: this is the accounting write after
+    // a vendor call, and it did not land (launch Phase 16, "spend that could
+    // not be recorded"). Reported without a database write, then thrown on
+    // exactly as before. A run that lost its claim is not reported: the write
+    // was refused because another run holds the job, not because the ledger
+    // failed, and the job's own outcome is that other run's.
+    if (!(err instanceof JobOwnershipLostError)) {
+      reportOperationalAlert("unrecorded_spend", { what: "comparison_settlement", reservationId });
+    }
+    throw err;
+  }
 }
 
 /** A run ends when none of its items is still in flight. */
