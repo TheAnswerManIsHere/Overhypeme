@@ -14,15 +14,16 @@
  */
 import { timingSafeEqual } from "node:crypto";
 import type { Request, Response, NextFunction } from "express";
+import { isProductionEnv } from "../lib/env";
 
 export const DEV_PREVIEW_COOKIE = "dev_preview_key";
 export const DEV_PREVIEW_HEADER = "x-dev-preview-key";
 const GATE_PATH = "/api/dev-preview-gate";
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 /** True in a Replit workspace (development), never in the published deployment or a bare local stack. */
 export function isGatedEnvironment(env: NodeJS.ProcessEnv = process.env): boolean {
-  if (env.REPLIT_DEPLOYMENT === "1" || env.NODE_ENV === "production") return false;
+  if (isProductionEnv(env)) return false;
   return typeof env.REPLIT_DEV_DOMAIN === "string" && env.REPLIT_DEV_DOMAIN.length > 0;
 }
 
@@ -79,14 +80,13 @@ export function devPreviewGate(env: NodeJS.ProcessEnv = process.env) {
     }
 
     if (!key) return refuse(res);
-    const cookies = (req as Request & { cookies?: Record<string, string> }).cookies;
-    const fromCookie = cookies?.[DEV_PREVIEW_COOKIE] ?? readCookie(req.headers.cookie, DEV_PREVIEW_COOKIE);
+    const fromCookie = readCookie(req.headers.cookie, DEV_PREVIEW_COOKIE);
     if (matchesKey(req.headers[DEV_PREVIEW_HEADER], key) || matchesKey(fromCookie, key)) return next();
     return refuse(res);
   };
 }
 
-/** cookie-parser runs later in the chain, so the raw header is read here. */
+/** The gate runs ahead of cookie-parser, so it reads the raw header. */
 function readCookie(header: string | undefined, name: string): string | undefined {
   if (!header) return undefined;
   for (const part of header.split(";")) {
