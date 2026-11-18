@@ -55,7 +55,7 @@ const HEALTH_PATH = "/__health";
 /** Header only Cloudflare's transform rule adds; its value is ORIGIN_SECRET (launch Phase 14, increment 3, plan S-e). */
 const ORIGIN_HEADER = "x-overhype-origin";
 
-/** The explanation page every refused visitor is sent to; a script-free file in the build. */
+/** The explanation page every refused visitor is sent to; a script-free file in the build. Same path as the API's lib/geography.ts and the web app's lib/admission.ts. */
 const EXPLANATION_PATH = "/unavailable";
 const EXPLANATION_FILE = "/unavailable.html";
 
@@ -86,13 +86,16 @@ function send(req, res, { file, stat }) {
   pipeline(createReadStream(file), res, () => {});
 }
 
-/** True when the request carries the secret only Cloudflare adds, compared in constant time. */
+/**
+ * True when the request carries the secret only Cloudflare adds, compared in
+ * constant time. `secret` is the configured value as bytes, or null. The API's
+ * middlewares/originGuard.ts holds the same check; this file cannot import it.
+ */
 export function cameThroughCloudflare(req, secret) {
   const given = req.headers[ORIGIN_HEADER];
   if (!secret || typeof given !== "string" || given.length === 0) return false;
   const a = Buffer.from(given);
-  const b = Buffer.from(secret);
-  return a.length === b.length && timingSafeEqual(a, b);
+  return a.length === secret.length && timingSafeEqual(a, secret);
 }
 
 /**
@@ -102,8 +105,7 @@ export function cameThroughCloudflare(req, secret) {
  * hostname, or a deployment missing its secret) gets a refusal page with a
  * link, so it can never loop.
  */
-function refuse(req, res, canonicalOrigin) {
-  const canonicalHost = new URL(canonicalOrigin).host;
+function refuse(req, res, canonicalOrigin, canonicalHost) {
   const host = String(req.headers.host ?? "").toLowerCase();
   if (host && host !== canonicalHost) {
     res.writeHead(308, { location: canonicalOrigin + (req.url ?? "/"), "cache-control": "no-store" });
@@ -121,6 +123,8 @@ function refuse(req, res, canonicalOrigin) {
 export function createHandler(root, options = {}) {
   const absoluteRoot = path.resolve(root);
   const { guarded = false, originSecret, canonicalOrigin = "https://overhype.me" } = options;
+  const secret = originSecret ? Buffer.from(originSecret) : null;
+  const canonicalHost = new URL(canonicalOrigin).host;
   return (req, res) => {
     if (req.method !== "GET" && req.method !== "HEAD") {
       res.writeHead(405, { allow: "GET, HEAD" });
@@ -137,7 +141,7 @@ export function createHandler(root, options = {}) {
       res.writeHead(200, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
       return res.end("ok");
     }
-    if (guarded && !cameThroughCloudflare(req, originSecret)) return refuse(req, res, canonicalOrigin);
+    if (guarded && !cameThroughCloudflare(req, secret)) return refuse(req, res, canonicalOrigin, canonicalHost);
     if (urlPath === EXPLANATION_PATH) {
       const page = fileAt(absoluteRoot, EXPLANATION_FILE);
       if (page) return send(req, res, page);
@@ -163,6 +167,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const handler = createHandler(root, {
     guarded: process.env.REPLIT_DEPLOYMENT === "1",
     originSecret: process.env.ORIGIN_SECRET,
+    // Mirrors the API's getSiteBaseUrl() for the deployment (lib/siteUrl.ts).
     canonicalOrigin: (process.env.SITE_BASE_URL ?? "https://overhype.me").replace(/\/$/, ""),
   });
   createServer(handler).listen(port, "0.0.0.0", () => {

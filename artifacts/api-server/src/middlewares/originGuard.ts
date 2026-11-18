@@ -19,21 +19,26 @@
 import { timingSafeEqual } from "node:crypto";
 import type { Request, Response, NextFunction } from "express";
 import { isBlockedLocation } from "../lib/geography";
+import { setNoStore } from "../lib/cacheHeaders";
 
 export const ORIGIN_HEADER = "x-overhype-origin";
 const EXEMPT_PATHS = new Set(["/api/healthz"]);
 
+/** The deployment marker only, never isProductionEnv (lib/env.ts), whose NODE_ENV branch CI's production-mode runs set. */
 export function isOriginGuardActive(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.REPLIT_DEPLOYMENT === "1";
 }
 
-/** True when the request carries the secret only Cloudflare adds. */
-export function cameThroughCloudflare(req: Request, secret: string | undefined): boolean {
+/**
+ * True when the request carries the secret only Cloudflare adds. `secret` is
+ * the configured value as bytes, or null when none is configured (then
+ * nothing matches). serve.mjs holds the same check for the page server.
+ */
+export function cameThroughCloudflare(req: Request, secret: Buffer | null): boolean {
   const given = req.headers[ORIGIN_HEADER];
   if (!secret || typeof given !== "string" || given.length === 0) return false;
   const a = Buffer.from(given);
-  const b = Buffer.from(secret);
-  return a.length === b.length && timingSafeEqual(a, b);
+  return a.length === secret.length && timingSafeEqual(a, secret);
 }
 
 function header(req: Request, name: string): string | undefined {
@@ -43,18 +48,19 @@ function header(req: Request, name: string): string | undefined {
 
 export function originGuard(env: NodeJS.ProcessEnv = process.env) {
   const active = isOriginGuardActive(env);
+  const secret = env.ORIGIN_SECRET ? Buffer.from(env.ORIGIN_SECRET) : null;
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!active || EXEMPT_PATHS.has(req.path)) return next();
-    res.setHeader("Cache-Control", "no-store");
-    if (!cameThroughCloudflare(req, env.ORIGIN_SECRET)) {
+    if (!cameThroughCloudflare(req, secret)) {
+      setNoStore(res);
       res.status(403).json({ error: "not_admitted", admitted: false });
       return;
     }
     if (isBlockedLocation(header(req, "cf-ipcountry"), header(req, "cf-region-code"))) {
+      setNoStore(res);
       res.status(451).json({ error: "region_blocked", admitted: false });
       return;
     }
-    res.removeHeader("Cache-Control");
     next();
   };
 }

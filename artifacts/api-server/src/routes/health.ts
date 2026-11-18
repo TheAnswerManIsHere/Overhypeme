@@ -6,6 +6,7 @@ import { desc } from "drizzle-orm";
 import { laneHealth } from "../lib/queueHealth";
 import { logger } from "../lib/logger";
 import { operationalHealthCached, publicSummary } from "../lib/operationalHealth";
+import { noStore } from "../lib/cacheHeaders";
 
 const router: IRouter = Router();
 
@@ -24,8 +25,7 @@ router.get("/healthz", healthzHandler);
 // Reaching here means app.ts's originGuard admitted the request: it came
 // through Cloudflare and from a place the site serves. Refusals are the
 // guard's 403 / 451.
-router.get("/admission", (_req: Request, res: Response) => {
-  res.setHeader("Cache-Control", "no-store");
+router.get("/admission", noStore, (_req: Request, res: Response) => {
   res.json({ admitted: true });
 });
 
