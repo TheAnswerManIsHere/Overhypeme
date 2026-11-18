@@ -18,6 +18,7 @@ import { runMigrations } from "@workspace/db";
 import { backfillEmbeddings } from "./lib/embeddings";
 import { refreshPricingCache } from "./lib/falPricing";
 import { getConfigString, getConfigInt } from "./lib/adminConfig";
+import { beginTaskMonitoring, recordTaskCompleted } from "./lib/recurringTasks";
 import { attachShutdownHandlers } from "./shutdown";
 import { registerEmailHandler } from "./lib/email.js";
 import { registerEnrichmentJobHandlers } from "./lib/enrichmentJobs.js";
@@ -128,21 +129,31 @@ async function initPricingCache(): Promise<void> {
     logger.info({ count: endpointIds.length }, "Refreshing fal.ai pricing cache");
     await refreshPricingCache(endpointIds);
     logger.info("fal.ai pricing cache warmed");
-
-    // Schedule hourly refresh from config (default 1h = 3600000ms)
-    const intervalMs = await getConfigInt("pricing_refresh_interval_ms", 3_600_000);
-    setInterval(async () => {
-      try {
-        const ids = await resolveActiveEndpoints();
-        await refreshPricingCache(ids);
-        logger.info({ count: ids.length }, "fal.ai pricing cache refreshed");
-      } catch (err) {
-        logger.warn({ err }, "fal.ai pricing cache refresh failed");
-      }
-    }, intervalMs).unref();
+    void recordTaskCompleted("pricing_refresh");
   } catch (err) {
     logger.warn({ err }, "fal.ai pricing cache init failed — continuing without pre-warmed cache");
   }
+
+  // Schedule hourly refresh from config (default 1h = 3600000ms). Armed whether
+  // or not the first warm succeeded (launch Phase 16): it used to sit inside
+  // the try above, so one failed warm at boot left the cache unrefreshed until
+  // the next restart, a stop nothing reported.
+  let intervalMs = 3_600_000;
+  try {
+    intervalMs = await getConfigInt("pricing_refresh_interval_ms", 3_600_000);
+  } catch (err) {
+    logger.warn({ err }, "fal.ai pricing refresh interval unreadable — using one hour");
+  }
+  setInterval(async () => {
+    try {
+      const ids = await resolveActiveEndpoints();
+      await refreshPricingCache(ids);
+      logger.info({ count: ids.length }, "fal.ai pricing cache refreshed");
+      void recordTaskCompleted("pricing_refresh");
+    } catch (err) {
+      logger.warn({ err }, "fal.ai pricing cache refresh failed");
+    }
+  }, intervalMs).unref();
 }
 
 // Hourly: purge transient_renders rows older than the configured TTL.
@@ -163,6 +174,7 @@ function scheduleTransientRenderPurger() {
         const { runTransientRenderPurger } = await import("./jobs/transientRenderPurger");
         const result = await runTransientRenderPurger();
         if (result.deleted > 0) logger.info(result, "transient_renders purger run");
+        void recordTaskCompleted("transient_render_purge");
       } catch (err) {
         logger.error({ err }, "transient_renders purger failed");
       }
@@ -171,6 +183,7 @@ function scheduleTransientRenderPurger() {
         // setting is 0 (kept indefinitely).
         const { runProvenanceRetentionPurge } = await import("./jobs/provenanceRetentionPurger");
         await runProvenanceRetentionPurge();
+        void recordTaskCompleted("provenance_retention_purge");
       } catch (err) {
         logger.error({ err }, "image provenance retention purge failed");
       }
@@ -202,6 +215,7 @@ function scheduleRateLimitCounterPurger() {
         // every run in the output.
         const result = await runRateLimitCounterPurger();
         if (result.budgetExhausted) nextDelayMs = BACKLOG_FOLLOW_UP_MS;
+        void recordTaskCompleted("rate_limit_counter_purge");
       } catch (err) {
         logger.error({ err }, "rate_limit_counters purge failed");
       }
@@ -225,6 +239,7 @@ function scheduleContentPurger() {
       try {
         const { runContentPurger } = await import("./jobs/contentPurger");
         await runContentPurger();
+        void recordTaskCompleted("content_purge");
       } catch (err) {
         logger.error({ err }, "[content-purger] run failed");
       }
@@ -247,6 +262,7 @@ function scheduleAccountDeletionWorker() {
       try {
         const { runAccountDeletionWorker } = await import("./lib/accountDeletion");
         await runAccountDeletionWorker();
+        void recordTaskCompleted("account_deletion");
       } catch (err) {
         logger.error({ err }, "[account-deletion] worker run failed");
       }
@@ -294,6 +310,8 @@ function scheduleMediaBackup() {
         const { runScheduledMediaBackup } = await import("./jobs/mediaBackupJob");
         const outcome = await runScheduledMediaBackup();
         if (outcome.startsWith("skipped")) logger.info({ outcome }, "[media-backup] capture");
+        // A skip is a completed run that had nothing to do.
+        void recordTaskCompleted("media_backup");
       } catch (err) {
         logger.error({ err }, "[media-backup] capture failed");
       }
@@ -315,6 +333,7 @@ function scheduleDailyFactJob() {
         const { runFactOfTheDayJob } = await import("./jobs/factOfTheDay");
         const result = await runFactOfTheDayJob();
         logger.info(result, "Fact of the Day sent");
+        void recordTaskCompleted("fact_of_the_day");
       } catch (err) {
         logger.error({ err }, "Fact of the Day job failed");
       }
@@ -500,6 +519,9 @@ backfillEmbeddings()
     if (processed > 0 || failed > 0) logger.info({ processed, failed }, "Embedding backfill complete");
   })
   .catch((err: unknown) => logger.warn({ err }, "Embedding backfill skipped (no OpenAI key?)"));
+// When monitoring of each recurring task began (launch Phase 16): the health
+// check's reference for a task that has not completed a run yet.
+void beginTaskMonitoring();
 scheduleDailyFactJob();
 scheduleTransientRenderPurger();
 scheduleRateLimitCounterPurger();

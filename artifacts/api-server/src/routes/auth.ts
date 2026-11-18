@@ -34,6 +34,7 @@ import {
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { getSafeReturnTo } from "../lib/safeReturnTo";
 import { logger } from "../lib/logger";
+import { recordTaskCompleted } from "../lib/recurringTasks";
 import { effectiveTierForRow } from "../lib/membershipState";
 
 // Re-exported for back-compat with other route modules that import from "./auth".
@@ -115,6 +116,7 @@ setInterval(async () => {
     await db
       .delete(oauthPendingStatesTable)
       .where(lt(oauthPendingStatesTable.expiresAt, new Date()));
+    void recordTaskCompleted("oauth_state_sweep");
   } catch {
     // Non-fatal — stale rows will be ignored by consumePendingState anyway.
   }

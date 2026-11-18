@@ -228,7 +228,10 @@ export async function pruneDepartedInstances(
   try {
     const removed = await dbInstance
       .delete(workerLaneHeartbeatsTable)
-      .where(sql`${workerLaneHeartbeatsTable.lastScheduledAt} < ${cutoff}`)
+      // A recurring task's completion row (`task:<id>`, lib/recurringTasks.ts)
+      // is not an instance's lane heartbeat: it is kept on its own rule and
+      // must survive this sweep, or a restart would erase when a task last ran.
+      .where(sql`${workerLaneHeartbeatsTable.lastScheduledAt} < ${cutoff} AND ${workerLaneHeartbeatsTable.lane} NOT LIKE 'task:%'`)
       .returning({ instanceId: workerLaneHeartbeatsTable.instanceId });
     return removed.length;
   } catch (err) {

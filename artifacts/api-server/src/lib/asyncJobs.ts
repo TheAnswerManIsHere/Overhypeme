@@ -40,6 +40,7 @@ import {
   pruneDepartedInstances,
   heartbeatTtlMinutes,
 } from "./workerHeartbeats";
+import { recordTaskCompleted } from "./recurringTasks";
 
 // ─── Handler registry ───────────────────────────────────────────────────────
 
@@ -1286,13 +1287,16 @@ export function createLaneRunner(
     // rows stranded in `processing` runs on its own timer, plan §A.)
     if (Date.now() - lastPurgeAt >= PURGE_INTERVAL_MS) {
       lastPurgeAt = Date.now();
+      let purgedEveryQueue = true;
       for (const queue of HANDLERS.keys()) {
         try {
           await purgeTerminalJobs(defaultDb, queue);
         } catch (err) {
+          purgedEveryQueue = false;
           logger.error({ lane: config.lane, err, queue }, `[asyncJobs:${config.lane}] retention purge failed`);
         }
       }
+      if (purgedEveryQueue) void recordTaskCompleted("job_retention_purge");
       // Same cadence as the purge: drop heartbeat rows for instances that have
       // stopped writing. Without this, every autoscale scale-down leaves a row
       // that never advances again and the lane reads as permanently stalled.
@@ -1441,6 +1445,7 @@ export function startLeaseTimers(
     renewing = true;
     try {
       await renewHeldLeases(defaultDb);
+      void recordTaskCompleted("lease_renewal");
     } catch (err) {
       // A failed renewal is not a lost lease yet: the next one, inside the
       // lease's 90 s, either renews or finds the lease gone and stops the run.
@@ -1454,6 +1459,7 @@ export function startLeaseTimers(
     reclaiming = true;
     try {
       await recoverStuckProcessing(defaultDb, RECOVER_STUCK_CUTOFF_MIN);
+      void recordTaskCompleted("job_reclaim");
     } catch (err) {
       logger.error({ err }, "[asyncJobs] reclaim sweep failed");
     } finally {
