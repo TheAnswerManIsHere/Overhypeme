@@ -153,6 +153,23 @@ let posthogIdentityQueue: Array<(ph: PostHog) => void> = [];
 let posthogQueue: Array<(ph: PostHog) => void> = [];
 /** An identity decision made before analytics started, applied at start. */
 let identityBeforeStart: { userId: string | null } | undefined;
+/**
+ * Page views and funnel events made before analytics started, in the order
+ * made. The app renders while the visitor-admission check (lib/admission) is
+ * still pending, and a one-time outcome counted in that moment (a sign-up or
+ * verification marker consumed as Onboard opens) would otherwise be lost for
+ * good. Held in memory only and sent only from `startAnalytics`, so a visit
+ * that is never admitted sends nothing and the list dies with the tab.
+ * Replayed in order, so each event is filed under the page it was made on.
+ */
+type HeldCall = { kind: "page"; path: string } | { kind: "track"; event: FunnelEvent; props?: FunnelProperties };
+let heldBeforeStart: HeldCall[] = [];
+/** Nothing drains the list on a visit that is never admitted: keep it small. */
+const HELD_BEFORE_START_CAP = 50;
+
+function holdBeforeStart(call: HeldCall): void {
+  if (heldBeforeStart.length < HELD_BEFORE_START_CAP) heldBeforeStart.push(call);
+}
 
 /** Carries the page a PostHog call was made on through to `before_send`. */
 const PAGE_PATTERN = "__page_pattern";
@@ -322,11 +339,20 @@ export function startAnalytics(): void {
     if (before.userId) identify(before.userId);
     else resetIdentity();
   }
+  const held = heldBeforeStart;
+  heldBeforeStart = [];
+  for (const call of held) {
+    if (call.kind === "page") page(call.path);
+    else track(call.event, call.props);
+  }
 }
 
 /** One page shown: the only source of page views for either vendor. */
 export function page(path: string): void {
-  if (!started) return;
+  if (!started) {
+    holdBeforeStart({ kind: "page", path });
+    return;
+  }
   currentPattern = routePattern(path);
   const location = patternUrl(currentPattern);
   // `set` carries the pattern into every later hit on this page.
@@ -337,7 +363,10 @@ export function page(path: string): void {
 
 /** One confirmed funnel outcome. */
 export function track(event: FunnelEvent, props?: FunnelProperties): void {
-  if (!started) return;
+  if (!started) {
+    holdBeforeStart({ kind: "track", event, props });
+    return;
+  }
   const clean = cleanProperties(props);
   ga("event", gaEventName(event), clean);
   capture(event, clean);
@@ -437,6 +466,7 @@ export function __resetAnalyticsForTests(): void {
   posthogIdentityQueue = [];
   identityKnown = false;
   identityBeforeStart = undefined;
+  heldBeforeStart = [];
   identifiedAs = null;
 }
 

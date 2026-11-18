@@ -1,9 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const startTelemetry = vi.fn();
-const page = vi.fn();
 vi.mock("./telemetry", () => ({ startTelemetry: () => startTelemetry() }));
-vi.mock("./analytics", () => ({ page: (...a: unknown[]) => page(...a) }));
 
 import { admitAndStart } from "./admission";
 
@@ -25,13 +23,11 @@ describe("admitAndStart (launch Phase 14, increment 3)", () => {
 
   function startedNothing() {
     expect(startTelemetry).not.toHaveBeenCalled();
-    expect(page).not.toHaveBeenCalled();
   }
 
-  it("starts telemetry and records the first page view only on the API's explicit yes", async () => {
+  it("starts telemetry only on the API's explicit yes (the first page view is held by analytics, not replayed here)", async () => {
     expect(await admitAndStart(answer(200, '{"admitted":true}'), loc)).toBe("admitted");
     expect(startTelemetry).toHaveBeenCalledOnce();
-    expect(page).toHaveBeenCalledWith("/facts/1");
     expect(replace).not.toHaveBeenCalled();
   });
 

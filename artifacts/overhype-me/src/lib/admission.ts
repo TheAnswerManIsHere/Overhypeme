@@ -1,5 +1,5 @@
 /**
- * @purpose admitAndStart: asks the API once whether this visit is admitted (GET /api/admission) and starts everything sent to third parties (lib/telemetry.ts) only on the API's explicit yes — not redirected, 200, JSON `admitted: true` — recording the first page view; a 451, or a redirect that lands on the explanation page (Cloudflare's geography rule), sends the visitor to /unavailable; anything else starts nothing.
+ * @purpose admitAndStart: asks the API once whether this visit is admitted (GET /api/admission) and starts everything sent to third parties (lib/telemetry.ts) only on the API's explicit yes — not redirected, 200, JSON `admitted: true` (page views and funnel events made while it was pending are held by lib/analytics and sent then); a 451, or a redirect that lands on the explanation page (Cloudflare's geography rule), sends the visitor to /unavailable; anything else starts nothing.
  * @subsystem public-site
  *
  * Launch Phase 14, increment 3 (plan S-e2, the floor): "the app starts no
@@ -13,7 +13,6 @@
  * round 1). The body is always read, which also lets the request finish.
  */
 import { startTelemetry } from "./telemetry";
-import { page } from "./analytics";
 
 export type Admission = "admitted" | "blocked" | "refused";
 
@@ -56,8 +55,8 @@ export async function admitAndStart(
     void res.body?.cancel().catch(() => {});
     return "refused";
   }
+  // Page views and funnel events made while this check was pending are held
+  // by lib/analytics and sent, in order, as it starts.
   startTelemetry();
-  // The router's first page view fired before analytics existed.
-  page(location.pathname);
   return "admitted";
 }

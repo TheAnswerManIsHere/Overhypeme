@@ -404,3 +404,76 @@ describe("what PostHog adds by itself is scrubbed before sending", () => {
     expect(out.properties.some_future_url).toBe("https://elsewhere.example");
   });
 });
+
+describe("calls made while the admission check is pending (launch Phase 14, increment 3)", () => {
+  beforeEach(() => {
+    vi.stubEnv("VITE_GA_MEASUREMENT_ID", "G-TEST123");
+    vi.stubEnv("VITE_POSTHOG_KEY", "phc_test123");
+    window.localStorage.clear();
+  });
+
+  it("a sign-up and a verification counted as Onboard opens reach both vendors once, after admission, under the page they were made on", async () => {
+    page("/onboard");
+    track("sign_up", { method: "google" });
+    track("verify");
+    window.history.replaceState(null, "", "/facts/7"); // the visitor has moved on by the time admission answers
+    startAnalytics();
+    resetIdentity();
+    await flush();
+    const gaEvents = gaCalls().filter((c) => c[0] === "event");
+    expect(gaEvents.map((c) => c[1])).toEqual(["page_view", "sign_up", "verify"]);
+    expect(phCapture.mock.calls).toEqual([
+      ["$pageview", { __page_pattern: "/onboard" }],
+      ["sign_up", { method: "google", __page_pattern: "/onboard" }],
+      ["verify", { __page_pattern: "/onboard" }],
+    ]);
+  });
+
+  it("the same calls on a visit that is never admitted send nothing", async () => {
+    page("/onboard");
+    track("sign_up", { method: "google" });
+    track("verify");
+    await flush();
+    expect(window.dataLayer).toEqual([]);
+    expect(document.head.querySelector("script[src*='googletagmanager']")).toBeNull();
+    expect(phInit).not.toHaveBeenCalled();
+  });
+
+  it("an upgrade confirmed before admission is one purchase after it, and none on a repeat", async () => {
+    trackUpgradeOnce("cs_test_9");
+    trackUpgradeOnce("cs_test_9");
+    startAnalytics();
+    resetIdentity();
+    await flush();
+    expect(gaCalls().filter((c) => c[0] === "event" && c[1] === "purchase")).toHaveLength(1);
+    expect(phCapture.mock.calls.filter((c) => c[0] === "upgrade")).toHaveLength(1);
+  });
+
+  it("the first page of an admitted visit is counted once", async () => {
+    page("/");
+    startAnalytics();
+    resetIdentity();
+    await flush();
+    expect(gaCalls().filter((c) => c[0] === "event" && c[1] === "page_view")).toHaveLength(1);
+    expect(phCapture.mock.calls.filter((c) => c[0] === "$pageview")).toHaveLength(1);
+  });
+
+  it("holds at most a small fixed number of calls", async () => {
+    for (let i = 0; i < 200; i++) track("share", { platform: "x" });
+    startAnalytics();
+    resetIdentity();
+    await flush();
+    expect(phCapture.mock.calls.length).toBeLessThanOrEqual(50);
+    expect(phCapture.mock.calls.length).toBeGreaterThan(0);
+  });
+
+  it("a test reset forgets held calls", async () => {
+    track("verify");
+    __resetAnalyticsForTests();
+    vi.stubEnv("VITE_POSTHOG_KEY", "phc_test123");
+    startAnalytics();
+    resetIdentity();
+    await flush();
+    expect(phCapture).not.toHaveBeenCalled();
+  });
+});
