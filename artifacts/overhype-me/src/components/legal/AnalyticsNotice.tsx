@@ -1,12 +1,12 @@
 /**
- * @purpose Tells every visitor, once per browser, what analytics and error monitoring run and links to the Privacy page (launch Phase 14, increment 2, oracle item 5); a notice, not a consent manager, while the EEA and UK are not served. Phase 16's analytics work adopts this surface.
+ * @purpose Tells every visitor, once per browser, what analytics and error monitoring run and links to the Privacy page (launch Phase 14, increment 2, oracle item 5); a notice, not a consent manager (David, Q14 on Issue #1030): analytics run whether or not it is dismissed. Reworded for PostHog and the end of session replay in launch Phase 16, increment 3.
  * @subsystem public-site
  */
 import { useState } from "react";
 import { Link } from "wouter";
 
 /** Bump the suffix when the notice's wording changes in substance, so every browser sees it again. */
-export const ANALYTICS_NOTICE_KEY = "overhype.analyticsNotice.v1";
+export const ANALYTICS_NOTICE_KEY = "overhype.analyticsNotice.v2";
 
 function alreadySeen(): boolean {
   try {
@@ -35,8 +35,9 @@ export function AnalyticsNotice() {
       className="fixed z-30 left-3 right-3 bottom-20 md:bottom-4 md:left-auto md:right-4 md:max-w-sm bg-card border border-border shadow-lg p-4 text-sm text-muted-foreground"
     >
       <p>
-        We count visits with Google Analytics, and our error-monitoring service records some visits with
-        everything you type and all text on the page hidden, so we can fix problems. Read our{" "}
+        We count visits and the steps people take through the site with Google Analytics and PostHog,
+        without sending them the names you type or what you search for. We use Sentry to find problems.
+        Read our{" "}
         <Link href="/privacy" className="underline text-foreground hover:text-primary">Privacy Policy</Link>.
       </p>
       <button

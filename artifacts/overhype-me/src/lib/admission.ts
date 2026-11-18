@@ -1,5 +1,5 @@
 /**
- * @purpose admitAndStart: asks the API once whether this visit is admitted (GET /api/admission) and only on a 200 starts error monitoring, Google Analytics and ads, recording the first page view; on 451 (a place the site does not serve) sends the visitor to the explanation page; on anything else starts nothing.
+ * @purpose admitAndStart: asks the API once whether this visit is admitted (GET /api/admission) and starts everything sent to third parties (lib/telemetry.ts) only on the API's explicit yes — not redirected, 200, JSON `admitted: true` — recording the first page view; a 451, or a redirect that lands on the explanation page (Cloudflare's geography rule), sends the visitor to /unavailable; anything else starts nothing.
  * @subsystem public-site
  *
  * Launch Phase 14, increment 3 (plan S-e2, the floor): "the app starts no
@@ -7,40 +7,57 @@
  * answered that this request is admitted, so a visitor who goes around
  * Cloudflare, or one in a blocked region, gets the app's code and the
  * explanation and nothing is collected about them".
+ *
+ * Redirects are followed, never `redirect: "manual"`: a manual redirect is
+ * opaque, so the geography rule could not be told from any other (PR #1063
+ * round 1). The body is always read, which also lets the request finish.
  */
-import { startMonitoring } from "./sentry";
-import { trackPageView } from "./analytics";
-
-declare global {
-  interface Window {
-    __ohStartAnalytics?: () => void;
-    __ohStartAds?: () => void;
-  }
-}
+import { startTelemetry } from "./telemetry";
+import { page } from "./analytics";
 
 export type Admission = "admitted" | "blocked" | "refused";
 
 export const EXPLANATION_PATH = "/unavailable";
 
+function landedOnExplanation(res: Response): boolean {
+  try {
+    return new URL(res.url, "http://local").pathname === EXPLANATION_PATH;
+  } catch {
+    return false;
+  }
+}
+
+async function saysAdmitted(res: Response): Promise<boolean> {
+  if (res.redirected || res.status !== 200) return false;
+  try {
+    const body: unknown = await res.json();
+    return typeof body === "object" && body !== null && (body as { admitted?: unknown }).admitted === true;
+  } catch {
+    return false;
+  }
+}
+
 export async function admitAndStart(
   fetchImpl: typeof fetch = fetch,
   location: Pick<Location, "replace" | "pathname"> = window.location,
 ): Promise<Admission> {
-  let status: number;
+  let res: Response;
   try {
-    status = (await fetchImpl("/api/admission", { credentials: "include", cache: "no-store" })).status;
+    res = await fetchImpl("/api/admission", { credentials: "include", cache: "no-store" });
   } catch {
     return "refused";
   }
-  if (status === 451) {
+  if (res.status === 451 || (res.redirected && landedOnExplanation(res))) {
+    void res.body?.cancel().catch(() => {});
     location.replace(EXPLANATION_PATH);
     return "blocked";
   }
-  if (status !== 200) return "refused";
-  startMonitoring();
-  window.__ohStartAnalytics?.();
-  window.__ohStartAds?.();
+  if (!(await saysAdmitted(res))) {
+    void res.body?.cancel().catch(() => {});
+    return "refused";
+  }
+  startTelemetry();
   // The router's first page view fired before analytics existed.
-  trackPageView(location.pathname, document.title);
+  page(location.pathname);
   return "admitted";
 }

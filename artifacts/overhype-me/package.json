@@ -20,7 +20,7 @@
     "e2e:surfaces": "playwright test adminQueueHealth adminHelp adminPermissions comparisonJudging evalPage moderationHumorNote moderationReading bubbleSpeakers moderationTestRenders",
     "e2e:screens": "playwright test publicScreens adminScreens uploadConversion identityFlow",
     "e2e:accounts": "playwright test testAccounts",
-    "e2e:auth": "playwright test authJourney oauthJourney",
+    "e2e:auth": "playwright test authJourney oauthJourney analyticsOutbound",
     "e2e:storage": "playwright test photoUpload",
     "e2e:billing": "playwright test adminBillingSync",
     "e2e:capture": "playwright test capture/"
@@ -112,6 +112,7 @@
     "@fontsource/inter": "^5.3.0",
     "@fontsource/oswald": "^5.3.0",
     "@sentry/react": "^10.49.0",
-    "@workspace/redact": "workspace:*"
+    "@workspace/redact": "workspace:*",
+    "posthog-js": "^1.450.0"
   }
 }

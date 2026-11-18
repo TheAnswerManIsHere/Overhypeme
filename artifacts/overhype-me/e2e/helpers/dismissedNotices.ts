@@ -10,7 +10,7 @@
  * config does not load a React component; publicScreens.spec.ts proves they
  * still match by dismissing the notice and reading the stored value.
  */
-export const ANALYTICS_NOTICE_STORAGE = { name: "overhype.analyticsNotice.v1", value: "seen" } as const;
+export const ANALYTICS_NOTICE_STORAGE = { name: "overhype.analyticsNotice.v2", value: "seen" } as const;
 
 export function dismissedNoticesState(baseURL: string) {
   return {

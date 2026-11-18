@@ -56,6 +56,7 @@ window.fetch = function (input, init) {
   return _originalFetch(input, init);
 };
 
+
 createRoot(document.getElementById("root")!).render(<App />);
 
 // Error monitoring, analytics and ads start only once the API has admitted

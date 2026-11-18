@@ -41,17 +41,17 @@ function scrubSentryEvent(event: Sentry.Event): void {
   }
 }
 
-let started = false;
+let monitoringStarted = false;
 
 /**
- * Starts error monitoring. Called once the API has admitted this visit
- * (launch Phase 14, increment 3, lib/admission.ts), never at import: a
- * visitor who went around Cloudflare, or one from a place the site does not
- * serve, sends nothing. Calls to Sentry before this are no-ops.
+ * Starts error monitoring, once. Called only from `startTelemetry`
+ * (lib/telemetry), the single point Phase 14's visitor-admission check gates.
+ * No session replay: the approved scope says "Never: session replay" (launch
+ * Phase 16, increment 3, Design C), and the Privacy Policy says no recordings.
  */
 export function startMonitoring(): void {
-  if (started) return;
-  started = true;
+  if (monitoringStarted) return;
+  monitoringStarted = true;
   Sentry.init({
     dsn,
     environment,
@@ -63,16 +63,7 @@ export function startMonitoring(): void {
       Sentry.feedbackIntegration({
         colorScheme: "system",
       }),
-      // Every piece of text and every input is masked in a recording: a
-      // recording shows the page's layout and what was clicked, never what it
-      // said (launch Phase 14, increment 2; the Privacy page says so).
-      Sentry.replayIntegration({
-        maskAllInputs: true,
-        maskAllText: true,
-      }),
     ],
-    replaysSessionSampleRate: 0.1,
-    replaysOnErrorSampleRate: 1.0,
     // Same-origin-only: propagate trace headers to relative /api/ paths only.
     // We never want to send tracing headers to third-party domains (Stripe,
     // Resend, fal.ai, etc.) — that would leak our trace IDs and trip CORS.

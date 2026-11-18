@@ -26,6 +26,7 @@ import {
   CheckCircle2, ChevronRight, ChevronLeft, CheckCheck,
   ChevronDown, ChevronUp, GitBranch, Trash2,
 } from "lucide-react";
+import { track } from "@/lib/analytics";
 
 type Step = "write" | "preview";
 
@@ -232,6 +233,7 @@ export default function SubmitFact() {
         body: JSON.stringify(body),
       });
       if (r.ok) {
+        track("submit");
         draft.clear();
         setSubmitted(true);
         window.scrollTo({ top: 0, behavior: "smooth" });

@@ -48,32 +48,9 @@
       })();
     </script>
 
-    <!--
-      Google Analytics 4 — loaded only when VITE_GA_MEASUREMENT_ID is set at
-      build time, and only once the API has admitted this visit: the app calls
-      window.__ohStartAnalytics after GET /api/admission answers 200 (launch
-      Phase 14, increment 3, src/lib/admission.ts). A visitor who went around
-      Cloudflare, or one from a place the site does not serve, never loads it.
-    -->
-    <script id="ga4-init">
-      window.__ohStartAnalytics = function() {
-        if (window.__ohStartAnalytics.started) return;
-        window.__ohStartAnalytics.started = true;
-        var gaId = "%VITE_GA_MEASUREMENT_ID%";
-        if (!gaId || gaId.indexOf("%") !== -1 || gaId === "undefined") return;
-        var s = document.createElement("script");
-        s.async = true;
-        s.src = "https://www.googletagmanager.com/gtag/js?id=" + gaId;
-        document.head.appendChild(s);
-        window.dataLayer = window.dataLayer || [];
-        function gtag(){ window.dataLayer.push(arguments); }
-        window.gtag = gtag;
-        gtag("js", new Date());
-        gtag("config", gaId, { send_page_view: false });
-      };
-    </script>
+    <!-- Google Analytics 4 and PostHog start from src/lib/analytics.ts (via lib/telemetry), not here. -->
 
-    <!-- Google AdSense — loaded only when VITE_ADSENSE_PUBLISHER_ID is set at build time, and only once the API has admitted this visit (as analytics, above) -->
+    <!-- Google AdSense — loaded only when VITE_ADSENSE_PUBLISHER_ID is set at build time, and only once the API has admitted this visit: lib/telemetry.ts calls window.__ohStartAds (launch Phase 14, increment 3). -->
     <script id="adsense-init">
       window.__ohStartAds = function() {
         if (window.__ohStartAds.started) return;
