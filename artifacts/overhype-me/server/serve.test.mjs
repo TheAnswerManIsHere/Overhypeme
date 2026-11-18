@@ -1,0 +1,84 @@
+// @vitest-environment node
+/**
+ * The published web server (server/serve.mjs): it must answer as Replit's
+ * static service did, so moving the app's files behind our own process
+ * (launch Phase 14, increment 3, the feasibility step) changes nothing a
+ * visitor sees.
+ */
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { createServer } from "node:http";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { createHandler } from "./serve.mjs";
+
+let root;
+let server;
+let base;
+
+beforeAll(async () => {
+  root = mkdtempSync(path.join(tmpdir(), "web-serve-"));
+  mkdirSync(path.join(root, "assets"));
+  mkdirSync(path.join(root, "fonts"));
+  writeFileSync(path.join(root, "index.html"), "<!doctype html><title>app</title>");
+  writeFileSync(path.join(root, "assets", "index-abc.js"), "console.log(1)");
+  writeFileSync(path.join(root, "fonts", "inter.woff2"), "w2");
+  writeFileSync(path.join(root, "favicon.svg"), "<svg/>");
+  writeFileSync(path.join(path.dirname(root), "outside-secret.txt"), "secret");
+  server = createServer(createHandler(root));
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  base = `http://127.0.0.1:${server.address().port}`;
+});
+
+afterAll(async () => {
+  await new Promise((r) => server.close(r));
+  rmSync(root, { recursive: true, force: true });
+  rmSync(path.join(path.dirname(root), "outside-secret.txt"), { force: true });
+});
+
+describe("the published web server", () => {
+  it("answers the home page with index.html, privately cached", async () => {
+    const res = await fetch(`${base}/`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(res.headers.get("cache-control")).toBe("private");
+    expect(await res.text()).toContain("<title>app</title>");
+  });
+
+  it("answers an in-app address with index.html, so navigation and deep links work", async () => {
+    for (const p of ["/facts/12", "/facts/12/memes", "/m/some-slug", "/admin/help/rate-limits", "/profile/"]) {
+      const res = await fetch(`${base}${p}`);
+      expect(res.status, p).toBe(200);
+      expect(await res.text(), p).toContain("<title>app</title>");
+    }
+  });
+
+  it("answers a built file as itself, with its type", async () => {
+    const js = await fetch(`${base}/assets/index-abc.js`);
+    expect(js.status).toBe(200);
+    expect(js.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
+    expect(await js.text()).toBe("console.log(1)");
+    expect((await fetch(`${base}/fonts/inter.woff2`)).headers.get("content-type")).toBe("font/woff2");
+    expect((await fetch(`${base}/favicon.svg`)).headers.get("content-type")).toBe("image/svg+xml");
+  });
+
+  it("answers a missing script or font with 404, not the app's page", async () => {
+    expect((await fetch(`${base}/assets/index-gone.js`)).status).toBe(404);
+    expect((await fetch(`${base}/fonts/gone.woff2`)).status).toBe(404);
+  });
+
+  it("never serves a file outside the built app", async () => {
+    for (const p of ["/../outside-secret.txt", "/%2e%2e/outside-secret.txt", "/assets/..%2f..%2foutside-secret.txt"]) {
+      const res = await fetch(`${base}${p}`);
+      expect(await res.text(), p).not.toContain("secret");
+    }
+  });
+
+  it("answers HEAD without a body and refuses other methods", async () => {
+    const head = await fetch(`${base}/`, { method: "HEAD" });
+    expect(head.status).toBe(200);
+    expect(await head.text()).toBe("");
+    const post = await fetch(`${base}/`, { method: "POST" });
+    expect(post.status).toBe(405);
+  });
+});
