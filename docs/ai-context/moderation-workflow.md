@@ -5,9 +5,9 @@
 > resubmission reviews are gone, Reject is on every step and Withdraw is gone,
 > and the stages are now `triage → reading → gags → test_renders`, ending
 > `approved` or `rejected` (migration 0155). The reading (research, then a
-> draft humor note the moderator approves) is `lib/readingJobs.ts`; the
+> draft humor note the moderator approves) is `artifacts/api-server/src/lib/readingJobs.ts`; the
 > taxonomy runs beside moderation and gates nothing; every transition takes
-> its rows in one order (`lib/reviewLocks.ts`). Trust the code and
+> its rows in one order (`artifacts/api-server/src/lib/reviewLocks.ts`). Trust the code and
 > `docs/plans/PLAN_FACT_LIFECYCLE_REBUILD.md` over the sections below.
 
 > Staged, cost-gated review of user-submitted facts. Source of truth for the
