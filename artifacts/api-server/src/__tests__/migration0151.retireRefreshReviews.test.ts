@@ -97,7 +97,7 @@ async function seed(): Promise<Seed> {
     RETURNING id`);
   const liveChanged = Number(more[0]!.id);
   const liveMarked = Number(more[1]!.id);
-  const openRefresh = await review(live, "pending", "production_review");
+  const openRefresh = await review(live, "pending", "test_renders");
   const openCandidate = await version(live, "candidate", openRefresh);
   await db.execute(sql`UPDATE pending_reviews SET candidate_version_id = ${openCandidate} WHERE id = ${openRefresh}`);
   // Gag 2: a change with a pick, owned by the refresh. Gag 3: marked for removal.
@@ -116,11 +116,11 @@ async function seed(): Promise<Seed> {
 
   // A second live fact: a promoted refresh in its history, and a gag a refresh added and never approved.
   const g = await insertLiveFact({ text: `{NAME} ${P} promoted`, enrichment }, { ...buildPlaceholderGag(), coreSceneOverride: "{NAME} kept." });
-  const promoted = await review(g.id, "approved", "production_approved");
+  const promoted = await review(g.id, "approved", "approved");
   const promotedVersion = await version(g.id, "promoted", promoted);
   const supersededVersion = await version(g.id, "superseded", promoted);
   await db.execute(sql`UPDATE pending_reviews SET candidate_version_id = ${promotedVersion} WHERE id = ${promoted}`);
-  const declined = await review(g.id, "rejected", "production_rejected");
+  const declined = await review(g.id, "rejected", "rejected");
   const rejectedVersion = await version(g.id, "rejected", declined);
   await db.execute(sql`UPDATE pending_reviews SET candidate_version_id = ${rejectedVersion} WHERE id = ${declined}`);
   const liveAdded = Number((await one<{ id: number }>(sql`
@@ -130,11 +130,11 @@ async function seed(): Promise<Seed> {
   // A deactivated fact, resubmitted (the review is newer than the fact) and approved once before.
   const d = await insertLiveFact({ text: `{NAME} ${P} deactivated`, enrichment }, { ...buildPlaceholderGag(), coreSceneOverride: "{NAME} old." });
   await db.execute(sql`UPDATE facts SET is_active = false, created_at = now() - interval '2 days' WHERE id = ${d.id}`);
-  const approvedResubmit = await review(d.id, "approved", "production_approved", { createdAt: new Date(Date.now() - 86_400_000).toISOString() });
-  const openResubmit = await review(d.id, "pending", "concept_review");
+  const approvedResubmit = await review(d.id, "approved", "approved", { createdAt: new Date(Date.now() - 86_400_000).toISOString() });
+  const openResubmit = await review(d.id, "pending", "gags");
 
   // A first-time submission whose staging fact was created after it, holding ideas drafted for it.
-  const firstTime = await review(null, "pending", "concept_review", { createdAt: new Date(Date.now() - 60_000).toISOString() });
+  const firstTime = await review(null, "pending", "gags", { createdAt: new Date(Date.now() - 60_000).toISOString() });
   const staging = Number((await one<{ id: number }>(sql`INSERT INTO facts (text, is_active) VALUES (${`{NAME} ${P} staging`}, false) RETURNING id`))!.id);
   await db.execute(sql`UPDATE pending_reviews SET staging_fact_id = ${staging} WHERE id = ${firstTime}`);
   const blob = { candidates: [], generatedAt: "2026-11-17T00:00:00Z", reviewId: firstTime, candidateVersionId: null, source: "staging_fact", inputHash: "h0151",
@@ -220,7 +220,7 @@ describe("migration 0151: refresh and resubmission reviews are retired", () => {
   it("leaves a first-time submission untouched", async () => {
     const r = await one<{ status: string; workflow_stage: string; staging_fact_id: number }>(
       sql`SELECT status, workflow_stage, staging_fact_id FROM pending_reviews WHERE id = ${s.firstTime}`);
-    assert.deepEqual(r, { status: "pending", workflow_stage: "concept_review", staging_fact_id: s.staging });
+    assert.deepEqual(r, { status: "pending", workflow_stage: "gags", staging_fact_id: s.staging });
     const f = await one<{ b: Record<string, unknown>; status: string; owner: string }>(
       sql`SELECT visual_concept_candidates AS b, visual_concept_status AS status, visual_concept_owner AS owner FROM facts WHERE id = ${s.staging}`);
     assert.equal("candidateVersionId" in f!.b, false, "the retired key leaves its ideas");
@@ -250,7 +250,7 @@ describe("migration 0153: a late refresh is closed, then the columns are dropped
     live = f.id;
     lateGag = f.gags[0]!.id;
     const candidate = await version(live, "candidate", null);
-    lateRefresh = await review(live, "pending", "concept_review", { candidateVersionId: candidate });
+    lateRefresh = await review(live, "pending", "gags", { candidateVersionId: candidate });
     await db.execute(sql`UPDATE fact_gags SET pending_content = ${content("{NAME} changed late.")}::jsonb, pending_review_id = ${lateRefresh} WHERE id = ${lateGag}`);
     await db.execute(sql.raw(CONTRACT_SQL));
   });

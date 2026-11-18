@@ -327,7 +327,7 @@ describe("the routes", () => {
     await request(admin).post(`/api/admin/reviews/${id}/duplicate-check`);
     assert.equal(calls, 2, "couldn't-check is retried");
 
-    const past = await review(`{NAME} past triage ${RUN}`, { workflowStage: "prep_pending" });
+    const past = await review(`{NAME} past triage ${RUN}`, { workflowStage: "reading" });
     const r = await request(admin).post(`/api/admin/reviews/${past}/duplicate-check`);
     assert.equal(r.body.duplicate.state, "not_checked");
     assert.equal(calls, 2, "nothing is spent past triage");

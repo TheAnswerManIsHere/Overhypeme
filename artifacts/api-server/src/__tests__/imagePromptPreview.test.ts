@@ -199,11 +199,10 @@ describe("image-prompt preview — validation", () => {
     assert.equal(res.body.error, "fact_not_found");
   });
 
-  it("400 fact_enrichment_invalid when the fact has no usable enrichment", async () => {
+  it("previews a fact whose taxonomy is unusable: the picture is drawn from the gag alone (Issue #1018, increment 1.2c-ii)", async () => {
     const factId = await seedFact({ enrichment: { primaryArchetype: "nope" } });
-    const res = await request(adminApp()).post("/api/admin/image-prompt/preview").send({ factId });
-    assert.equal(res.status, 400);
-    assert.equal(res.body.error, "fact_enrichment_invalid");
+    const res = await request(adminApp()).post("/api/admin/image-prompt/preview").send({ factId, subjectRenderMode: "human_identity_i2i" });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
   });
 });
 

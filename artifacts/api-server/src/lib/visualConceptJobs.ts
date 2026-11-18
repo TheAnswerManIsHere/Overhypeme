@@ -47,7 +47,7 @@ import {
   type VisualConceptStaleReason,
   type VisualStrategyBubble,
 } from "@workspace/api-zod";
-import { loadGags, normaliseGagContent, openReviewForFact } from "./gags/resolver";
+import { loadGags, normaliseGagContent, openReviewForFact, primaryWorkingGag, type GagContent } from "./gags/resolver";
 import { type Executor,
   claimConceptsForReview,
   liveConceptOwner,
@@ -198,6 +198,12 @@ export interface ResolvedConceptCycle {
   stagingFactId: number;
   factText: string;
   source: VisualConceptSource;
+  /**
+   * The review's primary working gag (lib/gags/resolver.ts), whose violence and
+   * text policy the writer is held to, as the render is. Null for a live draft
+   * and for a review with no gag yet (the defaults apply).
+   */
+  primaryGag: GagContent | null;
 }
 
 type ConceptCycleResult =
@@ -223,9 +229,10 @@ export async function resolveVisualConceptCycle(reviewId: number): Promise<Conce
   if (review.stagingFactId == null) return { ok: false, reason: "no_staging_fact", stage };
   const [fact] = await db.select({ text: factsTable.text }).from(factsTable).where(eq(factsTable.id, review.stagingFactId)).limit(1);
   if (!fact) return { ok: false, reason: "staging_fact_missing", stage };
+  const primary = await primaryWorkingGag(review.stagingFactId);
   return {
     ok: true,
-    cycle: { reviewId, stage, stagingFactId: review.stagingFactId, factText: fact.text, source: "staging_fact" },
+    cycle: { reviewId, stage, stagingFactId: review.stagingFactId, factText: fact.text, source: "staging_fact", primaryGag: primary?.content ?? null },
   };
 }
 
@@ -244,7 +251,7 @@ export async function resolveLiveConceptCycle(factId: number): Promise<ConceptCy
   if (await openReviewForFact(factId)) return { ok: false, reason: "review_open" };
   return {
     ok: true,
-    cycle: { reviewId: null, stage: null, stagingFactId: factId, factText: fact.text, source: "live_fact" },
+    cycle: { reviewId: null, stage: null, stagingFactId: factId, factText: fact.text, source: "live_fact", primaryGag: null },
   };
 }
 
@@ -366,7 +373,7 @@ export async function runVisualConceptsJob(
       // before the taxonomy run may have finished.
       enrichment: null,
       classification: "omit",
-      renderPolicy: resolveRenderPolicy(null),
+      renderPolicy: resolveRenderPolicy(cycle.primaryGag ? { visualPromptStrategyOverride: cycle.primaryGag } : null),
       humorNote,
       existingGags,
       draft,

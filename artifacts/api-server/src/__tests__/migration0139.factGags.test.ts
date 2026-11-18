@@ -17,10 +17,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { sql } from "drizzle-orm";
 import { db, pool } from "@workspace/db";
+import { sqlAsOf0155 } from "../lib/stageLabelsAsOf0155.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../../../..");
-const MIGRATION_SQL = readFileSync(path.join(ROOT, "lib/db/migrations/0139_fact_gags.sql"), "utf8");
+const MIGRATION_SQL = sqlAsOf0155(readFileSync(path.join(ROOT, "lib/db/migrations/0139_fact_gags.sql"), "utf8")); // its stage labels as 0155 renamed them
 const REVERSE_SQL = readFileSync(path.join(ROOT, "lib/db/reverse/0139_fact_gags.reverse.sql"), "utf8");
 const LOG = "0139_fact_gags";
 const P = "t_0139_";
@@ -126,18 +127,18 @@ describe("migration 0139: every gag in one place", () => {
 
     const live = await insertFact("live", true, { ...classification, visualPromptStrategyOverride: ov("{NAME} lifts the moon.") });
     const staging = await insertFact("staging", false, { ...classification, visualPromptStrategyOverride: ov("{NAME} waits.") });
-    await insertReview(staging, "concept_review", "pending", false);
+    await insertReview(staging, "gags", "pending", false);
     const approvedThenDeactivated = await insertFact("deactivated", false, { ...classification, visualPromptStrategyOverride: ov("{NAME} rests.") });
-    await insertReview(approvedThenDeactivated, "production_approved", "approved", true);
+    await insertReview(approvedThenDeactivated, "approved", "approved", true);
     const emptyScene = await insertFact("empty", false, { ...classification, visualPromptStrategyOverride: ov("   ") });
     const noOverride = await insertFact("none", false, classification);
 
     const refreshDiffers = await insertFact("refresh-differs", true, { ...classification, visualPromptStrategyOverride: ov("{NAME} old scene.") });
-    const reviewDiffers = await insertReview(refreshDiffers, "concept_review", "pending", false);
+    const reviewDiffers = await insertReview(refreshDiffers, "gags", "pending", false);
     const candDiffers = await insertCandidate(refreshDiffers, reviewDiffers, ov("{NAME} new scene."));
     const sameOv = ov("{NAME} same scene.", { updatedBy: "someone", updatedAt: "2026-01-01" });
     const refreshSame = await insertFact("refresh-same", true, { ...classification, visualPromptStrategyOverride: sameOv });
-    const reviewSame = await insertReview(refreshSame, "concept_review", "pending", false);
+    const reviewSame = await insertReview(refreshSame, "gags", "pending", false);
     const candSame = await insertCandidate(refreshSame, reviewSame, { ...sameOv, updatedBy: "someone else", updatedAt: "2026-02-02" });
 
     ids = { live, staging, approvedThenDeactivated, emptyScene, noOverride, refreshDiffers, refreshSame, candDiffers, candSame, reviewDiffers };

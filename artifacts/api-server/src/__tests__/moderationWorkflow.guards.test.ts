@@ -1,73 +1,87 @@
 /**
- * Pure guard tests for the three-gate moderation lifecycle (no DB).
- *
- * Covers the concept_review stage added for the Visual Concept step:
- *  - concept_review counts as an unresolved submission stage,
- *  - canApproveVisualConcept gates concept_review only,
- *  - canProductionApprove stays production_review-only,
- *  - canReject: any step until the fact goes live (PLAN_FACT_LIFECYCLE_REBUILD.md item 13),
- *  - canProvisionallyApprove includes concept_review.
+ * Pure guard tests for the four-step moderation lifecycle (no DB; plan
+ * PLAN_FACT_LIFECYCLE_REBUILD.md, 1D; Issue #1018, increment 1.2c-ii):
+ * Triage → Reading → Gags → Test Renders, then Approved or Rejected.
  */
 
-import { reviewReasonEnum } from "@workspace/db/schema";
+import { reviewReasonEnum, reviewWorkflowStageEnum } from "@workspace/db/schema";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import {
   UNRESOLVED_SUBMISSION_STAGE_VALUES,
+  PREPARING_STAGE_VALUES,
   REVIEW_WORKFLOW_STAGE_VALUES,
   REVIEW_WORKFLOW_STAGE_DISPLAY,
   isUnresolvedSubmissionStage,
+  isTerminalReviewStage,
   canProvisionallyApprove,
-  canApproveVisualConcept,
+  canRetryReading,
+  canApproveReading,
+  canApproveGags,
+  canSendBackToGags,
   canProductionApprove,
   canReject,
   REJECTION_REASON_VALUES,
+  type ReviewWorkflowStage,
 } from "@workspace/api-zod";
 
-describe("moderationWorkflow — concept_review stage", () => {
-  it("is a first-class stage value with display metadata", () => {
-    assert.ok(REVIEW_WORKFLOW_STAGE_VALUES.includes("gags"));
-    assert.equal(REVIEW_WORKFLOW_STAGE_DISPLAY.concept_review.label, "Gags");
-    // production_review label was repurposed to the render step.
-    assert.equal(REVIEW_WORKFLOW_STAGE_DISPLAY.production_review.label, "Test Renders");
+const ALL = REVIEW_WORKFLOW_STAGE_VALUES;
+
+/** The stages a guard allows, with the review still pending. */
+function allowed(guard: (stage: ReviewWorkflowStage, status: string) => boolean): ReviewWorkflowStage[] {
+  return ALL.filter((s) => guard(s, "pending"));
+}
+
+describe("moderationWorkflow — the four steps", () => {
+  it("has exactly the six stages, and the database enum is the same list", () => {
+    assert.deepEqual([...ALL], ["triage", "reading", "gags", "test_renders", "approved", "rejected"]);
+    assert.deepEqual([...reviewWorkflowStageEnum.enumValues], [...ALL]);
   });
 
-  it("counts as an unresolved submission stage", () => {
-    assert.ok(UNRESOLVED_SUBMISSION_STAGE_VALUES.includes("gags"));
-    assert.equal(isUnresolvedSubmissionStage("gags"), true);
+  it("every stage has display metadata; the rejected label does not say renders were discarded", () => {
+    for (const s of ALL) assert.ok(REVIEW_WORKFLOW_STAGE_DISPLAY[s].label, s);
+    assert.equal(REVIEW_WORKFLOW_STAGE_DISPLAY.reading.label, "Reading");
+    assert.equal(REVIEW_WORKFLOW_STAGE_DISPLAY.gags.label, "Gags");
+    assert.equal(REVIEW_WORKFLOW_STAGE_DISPLAY.test_renders.label, "Test Renders");
+    assert.doesNotMatch(REVIEW_WORKFLOW_STAGE_DISPLAY.rejected.hint, /discarded/i);
+    assert.match(REVIEW_WORKFLOW_STAGE_DISPLAY.rejected.hint, /gags were deleted/);
   });
 
-  it("canApproveVisualConcept: true only at concept_review + pending", () => {
-    assert.equal(canApproveVisualConcept("gags", "pending"), true);
-    assert.equal(canApproveVisualConcept("gags", "approved"), false);
-    assert.equal(canApproveVisualConcept("test_renders", "pending"), false);
-    assert.equal(canApproveVisualConcept("prep_pending", "pending"), false);
+  it("unresolved = the four steps; preparing = the three after triage; terminal = approved and rejected", () => {
+    assert.deepEqual([...UNRESOLVED_SUBMISSION_STAGE_VALUES], ["triage", "reading", "gags", "test_renders"]);
+    assert.deepEqual([...PREPARING_STAGE_VALUES], ["reading", "gags", "test_renders"]);
+    assert.deepEqual(ALL.filter(isUnresolvedSubmissionStage), ["triage", "reading", "gags", "test_renders"]);
+    assert.deepEqual(ALL.filter(isTerminalReviewStage), ["approved", "rejected"]);
   });
 
-  it("canProductionApprove: still production_review-only (never concept_review)", () => {
-    assert.equal(canProductionApprove("test_renders", "pending"), true);
-    assert.equal(canProductionApprove("gags", "pending"), false);
+  it("each transition is allowed from exactly its own step", () => {
+    assert.deepEqual(allowed(canProvisionallyApprove), ["triage"]);
+    assert.deepEqual(allowed(canRetryReading), ["reading"]);
+    assert.deepEqual(allowed(canApproveReading), ["reading"]);
+    assert.deepEqual(allowed(canApproveGags), ["gags"]);
+    assert.deepEqual(allowed(canSendBackToGags), ["test_renders"]);
+    assert.deepEqual(allowed(canProductionApprove), ["test_renders"]);
   });
 
   it("canReject: every step until the fact goes live, never a resolved review", () => {
-    for (const stage of ["triage", "prep_pending", "prep_failed", "gags", "test_renders"] as const) {
-      assert.equal(canReject(stage, "pending"), true, stage);
-    }
-    for (const stage of ["rejected", "rejected", "approved"] as const) {
-      assert.equal(canReject(stage, "pending"), false, stage);
-    }
+    assert.deepEqual(allowed(canReject), ["triage", "reading", "gags", "test_renders"]);
     assert.equal(canReject("triage", "rejected"), false);
     assert.equal(canReject("test_renders", "approved"), false);
+  });
+
+  it("no transition is allowed on a resolved review", () => {
+    for (const guard of [canProvisionallyApprove, canRetryReading, canApproveReading, canApproveGags, canSendBackToGags, canProductionApprove, canReject]) {
+      for (const s of ALL) {
+        assert.equal(guard(s, "approved"), false);
+        assert.equal(guard(s, "rejected"), false);
+      }
+    }
   });
 
   it("the rejection reasons and the review_reason enum are one list", () => {
     // lib/db cannot import api-zod, so the enum repeats the list; this keeps
     // the two copies from drifting.
     assert.deepEqual([...reviewReasonEnum.enumValues], [...REJECTION_REASON_VALUES]);
-  });
-
-  it("canProvisionallyApprove: re-prep allowed from concept_review", () => {
-    assert.equal(canProvisionallyApprove("gags", "pending"), true);
   });
 });

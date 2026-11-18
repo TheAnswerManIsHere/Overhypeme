@@ -31,7 +31,7 @@ async function fact(owner: string | null = null): Promise<number> {
 
 async function review(factId: number, status: "pending" | "approved"): Promise<number> {
   const [row] = await db.insert(pendingReviewsTable).values({
-    submittedText: "t", submittedById: adminId, status, workflowStage: status === "pending" ? "concept_review" : "production_approved", stagingFactId: factId,
+    submittedText: "t", submittedById: adminId, status, workflowStage: status === "pending" ? "gags" : "approved", stagingFactId: factId,
   } as never).returning({ id: pendingReviewsTable.id });
   return row!.id;
 }

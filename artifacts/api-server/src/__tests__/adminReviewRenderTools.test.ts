@@ -237,8 +237,8 @@ describe("POST /admin/reviews/:id/render", () => {
     assert.equal(res.status, 403);
   });
 
-  it("409 when not in production_review", async () => {
-    const { reviewId } = await seedReview({ submittedById: plainId, stage: "prep_pending" });
+  it("409 when not at Test Renders", async () => {
+    const { reviewId } = await seedReview({ submittedById: plainId, stage: "reading" });
     const res = await request(makeApp()).post(`/admin/reviews/${reviewId}/render`).set("authorization", `Bearer ${adminSid}`).send({});
     assert.equal(res.status, 409);
   });
@@ -252,11 +252,10 @@ describe("POST /admin/reviews/:id/render", () => {
     assert.equal(res.status, 400);
   });
 
-  it("400 fact_enrichment_invalid for an unusable staging enrichment", async () => {
+  it("renders a staging fact whose taxonomy is unusable: the picture is drawn from the gag alone (Issue #1018, increment 1.2c-ii)", async () => {
     const { reviewId } = await seedReview({ submittedById: plainId, enrichment: { primaryArchetype: "nope" } });
     const res = await request(makeApp()).post(`/admin/reviews/${reviewId}/render`).set("authorization", `Bearer ${adminSid}`).send({});
-    assert.equal(res.status, 400);
-    assert.equal(res.body.error, "fact_enrichment_invalid");
+    assert.equal(res.status, 202, JSON.stringify(res.body));
   });
 
   it("the wife's photo renders as Raena Franklin, she/her, when no name is given", async () => {

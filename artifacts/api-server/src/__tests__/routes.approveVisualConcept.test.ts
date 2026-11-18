@@ -222,11 +222,11 @@ describe("POST /admin/reviews/:id/approve-visual-concept — preconditions", () 
     assert.equal(res.status, 403);
   });
 
-  it("409 CONCEPT_STAGE_ALREADY_ADVANCED from the wrong stage (production_review)", async () => {
+  it("409 REVIEW_MOVED from the wrong stage (Test Renders)", async () => {
     const { reviewId } = await seedReview({ submittedById: adminId, stage: "test_renders", visualConceptStatus: "ok" });
     const res = await request(makeApp()).post(`/admin/reviews/${reviewId}/approve-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({});
     assert.equal(res.status, 409);
-    assert.equal(res.body.code, "CONCEPT_STAGE_ALREADY_ADVANCED");
+    assert.equal(res.body.code, "REVIEW_MOVED");
   });
 
   it("succeeds with a saved gag", async () => {
@@ -266,7 +266,7 @@ describe("POST /admin/reviews/:id/approve-visual-concept — preconditions", () 
 });
 
 describe("POST /admin/reviews/:id/approve-visual-concept — happy path + concurrency", () => {
-  it("advances to production_review and enqueues one iteration-render job", async () => {
+  it("advances to Test Renders and enqueues one iteration-render job", async () => {
     const { reviewId } = await seedReview({ submittedById: adminId, stage: "gags", visualConceptStatus: "ok" });
     const res = await request(makeApp()).post(`/admin/reviews/${reviewId}/approve-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({});
     assert.equal(res.status, 200, JSON.stringify(res.body));
@@ -288,7 +288,7 @@ describe("POST /admin/reviews/:id/approve-visual-concept — happy path + concur
     assert.equal(res.body.workflowStage, "test_renders");
   });
 
-  it("approves with 200 production_review after a Concept or bubble save leaves the stored ideas stale (GET reads current false)", async () => {
+  it("approves with 200 (Test Renders) after a Concept or bubble save leaves the stored ideas stale (GET reads current false)", async () => {
     const generate: VisualConceptsJobDeps["generate"] = async () => ({
       jokeRead: "R",
       candidates: [1, 2, 3].map((n) => ({
@@ -342,7 +342,7 @@ describe("POST /admin/reviews/:id/approve-visual-concept — happy path + concur
     const statuses = [a.status, b.status].sort();
     assert.deepEqual(statuses, [200, 409], `expected one 200 + one 409, got ${statuses}`);
     const loser = a.status === 409 ? a : b;
-    assert.equal(loser.body.code, "CONCEPT_STAGE_ALREADY_ADVANCED");
+    assert.equal(loser.body.code, "REVIEW_MOVED");
 
     const jobs = await prepareJobsFor(reviewId);
     assert.equal(jobs.length, 1, "exactly one iteration-render job despite two approvals");
@@ -356,13 +356,13 @@ describe("POST /admin/reviews/:id/back-to-visual-concept", () => {
     assert.equal(res.status, 403);
   });
 
-  it("409 from a stage other than production_review", async () => {
+  it("409 from a stage other than Test Renders", async () => {
     const { reviewId } = await seedReview({ submittedById: adminId, stage: "gags", visualConceptStatus: "ok" });
     const res = await request(makeApp()).post(`/admin/reviews/${reviewId}/back-to-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({});
     assert.equal(res.status, 409);
   });
 
-  it("bounces production_review → concept_review; re-approval keeps prior renders for reuse and enqueues the iteration job", async () => {
+  it("bounces Test Renders → Gags; re-approval keeps prior renders for reuse and enqueues the iteration job", async () => {
     const { reviewId, stagingFactId } = await seedReview({ submittedById: adminId, stage: "test_renders", visualConceptStatus: "ok" });
     assert.ok(stagingFactId);
     const priorAttemptId = await seedReviewRenderAttempt(reviewId, stagingFactId);

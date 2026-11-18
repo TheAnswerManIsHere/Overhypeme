@@ -207,7 +207,7 @@ describe("fact_visual_concepts handler", () => {
 });
 
 describe("buildVisualConceptsResponse — server-computed current flag", () => {
-  it("current=true right after a fresh write, then stale after the enrichment changes", async () => {
+  it("current=true right after a fresh write; a taxonomy change leaves it current, a gag change stales it", async () => {
     const { reviewId, factId } = await seedReview(adminId);
     await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate() });
 
@@ -221,10 +221,19 @@ describe("buildVisualConceptsResponse — server-computed current flag", () => {
     assert.equal(fresh.current, true);
     assert.equal(fresh.staleReason, undefined);
 
-    // Change a render-affecting enrichment field → the input hash moves.
+    // The taxonomy is not a writer input (Issue #1018, increment 1.2c-ii): a
+    // taxonomy run finishing after the ideas leaves them current.
     await db.update(factsTable)
       .set({ enrichment: { ...ENRICHMENT, primaryArchetype: "impossible_knowledge_or_skill" } })
       .where(eq(factsTable.id, factId));
+    const still = await buildVisualConceptsResponse({
+      id: reviewId,
+      visualConceptStatus: state.status, visualConceptCandidates: state.blob,
+    });
+    assert.equal(still.current, true);
+
+    // A gag the writer is shown → the input hash moves.
+    await db.insert(factGagsTable).values({ factId, slot: 1, pendingContent: { version: 1, requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [], bubbles: [], coreSceneOverride: "{NAME} hoists the planet overhead." } as never });
     const stale = await buildVisualConceptsResponse({
       id: reviewId,
       visualConceptStatus: state.status, visualConceptCandidates: state.blob,
@@ -303,7 +312,7 @@ describe("buildVisualConceptsResponse — server-computed current flag", () => {
 describe("POST /admin/reviews/:id/visual-concepts/regenerate", () => {
   const app = makeApp();
 
-  it("202 + sets status pending for an admin on a concept_review", async () => {
+  it("202 + sets status pending for an admin at Gags", async () => {
     const { reviewId, factId } = await seedReview(adminId, "gags");
     const res = await request(app)
       .post(`/admin/reviews/${reviewId}/visual-concepts/regenerate`)
@@ -330,8 +339,8 @@ describe("POST /admin/reviews/:id/visual-concepts/regenerate", () => {
     assert.ok(res.status === 401 || res.status === 403, `expected 401/403, got ${res.status}`);
   });
 
-  it("409 when the review is not in concept_review (regenerate is a Step-2 action)", async () => {
-    const { reviewId } = await seedReview(adminId, "prep_pending");
+  it("409 when the review is not at Gags (regenerate is a Gags action)", async () => {
+    const { reviewId } = await seedReview(adminId, "reading");
     const res = await request(app)
       .post(`/admin/reviews/${reviewId}/visual-concepts/regenerate`)
       .set("authorization", `Bearer ${adminSid}`)
@@ -421,7 +430,8 @@ describe("the gag writer: humor note, joke read and freshness", () => {
     const got = seen as unknown as Parameters<VisualConceptsJobDeps["generate"]>[0];
     assert.deepEqual(got.existingGags.map((g) => g.scene), ["{NAME} pending change B."]);
     assert.equal(got.draft?.scene, "{NAME} draft C.");
-    assert.equal((got.enrichment as unknown as { visualPromptStrategyOverride: { coreSceneOverride: string } }).visualPromptStrategyOverride.coreSceneOverride, "{NAME} pending change B.", "the review works on the gag's pending change");
+    assert.equal(got.enrichment, null, "the taxonomy is not sent (Issue #1018, increment 1.2c-ii)");
+    assert.equal(got.classification, "omit");
   });
 
   it("stores the joke read, and the response carries it with no saved note", async () => {

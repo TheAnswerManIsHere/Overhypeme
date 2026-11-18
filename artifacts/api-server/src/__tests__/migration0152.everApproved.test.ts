@@ -24,10 +24,11 @@ import { db, pool, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
+import { sqlAsOf0155 } from "../lib/stageLabelsAsOf0155.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../../../..");
-const MIGRATION_SQL = readFileSync(path.join(ROOT, "lib/db/migrations/0152_admin_actions_and_ever_approved.sql"), "utf8");
+const MIGRATION_SQL = sqlAsOf0155(readFileSync(path.join(ROOT, "lib/db/migrations/0152_admin_actions_and_ever_approved.sql"), "utf8")); // its stage labels as 0155 renamed them
 const P = `t_0152_${randomUUID().slice(0, 8)}`;
 const ADMIN = `${P}_admin`;
 
@@ -56,14 +57,14 @@ describe("migration 0152: facts that were ever approved", () => {
   before(async () => {
     await db.insert(usersTable).values({ id: ADMIN }).onConflictDoNothing();
     f.approvedThenDeactivated = await inactiveFact("approved-then-deactivated");
-    await review(f.approvedThenDeactivated, "approved", "production_approved", "2026-03-04T05:06:07Z");
+    await review(f.approvedThenDeactivated, "approved", "approved", "2026-03-04T05:06:07Z");
     const live = await insertLiveFact({ text: `{NAME} ${P} live`, enrichment: buildPlaceholderFactEnrichment() }, { ...buildPlaceholderGag(), coreSceneOverride: "{NAME} live." });
     f.liveNoReview = live.id;
     liveCreated = (await one<{ c: string }>(sql`SELECT created_at::text AS c FROM facts WHERE id = ${live.id}`))!.c;
     f.inModeration = await inactiveFact("in-moderation");
-    await review(f.inModeration, "pending", "concept_review");
+    await review(f.inModeration, "pending", "gags");
     f.rejected = await inactiveFact("rejected");
-    await review(f.rejected, "rejected", "triage_rejected");
+    await review(f.rejected, "rejected", "rejected");
     f.unestablished = await inactiveFact("unestablished");
     f.moderatorRecorded = await inactiveFact("moderator-recorded");
     await db.execute(sql`UPDATE facts SET approved_at = '2026-05-05T00:00:00Z', approved_by_id = ${ADMIN}, approval_source = 'moderator' WHERE id = ${f.moderatorRecorded}`);
