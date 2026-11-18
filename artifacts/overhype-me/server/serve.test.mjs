@@ -6,8 +6,8 @@
  * visitor sees.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createServer } from "node:http";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { createServer, get } from "node:http";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHandler } from "./serve.mjs";
@@ -24,6 +24,7 @@ beforeAll(async () => {
   writeFileSync(path.join(root, "assets", "index-abc.js"), "console.log(1)");
   writeFileSync(path.join(root, "fonts", "inter.woff2"), "w2");
   writeFileSync(path.join(root, "favicon.svg"), "<svg/>");
+  writeFileSync(path.join(root, "assets", "big.js"), Buffer.alloc(8 * 1024 * 1024, 97));
   writeFileSync(path.join(path.dirname(root), "outside-secret.txt"), "secret");
   server = createServer(createHandler(root));
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -81,4 +82,21 @@ describe("the published web server", () => {
     const post = await fetch(`${base}/`, { method: "POST" });
     expect(post.status).toBe(405);
   });
+
+  // PR #1049's build report: a download cut off part-way left its file open
+  // for the life of the process.
+  it.runIf(existsSync("/proc/self/fd"))("closes the file when a visitor goes away mid-download", async () => {
+    const openFiles = () => readdirSync("/proc/self/fd").length;
+    const abortOne = () => new Promise((resolve) => {
+      const req = get(`${base}/assets/big.js`, (res) => {
+        res.once("data", () => { req.destroy(); resolve(undefined); });
+      });
+      req.on("error", () => resolve(undefined));
+    });
+    const before = openFiles();
+    for (let i = 0; i < 20; i++) await abortOne();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(openFiles() - before).toBeLessThan(5);
+  });
 });
+
