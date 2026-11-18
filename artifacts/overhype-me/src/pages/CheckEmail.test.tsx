@@ -8,7 +8,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import CheckEmail from "./CheckEmail";
 
-vi.mock("wouter", () => ({ useLocation: () => ["/check-email", vi.fn()] }));
+vi.mock("wouter", () => ({
+  useLocation: () => ["/check-email", vi.fn()],
+  Link: ({ href, children, className }: { href: string; children: React.ReactNode; className?: string }) => <a href={href} className={className}>{children}</a>,
+}));
 vi.mock("@workspace/replit-auth-web", () => ({
   useAuth: () => ({
     isAuthenticated: true,

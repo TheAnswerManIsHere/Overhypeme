@@ -263,5 +263,9 @@ test.describe("Public described screens", () => {
     }
     await page.goto("/terms");
     await expect(page.getByText("Availeron Consulting, Inc.", { exact: false }).first()).toBeVisible();
+
+    // A screen outside the shared layout carries the links too.
+    await page.goto("/no-such-page");
+    await expect(page.getByRole("navigation", { name: "Legal" }).getByRole("link", { name: "Privacy Policy" })).toBeVisible();
   });
 });

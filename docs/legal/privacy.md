@@ -1,6 +1,6 @@
 ---
 title: Privacy Policy
-version: 2026-11-17
+version: 2026-11-18
 summary: What we collect, why, who receives it, how long we keep it, and your choices.
 ---
 
@@ -13,6 +13,7 @@ Overhype.me is offered only in the places listed in our [Terms](/terms) and only
 **When you browse, signed in or not**
 
 - **Technical information**: your IP address, browser and device type, the pages you visit, and when. Our hosting and security providers process this to deliver and protect the site.
+- **How you use the site, for fixing errors.** Our error-monitoring provider records some visits, and every visit in which an error happens: what the page showed and how it was used, with anything you type into a field hidden but other text on the page, including names shown in facts, visible. It also receives error details and page-speed measurements.
 - **Your approximate location** (country), worked out from your IP address by our network provider. We use it to decide which marketing-email default to show you and, as described in our Terms, where the Service is offered.
 - **Names you type to personalise facts** are kept in your browser, and sent to our servers when they are needed to show or make something with them.
 
@@ -50,8 +51,8 @@ We share personal information only with the providers that run parts of the Serv
 | Project Arachnid (Canadian Centre for Child Protection) | Detects known child sexual abuse material | Uploaded images |
 | Stripe | Payments | Your email, account reference and purchases |
 | Resend | Sends email | Your email address and the message |
-| Sentry | Finds errors in the site | Technical details of errors, which can include your account details |
-| Google Analytics | Counts visits | Pages visited and device information, with a random identifier |
+| Sentry | Finds and diagnoses errors in the site | Error details and page-speed measurements; recordings of some visits and of every visit with an error, showing the page's text but not what you type; for signed-in members, your account ID, email address and name; and anything you send through its feedback button |
+| Google Analytics | Counts visits | Your IP address, pages visited and device information, with a random identifier |
 | Google Fonts | Serves a typeface | Your IP address |
 | Google and Apple | Sign-in, if you choose them | What you approve in their sign-in screen |
 
@@ -63,8 +64,8 @@ We also disclose information when the law requires it, to protect people from ha
 
 | Information | How long |
 |---|---|
-| Your account | Until you delete it. Deletion takes effect 14 days after you ask, so you can change your mind |
-| An account that never finished signing up | Deleted after 30 days |
+| Your account | Until you delete it. Deletion takes effect 14 days after you ask, so you can change your mind; an open payment dispute delays it until the dispute is settled |
+| An account that never finished signing up | Once it is 30 days old it is scheduled for deletion and we email you; it is deleted 14 days later unless you choose to keep it. An account you choose to keep is then kept like any other |
 | Photos, memes and pictures you delete | Removed 30 days after you delete them; a backup copy is kept 7 more days |
 | Your photos, memes and pictures when your account is deleted | Removed when the deletion takes effect, with the same 7-day backup |
 | Facts you submitted | Kept in the catalogue after you leave, credited to "a former member" |

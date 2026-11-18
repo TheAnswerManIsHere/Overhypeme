@@ -9,6 +9,7 @@ import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { returnToFromSearch } from "@/lib/safe-return-to";
 import { useSignOut } from "@/hooks/use-sign-out";
+import { LegalLinks } from "@/components/legal/LegalLinks";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
@@ -97,7 +98,7 @@ export default function CheckEmail() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-6 p-4">
       <div className="w-full max-w-md bg-card border border-border rounded-xl p-6 sm:p-8 shadow-lg space-y-5 text-center">
         <h1 className="text-3xl font-display uppercase tracking-tight text-foreground">Check your email</h1>
         {linkState === "checking" ? (
@@ -146,6 +147,7 @@ export default function CheckEmail() {
           Sign out
         </button>
       </div>
+      <LegalLinks className="text-xs text-muted-foreground" />
     </div>
   );
 }
