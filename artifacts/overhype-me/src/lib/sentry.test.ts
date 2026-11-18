@@ -34,6 +34,10 @@ async function loadSentry(dropDebugEvents: boolean): Promise<{ mod: typeof impor
   mockInit.mockClear();
   mockReplayIntegration.mockClear();
   const mod = await import("./sentry");
+  // Monitoring starts only when the API admits the visit (launch Phase 14,
+  // increment 3), never at import.
+  expect(mockInit).not.toHaveBeenCalled();
+  mod.startMonitoring();
   const initArg = mockInit.mock.calls[0][0] as SentryHooks;
   return { mod, hooks: initArg };
 }

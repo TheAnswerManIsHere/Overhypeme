@@ -23,11 +23,11 @@ container.
 | `www.overhype.me` | Cloudflare redirect rule "Redirect from WWW to root [Template]" | `HTTP/2 301`, `location: https://overhype.me/` | unchanged |
 | `overhypeme.replit.app` | Replit directly | `HTTP/2 200`, `server: Google Frontend` | refused: no origin secret |
 | og-router Worker's `*.workers.dev` | — | not enabled: the Worker's Domains tab lists only its three `overhype.me` routes (`/m/*`, `/api/og/*`, `/api/memes/*`) | nothing to close |
-| dev preview `*.spock.replit.dev` | Replit | publicly addressable: `HTTP/1.1 502`, `Replit-Cluster: spock`, while the dev app was not running | measured while running: see below |
+| dev preview `*.spock.replit.dev` | Replit | **public while the dev app runs**: `/` 200 (the Vite page), `/api/healthz` 200 `{"status":"ok"}`, and an unauthenticated `POST /api/auth/dev-admin-login` 200 (mints an admin session; `ENABLE_DEV_ADMIN_LOGIN` is on there). Stopped: `HTTP/1.1 502`, `Replit-Cluster: spock` | its API gated by `DEV_PREVIEW_KEY` (PR #1060); the dev app kept stopped when not in use until then |
 
-The dev preview row's reachability while the dev app runs is still to be
-measured. If it serves the app publicly it is protected in increment 3, not
-accepted (plan, *Risks*).
+Plan, *Risks*: a reachable development preview "is protected in increment 3,
+not accepted". Its pages are the app's code, which this repository already
+publishes; its API is what PR #1060 closes.
 
 ## Cache (S-e2)
 

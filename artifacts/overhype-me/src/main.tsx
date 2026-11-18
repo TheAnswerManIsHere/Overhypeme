@@ -1,6 +1,5 @@
-// Sentry init must run before App is imported so it can capture render errors.
-import "./lib/sentry";
 import { createRoot } from "react-dom/client";
+import { admitAndStart } from "./lib/admission";
 import App from "./App";
 import "@fontsource/inter/400.css";
 import "@fontsource/inter/500.css";
@@ -58,3 +57,7 @@ window.fetch = function (input, init) {
 };
 
 createRoot(document.getElementById("root")!).render(<App />);
+
+// Error monitoring, analytics and ads start only once the API has admitted
+// this visit (launch Phase 14, increment 3; lib/admission.ts).
+void admitAndStart();

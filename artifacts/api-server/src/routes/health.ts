@@ -19,6 +19,16 @@ export function healthzHandler(_req: Request, res: Response): void {
 
 router.get("/healthz", healthzHandler);
 
+// The web app asks this once at start-up and starts analytics, error
+// monitoring and ads only on a 200 (launch Phase 14, increment 3, plan S-e2).
+// Reaching here means app.ts's originGuard admitted the request: it came
+// through Cloudflare and from a place the site serves. Refusals are the
+// guard's 403 / 451.
+router.get("/admission", (_req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ admitted: true });
+});
+
 // Richer health endpoint intended for external uptime monitors (UptimeRobot,
 // BetterStack, etc). Cheap: one indexed read against stripe_processed_events
 // so the uptime check doubles as a webhook-staleness signal. Never fails on

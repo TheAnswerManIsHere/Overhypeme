@@ -48,9 +48,17 @@
       })();
     </script>
 
-    <!-- Google Analytics 4 — loaded only when VITE_GA_MEASUREMENT_ID is set at build time -->
+    <!--
+      Google Analytics 4 — loaded only when VITE_GA_MEASUREMENT_ID is set at
+      build time, and only once the API has admitted this visit: the app calls
+      window.__ohStartAnalytics after GET /api/admission answers 200 (launch
+      Phase 14, increment 3, src/lib/admission.ts). A visitor who went around
+      Cloudflare, or one from a place the site does not serve, never loads it.
+    -->
     <script id="ga4-init">
-      (function() {
+      window.__ohStartAnalytics = function() {
+        if (window.__ohStartAnalytics.started) return;
+        window.__ohStartAnalytics.started = true;
         var gaId = "%VITE_GA_MEASUREMENT_ID%";
         if (!gaId || gaId.indexOf("%") !== -1 || gaId === "undefined") return;
         var s = document.createElement("script");
@@ -62,12 +70,14 @@
         window.gtag = gtag;
         gtag("js", new Date());
         gtag("config", gaId, { send_page_view: false });
-      })();
+      };
     </script>
 
-    <!-- Google AdSense — loaded only when VITE_ADSENSE_PUBLISHER_ID is set at build time -->
+    <!-- Google AdSense — loaded only when VITE_ADSENSE_PUBLISHER_ID is set at build time, and only once the API has admitted this visit (as analytics, above) -->
     <script id="adsense-init">
-      (function() {
+      window.__ohStartAds = function() {
+        if (window.__ohStartAds.started) return;
+        window.__ohStartAds.started = true;
         var pubId = "%VITE_ADSENSE_PUBLISHER_ID%";
         if (!pubId || pubId.indexOf("%") !== -1 || pubId === "undefined") return;
         var s = document.createElement("script");
@@ -75,7 +85,7 @@
         s.crossOrigin = "anonymous";
         s.src = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=" + pubId;
         document.head.appendChild(s);
-      })();
+      };
     </script>
   </head>
   <body>

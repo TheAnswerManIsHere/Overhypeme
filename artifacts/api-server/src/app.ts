@@ -18,6 +18,7 @@ import { securityHeaders } from "./lib/securityHeaders";
 import { isDevAdminLoginEnabled } from "./lib/devAdminLogin";
 import { createGlobalLimiter, globalLimiterLogLevel, type GlobalRateLimiterOverrides } from "./lib/rateLimit";
 import { healthzHandler } from "./routes/health";
+import { originGuard } from "./middlewares/originGuard";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const CSRF_COOKIE = "csrf_token";
@@ -175,6 +176,13 @@ export function createApp(options: { limiterOverrides?: GlobalRateLimiterOverrid
       next();
     }
   });
+
+  // In the published deployment, nothing that did not come through Cloudflare
+  // is answered, and no visitor from a place the site does not serve (launch
+  // Phase 14, increment 3; middlewares/originGuard.ts). Ahead of every route,
+  // the Stripe webhook and the sign-in callbacks included: they reach
+  // overhype.me through Cloudflare. /api/healthz is exempt for the platform.
+  app.use(originGuard());
 
   // Stripe webhook MUST be registered BEFORE express.json() to get raw Buffer
   app.post(
