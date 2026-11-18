@@ -7,7 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Sentry, sentryUserFor } from "@/lib/sentry";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { trackPageView, trackRouteVisit, getTopRoutes } from "@/lib/analytics";
+import { page, trackRouteVisit, getTopRoutes, identify, resetIdentity } from "@/lib/analytics";
 import { PersonNameProvider } from "@/hooks/use-person-name";
 import { WelcomeModal } from "@/components/WelcomeModal";
 import { LEGAL_SLUGS } from "@/generated/legal";
@@ -94,6 +94,10 @@ function AuthProfileSync() {
   useEffect(() => {
     if (isLoading) return;
     Sentry.setUser(isAuthenticated ? sentryUserFor(user) : null);
+    // Analytics know a member by internal id only, and forget it on sign-out
+    // or session expiry (launch Phase 16, increment 3).
+    if (isAuthenticated && user?.id) identify(user.id);
+    else resetIdentity();
   }, [isAuthenticated, isLoading, user?.id]);
 
   useEffect(() => {
@@ -228,7 +232,7 @@ function PrefetchCriticalRoutes() {
 function GAPageTracker() {
   const [location] = useLocation();
   useEffect(() => {
-    trackPageView(location);
+    page(location);
     trackRouteVisit(location);
   }, [location]);
   return null;

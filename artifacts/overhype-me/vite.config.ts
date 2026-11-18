@@ -118,6 +118,12 @@ export default defineConfig({
           if (id.includes("node_modules/react-hook-form/") || id.includes("node_modules/@hookform/") || id.includes("node_modules/zod/")) {
             return "vendor-forms";
           }
+          // PostHog is imported only on demand (src/lib/analytics.ts), once the
+          // browser is idle: left out of every manual chunk so Rollup keeps it in
+          // its own async chunk, off the first page load.
+          if (id.includes("node_modules/posthog-js/")) {
+            return undefined;
+          }
           // Everything else from node_modules in one shared vendor chunk
           if (id.includes("node_modules/")) {
             return "vendor-misc";

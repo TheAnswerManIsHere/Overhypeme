@@ -21,6 +21,8 @@ vi.mock("@workspace/replit-auth-web", () => ({
 vi.mock("@/hooks/use-person-name", () => ({
   usePersonName: () => ({ name: "Sarah", pronouns: "they/them", pronounsSupplied: false, syncFromProfile }),
 }));
+const { trackSpy, personaliseSpy } = vi.hoisted(() => ({ trackSpy: vi.fn(), personaliseSpy: vi.fn() }));
+vi.mock("@/lib/analytics", () => ({ track: trackSpy, trackPersonaliseOnce: personaliseSpy }));
 vi.mock("@/components/ui/Turnstile", async () => {
   const React = await import("react");
   return {
@@ -99,6 +101,29 @@ describe("Onboard screen", () => {
     }));
   });
 
+  // Launch Phase 16, increment 3: a provider sign-up and an email verification
+  // arrive as one-time markers on this address, and are counted exactly once.
+  it("counts a marked sign-up and verification once, then drops the markers", async () => {
+    trackSpy.mockReset();
+    window.history.replaceState(null, "", "/onboard?returnTo=%2Fprofile&signup=google&verified=1");
+    const first = render(<Onboard />);
+    expect(trackSpy).toHaveBeenCalledWith("sign_up", { method: "google" });
+    expect(trackSpy).toHaveBeenCalledWith("verify");
+    expect(window.location.search).toBe("?returnTo=%2Fprofile");
+    first.unmount();
+    render(<Onboard />);
+    expect(trackSpy).toHaveBeenCalledTimes(2);
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("an address without a marker counts nothing; an unknown provider is ignored", async () => {
+    trackSpy.mockReset();
+    window.history.replaceState(null, "", "/onboard?returnTo=%2Fprofile&signup=Alice");
+    render(<Onboard />);
+    expect(trackSpy).not.toHaveBeenCalled();
+    window.history.replaceState(null, "", "/");
+  });
+
   it("a reload brings the draft back into the form", async () => {
     render(<Onboard />);
     expect(await screen.findByLabelText("Year")).toHaveProperty("value", "1990");
@@ -142,6 +167,43 @@ describe("Onboard screen", () => {
     fireEvent.click(screen.getByTestId("turnstile-pass"));
     fireEvent.change(name, { target: { value: "" } });
     expect((screen.getByRole("button", { name: "Finish set-up" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  // Launch Phase 16, increment 3 (PR #1059 round 2): set-up confirmed by the
+  // server is a name saved for rendering, counted once per browser by the
+  // analytics module (which skips it when the sheet or tag already counted).
+  it("counts personalise once the server confirms set-up", async () => {
+    personaliseSpy.mockReset();
+    render(<Onboard />);
+    await screen.findByLabelText("Year");
+    expect(personaliseSpy).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("turnstile-pass"));
+    fireEvent.click(screen.getByRole("button", { name: "Finish set-up" }));
+    await waitFor(() => expect(personaliseSpy).toHaveBeenCalledTimes(1));
+  });
+
+  it("a refused set-up counts nothing", async () => {
+    personaliseSpy.mockReset();
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      if (url.endsWith("api/auth/onboarding")) {
+        return new Response(JSON.stringify({
+          completed: false, emailVerified: true, marketingDefault: true, marketingWordingVersion: "v",
+          accountPronouns: null, displayName: null, providerFirstName: null,
+          draft: { pronouns: "they/them", dobYear: "1990", dobMonth: "6", dobDay: "15" },
+        }), { status: 200 });
+      }
+      if (url.endsWith("api/users/me/onboarding") && init?.method === "POST") {
+        return new Response(JSON.stringify({ error: "The challenge didn't pass. Try it again." }), { status: 400 });
+      }
+      return new Response(JSON.stringify({ saved: true }), { status: 200 });
+    }));
+    render(<Onboard />);
+    await screen.findByLabelText("Year");
+    fireEvent.click(screen.getByTestId("turnstile-pass"));
+    fireEvent.click(screen.getByRole("button", { name: "Finish set-up" }));
+    await screen.findByText("The challenge didn't pass. Try it again.");
+    expect(personaliseSpy).not.toHaveBeenCalled();
   });
 
   it("re-reads the account and leaves the browser copy to the account mirror", async () => {

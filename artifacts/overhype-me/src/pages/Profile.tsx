@@ -15,6 +15,7 @@ import { PronounEditor } from "@/components/ui/PronounEditor";
 import { useSignOut } from "@/hooks/use-sign-out";
 import { AccessGate } from "@/components/AccessGate";
 import { Sentry } from "@/lib/sentry";
+import { trackUpgradeOnce } from "@/lib/analytics";
 import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
 import { uploadUserImage } from "@/lib/image-upload";
 import { shouldAskForRealPhoto } from "@/lib/profile-photo";
@@ -406,6 +407,7 @@ export default function Profile() {
       if (cancelled) return;
       setCheckoutPolling(false);
       setCheckoutConfirmed(true);
+      trackUpgradeOnce(checkoutSessionId);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() }),
         refreshUser(),
