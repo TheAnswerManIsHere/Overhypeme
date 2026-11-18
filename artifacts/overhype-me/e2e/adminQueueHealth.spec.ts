@@ -80,6 +80,7 @@ const SIDEBAR: [string, string][] = [
   ["Trace an image", "/admin/trace"],
   ["Taxonomy Health", "/admin/taxonomy-health"],
   ["Email Queue", "/admin/email-queue"],
+  ["Operations", "/admin/operations"],
   ["Queue Health", "/admin/queue-health"],
   ["Features", "/admin/features"],
   ["AI Settings", "/admin/ai"],
