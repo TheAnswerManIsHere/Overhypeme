@@ -23,6 +23,9 @@ function appWith(env: NodeJS.ProcessEnv) {
   app.use(devPreviewGate(env));
   app.get("/api/healthz", (_req, res) => res.json({ status: "ok" }));
   app.post("/api/auth/dev-admin-login", (_req, res) => res.json({ ok: true }));
+  app.post("/api/stripe/webhook", (_req, res) => res.json({ received: true }));
+  app.get("/api/stripe/webhook", (_req, res) => res.json({ received: true }));
+  app.post("/api/stripe/webhook/x", (_req, res) => res.json({ received: true }));
   return app;
 }
 
@@ -105,6 +108,18 @@ describe("devPreviewGate", () => {
     app.get("/api/auth/dev-admin-login", (_req, res) => res.send("<script>/* login page */</script>"));
     const res = await viaPreview(request(app).get("/api/auth/dev-admin-login?returnTo=/admin")).set("X-Dev-Preview-Key", KEY);
     assert.equal(res.status, 200);
+  });
+
+  it("lets Stripe's test webhook through without the key, and nothing else at or under its address", async () => {
+    // Dev registers its Stripe test-mode webhook at the preview address
+    // (stripeInit: getSiteBaseUrl() is the dev domain when SITE_BASE_URL is
+    // unset), and Stripe cannot carry the key. The route verifies Stripe's
+    // signature itself, so the gate adds nothing there.
+    const app = appWith(workspace);
+    assert.equal((await viaPreview(request(app).post("/api/stripe/webhook"))).status, 200);
+    assert.equal((await viaPreview(request(app).get("/api/stripe/webhook"))).status, 403);
+    assert.equal((await viaPreview(request(app).post("/api/stripe/webhook/x"))).status, 403);
+    assert.equal((await viaPreview(request(app).post("/api/stripe/webhook?x=1"))).status, 200);
   });
 
   it("does nothing in the published deployment", async () => {
