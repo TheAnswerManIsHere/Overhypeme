@@ -21,6 +21,7 @@ import { enqueueJob, USE_CONFIGURED_MAX_ATTEMPTS } from "../lib/asyncJobs";
 import { emailRetryReset } from "../lib/email";
 import { laneHealth, queueHealth, queueHealthJobs } from "../lib/queueHealth";
 import { isNcmecReservedConfigKey, NCMEC_RESERVED_KEY_REFUSAL } from "../lib/moderation/ncmecConfig";
+import { READ_ONLY_CONFIG_KEY } from "../lib/readOnlyMode";
 import { CODE_OWNED_AI_SETTING_REFUSAL, isCodeOwnedAiConfigKey, withoutCodeOwnedAiSettings } from "../lib/codeOwnedPrompts";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
 import { revokeUserSessions } from "../lib/auth";
@@ -1868,7 +1869,9 @@ router.get("/config/public", async (_req: Request, res: Response) => {
 router.get("/admin/config", requireAdmin, async (_req: Request, res: Response) => {
   try {
     // AI settings live in code and are not shown (decisions.md 2026-11-14).
-    res.json(withoutCodeOwnedAiSettings(await getAllConfig()));
+    // The read-only switch has its own surface and rules (Operations page,
+    // lib/readOnlyMode.ts): it is never listed or edited here.
+    res.json(withoutCodeOwnedAiSettings(await getAllConfig()).filter((r) => r.key !== READ_ONLY_CONFIG_KEY));
   } catch (err) {
     res.status(500).json({ error: "Failed to load config" });
   }
@@ -1942,6 +1945,12 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
   // window. The keys are owned by the safety admin surface instead.
   if (isNcmecReservedConfigKey(key)) {
     res.status(403).json({ error: NCMEC_RESERVED_KEY_REFUSAL });
+    return;
+  }
+  // Read-only mode is set only on the Operations page, whose save keeps its
+  // safety rules (lib/readOnlyMode.ts); a write here would bypass them.
+  if (key === READ_ONLY_CONFIG_KEY) {
+    res.status(403).json({ error: "Read-only mode is set on the Operations page." });
     return;
   }
   // AI settings (the six system prompts and the engine choices) are set in
