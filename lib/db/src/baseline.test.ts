@@ -226,6 +226,31 @@ describe("schema baseline", { concurrency: false }, () => {
     }
   });
 
+  it("replays every migration after the cutoff over a schema a publish already brought to the end state", async () => {
+    // A Replit publish applies dev's whole structure to production first; the
+    // release then boots and the runner replays every migration production's
+    // ledger lacks over that end state (migrations-and-backfills.md, *How a
+    // database receives a change*). The publish of 2026-11-18 crash-looped
+    // here: production's ledger ended at 0122, the publish had already recast
+    // review_workflow_stage to 0155's labels, and 0152 compared a review's
+    // stage with a label the type no longer had.
+    const pool = await scratch("published");
+    try {
+      await withClient(pool, async (c) => {
+        await applyMigrations(c);
+        const tags = journalTags();
+        const cutoff = tags.indexOf(readBaselineMeta(getMigrationsFolder())!.cutoffTag);
+        const { entries } = JSON.parse(fs.readFileSync(path.join(getMigrationsFolder(), "meta/_journal.json"), "utf8"));
+        const cutoffWhen = entries[cutoff].when as number;
+        await c.query("DELETE FROM drizzle.__drizzle_migrations WHERE created_at > $1", [cutoffWhen]);
+        await applyMigrations(c);
+        assert.equal(await ledgerCount(c), journalLength(), "every replayed migration recorded");
+      });
+    } finally {
+      await pool.end();
+    }
+  });
+
   it("refuses a schema that holds tables but no ledger, and records nothing", async () => {
     const pool = await scratch("stray");
     try {

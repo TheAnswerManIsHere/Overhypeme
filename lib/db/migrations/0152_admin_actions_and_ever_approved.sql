@@ -72,7 +72,7 @@ BEGIN
       SELECT fid, min(coalesce(r.reviewed_at, r.created_at)) AS approved_at
         FROM pending_reviews r
        CROSS JOIN LATERAL (VALUES (r.approved_fact_id), (r.staging_fact_id)) AS v(fid)
-       WHERE r.workflow_stage = 'production_approved' AND v.fid IS NOT NULL
+       WHERE r.workflow_stage::text IN ('production_approved', 'approved') AND v.fid IS NOT NULL
        GROUP BY fid
     ) a
    WHERE f.id = a.fid AND f.approved_at IS NULL;
