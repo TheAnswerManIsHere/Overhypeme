@@ -1,5 +1,5 @@
 /**
- * @purpose devPreviewGate: in a Replit workspace (development), refuses every API request that reached the server through the public `*.replit.dev` preview address unless it carries DEV_PREVIEW_KEY, by header or cookie; requests to localhost are untouched and the published deployment never gates. A keyed POST /api/dev-preview-gate sets the cookie.
+ * @purpose devPreviewGate: in a Replit workspace (development), refuses every API request that reached the server through the public `*.replit.dev` preview address unless it carries DEV_PREVIEW_KEY, by header or cookie; requests to localhost and Stripe's signed test webhook are untouched, and the published deployment never gates. A keyed POST /api/dev-preview-gate sets the cookie.
  * @subsystem security
  *
  * Why (launch Phase 14, increment 3; measured 2026-11-18): the workspace
@@ -19,6 +19,14 @@ import { isProductionEnv } from "../lib/env";
 export const DEV_PREVIEW_COOKIE = "dev_preview_key";
 export const DEV_PREVIEW_HEADER = "x-dev-preview-key";
 const GATE_PATH = "/api/dev-preview-gate";
+/**
+ * Stripe's test-mode webhook. Dev registers it at the preview address
+ * (lib/stripeInit.ts, from getSiteBaseUrl(), which is the dev domain when
+ * SITE_BASE_URL is unset), and Stripe cannot carry the key. The route
+ * verifies Stripe's signature before it acts, so the key would add nothing
+ * there; every other address stays gated.
+ */
+const STRIPE_WEBHOOK_PATH = "/api/stripe/webhook";
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 /** True in a Replit workspace (development), never in the published deployment or a bare local stack. */
@@ -64,6 +72,7 @@ export function devPreviewGate(env: NodeJS.ProcessEnv = process.env) {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!gated) return next();
     if (isDirectLocalRequest(req)) return next();
+    if (req.method === "POST" && req.path === STRIPE_WEBHOOK_PATH) return next();
     const key = env.DEV_PREVIEW_KEY ?? "";
 
     if (!key) return refuse(res);
