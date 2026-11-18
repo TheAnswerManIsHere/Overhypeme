@@ -19,6 +19,7 @@ vi.mock("posthog-js/dist/module.slim", () => ({
 import {
   __resetAnalyticsForTests,
   cleanProperties,
+  campaignQuery,
   cleanReferrer,
   identify,
   page,
@@ -402,5 +403,53 @@ describe("what PostHog adds by itself is scrubbed before sending", () => {
     expect(out.properties.$browser).toBe("Chrome");
     expect(out.properties.$session_entry_pathname).toBe("/facts/:id");
     expect(out.properties.some_future_url).toBe("https://elsewhere.example");
+  });
+});
+
+describe("a landing address's campaign tags reach GA4 (fix after PR #1059)", () => {
+  it("keeps only the listed tags, and only code-shaped values", () => {
+    expect(campaignQuery("?utm_source=newsletter&utm_medium=email&utm_campaign=launch-week&displayName=Alice&gclid=abc"))
+      .toBe("?utm_source=newsletter&utm_medium=email&utm_campaign=launch-week");
+    expect(campaignQuery("?utm_term=Alice%20Smith&utm_content=alice%40example.com&utm_id=spring_2027")).toBe("?utm_id=spring_2027");
+    expect(campaignQuery("?utm_source=" + "a".repeat(101))).toBe("");
+    expect(campaignQuery("?q=Alice")).toBe("");
+    expect(campaignQuery("")).toBe("");
+  });
+
+  it("the landing page view carries them, and the page after it does not", () => {
+    vi.stubEnv("VITE_GA_MEASUREMENT_ID", "G-TEST123");
+    vi.stubEnv("VITE_POSTHOG_KEY", "");
+    window.history.replaceState(null, "", "/facts/7?displayName=Alice&utm_source=newsletter&utm_campaign=launch-week&utm_term=Alice%20Smith");
+    startAnalytics();
+    const landing = `${window.location.origin}/facts/:id?utm_source=newsletter&utm_campaign=launch-week`;
+    // Before config, so even a hit sent before the first page view is attributed.
+    expect(gaCalls().find((c) => c[0] === "set")).toEqual(["set", expect.objectContaining({ page_location: landing })]);
+    page("/facts/7");
+    expect(gaCalls()).toContainEqual(["event", "page_view", { page_location: landing, page_title: "/facts/:id" }]);
+    page("/pricing");
+    expect(gaCalls()).toContainEqual(["event", "page_view", { page_location: `${window.location.origin}/pricing`, page_title: "/pricing" }]);
+    expect(gaCalls().at(-2)).toEqual(["set", expect.objectContaining({ page_location: `${window.location.origin}/pricing` })]);
+    expect(JSON.stringify(gaCalls())).not.toContain("Alice");
+  });
+
+  it("an address with no campaign tags sends the bare pattern", () => {
+    vi.stubEnv("VITE_GA_MEASUREMENT_ID", "G-TEST123");
+    vi.stubEnv("VITE_POSTHOG_KEY", "");
+    window.history.replaceState(null, "", "/search?q=Alice");
+    startAnalytics();
+    page("/search?q=Alice");
+    expect(gaCalls()).toContainEqual(["event", "page_view", { page_location: `${window.location.origin}/search`, page_title: "/search" }]);
+  });
+
+  it("PostHog keeps the campaign tags it reads only when their value passes the same check", () => {
+    const event = {
+      uuid: "1", event: "$pageview",
+      properties: { utm_source: "newsletter", utm_term: "Alice Smith", __page_pattern: "/" },
+      $set_once: { $initial_utm_source: "newsletter", $initial_utm_content: "alice@example.com" },
+    } as unknown as Parameters<typeof scrubPosthogEvent>[0];
+    const out = scrubPosthogEvent(event)!;
+    expect(out.properties).toMatchObject({ utm_source: "newsletter" });
+    expect(out.properties).not.toHaveProperty("utm_term");
+    expect(out.$set_once).toEqual({ $initial_utm_source: "newsletter" });
   });
 });

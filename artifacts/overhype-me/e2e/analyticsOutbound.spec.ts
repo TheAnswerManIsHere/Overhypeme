@@ -110,7 +110,9 @@ test("analytics send route patterns and funnel events, never a name, a search or
   // PostHog sends in batches; each full page load waits for the previous
   // page's view to arrive, so the count measures the app, not the batching.
   const pageViews = () => phEvents.filter((e) => e.event === "$pageview").length;
-  await page.goto(`/facts/1?displayName=${NAME}&pronouns=she%2Fher`);
+  // The landing link also carries campaign tags: two clean ones that GA4 must
+  // receive, and one holding the name, which neither vendor may.
+  await page.goto(`/facts/1?displayName=${NAME}&pronouns=she%2Fher&utm_source=newsletter&utm_campaign=launch-week&utm_term=${NAME}%20Tester`);
   await expect(page.getByTestId("analytics-notice"), "a fresh browser sees the notice").toBeVisible();
   await expect.poll(pageViews, { timeout: 15_000 }).toBe(1);
   await page.goto(`/search?q=${SEARCH_WORD}`);
@@ -130,7 +132,8 @@ test("analytics send route patterns and funnel events, never a name, a search or
   // here), so the absence checks below are not passing on an empty capture.
   await expect.poll(() => gaWire.filter((h) => h.get("en") === "page_view").length, { timeout: 20_000 }).toBeGreaterThanOrEqual(1);
   const firstHit = gaWire.find((h) => h.get("en") === "page_view")!;
-  expect(firstHit.get("dl"), "the first hit on a personalised landing link carries the pattern").toMatch(/\/facts\/:id$/);
+  expect(firstHit.get("dl"), "the first hit on a personalised landing link carries the pattern and the clean campaign tags only")
+    .toMatch(/\/facts\/:id\?utm_source=newsletter&utm_campaign=launch-week$/);
   expect(firstHit.get("dt")).toBe("/facts/:id");
 
   // A funnel event after an in-app navigation (no full load) is filed under the

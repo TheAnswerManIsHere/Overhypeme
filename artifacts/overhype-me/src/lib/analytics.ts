@@ -116,6 +116,41 @@ export function cleanReferrer(referrer: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Campaign tags: the one part of the landing address that goes to GA4.
+// ---------------------------------------------------------------------------
+
+/** The campaign tags GA4 reads from a page address; every other parameter is dropped. */
+export const CAMPAIGN_KEYS = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "utm_id"] as const;
+
+/**
+ * A campaign tag's value is a code a link's author chose ("newsletter",
+ * "launch-week"): letters, digits, dot, underscore and hyphen, at most 100.
+ * Anything else (a space, an "@", other punctuation) is dropped, so an email
+ * address or a full name put in a hand-made link cannot leave the browser.
+ */
+const CAMPAIGN_VALUE = /^[A-Za-z0-9._-]{1,100}$/;
+
+export function isCleanCampaignValue(value: unknown): boolean {
+  return typeof value === "string" && CAMPAIGN_VALUE.test(value);
+}
+
+/**
+ * The campaign tags of an address's query, allowlisted by key and by value,
+ * as a query string ("?utm_source=newsletter&utm_campaign=launch-week"), or
+ * "" when there are none.
+ */
+export function campaignQuery(search: string): string {
+  const params = new URLSearchParams(search);
+  const kept = new URLSearchParams();
+  for (const key of CAMPAIGN_KEYS) {
+    const value = params.get(key);
+    if (value !== null && isCleanCampaignValue(value)) kept.set(key, value);
+  }
+  const query = kept.toString();
+  return query ? `?${query}` : "";
+}
+
+// ---------------------------------------------------------------------------
 // Vendors.
 // ---------------------------------------------------------------------------
 
@@ -135,6 +170,13 @@ let started = false;
 let currentPattern = "/";
 /** This visit's referrer as sent: computed once, since it cannot change in a single-page app. */
 let referrer = "";
+/**
+ * The landing address's campaign tags, carried on the first page view's
+ * address only (and every hit on that page), as on a site where only the
+ * landing address has them: GA4 attributes the visit from its first hit.
+ * Cleared once that page view is sent.
+ */
+let landingCampaign = "";
 /** Each vendor is on only when its ID was set at build; decided once, at start. */
 let gaOn = false;
 let posthogOn = false;
@@ -199,7 +241,9 @@ function flushPosthog(): void {
  * future PostHog adds (as `$session_entry_url` was found to be, by the
  * outbound browser test) is covered too: any web address becomes this site's
  * route pattern or another site's origin, any pathname its pattern, and page
- * titles and clicked-element text are dropped.
+ * titles and clicked-element text are dropped. Campaign tags PostHog reads
+ * from the address (`utm_source`, `$initial_utm_source`, …) keep only a value
+ * that passes the same check GA4's do.
  */
 export function scrubPosthogEvent(event: CaptureResult | null): CaptureResult | null {
   if (!event) return event;
@@ -214,7 +258,9 @@ export function scrubPosthogEvent(event: CaptureResult | null): CaptureResult | 
     for (const key of Object.keys(bag)) {
       const lower = key.toLowerCase();
       const value = bag[key];
-      if (lower.endsWith("title") || lower.endsWith("href") || lower === "$elements_chain" || lower === "$elements") {
+      if (/(^|_)utm_/.test(lower)) {
+        if (!isCleanCampaignValue(value)) delete bag[key];
+      } else if (lower.endsWith("title") || lower.endsWith("href") || lower === "$elements_chain" || lower === "$elements") {
         delete bag[key];
       } else if (lower === "$current_url") {
         bag[key] = patternUrl(madeOn);
@@ -247,7 +293,7 @@ function startGa(id: string): void {
   // `config` would override every later `set` (Google's parameter precedence),
   // leaving events after an in-app navigation filed under the landing page.
   // Set before `config`, so the first hit already carries the pattern.
-  window.gtag("set", { page_location: patternUrl(currentPattern), page_title: currentPattern, page_referrer: referrer });
+  window.gtag("set", { page_location: patternUrl(currentPattern) + landingCampaign, page_title: currentPattern, page_referrer: referrer });
   window.gtag("config", id, {
     send_page_view: false,
     allow_google_signals: false,
@@ -307,6 +353,7 @@ export function startAnalytics(): void {
   started = true;
   currentPattern = routePattern(window.location.pathname);
   referrer = cleanReferrer(document.referrer);
+  landingCampaign = campaignQuery(window.location.search);
   const id = gaId();
   const key = posthogKey();
   gaOn = Boolean(id);
@@ -328,7 +375,10 @@ export function startAnalytics(): void {
 export function page(path: string): void {
   if (!started) return;
   currentPattern = routePattern(path);
-  const location = patternUrl(currentPattern);
+  // GA4 only: PostHog reads the campaign tags from the address itself, and
+  // `scrubPosthogEvent` holds them to the same check.
+  const location = patternUrl(currentPattern) + landingCampaign;
+  landingCampaign = "";
   // `set` carries the pattern into every later hit on this page.
   ga("set", { page_location: location, page_title: currentPattern, page_referrer: referrer });
   ga("event", "page_view", { page_location: location, page_title: currentPattern });
@@ -430,6 +480,7 @@ export function __resetAnalyticsForTests(): void {
   started = false;
   currentPattern = "/";
   referrer = "";
+  landingCampaign = "";
   gaOn = false;
   posthogOn = false;
   posthog = null;
