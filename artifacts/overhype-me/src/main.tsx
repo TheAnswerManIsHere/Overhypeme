@@ -1,3 +1,6 @@
+// First: in development, take the preview key out of the page address before
+// error monitoring starts and could record it (launch Phase 14, increment 3).
+import { devPreviewKey, DEV_PREVIEW_HEADER } from "./lib/devPreviewUnlock";
 import { createRoot } from "react-dom/client";
 import { admitAndStart } from "./lib/admission";
 import App from "./App";
@@ -36,6 +39,10 @@ window.fetch = function (input, init) {
 
   if (url.startsWith("/api/") || url.includes("/api/")) {
     const headers = new Headers((init?.headers as HeadersInit) ?? {});
+
+    // Development only: the dev preview's API needs its key (lib/devPreviewUnlock.ts).
+    const previewKey = devPreviewKey();
+    if (previewKey && !headers.has(DEV_PREVIEW_HEADER)) headers.set(DEV_PREVIEW_HEADER, previewKey);
 
     const token = localStorage.getItem("auth_token");
     if (token && !headers.has("Authorization")) {

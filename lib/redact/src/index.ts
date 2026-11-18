@@ -17,6 +17,10 @@ export const SENSITIVE_KEY_PATTERNS: RegExp[] = [
   /^displayName$/i,
   /^pronouns$/i,
   /^q$/i,
+  // The development preview's key, on the page address that unlocks a
+  // browser (launch Phase 14, increment 3). Stripped before monitoring starts;
+  // this is the backstop.
+  /^devPreviewKey$/i,
 ];
 
 export function isSensitiveKey(key: string): boolean {

@@ -168,3 +168,19 @@ describe("scrubSentryBreadcrumb – no data", () => {
     assert.doesNotThrow(() => scrubSentryBreadcrumb(breadcrumb));
   });
 });
+
+describe("scrubSentryEvent – the dev preview key (launch Phase 14, increment 3)", () => {
+  it("removes the x-dev-preview-key header, which rides on every preview API call", () => {
+    const event = { request: { url: "https://x.replit.dev/api/facts", headers: { "x-dev-preview-key": "k3y", accept: "*/*" } } } as Event;
+    scrubSentryEvent(event);
+    assert.equal(event.request!.headers!["x-dev-preview-key"], undefined);
+    assert.equal(event.request!.headers!.accept, "*/*");
+  });
+
+  it("filters a devPreviewKey left on a page address", () => {
+    const event = { request: { url: "https://x.replit.dev/?devPreviewKey=k3y&tab=1" } } as Event;
+    scrubSentryEvent(event);
+    assert.ok(!String(event.request!.url).includes("k3y"));
+    assert.match(String(event.request!.url), /tab=1/);
+  });
+});

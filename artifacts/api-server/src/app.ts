@@ -18,6 +18,7 @@ import { securityHeaders } from "./lib/securityHeaders";
 import { isDevAdminLoginEnabled } from "./lib/devAdminLogin";
 import { createGlobalLimiter, globalLimiterLogLevel, type GlobalRateLimiterOverrides } from "./lib/rateLimit";
 import { healthzHandler } from "./routes/health";
+import { devPreviewGate } from "./middlewares/devPreviewGate";
 import { originGuard } from "./middlewares/originGuard";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -177,6 +178,12 @@ export function createApp(options: { limiterOverrides?: GlobalRateLimiterOverrid
     }
   });
 
+  // The workspace preview address is public while the dev app runs, so in
+  // development every request through it needs the dev preview key (launch
+  // Phase 14, increment 3). No-op in the published deployment and for direct
+  // local requests. Ahead of every route, the webhook and dev-admin-login
+  // included.
+  app.use(devPreviewGate());
   // In the published deployment, nothing that did not come through Cloudflare
   // is answered, and no visitor from a place the site does not serve (launch
   // Phase 14, increment 3; middlewares/originGuard.ts). Ahead of every route,
