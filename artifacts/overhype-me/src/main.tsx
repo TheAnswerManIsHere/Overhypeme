@@ -3,6 +3,7 @@
 import { devPreviewKey, DEV_PREVIEW_HEADER } from "./lib/devPreviewUnlock";
 // Telemetry must start before App renders so error monitoring can capture render errors.
 import { startTelemetry } from "./lib/telemetry";
+import { inspectForReadOnly } from "./lib/readOnlyNotice";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "@fontsource/inter/400.css";
@@ -59,6 +60,13 @@ window.fetch = function (input, init) {
     }
 
     init = { ...init, headers };
+
+    // Read-only mode (launch Phase 16, increment 4): a refused write raises
+    // the site-wide notice; the caller still reads the response as before.
+    return _originalFetch(input, init).then((response) => {
+      void inspectForReadOnly(response);
+      return response;
+    });
   }
 
   return _originalFetch(input, init);

@@ -1,5 +1,6 @@
 import { Suspense, useEffect, useRef } from "react";
 import { AuthFailedBanner } from "@/components/auth/AuthFailedBanner";
+import { ReadOnlyNotice } from "@/components/ReadOnlyNotice";
 import { AccountIdentityMirror } from "@/components/auth/AccountIdentityMirror";
 import { lazyWithRetry as lazy } from "@/lib/lazy-retry";
 import { Switch, Route, Router as WouterRouter, useLocation, useSearch } from "wouter";
@@ -319,6 +320,7 @@ function App() {
           <TooltipProvider>
             <PersonNameProvider>
               <FactExpansionProvider>
+                <ReadOnlyNotice />
                 <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
                   <Router />
                 </WouterRouter>
