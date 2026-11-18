@@ -9,6 +9,8 @@ import router from "./routes";
 import { logger } from "./lib/logger";
 import { authMiddleware } from "./middlewares/authMiddleware";
 import { requireEligibleActor } from "./middlewares/requireEligibleActor";
+import { readOnlyGate } from "./middlewares/readOnlyGate";
+import { isReadOnly } from "./lib/readOnlyMode";
 import { WebhookHandlers, failedAfterVerification } from "./lib/webhookHandlers";
 import { reportOperationalAlert } from "./lib/operationalAlerts";
 import { noStore } from "./lib/cacheHeaders";
@@ -319,6 +321,11 @@ export function createApp(options: { limiterOverrides?: GlobalRateLimiterOverrid
   // that is not yet eligible cannot write, except through the routes its state
   // allows. After authMiddleware, which sets req.user.eligibility.
   app.use(requireEligibleActor);
+  // Read-only mode (launch Phase 16, increment 4): while the switch is on, a
+  // visitor's or member's own writes are refused with READ_ONLY_MODE. After
+  // the body parsers (a name-only profile save is read from the body), and
+  // after the Stripe webhook, which is registered above everything.
+  app.use(readOnlyGate);
 
   // Attach the authenticated user (id only — no PII) to the per-request Sentry
   // isolation scope so every reported error/transaction in this request can be
@@ -356,7 +363,9 @@ export function createApp(options: { limiterOverrides?: GlobalRateLimiterOverrid
     try {
       const { getPublicConfig } = await import("./lib/adminConfig");
       const config = await getPublicConfig();
-      res.json(config);
+      // The site-wide notice. A server that has never confirmed the switch
+      // refuses writes (isReadOnly answers true), and says so here too.
+      res.json({ ...config, readOnlyMode: await isReadOnly() });
     } catch {
       res.json({});
     }

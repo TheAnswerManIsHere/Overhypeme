@@ -20,6 +20,7 @@ import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
 import { alertLabel, alertRouteConnected, alertSourceForTitle, reportOperationalAlert, type AlertSource } from "../lib/operationalAlerts";
 import { isProductionEnv } from "../lib/env";
 import { logger } from "../lib/logger";
+import { readOnlyEnforcement, setReadOnly } from "../lib/readOnlyMode";
 
 const router: IRouter = Router();
 
@@ -191,7 +192,30 @@ router.get("/admin/operations", requireAdmin, async (req: Request, res: Response
       },
     ),
   ]);
-  res.json({ checkedAt: new Date().toISOString(), lanes: lanesResult, incidents, alerts });
+  // The state the server answering this request is enforcing (plan D: each
+  // server keeps its own copy, refreshed about every half minute).
+  const readOnly = await readOnlyEnforcement();
+  res.json({ checkedAt: new Date().toISOString(), lanes: lanesResult, incidents, alerts, readOnly });
+});
+
+/**
+ * Turn read-only mode on or off (plan design D, an incident lever). The
+ * answering server enforces the new value at once; every other server picks
+ * it up within its refresh interval.
+ */
+router.put("/admin/operations/read-only", requireAdmin, async (req: Request, res: Response): Promise<void> => {
+  if (!(await withinLimit(req, "admin.operations.read-only", 20))) { res.status(429).json({ error: "Too many requests" }); return; }
+  const on = (req.body as { on?: unknown } | undefined)?.on;
+  if (typeof on !== "boolean") { res.status(400).json({ error: "on must be true or false" }); return; }
+  try {
+    await setReadOnly(on, req.user?.id ?? null);
+  } catch (err) {
+    logger.error({ err, on }, "[operations] the read-only switch could not be saved");
+    res.status(503).json({ error: "The switch could not be saved. Nothing changed; try again." });
+    return;
+  }
+  logger.warn({ on, adminId: req.user?.id ?? null }, `[operations] read-only mode turned ${on ? "on" : "off"}`);
+  res.json({ readOnly: await readOnlyEnforcement() });
 });
 
 router.post("/admin/operations/test-alert", requireAdmin, async (req: Request, res: Response): Promise<void> => {

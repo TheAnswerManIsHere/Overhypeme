@@ -99,7 +99,7 @@ function compile(keys: readonly RouteKey[]): Array<{ method: string; re: RegExp 
   });
 }
 
-function matcher(keys: readonly RouteKey[]): (method: string, path: string) => boolean {
+export function matcher(keys: readonly RouteKey[]): (method: string, path: string) => boolean {
   const compiled = compile(keys);
   return (method, path) => compiled.some((c) => c.method === method && c.re.test(path));
 }
@@ -114,7 +114,7 @@ const exceptionFor = Object.fromEntries(
  * The request's path relative to the `/api` mount, without a query string.
  * The mount is matched case-insensitively, as Express matches it.
  */
-function apiPath(req: Request): string | null {
+export function apiPath(req: Request): string | null {
   const url = req.originalUrl ?? req.url;
   const q = url.indexOf("?");
   const path = q === -1 ? url : url.slice(0, q);
