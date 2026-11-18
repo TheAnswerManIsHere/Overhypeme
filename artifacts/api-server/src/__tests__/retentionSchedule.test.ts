@@ -59,5 +59,6 @@ describe("the retention schedule", () => {
     };
     assert.equal(window("user_generation_costs"), `retention-windows: ${GENERATION_COST_RETENTION_MONTHS} months`);
     assert.equal(window("stripe_webhook_audit"), `retention-windows: ${WEBHOOK_AUDIT_RETENTION_DAYS} days`);
+    assert.equal(window("stripe_processed_events"), `retention-windows: ${WEBHOOK_AUDIT_RETENTION_DAYS} days`, "Q18");
   });
 });

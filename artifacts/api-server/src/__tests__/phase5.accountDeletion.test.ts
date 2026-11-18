@@ -441,7 +441,9 @@ describe("the account deletion state machine (T3)", () => {
       factId, userId: who, renderJobId: randomUUID(), generationMode: "i2i", subjectRenderMode: "human_identity_i2i",
       targetEngine: "nano_banana_2", sourceImageAnalysis: { subject: "a person with short hair" } as never,
       sourceImageSha256: "a".repeat(64), identityPolicy: {} as never, renderControls: {} as never,
-      factEnrichmentSnapshot: {} as never, renderedFactText: "x.", archetypeStrategyVersion: "v2",
+      factEnrichmentSnapshot: {} as never, renderedFactText: `${who} jumps over the moon.`, archetypeStrategyVersion: "v2",
+      compiledPrompt: { prompt: `A picture of ${who}` } as never, visualPlan: { subject: "short hair" } as never,
+      subjectFactCompatibility: { fit: "a person" } as never,
     });
     const [ownAttempt, othersAttempt] = await db.insert(imagePromptAttemptsTable).values([attempt(userId), attempt(other)]).returning({ id: imagePromptAttemptsTable.id });
 
@@ -472,8 +474,15 @@ describe("the account deletion state machine (T3)", () => {
     assert.deepEqual(ownAttemptNow!.sourceImageAnalysis, CLEARED_PHOTO_DESCRIPTION, "the description of the photo is cleared");
     assert.equal(ownAttemptNow!.sourceImageSha256, null, "and its fingerprint");
     assert.equal(ownAttemptNow!.userId, null);
+    // Q17 (David, 2026-11-18): nothing written with the name or from the photo stays.
+    assert.equal(ownAttemptNow!.renderedFactText, null, "the fact text written with the name is cleared");
+    assert.equal(ownAttemptNow!.compiledPrompt, null, "the engine prompt is cleared");
+    assert.equal(ownAttemptNow!.visualPlan, null, "the legacy plan is cleared");
+    assert.equal(ownAttemptNow!.subjectFactCompatibility, null, "the subject check is cleared");
     const [othersAttemptNow] = await db.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.id, othersAttempt!.id));
     assert.deepEqual(othersAttemptNow!.sourceImageAnalysis, { subject: "a person with short hair" }, "another member's attempt is untouched");
+    assert.equal(othersAttemptNow!.renderedFactText, `${other} jumps over the moon.`);
+    assert.deepEqual(othersAttemptNow!.compiledPrompt, { prompt: `A picture of ${other}` });
     await db.delete(userGenerationCostsTable).where(eq(userGenerationCostsTable.userId, other));
     await db.delete(imagePromptAttemptsTable).where(inArray(imagePromptAttemptsTable.id, [ownAttempt!.id, othersAttempt!.id]));
 

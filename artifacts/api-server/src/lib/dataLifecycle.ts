@@ -1,9 +1,9 @@
 /**
- * @purpose exportUserData returns one user's row, sessions, search history and membership history; runRetentionWindowJobs deletes expired email-verification and password-reset tokens, search history over 90 days old, what pictures cost after 13 months and Stripe webhook audit rows after 90 days, and is run hourly while the process is up (index.ts) and daily by the maintenance call (lib/maintenance.ts).
+ * @purpose exportUserData returns one user's row, sessions, search history and membership history; runRetentionWindowJobs deletes expired email-verification and password-reset tokens, search history over 90 days old, what pictures cost after 13 months, and Stripe webhook audit rows and processed-event ids after 90 days, and is run hourly while the process is up (index.ts) and daily by the maintenance call (lib/maintenance.ts).
  * @subsystem accounts-auth
  */
 import { db, usersTable, sessionsTable, emailVerificationTokensTable, passwordResetTokensTable } from "@workspace/db";
-import { searchHistoryTable, membershipHistoryTable, userGenerationCostsTable, stripeWebhookAuditTable } from "@workspace/db/schema";
+import { searchHistoryTable, membershipHistoryTable, userGenerationCostsTable, stripeWebhookAuditTable, stripeProcessedEventsTable } from "@workspace/db/schema";
 import { eq, lt } from "drizzle-orm";
 
 export async function exportUserData(userId: string) {
@@ -22,6 +22,7 @@ export interface RetentionWindowResult {
   oldSearchHistoryDeleted: number;
   oldGenerationCostsDeleted: number;
   oldWebhookAuditDeleted: number;
+  oldProcessedEventsDeleted: number;
 }
 
 /**
@@ -37,7 +38,12 @@ export const SEARCH_HISTORY_RETENTION_DAYS = 90;
  */
 export const GENERATION_COST_RETENTION_MONTHS = 13;
 
-/** Stripe webhook deliveries' audit rows, in days (David, Q15, 2026-11-18). Stated in the retention schedule too. */
+/**
+ * Stripe webhook deliveries' audit rows (David, Q15) and the processed-event
+ * ids that stop a redelivery being applied twice (David, Q18), in days, both
+ * 2026-11-18. Stripe stops redelivering an event within days, so 90 still
+ * covers every duplicate. Stated in the retention schedule too.
+ */
 export const WEBHOOK_AUDIT_RETENTION_DAYS = 90;
 
 /**
@@ -72,6 +78,7 @@ export async function runRetentionWindowJobs(now = new Date()): Promise<Retentio
   const oldCosts = await db.delete(userGenerationCostsTable).where(lt(userGenerationCostsTable.createdAt, costCutoff)).returning({ id: userGenerationCostsTable.id });
   const auditCutoff = new Date(now.getTime() - WEBHOOK_AUDIT_RETENTION_DAYS * 24 * 60 * 60 * 1000);
   const oldAudit = await db.delete(stripeWebhookAuditTable).where(lt(stripeWebhookAuditTable.createdAt, auditCutoff)).returning({ id: stripeWebhookAuditTable.id });
+  const oldEvents = await db.delete(stripeProcessedEventsTable).where(lt(stripeProcessedEventsTable.processedAt, auditCutoff)).returning({ id: stripeProcessedEventsTable.eventId });
 
   return {
     expiredEmailTokensDeleted: expiredEmailTokens.length,
@@ -79,5 +86,6 @@ export async function runRetentionWindowJobs(now = new Date()): Promise<Retentio
     oldSearchHistoryDeleted: oldSearchHistory.length,
     oldGenerationCostsDeleted: oldCosts.length,
     oldWebhookAuditDeleted: oldAudit.length,
+    oldProcessedEventsDeleted: oldEvents.length,
   };
 }

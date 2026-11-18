@@ -29,7 +29,7 @@ const ZERO_PURGE = { selected: 0, purged: 0, skipped: 0, failed: 0 };
 const OK_RESULTS: Record<JobName, unknown> = {
   "expired-sessions": { deleted: 0, batches: 1, budgetExhausted: false },
   "expired-sign-in-states": { deleted: 0 },
-  "retention-windows": { expiredEmailTokensDeleted: 0, expiredPasswordTokensDeleted: 0, oldSearchHistoryDeleted: 0, oldGenerationCostsDeleted: 0, oldWebhookAuditDeleted: 0 },
+  "retention-windows": { expiredEmailTokensDeleted: 0, expiredPasswordTokensDeleted: 0, oldSearchHistoryDeleted: 0, oldGenerationCostsDeleted: 0, oldWebhookAuditDeleted: 0, oldProcessedEventsDeleted: 0 },
   "finished-jobs": { deleted: { email: 0 } },
   "transient-renders": { deleted: 0, retentionDays: 7, cutoff: "2026-11-11T00:00:00.000Z" },
   "image-provenance": { retentionDays: 0, deletedRecords: 0, deletedRequests: 0 },
@@ -118,7 +118,16 @@ describe("the retention-window job", () => {
     await db.execute(sql`INSERT INTO stripe_webhook_audit (event_id, event_type, state, created_at) VALUES
       (${evt}, 'old', 'failed', now() - interval '91 days'),
       (${evt}, 'new', 'failed', now() - interval '89 days')`);
+    // Q18: processed Stripe event ids after 90 days.
+    const oldEvt = `evt_old_${randomUUID()}`;
+    const newEvt = `evt_new_${randomUUID()}`;
+    await db.execute(sql`INSERT INTO stripe_processed_events (event_id, processed_at) VALUES
+      (${oldEvt}, now() - interval '91 days'), (${newEvt}, now() - interval '89 days')`);
     const result = await runRetentionWindowJobs();
+    assert.ok(result.oldProcessedEventsDeleted >= 1);
+    const events = await db.execute(sql`SELECT event_id FROM stripe_processed_events WHERE event_id IN (${oldEvt}, ${newEvt})`);
+    assert.deepEqual(events.rows.map((r) => (r as { event_id: string }).event_id), [newEvt]);
+    await db.execute(sql`DELETE FROM stripe_processed_events WHERE event_id = ${newEvt}`);
     assert.ok(result.oldGenerationCostsDeleted >= 1);
     assert.ok(result.oldWebhookAuditDeleted >= 1);
     const costs = await db.execute(sql`SELECT job_type FROM user_generation_costs WHERE user_id = ${who}`);
