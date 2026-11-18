@@ -614,6 +614,11 @@ export const HELP_DOCS: HelpDocMeta[] = [
         "depth": 3
       },
       {
+        "id": "rate-limits",
+        "title": "Rate limits",
+        "depth": 3
+      },
+      {
         "id": "why-it-works-this-way",
         "title": "Why it works this way",
         "depth": 2
