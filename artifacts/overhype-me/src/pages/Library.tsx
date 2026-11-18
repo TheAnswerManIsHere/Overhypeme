@@ -8,6 +8,7 @@ import { ImageCard } from "@/components/ui/ImageCard";
 import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
 import { AccessGate } from "@/components/AccessGate";
 import { MemeHeartButton } from "@/components/memes/MemeHeartButton";
+import { SubmissionReviewList } from "@/components/library/SubmissionReviewList";
 import { Link, useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -292,44 +293,7 @@ export default function Library() {
 
           {activeTab === "submitted" && (
             <div className="space-y-8">
-              {(profile.pendingSubmissions?.length ?? 0) > 0 && (
-                <div>
-                  <h3 className="font-display text-base uppercase tracking-wider text-muted-foreground mb-4 flex items-center gap-2">
-                    <Clock className="w-4 h-4" /> Under Review
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {profile.pendingSubmissions!.map((sub) => (
-                      <div key={sub.id} className={`bg-card border-2 rounded-sm p-4 space-y-2 ${sub.status === "rejected" ? "border-destructive/40" : "border-border"}`}>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-sm border ${
-                            sub.status === "pending"
-                              ? "bg-amber-500/10 text-amber-400 border-amber-500/40"
-                              : sub.status === "rejected"
-                              ? "bg-destructive/10 text-destructive border-destructive/40"
-                              : "bg-green-500/10 text-green-400 border-green-500/40"
-                          }`}>
-                            {sub.status === "pending" ? "Pending Review" : sub.status === "rejected" ? "Declined" : sub.status}
-                          </span>
-                          <span className="text-xs text-muted-foreground">{new Date(sub.createdAt).toLocaleDateString()}</span>
-                        </div>
-                        <p className="text-foreground text-sm leading-relaxed">{sub.text}</p>
-                        {sub.hashtags.length > 0 && (
-                          <div className="flex flex-wrap gap-1">
-                            {sub.hashtags.map((tag: string) => (
-                              <span key={tag} className="text-[10px] text-primary/70 font-bold uppercase tracking-wider">#{tag}</span>
-                            ))}
-                          </div>
-                        )}
-                        {sub.status === "rejected" && sub.reason && (
-                          <p className="text-xs text-muted-foreground border-t border-border/50 pt-2 mt-2">
-                            <span className="font-bold text-destructive/80">Reason:</span> {sub.reason}
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <SubmissionReviewList submissions={profile.pendingSubmissions ?? []} />
 
               {profile.submittedFacts.length > 0 && (
                 <div>
