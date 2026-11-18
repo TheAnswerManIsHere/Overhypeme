@@ -13,13 +13,16 @@
  *
  * Proves: one page view per page shown, back and forward included; a
  * personalised landing link, a search and a sign-up carry none of the name,
- * the search words or the email to either vendor; a sign-up is counted; the
- * member is known by internal id; sign-out forgets them.
+ * the search words or the email to either vendor; GA4's hits are seen on the
+ * wire, the first carrying the pattern; a funnel event after an in-app
+ * navigation is filed under its own page; a sign-up is counted; the member is
+ * known by internal id; a lapsed session's next visit is not sent under that
+ * id; sign-out forgets them.
  */
 import { gunzipSync } from "node:zlib";
 import { randomUUID } from "node:crypto";
 import { expect, test, type Page, type Request } from "@playwright/test";
-import { currentUser } from "./helpers/testAccounts";
+import { currentUser, submitLoginForm } from "./helpers/testAccounts";
 
 // A fresh browser, and an ordinary browser's identity: PostHog drops events
 // from a browser that looks automated, as headless Chromium does (see the
@@ -59,10 +62,19 @@ test("analytics send route patterns and funnel events, never a name, a search or
   const phRaw: string[] = [];
   const gaCommands: unknown[][] = [];
   const gaHits: string[] = [];
+  /** Google's hits as sent, one per event (a request may batch several, one per body line). */
+  const gaWire: URLSearchParams[] = [];
 
   await page.route(/https:\/\/[a-z0-9.-]*google-analytics\.com\/.*collect.*/, async (route) => {
     const req = route.request();
     gaHits.push(decodeURIComponent(`${req.url()}\n${req.postData() ?? ""}`));
+    const shared = new URL(req.url()).searchParams;
+    const lines = (req.postData() ?? "").split("\n").filter(Boolean);
+    for (const line of lines.length ? lines : [""]) {
+      const hit = new URLSearchParams(shared);
+      for (const [k, v] of new URLSearchParams(line)) hit.set(k, v);
+      gaWire.push(hit);
+    }
     await route.fulfill({ status: 204, body: "" });
   });
   await page.route("https://us.i.posthog.com/**", async (route) => {
@@ -114,15 +126,37 @@ test("analytics send route patterns and funnel events, never a name, a search or
   const gaViews = gaCommands.filter((c) => c[0] === "event" && c[1] === "page_view");
   expect(gaViews.map((c) => (c[2] as { page_title?: string }).page_title).slice(0, 5)).toEqual(["/facts/:id", "/search", "/pricing", "/search", "/pricing"]);
 
+  // The wire check can see Google's hits at all (Google's real script loads
+  // here), so the absence checks below are not passing on an empty capture.
+  await expect.poll(() => gaWire.filter((h) => h.get("en") === "page_view").length, { timeout: 20_000 }).toBeGreaterThanOrEqual(1);
+  const firstHit = gaWire.find((h) => h.get("en") === "page_view")!;
+  expect(firstHit.get("dl"), "the first hit on a personalised landing link carries the pattern").toMatch(/\/facts\/:id$/);
+  expect(firstHit.get("dt")).toBe("/facts/:id");
+
+  // A funnel event after an in-app navigation (no full load) is filed under the
+  // page it happened on, in both vendors: the name saved through the name tag
+  // on /pricing, reached from /search in-app. (The share link already gave
+  // the name, so the welcome sheet does not open.)
+  await page.getByRole("button", { name: new RegExp(`^As: ${NAME}`) }).filter({ visible: true }).first().click();
+  await page.getByPlaceholder("Your name").filter({ visible: true }).first().fill(NAME);
+  await page.getByRole("button", { name: "Apply" }).filter({ visible: true }).first().click();
+  await expect.poll(() => gaWire.some((h) => h.get("en") === "personalise"), { timeout: 20_000 }).toBe(true);
+  const personaliseHit = gaWire.find((h) => h.get("en") === "personalise")!;
+  expect(personaliseHit.get("dt"), "GA4 files the event under the page it happened on").toBe("/pricing");
+  expect(personaliseHit.get("dl")).toMatch(/\/pricing$/);
+  await expect.poll(() => phEvents.some((e) => e.event === "personalise"), { timeout: 15_000 }).toBe(true);
+  expect(phEvents.find((e) => e.event === "personalise")?.properties?.["$pathname"]).toBe("/pricing");
+
   // Sign up through the real form, then sign out.
   const email = `analytics-${randomUUID()}@test.local`;
+  const password = `Pw-${randomUUID()}`;
   await page.goto("/login");
   await page.getByRole("button", { name: "Sign up" }).click();
   await page.getByPlaceholder("your@email.com").fill(email);
   await page.getByPlaceholder(/How facts will address you/).fill(NAME);
   await page.getByPlaceholder("First").fill(NAME);
   await page.getByPlaceholder("Last").fill("Tester");
-  await page.getByPlaceholder("Min 8 characters").fill(`Pw-${randomUUID()}`);
+  await page.getByPlaceholder("Min 8 characters").fill(password);
   await page.getByRole("button", { name: /create account/i }).click();
   await expect(page.getByRole("heading", { name: "CHECK YOUR EMAIL" })).toBeVisible();
   const userId = (await currentUser(page))?.["id"] as string | undefined;
@@ -140,6 +174,26 @@ test("analytics send route patterns and funnel events, never a name, a search or
   expect(identifyEvent.properties?.["distinct_id"] ?? identifyEvent["distinct_id"], "known by internal id").toBe(userId);
   expect(gaCommands).toContainEqual(["set", { user_id: userId }]);
 
+  // A session that lapses without a sign-out click (PostHog keeps its stored
+  // identity): the next signed-out visit is never sent under the member's id,
+  // its first page view included, and that page is counted once.
+  const distinctId = (e: PhEvent) => e.properties?.["distinct_id"] ?? e["distinct_id"];
+  // PostHog sends in batches: wait until the signed-in page's own view has
+  // arrived, so what follows the mark was made after the lapse.
+  await expect.poll(() => phEvents.some((e) => e.event === "$pageview" && e.properties?.["$pathname"] === "/check-email"), { timeout: 15_000 }).toBe(true);
+  const beforeLapse = phEvents.length;
+  await page.context().clearCookies();
+  await page.goto("/top-facts");
+  await expect.poll(() => phEvents.slice(beforeLapse).filter((e) => e.event === "$pageview").length, { timeout: 15_000 }).toBe(1);
+  await page.waitForTimeout(4000);
+  const afterLapse = phEvents.slice(beforeLapse);
+  expect(afterLapse.filter((e) => distinctId(e) === userId), "nothing after the lapse is sent under the member's id").toEqual([]);
+  expect(afterLapse.filter((e) => e.event === "$pageview").map((e) => e.properties?.["$pathname"])).toEqual(["/top-facts"]);
+
+  // Sign back in, then sign out by the button: both vendors forget the member.
+  await submitLoginForm(page, email, password);
+  await page.waitForURL((u) => u.pathname !== "/login");
+  await page.goto("/check-email");
   await page.getByRole("button", { name: "Sign out" }).click();
   await page.waitForURL((u) => u.pathname === "/");
   await expect.poll(() => gaCommands.some((c) => c[0] === "set" && (c[1] as { user_id?: unknown }).user_id === null), { timeout: 15_000 }).toBe(true);

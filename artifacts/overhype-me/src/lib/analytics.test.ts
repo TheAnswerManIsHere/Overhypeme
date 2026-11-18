@@ -130,6 +130,7 @@ describe("with one vendor set", () => {
     vi.stubEnv("VITE_GA_MEASUREMENT_ID", "");
     vi.stubEnv("VITE_POSTHOG_KEY", "phc_test123");
     startAnalytics();
+    resetIdentity(); // the sign-in check answered: not signed in
     page("/search?q=Alice");
     track("submit");
     await flush();
@@ -168,6 +169,7 @@ describe("with both vendors set", () => {
 
   it("one page shown is one page view in each, as its pattern", async () => {
     startAnalytics();
+    resetIdentity(); // the sign-in check answered: not signed in
     await flush();
     page("/facts/7?displayName=Alice&q=Bob");
     const views = gaCalls().filter((c) => c[0] === "event" && c[1] === "page_view");
@@ -180,6 +182,7 @@ describe("with both vendors set", () => {
 
   it("a funnel event reaches both, under GA4's recommended name where there is one", async () => {
     startAnalytics();
+    resetIdentity(); // the sign-in check answered: not signed in
     await flush();
     track("upgrade", { plan: "legendary" });
     track("sign_up", { method: "google" });
@@ -191,6 +194,7 @@ describe("with both vendors set", () => {
 
   it("an event before PostHog's code has loaded is sent once it has", async () => {
     startAnalytics();
+    resetIdentity(); // the sign-in check answered: not signed in
     track("submit");
     expect(phCapture).not.toHaveBeenCalled();
     await flush();
@@ -199,6 +203,7 @@ describe("with both vendors set", () => {
 
   it("a call queued before PostHog loads is filed under the page it was made on", async () => {
     startAnalytics();
+    resetIdentity(); // the sign-in check answered: not signed in
     page("/search?q=Alice");
     page("/pricing");
     await flush();
@@ -238,6 +243,7 @@ describe("an upgrade is counted once per checkout", () => {
     vi.stubEnv("VITE_POSTHOG_KEY", "phc_test123");
     window.localStorage.clear();
     startAnalytics();
+    resetIdentity(); // the sign-in check answered: not signed in
     await flush();
     trackUpgradeOnce("cs_test_1");
     trackUpgradeOnce("cs_test_1");
@@ -245,6 +251,105 @@ describe("an upgrade is counted once per checkout", () => {
     expect(phCapture.mock.calls.filter((c) => c[0] === "upgrade")).toEqual([["upgrade", { plan: "legendary", __page_pattern: "/" }]]);
     trackUpgradeOnce("cs_test_2");
     expect(phCapture.mock.calls.filter((c) => c[0] === "upgrade")).toHaveLength(2);
+  });
+});
+
+describe("PostHog sends nothing until it knows who is browsing", () => {
+  beforeEach(() => {
+    vi.stubEnv("VITE_POSTHOG_KEY", "phc_test123");
+    vi.stubEnv("VITE_GA_MEASUREMENT_ID", "G-TEST123");
+  });
+
+  /** PostHog calls in the order they were made. */
+  const phCallOrder: string[] = [];
+  const order = () => phCallOrder;
+  beforeEach(() => {
+    phCallOrder.length = 0;
+    phReset.mockImplementation(() => { phCallOrder.push("reset"); });
+    phIdentify.mockImplementation((id: string) => { phCallOrder.push(`identify:${id}`); });
+    phCapture.mockImplementation((e: string) => { phCallOrder.push(`capture:${e}`); });
+  });
+  afterEach(() => {
+    phReset.mockReset();
+    phIdentify.mockReset();
+    phCapture.mockReset();
+  });
+
+  it("a returning visitor whose session lapsed: PostHog loads first, then the sign-in check answers signed out", async () => {
+    phGetProperty.mockReturnValue("identified");
+    startAnalytics();
+    page("/");
+    await flush(); // PostHog has loaded; the sign-in check has not answered
+    expect(phCapture).not.toHaveBeenCalled();
+    resetIdentity();
+    expect(order()).toEqual(["reset", "capture:$pageview"]);
+  });
+
+  it("the sign-in check answers signed out before PostHog loads", async () => {
+    phGetProperty.mockReturnValue("identified");
+    startAnalytics();
+    page("/");
+    resetIdentity();
+    expect(phCapture).not.toHaveBeenCalled();
+    await flush();
+    expect(order()).toEqual(["reset", "capture:$pageview"]);
+  });
+
+  it("a signed-in member: identified before the held page view is sent, in either order", async () => {
+    startAnalytics();
+    page("/");
+    identify("user-7");
+    await flush();
+    expect(order()).toEqual(["identify:user-7", "capture:$pageview"]);
+  });
+
+  it("a failed sign-in check releases the hold as not signed in", async () => {
+    // A failed first read leaves no user and stops loading, so the app calls
+    // resetIdentity(), the same release as a signed-out answer.
+    phGetProperty.mockReturnValue("anonymous");
+    startAnalytics();
+    page("/search");
+    await flush();
+    resetIdentity();
+    expect(order()).toEqual(["capture:$pageview"]);
+  });
+
+  it("a sign-in check that never answers sends nothing to PostHog; Google Analytics is not held", async () => {
+    startAnalytics();
+    page("/");
+    await flush();
+    expect(phCapture).not.toHaveBeenCalled();
+    expect(gaCalls().filter((c) => c[0] === "event" && c[1] === "page_view")).toHaveLength(1);
+  });
+
+  it("an identity decided before analytics started is applied at start, so the hold is released", async () => {
+    identify("user-9");
+    startAnalytics();
+    page("/");
+    await flush();
+    expect(order()).toEqual(["identify:user-9", "capture:$pageview"]);
+  });
+});
+
+describe("Google Analytics page fields live at one scope", () => {
+  it("are set globally before config, and config carries none, so later events take the current page", () => {
+    vi.stubEnv("VITE_GA_MEASUREMENT_ID", "G-TEST123");
+    window.history.replaceState(null, "", "/facts/7?displayName=Alice");
+    startAnalytics();
+    const calls = gaCalls();
+    const firstSet = calls.findIndex((c) => c[0] === "set");
+    const config = calls.findIndex((c) => c[0] === "config");
+    expect(firstSet).toBeGreaterThanOrEqual(0);
+    expect(firstSet).toBeLessThan(config);
+    expect(calls[firstSet][1]).toMatchObject({ page_location: `${window.location.origin}/facts/:id`, page_title: "/facts/:id" });
+    expect(Object.keys(calls[config][2] as object)).not.toEqual(expect.arrayContaining(["page_location"]));
+    expect(calls[config][2]).not.toHaveProperty("page_title");
+    expect(calls[config][2]).not.toHaveProperty("page_referrer");
+    page("/pricing");
+    track("share", { platform: "copy_link" });
+    const lastSet = [...gaCalls()].reverse().find((c) => c[0] === "set" && "page_title" in (c[1] as object));
+    expect(lastSet?.[1]).toMatchObject({ page_title: "/pricing" });
+    expect(JSON.stringify(gaCalls())).not.toContain("Alice");
   });
 });
 

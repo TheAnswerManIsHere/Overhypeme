@@ -140,8 +140,20 @@ let referrer = "";
 let gaOn = false;
 let posthogOn = false;
 let posthog: PostHog | null = null;
-/** Calls made before PostHog's code has loaded, replayed once it has. */
+/**
+ * PostHog sends nothing until two things are true: its code has loaded, and
+ * the app has said who is browsing (the first `identify` or `resetIdentity`).
+ * Until then identity calls and captures are held in two queues, and the
+ * identity ones are applied first, so a visit is never sent under an identity
+ * PostHog stored on an earlier visit (an expired session, a shared browser).
+ * A failed sign-in check reaches `resetIdentity`, which releases the hold as
+ * "not signed in"; a check that never answers leaves the visit unsent.
+ */
+let identityKnown = false;
+let posthogIdentityQueue: Array<(ph: PostHog) => void> = [];
 let posthogQueue: Array<(ph: PostHog) => void> = [];
+/** An identity decision made before analytics started, applied at start. */
+let identityBeforeStart: { userId: string | null } | undefined;
 
 /** Carries the page a PostHog call was made on through to `before_send`. */
 const PAGE_PATTERN = "__page_pattern";
@@ -158,8 +170,28 @@ function ga(...args: unknown[]): void {
 
 function withPosthog(fn: (ph: PostHog) => void): void {
   if (!posthogOn) return;
-  if (posthog) fn(posthog);
+  if (posthog && identityKnown) fn(posthog);
   else posthogQueue.push(fn);
+}
+
+/** An identity call: applied before any held capture is released. */
+function withPosthogIdentity(fn: (ph: PostHog) => void): void {
+  identityKnown = true;
+  if (!posthogOn) return;
+  if (posthog) fn(posthog);
+  else posthogIdentityQueue.push(fn);
+  flushPosthog();
+}
+
+function flushPosthog(): void {
+  if (!posthog || !identityKnown) return;
+  const ph = posthog;
+  const identityCalls = posthogIdentityQueue;
+  const captures = posthogQueue;
+  posthogIdentityQueue = [];
+  posthogQueue = [];
+  for (const fn of identityCalls) fn(ph);
+  for (const fn of captures) fn(ph);
 }
 
 /**
@@ -212,13 +244,15 @@ function startGa(id: string): void {
     window.dataLayer!.push(arguments);
   };
   window.gtag("js", new Date());
+  // The page fields live at one scope only, the global one, before `config`:
+  // `config` would override every later `set` (Google's parameter precedence),
+  // leaving events after an in-app navigation filed under the landing page.
+  // Set before `config`, so the first hit already carries the pattern.
+  window.gtag("set", { page_location: patternUrl(currentPattern), page_title: currentPattern, page_referrer: referrer });
   window.gtag("config", id, {
     send_page_view: false,
     allow_google_signals: false,
     allow_ad_personalization_signals: false,
-    page_location: patternUrl(currentPattern),
-    page_title: currentPattern,
-    page_referrer: referrer,
   });
   const s = document.createElement("script");
   s.async = true;
@@ -255,11 +289,10 @@ function startPosthog(key: string): void {
       before_send: scrubPosthogEvent,
     });
     posthog = ph;
-    const queued = posthogQueue;
-    posthogQueue = [];
-    for (const fn of queued) fn(ph);
+    flushPosthog();
   }).catch(() => {
     posthogQueue = [];
+    posthogIdentityQueue = [];
   });
   if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(load, { timeout: 2000 });
   else setTimeout(load, 0);
@@ -281,6 +314,15 @@ export function startAnalytics(): void {
   posthogOn = Boolean(key);
   if (id) startGa(id);
   if (key) startPosthog(key);
+  // Phase 14 will start analytics only once the visitor is admitted, which
+  // can be after the app has learned who is browsing: apply that now, or
+  // PostHog's hold would never be released.
+  const before = identityBeforeStart;
+  identityBeforeStart = undefined;
+  if (before) {
+    if (before.userId) identify(before.userId);
+    else resetIdentity();
+  }
 }
 
 /** One page shown: the only source of page views for either vendor. */
@@ -324,10 +366,15 @@ let identifiedAs: string | null = null;
 
 /** A member signed in: known to both vendors by internal id only. */
 export function identify(userId: string): void {
-  if (!started || !userId || identifiedAs === userId) return;
+  if (!userId) return;
+  if (!started) {
+    identityBeforeStart = { userId };
+    return;
+  }
+  if (identifiedAs === userId && identityKnown) return;
   identifiedAs = userId;
   ga("set", { user_id: userId });
-  withPosthog((ph) => ph.identify(userId));
+  withPosthogIdentity((ph) => ph.identify(userId));
 }
 
 /**
@@ -337,11 +384,14 @@ export function identify(userId: string): void {
  * load too.
  */
 export function resetIdentity(): void {
-  if (!started) return;
+  if (!started) {
+    identityBeforeStart = { userId: null };
+    return;
+  }
   const wasIdentified = identifiedAs !== null;
   identifiedAs = null;
   if (wasIdentified) ga("set", { user_id: null });
-  withPosthog((ph) => {
+  withPosthogIdentity((ph) => {
     if (ph.get_property("$user_state") === "identified") ph.reset();
   });
 }
@@ -355,6 +405,9 @@ export function __resetAnalyticsForTests(): void {
   posthogOn = false;
   posthog = null;
   posthogQueue = [];
+  posthogIdentityQueue = [];
+  identityKnown = false;
+  identityBeforeStart = undefined;
   identifiedAs = null;
 }
 
