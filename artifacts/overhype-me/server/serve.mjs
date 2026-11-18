@@ -14,6 +14,7 @@
  */
 import { createServer } from "node:http";
 import { createReadStream, statSync } from "node:fs";
+import { pipeline } from "node:stream";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -64,9 +65,9 @@ function send(req, res, { file, stat }) {
     "last-modified": stat.mtime.toUTCString(),
   });
   if (req.method === "HEAD") return res.end();
-  createReadStream(file)
-    .on("error", () => res.destroy())
-    .pipe(res);
+  // pipeline, not pipe: when the visitor goes away mid-download, pipe leaves
+  // the file open for the life of the process; pipeline closes it.
+  pipeline(createReadStream(file), res, () => {});
 }
 
 /** The request handler for a built app at `root` (an absolute directory). */
