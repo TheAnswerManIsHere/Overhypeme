@@ -22,6 +22,7 @@ import { factDetail, memeDetail, memeItem, stubPublicFacts } from "./helpers/api
 import { brandOrangeRgb } from "./helpers/brandTokens";
 import { FREE_ACCOUNT, TEST_ACCOUNT_PASSWORD, signInThroughForm } from "./helpers/testAccounts";
 import { seedIdentity } from "./helpers/identity";
+import { ANALYTICS_NOTICE_STORAGE } from "./helpers/dismissedNotices";
 
 const DESKTOP = { width: 1280, height: 900 };
 
@@ -267,5 +268,26 @@ test.describe("Public described screens", () => {
     // A screen outside the shared layout carries the links too.
     await page.goto("/no-such-page");
     await expect(page.getByRole("navigation", { name: "Legal" }).getByRole("link", { name: "Privacy Policy" })).toBeVisible();
+  });
+});
+
+// Launch Phase 14, increment 2: a first-time visitor sees the analytics notice
+// once; "Got it" stores the value every other test starts from, so this test
+// also proves e2e/helpers/dismissedNotices.ts still matches the component.
+test.describe("Analytics notice", () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
+
+  test("shows once to a new visitor, links to Privacy, and stays dismissed after Got it", async ({ page }) => {
+    await stubPublicFacts(page, { facts: [factDetail({ id: 572, text: "{NAME} counted the visitors. All of them." })] });
+    await page.goto("/");
+    const notice = page.getByTestId("analytics-notice");
+    await expect(notice).toBeVisible();
+    await expect(notice.getByRole("link", { name: "Privacy Policy" })).toHaveAttribute("href", "/privacy");
+    await notice.getByRole("button", { name: "Got it" }).click();
+    await expect(notice).toHaveCount(0);
+    expect(await page.evaluate((k) => localStorage.getItem(k), ANALYTICS_NOTICE_STORAGE.name)).toBe(ANALYTICS_NOTICE_STORAGE.value);
+    await page.reload();
+    await expect(page.getByRole("navigation", { name: "Legal" })).toBeAttached();
+    await expect(page.getByTestId("analytics-notice")).toHaveCount(0);
   });
 });
