@@ -9,6 +9,24 @@ describe("SENSITIVE_KEY_PATTERNS", () => {
   });
 });
 
+describe("personal text in a page address", () => {
+  it("filters a share link's name and pronouns and a search's words, keeping the rest", () => {
+    const out = new URL(scrubUrl("https://overhype.me/facts/12?displayName=Alice&pronouns=she%2Fher&ref=x"));
+    assert.equal(out.searchParams.get("displayName"), "[Filtered]");
+    assert.equal(out.searchParams.get("pronouns"), "[Filtered]");
+    assert.equal(out.searchParams.get("ref"), "x");
+    assert.equal(scrubUrl("/search?q=Alice", "https://overhype.me"), "/search?q=%5BFiltered%5D");
+  });
+
+  it("filters the same keys in a logged object", () => {
+    const result = scrubObject({ displayName: "Alice", pronouns: "she/her", q: "Alice", name: "kept" }) as Record<string, unknown>;
+    assert.equal(result.displayName, "[Filtered]");
+    assert.equal(result.pronouns, "[Filtered]");
+    assert.equal(result.q, "[Filtered]");
+    assert.equal(result.name, "kept");
+  });
+});
+
 describe("scrubObject", () => {
   it("redacts password fields", () => {
     const result = scrubObject({ password: "s3cr3t", name: "alice" }) as Record<string, unknown>;
@@ -81,7 +99,7 @@ describe("scrubUrl", () => {
   });
 
   it("returns the original URL unchanged when no sensitive params", () => {
-    const url = "https://example.com/search?q=hello&page=2";
+    const url = "https://example.com/search?sort=new&page=2";
     assert.equal(scrubUrl(url), url);
   });
 

@@ -1,3 +1,5 @@
+import { scrubUrl } from "@workspace/redact";
+
 declare global {
   interface Window {
     gtag?: (...args: unknown[]) => void;
@@ -5,11 +7,26 @@ declare global {
   }
 }
 
+/**
+ * The address Google Analytics is told about: the page's own, with personal
+ * text a link can carry filtered out (a share link's friend's name and
+ * pronouns, a search's words; `@workspace/redact`). Left to itself GA reads
+ * the full address bar, which a share link fills before the app tidies it.
+ */
+export function analyticsPageLocation(href: string): string {
+  return scrubUrl(href);
+}
+
 export function trackPageView(path: string, title?: string) {
   const gaId = import.meta.env.VITE_GA_MEASUREMENT_ID as string | undefined;
   if (!gaId || !window.gtag) return;
+  const pageLocation = analyticsPageLocation(window.location.href);
+  // `set` carries the cleaned address into every later event on this page,
+  // not only the page view `config` sends.
+  window.gtag("set", { page_location: pageLocation });
   window.gtag("config", gaId, {
     page_path: path,
+    page_location: pageLocation,
     page_title: title,
   });
 }
