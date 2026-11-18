@@ -10,7 +10,8 @@
     "./baseline": "./src/baseline.ts",
     "./table-classification": "./src/tableClassification.ts",
     "./migrate": "./src/migrate.ts",
-    "./live-fact-fixture": "./src/liveFactFixture.ts"
+    "./live-fact-fixture": "./src/liveFactFixture.ts",
+    "./retention-schedule": "./src/retentionSchedule.ts"
   },
   "scripts": {
     "generate": "drizzle-kit generate --config ./drizzle.config.ts",
