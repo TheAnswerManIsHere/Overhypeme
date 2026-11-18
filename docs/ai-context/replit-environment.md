@@ -399,6 +399,20 @@ it (scoped: start the existing workflows, change nothing) to start them.
 then, not minutes later, and if either is still down, find out why before
 asking him to test.
 
+## The dev preview address is public, so its API needs a key
+
+The workspace preview address (`*.replit.dev`) answers the open internet
+while the dev app runs (measured 2026-11-18: from outside, the dev page and
+`/api/healthz` both answered 200, and an unauthenticated
+`POST /api/auth/dev-admin-login` minted an administrator session). Since
+launch Phase 14, increment 3, the dev API refuses any request through that
+address without the **`DEV_PREVIEW_KEY`** secret (Repl Secrets pane), sent by
+header or cookie (`artifacts/api-server/src/middlewares/devPreviewGate.ts`).
+David unlocks a browser once by opening the preview with
+`?devPreviewKey=<key>`. With no key set, the preview's API refuses everything.
+Direct local requests (`curl localhost:8080`, the Repl agent's checks) are
+never gated, and the published deployment never is.
+
 ## Dev and production are two separate databases
 
 **`heliumdb`** (on the `helium` host) is the **development** database — the
