@@ -16,7 +16,7 @@ import {
 } from "@/lib/pronouns";
 import { PronounEditor } from "@/components/ui/PronounEditor";
 import { inferPronounsFromName } from "@/lib/infer-pronouns";
-import { track } from "@/lib/analytics";
+import { trackPersonaliseOnce } from "@/lib/analytics";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -78,7 +78,7 @@ export function NameTag() {
     if (!applyEnabled) return;
     setName(draftName);
     setPronouns(draftPronouns);
-    track("personalise");
+    trackPersonaliseOnce();
     setEditing(false);
   }
 

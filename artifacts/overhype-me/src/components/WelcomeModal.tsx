@@ -15,7 +15,7 @@ import { DEFAULT_PRONOUNS, isCustomPronouns, parseCustom } from "@/lib/pronouns"
 import { HighlightedFactText } from "@/components/facts/HighlightedFactText";
 import { teaserFor } from "@/components/welcomeTeaser";
 import { NameFieldHint, useNameField } from "@/hooks/use-name-field";
-import { track } from "@/lib/analytics";
+import { trackPersonaliseOnce } from "@/lib/analytics";
 
 /** Pronouns are saved only once the visitor can see them: a suggestion shown, or their own pick. Never the fallback. */
 function canSave(draftPronouns: string): boolean {
@@ -177,7 +177,7 @@ export function WelcomeModal() {
     if (!isAuthenticated) {
       setName(finalName);
       setPronouns(draftPronouns);
-      track("personalise");
+      trackPersonaliseOnce();
       setOpen(false);
       return;
     }
@@ -194,7 +194,7 @@ export function WelcomeModal() {
         setSaveError("Saved, but we couldn't confirm it yet. Try again.");
         return;
       }
-      track("personalise");
+      trackPersonaliseOnce();
       setOpen(false);
     } catch (err: unknown) {
       const e = err as { data?: { error?: string }; response?: { data?: { error?: string } }; message?: string };

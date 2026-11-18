@@ -3,7 +3,6 @@
  * @subsystem public-site
  */
 import { LEGAL_SLUGS } from "@/generated/legal";
-import { browserStorage } from "@/hooks/use-person-name";
 import type { PostHog, CaptureResult } from "posthog-js/dist/module.slim";
 
 declare global {
@@ -344,6 +343,13 @@ export function track(event: FunnelEvent, props?: FunnelProperties): void {
   capture(event, clean);
 }
 
+/** Local storage that never throws (private mode, blocked site data). */
+const storageSafe = {
+  get(key: string): string | null { try { return window.localStorage.getItem(key); } catch { return null; } },
+  set(key: string, value: string): void { try { window.localStorage.setItem(key, value); } catch { /* ignore */ } },
+  remove(key: string): void { try { window.localStorage.removeItem(key); } catch { /* ignore */ } },
+};
+
 const UPGRADE_COUNTED_KEY = "overhype.analytics.upgradeCounted";
 
 /**
@@ -356,10 +362,33 @@ const UPGRADE_COUNTED_KEY = "overhype.analytics.upgradeCounted";
  */
 export function trackUpgradeOnce(checkoutSessionId: string | null): void {
   if (!checkoutSessionId) return;
-  const storage = browserStorage();
+  const storage = storageSafe;
   if (storage.get(UPGRADE_COUNTED_KEY) === checkoutSessionId) return;
   storage.set(UPGRADE_COUNTED_KEY, checkoutSessionId);
   track("upgrade", { plan: "legendary" });
+}
+
+const PERSONALISE_COUNTED_KEY = "overhype.analytics.personaliseCounted";
+
+/**
+ * The funnel's `personalise`: counted once per browser, the first time a
+ * visitor's name is saved for rendering — in the name sheet, the name tag, or
+ * account set-up when neither came first. Most visitors are asked for a name
+ * on arrival and sign up later, so set-up re-saving that name must not count
+ * it again. The mark is cleared only when the browser forgets the visitor
+ * (`forgetPersonalise`, from sign-out), never by `resetIdentity`, which runs
+ * on every signed-out page load.
+ */
+export function trackPersonaliseOnce(): void {
+  const storage = storageSafe;
+  if (storage.get(PERSONALISE_COUNTED_KEY)) return;
+  storage.set(PERSONALISE_COUNTED_KEY, "1");
+  track("personalise");
+}
+
+/** The browser forgot who this visitor is: their next name save counts again. */
+export function forgetPersonalise(): void {
+  storageSafe.remove(PERSONALISE_COUNTED_KEY);
 }
 
 let identifiedAs: string | null = null;

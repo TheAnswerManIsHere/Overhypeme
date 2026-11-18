@@ -28,6 +28,8 @@ import {
   startAnalytics,
   track,
   trackUpgradeOnce,
+  trackPersonaliseOnce,
+  forgetPersonalise,
 } from "./analytics";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -350,6 +352,25 @@ describe("Google Analytics page fields live at one scope", () => {
     const lastSet = [...gaCalls()].reverse().find((c) => c[0] === "set" && "page_title" in (c[1] as object));
     expect(lastSet?.[1]).toMatchObject({ page_title: "/pricing" });
     expect(JSON.stringify(gaCalls())).not.toContain("Alice");
+  });
+});
+
+describe("personalise is counted once per browser", () => {
+  it("the first name save counts; set-up re-saving it counts nothing; forgetting the browser counts again", async () => {
+    vi.stubEnv("VITE_POSTHOG_KEY", "phc_test123");
+    window.localStorage.clear();
+    startAnalytics();
+    resetIdentity();
+    await flush();
+    trackPersonaliseOnce(); // the name sheet
+    trackPersonaliseOnce(); // account set-up re-saving the same name
+    expect(phCapture.mock.calls.filter((c) => c[0] === "personalise")).toHaveLength(1);
+    resetIdentity(); // a signed-out page load does not clear the mark
+    trackPersonaliseOnce();
+    expect(phCapture.mock.calls.filter((c) => c[0] === "personalise")).toHaveLength(1);
+    forgetPersonalise(); // sign-out: the browser forgets the visitor
+    trackPersonaliseOnce();
+    expect(phCapture.mock.calls.filter((c) => c[0] === "personalise")).toHaveLength(2);
   });
 });
 

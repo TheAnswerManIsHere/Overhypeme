@@ -15,7 +15,7 @@ import { returnToFromSearch } from "@/lib/safe-return-to";
 import { inferPronounsFromName } from "@/lib/infer-pronouns";
 import { usePersonName } from "@/hooks/use-person-name";
 import { NameFieldHint, useNameField } from "@/hooks/use-name-field";
-import { track } from "@/lib/analytics";
+import { track, trackPersonaliseOnce } from "@/lib/analytics";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
@@ -247,6 +247,10 @@ export default function Onboard() {
         setCaptchaToken("");
         return;
       }
+      // The server confirmed the name the account renders with: the funnel's
+      // `personalise`, unless this browser already counted one (the name sheet
+      // or tag, before signing up).
+      trackPersonaliseOnce();
       // The browser copy takes the account's identity from the re-read,
       // through AccountIdentityMirror (identity-flow Phase 2): a re-read that
       // failed, or that sign-out discarded, publishes nothing as confirmed.
