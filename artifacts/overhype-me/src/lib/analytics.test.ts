@@ -4,7 +4,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { phInit, phCapture, phIdentify, phReset, phGetProperty } = vi.hoisted(() => ({
+const { phInit, phCapture, phIdentify, phReset, phGetProperty, phRegisterForSession } = vi.hoisted(() => ({
+  phRegisterForSession: vi.fn(),
   phInit: vi.fn(),
   phCapture: vi.fn(),
   phIdentify: vi.fn(),
@@ -13,7 +14,7 @@ const { phInit, phCapture, phIdentify, phReset, phGetProperty } = vi.hoisted(() 
 }));
 
 vi.mock("posthog-js/dist/module.slim", () => ({
-  default: { init: phInit, capture: phCapture, identify: phIdentify, reset: phReset, get_property: phGetProperty },
+  default: { init: phInit, capture: phCapture, identify: phIdentify, reset: phReset, get_property: phGetProperty, register_for_session: phRegisterForSession },
 }));
 
 import {
@@ -52,6 +53,7 @@ beforeEach(() => {
   phIdentify.mockClear();
   phReset.mockClear();
   phGetProperty.mockReset();
+  phRegisterForSession.mockClear();
 });
 
 afterEach(() => {
@@ -445,6 +447,38 @@ describe("a landing address's campaign tags reach GA4 (fix after PR #1059)", () 
     fresh.page("/pricing");
     expect(gaCalls()).toContainEqual(["event", "page_view", { page_location: `${window.location.origin}/pricing?utm_source=newsletter`, page_title: "/pricing" }]);
     fresh.__resetAnalyticsForTests();
+  });
+
+  it("PostHog gets the landing tags for the session even after the visitor has moved on (owed after PR #1069)", async () => {
+    vi.stubEnv("VITE_GA_MEASUREMENT_ID", "");
+    vi.stubEnv("VITE_POSTHOG_KEY", "phc_test123");
+    window.history.replaceState(null, "", "/facts/7?utm_source=newsletter&utm_campaign=launch-week&utm_term=Alice%20Smith&displayName=Alice");
+    vi.resetModules();
+    const fresh = await import("./analytics");
+    // The app moves on before analytics starts, and PostHog reads the address at each event.
+    window.history.replaceState(null, "", "/pricing");
+    fresh.startAnalytics();
+    fresh.resetIdentity();
+    fresh.page("/pricing");
+    await flush();
+    expect(phRegisterForSession).toHaveBeenCalledTimes(1);
+    expect(phRegisterForSession).toHaveBeenCalledWith({ utm_source: "newsletter", utm_campaign: "launch-week" });
+    // Registered before the queued page view is sent, so it carries them.
+    expect(phRegisterForSession.mock.invocationCallOrder[0]).toBeLessThan(
+      phCapture.mock.invocationCallOrder[phCapture.mock.calls.findIndex((c) => c[0] === "$pageview")]!,
+    );
+    fresh.__resetAnalyticsForTests();
+  });
+
+  it("PostHog registers nothing when the landing address had no clean tags", async () => {
+    vi.stubEnv("VITE_GA_MEASUREMENT_ID", "");
+    vi.stubEnv("VITE_POSTHOG_KEY", "phc_test123");
+    window.history.replaceState(null, "", "/?utm_term=Alice%20Smith");
+    startAnalytics();
+    resetIdentity();
+    await flush();
+    expect(phInit).toHaveBeenCalled();
+    expect(phRegisterForSession).not.toHaveBeenCalled();
   });
 
   it("an address with no campaign tags sends the bare pattern", () => {
