@@ -15,6 +15,7 @@ import { PronounEditor } from "@/components/ui/PronounEditor";
 import { useSignOut } from "@/hooks/use-sign-out";
 import { AccessGate } from "@/components/AccessGate";
 import { Sentry } from "@/lib/sentry";
+import { track } from "@/lib/analytics";
 import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
 import { uploadUserImage } from "@/lib/image-upload";
 import { shouldAskForRealPhoto } from "@/lib/profile-photo";
@@ -93,6 +94,25 @@ function ProfilePhotoThumbnailPicker({
       </div>
     </div>
   );
+}
+
+/**
+ * The funnel's `upgrade`: counted once per completed checkout, keyed on
+ * Stripe's checkout session id, so reopening the success address (a bookmark,
+ * a second tab) never counts the same purchase twice. A confirmation with no
+ * session id (an old in-flight checkout, or the address typed by hand) is not
+ * counted: an undercount is preferred to a double count.
+ */
+function countUpgradeOnce(checkoutSessionId: string | null): void {
+  if (!checkoutSessionId) return;
+  const key = `overhype.analytics.upgradeCounted.${checkoutSessionId}`;
+  try {
+    if (window.localStorage.getItem(key)) return;
+    window.localStorage.setItem(key, "1");
+  } catch {
+    // Storage refused: count it; a repeat is then possible only in this browser.
+  }
+  track("upgrade", { plan: "legendary" });
 }
 
 export default function Profile() {
@@ -406,6 +426,7 @@ export default function Profile() {
       if (cancelled) return;
       setCheckoutPolling(false);
       setCheckoutConfirmed(true);
+      countUpgradeOnce(checkoutSessionId);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() }),
         refreshUser(),

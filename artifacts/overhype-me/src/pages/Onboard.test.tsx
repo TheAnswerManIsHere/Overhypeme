@@ -21,6 +21,8 @@ vi.mock("@workspace/replit-auth-web", () => ({
 vi.mock("@/hooks/use-person-name", () => ({
   usePersonName: () => ({ name: "Sarah", pronouns: "they/them", pronounsSupplied: false, syncFromProfile }),
 }));
+const trackSpy = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/analytics", () => ({ track: trackSpy }));
 vi.mock("@/components/ui/Turnstile", async () => {
   const React = await import("react");
   return {
@@ -97,6 +99,29 @@ describe("Onboard screen", () => {
       }
       return new Response(JSON.stringify({ saved: true, completed: true }), { status: 200 });
     }));
+  });
+
+  // Launch Phase 16, increment 3: a provider sign-up and an email verification
+  // arrive as one-time markers on this address, and are counted exactly once.
+  it("counts a marked sign-up and verification once, then drops the markers", async () => {
+    trackSpy.mockReset();
+    window.history.replaceState(null, "", "/onboard?returnTo=%2Fprofile&signup=google&verified=1");
+    const first = render(<Onboard />);
+    expect(trackSpy).toHaveBeenCalledWith("sign_up", { method: "google" });
+    expect(trackSpy).toHaveBeenCalledWith("verify");
+    expect(window.location.search).toBe("?returnTo=%2Fprofile");
+    first.unmount();
+    render(<Onboard />);
+    expect(trackSpy).toHaveBeenCalledTimes(2);
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("an address without a marker counts nothing; an unknown provider is ignored", async () => {
+    trackSpy.mockReset();
+    window.history.replaceState(null, "", "/onboard?returnTo=%2Fprofile&signup=Alice");
+    render(<Onboard />);
+    expect(trackSpy).not.toHaveBeenCalled();
+    window.history.replaceState(null, "", "/");
   });
 
   it("a reload brings the draft back into the form", async () => {

@@ -12,15 +12,15 @@ import { render, screen, fireEvent, waitFor, act } from "@testing-library/react"
 
 // vi.mock factories are hoisted above all imports, so any spies they
 // reference must be created via vi.hoisted (which is also hoisted).
-const { toastSpy, trackEventSpy } = vi.hoisted(() => ({
+const { toastSpy, trackSpy } = vi.hoisted(() => ({
   toastSpy: vi.fn(),
-  trackEventSpy: vi.fn(),
+  trackSpy: vi.fn(),
 }));
 vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: toastSpy }),
 }));
 vi.mock("@/lib/analytics", () => ({
-  trackEvent: trackEventSpy,
+  track: trackSpy,
 }));
 
 import { MemeShareModal } from "@/components/share/MemeShareModal";
@@ -75,7 +75,7 @@ function mockFetch(handler: (url: string, init?: RequestInit) => unknown) {
 
 beforeEach(() => {
   toastSpy.mockReset();
-  trackEventSpy.mockReset();
+  trackSpy.mockReset();
 });
 
 afterEach(() => {
@@ -148,7 +148,7 @@ describe("MemeShareModal — Web Share button", () => {
       text: "did a thing",
       url: FALLBACK,
     });
-    expect(trackEventSpy).toHaveBeenCalledWith("share_intent", { meme_id: SLUG, platform: "web_share" });
+    expect(trackSpy).toHaveBeenCalledWith("share", { platform: "web_share" });
     expect(onClose).toHaveBeenCalled();
     // The intent POST is fire-and-forget; assert one was issued.
     const intentCall = fetchSpy.mock.calls.find(([u]) => u === "/api/share-intents");
@@ -203,7 +203,7 @@ describe("MemeShareModal — Twitter button", () => {
 
     expect(openSpy).toHaveBeenCalledWith(intentUrl, "_blank", "noopener,noreferrer");
     expect(onClose).toHaveBeenCalled();
-    expect(trackEventSpy).toHaveBeenCalledWith("share_intent", { meme_id: SLUG, platform: "twitter" });
+    expect(trackSpy).toHaveBeenCalledWith("share", { platform: "twitter" });
   });
 
   it("falls back to a minimal Twitter intent URL when the server fetch fails", async () => {
@@ -252,7 +252,7 @@ describe("MemeShareModal — Copy Link button", () => {
     const payload = toastSpy.mock.calls[0]?.[0] as { title?: string };
     expect(payload?.title).toMatch(/copied/i);
     expect(onClose).toHaveBeenCalled();
-    expect(trackEventSpy).toHaveBeenCalledWith("share_intent", { meme_id: SLUG, platform: "copy_link" });
+    expect(trackSpy).toHaveBeenCalledWith("share", { platform: "copy_link" });
   });
 });
 

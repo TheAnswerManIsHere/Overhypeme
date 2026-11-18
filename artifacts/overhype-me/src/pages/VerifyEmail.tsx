@@ -36,7 +36,8 @@ export default function VerifyEmail() {
             setMessage("Your email is already verified.");
           } else {
             // Hard navigation so the new session cookie is picked up by the auth cache
-            window.location.assign("/onboard?returnTo=%2Fprofile%3FemailVerified%3D1");
+            // `verified=1` lets onboarding count the verification once (analytics).
+            window.location.assign("/onboard?returnTo=%2Fprofile%3FemailVerified%3D1&verified=1");
             return;
           }
         } else {

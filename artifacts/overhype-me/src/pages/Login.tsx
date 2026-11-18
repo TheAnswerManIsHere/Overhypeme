@@ -13,6 +13,7 @@ import { LogIn, UserPlus, ArrowLeft, Mail, Eye, EyeOff } from "lucide-react";
 import { isMobileDevice } from "@/lib/utils";
 import { getSafeReturnTo } from "@/lib/safe-return-to";
 import { usePersonName } from "@/hooks/use-person-name";
+import { track } from "@/lib/analytics";
 
 function getResetSuccess(): boolean {
   const params = new URLSearchParams(window.location.search);
@@ -142,6 +143,7 @@ export default function Login() {
       }
 
       if (mode === "register" && email) {
+        track("sign_up", { method: "password" });
         setRegisteredEmail(email);
         window.scrollTo({ top: 0, behavior: "smooth" });
         return;

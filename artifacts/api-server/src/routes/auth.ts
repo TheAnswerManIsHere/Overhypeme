@@ -452,7 +452,7 @@ async function handleOAuthCallback(
 
   if (isPopup) {
     const target = isNewUser
-      ? `${basePath}/onboard?returnTo=${encodeURIComponent(returnTo)}`
+      ? `${basePath}/onboard?returnTo=${encodeURIComponent(returnTo)}&signup=${provider}`
       : basePath + returnTo;
     const safeTarget = JSON.stringify(target);
     res.send(`<!DOCTYPE html><html><body><script>
@@ -461,7 +461,9 @@ async function handleOAuthCallback(
       else { window.location.href = t; }
     </script></body></html>`);
   } else if (isNewUser) {
-    res.redirect(`${basePath}/onboard?returnTo=${encodeURIComponent(returnTo)}`);
+    // `signup` tells the web app a provider created this account, so the
+    // funnel can count the sign-up once (launch Phase 16, increment 3).
+    res.redirect(`${basePath}/onboard?returnTo=${encodeURIComponent(returnTo)}&signup=${provider}`);
   } else {
     res.redirect(returnTo);
   }

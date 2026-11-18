@@ -20,6 +20,7 @@ import { buildSaveMemePayload } from "../util/saveMemePayload";
 import { captionFontOf } from "../../captionFont";
 import { CaptionFontStatus } from "../../parts/CaptionFontPicker";
 import { useCaptionFont } from "@/lib/captionFontLoader";
+import { track } from "@/lib/analytics";
 
 interface Props {
   factId: string;
@@ -209,6 +210,7 @@ export function Step2Image({
         throw new Error(errBody.error ?? `HTTP ${res.status}`);
       }
       const body = (await res.json()) as SaveMemeResponse;
+      track("meme_made");
       setSaving(false);
       onSaved({
         memeId: String(body.memeId),

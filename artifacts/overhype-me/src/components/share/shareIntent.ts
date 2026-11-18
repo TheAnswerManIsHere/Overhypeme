@@ -1,4 +1,4 @@
-import { trackEvent } from "@/lib/analytics";
+import { track } from "@/lib/analytics";
 
 export type ShareIntentPlatform = "twitter" | "web_share" | "copy_link" | "email";
 
@@ -13,8 +13,8 @@ export type ShareIntentPlatform = "twitter" | "web_share" | "copy_link" | "email
  * Two writes happen for each click:
  *   1. POST /api/share-intents — canonical durable record (the source of
  *      truth for platform-distribution analytics).
- *   2. GA4 `share_intent` event — supplementary; only fires if gtag is
- *      wired up. The DB is canonical.
+ *   2. The analytics `share` funnel event (GA4 and PostHog, lib/analytics),
+ *      carrying the platform only — supplementary. The DB is canonical.
  *
  * Failures here MUST NOT block the user's share action. The button's
  * primary effect (opening the share sheet, copying to clipboard, etc.)
@@ -23,9 +23,9 @@ export type ShareIntentPlatform = "twitter" | "web_share" | "copy_link" | "email
  * than missing one row of analytics.
  */
 export function logShareIntent(memeId: string, platform: ShareIntentPlatform): void {
-  // GA first — synchronous, in-process. No-ops if gtag isn't loaded.
+  // Analytics first — synchronous, in-process; never throws to the caller.
   try {
-    trackEvent("share_intent", { meme_id: memeId, platform });
+    track("share", { platform });
   } catch {
     // never let analytics surface to the caller
   }
