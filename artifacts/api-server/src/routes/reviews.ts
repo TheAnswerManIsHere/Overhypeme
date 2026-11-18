@@ -7,7 +7,7 @@ import { Readable } from "node:stream";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import { db } from "@workspace/db";
 import {
-  pendingReviewsTable, factsTable, usersTable, activityFeedTable,
+  pendingReviewsTable, factReadingsTable, factsTable, usersTable, activityFeedTable,
   hashtagsTable, factHashtagsTable, imagePromptAttemptsTable, factGagsTable,
 } from "@workspace/db/schema";
 import { eq, desc, sql, and, or, ilike, count, inArray } from "drizzle-orm";
@@ -23,14 +23,19 @@ import { checkReviewDuplicate, duplicateView, duplicateViews, needsDuplicateChec
 import { normalizeFactTemplateForPendingReview } from "../lib/normalizeFactTemplateForStorage";
 import {
   validateEnrichment,
+  validateGagRenderInput,
   type VisualPromptStrategyOverride,
-  type FactEnrichment,
   type ReviewWorkflowStage,
   UNRESOLVED_SUBMISSION_STAGE_VALUES,
   canProvisionallyApprove,
-  canApproveVisualConcept,
+  canApproveGags,
+  canApproveReading,
+  canRetryReading,
+  canSendBackToGags,
+  canEditApprovedNote,
   canProductionApprove,
   canReject,
+  approveReadingSchema,
   REJECTION_REASON_VALUES,
   type RejectionReason,
   SUBMISSION_TEXT_MAX_CHARS,
@@ -71,7 +76,9 @@ import {
 import { resolveDefaultReferenceUrl, ReferenceAssetUnavailableError } from "../lib/defaultReferenceResolver";
 import { referenceAssetHealth } from "../lib/defaultReferenceResolver";
 import { logger } from "../lib/logger";
-import { editTriageWording, lockReview, WordingError } from "../lib/reviewWording";
+import { editTriageWording, WordingError } from "../lib/reviewWording";
+import { lockFactRow, lockReviewAt, ReviewMovedError, reviewMovedBody, sendIfReviewMoved } from "../lib/reviewLocks";
+import { latestReading, readingView, startReading } from "../lib/readingJobs";
 import { checkDuplicateInternal } from "./ai";
 import { recordAdminAction } from "../lib/adminActions";
 
@@ -158,7 +165,7 @@ router.post("/facts/submit-review", requireAuth, requireFactSubmitRateLimit, asy
   // enrichment, embedding, or any other paid/external work here — those
   // start only when a moderator provisionally approves the fact (which creates
   // an inactive staging fact). So enrichment is left null and the row enters the
-  // lifecycle at `triage_pending`. (Pre-submit tokenize/duplicate-check on the
+  // lifecycle at `triage`. (Pre-submit tokenize/duplicate-check on the
   // form are a separate, deliberate product decision and are unaffected.)
   //
   // The unresolved-pending cap + insert run in one transaction guarded by a
@@ -295,18 +302,27 @@ router.get("/admin/reviews", requireAdmin, async (req: Request, res: Response) =
   // Per-row coarse render state (Step 3), so the queue can show "Rendering…" /
   // "Renders ready" / "Renders need attention" and keep polling while renders run
   // — the render analogue of the enrichment prep status (rule 8). Only
-  // meaningful in production_review, where renders exist. `rendersRunning` is kept
+  // meaningful at Test Renders, where renders exist. `rendersRunning` is kept
   // as the back-compat boolean, derived from the same aggregate.
   const productionReviewIds = reviews
-    .filter((r) => r.workflowStage === "production_review")
+    .filter((r) => r.workflowStage === "test_renders")
     .map((r) => r.id);
-  const [renderStates, duplicates] = await Promise.all([
+  // The latest reading run per staging fact, for rows at the Reading step.
+  const readingFactIds = reviews.filter((r) => r.workflowStage === "reading" && r.stagingFactId != null).map((r) => r.stagingFactId!);
+  const [renderStates, duplicates, readingRows] = await Promise.all([
     reviewRenderStates(productionReviewIds),
     duplicateViews(reviews),
+    readingFactIds.length
+      ? db.selectDistinctOn([factReadingsTable.factId], { factId: factReadingsTable.factId, status: factReadingsTable.status })
+          .from(factReadingsTable)
+          .where(inArray(factReadingsTable.factId, readingFactIds))
+          .orderBy(factReadingsTable.factId, desc(factReadingsTable.id))
+      : Promise.resolve([]),
   ]);
+  const readingStatus = new Map(readingRows.map((r) => [r.factId, r.status]));
 
   const enriched = reviews.map((r) => {
-    const renderReviewState = r.workflowStage === "production_review"
+    const renderReviewState = r.workflowStage === "test_renders"
       ? renderStates.get(r.id) ?? "not_started"
       : null;
     return {
@@ -319,6 +335,7 @@ router.get("/admin/reviews", requireAdmin, async (req: Request, res: Response) =
       stagingFact: r.stagingFactId ? stagingMap[r.stagingFactId] ?? null : null,
       rendersRunning: renderReviewState === "running",
       renderReviewState,
+      readingStatus: r.workflowStage === "reading" && r.stagingFactId != null ? readingStatus.get(r.stagingFactId) ?? null : null,
     };
   });
 
@@ -334,7 +351,7 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
   const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id));
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
 
-  const [submitter, matchingFact, stagingFact, duplicate] = await Promise.all([
+  const [submitter, matchingFact, stagingFact, duplicate, latestRun] = await Promise.all([
     review.submittedById
       ? db.select({ id: usersTable.id, email: usersTable.email, displayName: usersTable.displayName })
           .from(usersTable).where(and(eq(usersTable.id, review.submittedById), eq(usersTable.isActive, true))).limit(1)
@@ -356,6 +373,7 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
           visualConceptStatus: factsTable.visualConceptStatus,
           visualConceptCandidates: factsTable.visualConceptCandidates,
           humorNote: factsTable.humorNote,
+          humorNoteReadingId: factsTable.humorNoteReadingId,
           humorNoteApprovedBy: factsTable.humorNoteApprovedBy,
           humorNoteApprovedAt: factsTable.humorNoteApprovedAt,
         })
@@ -363,7 +381,9 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
           .then((r) => r[0] ?? null)
       : null,
     duplicateView(review),
+    review.stagingFactId != null ? latestReading(review.stagingFactId) : null,
   ]);
+  const reading = stagingFact ? readingView(latestRun, stagingFact) : null;
 
   // Slice 2A: normalized candidate Visual concepts with a SERVER-computed
   // `current` flag (stored reviewId/inputHash vs. the review's
@@ -390,6 +410,7 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
     duplicate,
     stagingFact,
     visualConcepts,
+    reading,
   });
 });
 
@@ -409,34 +430,6 @@ const RejectBody = z.object({
   adminNote: z.string().max(500).optional(),
   rejectionReason: z.enum(REJECTION_REASON_VALUES),
 });
-
-/**
- * Resolve the enrichment to ship on approval: the staging fact's stored
- * effective blob, validated. Client bodies are never consulted.
- *
- * **Hard approval gate:** approval requires a valid enrichment. Renderability is
- * gated separately by the gags: a fact is approved only with a gag that will be
- * offered, and an offered gag carries its approved male, female and pet
- * examples (plan PLAN_GAG_EXAMPLES.md, section D). Approval makes NO
- * synchronous planner/compiler call of its own.
- */
-function resolveApprovalEnrichment(
-  storedEnrichment: unknown,
-): { ok: true; enrichment: FactEnrichment } | { ok: false; error: string } {
-  // The STAGING FACT's stored effective enrichment (AI baseline + tracked
-  // per-field overrides + saved visual-strategy override, all materialized by
-  // the override-model write paths) is the ONLY approval source. Client blobs
-  // are never accepted — a whole-blob re-baseline here would wipe the override
-  // map at the most dangerous moment (see the legacy-blob warn in the handler).
-  if (storedEnrichment) {
-    const result = validateEnrichment(storedEnrichment);
-    if (result.ok) return { ok: true, enrichment: result.data };
-  }
-  return {
-    ok: false,
-    error: "A valid enrichment is required before approval. Re-run classification or fill it in manually.",
-  };
-}
 
 /** A drizzle executor — either the root `db` or an open transaction `tx`. */
 type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -461,19 +454,19 @@ async function attachHashtags(tx: DbExecutor, factId: number, tags: string[]): P
 }
 
 /**
- * Second moderation gate — activate a prepared staging fact for production.
+ * The final gate — activate a prepared staging fact for production.
  *
- * The staging fact already exists (created at provisional approval) and already
- * carries its effective enrichment (written by the fact-backed enrichment job
- * and any moderator overrides). This handler validates that enrichment and
- * gates on the required test renders, then transactionally flips the fact active
- * and marks the review approved. Embedding + submitter notification happen once,
- * after commit.
+ * The staging fact exists (created at provisional approval). This handler gates
+ * on the approved gags and the final hashtags, then, under the lock rule (the
+ * review first, then the fact: lib/reviewLocks.ts), flips the fact active and
+ * marks the review approved. The taxonomy is not a gate: a fact goes live with
+ * its taxonomy absent or failed (Issue #1018, increment 1.2c-ii). Embedding and
+ * the submitter's notification happen once, after commit.
  *
  * Idempotent: a re-call on an already-approved review returns the existing fact
- * without re-activating, re-embedding, or re-notifying. Hashtags are deferred to
- * here (curated VTE tags when present, else the submitter's) and attached
- * idempotently.
+ * without re-activating, re-embedding, or re-notifying. A review that moved
+ * (another moderator rejected or approved it first) is refused with
+ * REVIEW_MOVED.
  */
 async function approveForProduction(
   req: AuthenticatedRequest,
@@ -486,12 +479,12 @@ async function approveForProduction(
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
 
   // Idempotency gate FIRST: already live → return the existing fact, no side effects.
-  if (review.workflowStage === "production_approved" && review.approvedFactId != null) {
+  if (review.workflowStage === "approved" && review.approvedFactId != null) {
     res.json({ success: true, factId: review.approvedFactId, alreadyApproved: true });
     return;
   }
   if (!canProductionApprove(review.workflowStage as ReviewWorkflowStage, review.status)) {
-    res.status(409).json({ error: `Cannot approve for production from stage ${review.workflowStage} (${review.status}). Provisionally approve and finish prep first.` });
+    res.status(409).json(reviewMovedBody(new ReviewMovedError(review.workflowStage, review.status)));
     return;
   }
   if (review.stagingFactId == null) {
@@ -502,21 +495,19 @@ async function approveForProduction(
   const [stagingFact] = await db.select().from(factsTable).where(eq(factsTable.id, review.stagingFactId)).limit(1);
   if (!stagingFact) { res.status(409).json({ error: "Staging fact missing for this review." }); return; }
 
-  // Legacy clients (pre-override-model bundles) sent their flattened enrichment
-  // blob on every approve. It is IGNORED — accepting it would re-baseline the
-  // staging fact and wipe the tracked override map. Warn (without the blob; it
-  // is large and can carry admin-authored notes) so stragglers are visible.
+  // Legacy clients sent an enrichment blob on every approve. It is ignored.
   if ((req.body as { enrichment?: unknown } | null | undefined)?.enrichment != null) {
     logger.warn(
       { reviewId, adminUserId: req.user.id, stagingFactId: review.stagingFactId, ignoredLegacyEnrichmentBody: true },
-      "[moderation] client sent legacy enrichment body on approval — ignored (staging fact is authoritative)",
+      "[moderation] client sent legacy enrichment body on approval — ignored",
     );
   }
 
-  // The enrichment to ship is ALWAYS the staging fact's stored effective blob.
-  const enrichmentResult = resolveApprovalEnrichment(stagingFact.enrichment);
-  if (!enrichmentResult.ok) { res.status(400).json({ error: enrichmentResult.error }); return; }
-  const enrichment = enrichmentResult.enrichment;
+  // The taxonomy, when there is a valid one, is stored data: its suggested
+  // hashtags are a fallback for the final list and it is kept as the review's
+  // audit snapshot. Its absence or failure blocks nothing.
+  const classification = validateEnrichment(stagingFact.enrichment);
+  const enrichment = classification.ok ? classification.data : null;
 
   // An approved gag (blocking): a fact goes live only with at least one gag
   // whose male, female and pet examples a moderator approved (plans
@@ -534,11 +525,10 @@ async function approveForProduction(
   }
 
   // Final discovery tags. The moderator's curated list from the approve body is
-  // authoritative; absent that, fall back to the submitter's tags (else AI
-  // suggestions). Computed BEFORE any mutation so the required-hashtags gate can
-  // reject cleanly: a fact is never approved with an empty tag list — clearing
-  // them all is treated as a mistake, not a "ship zero" choice.
-  const finalTags = resolveFinalApprovalTags(opts.hashtags, review.hashtags as unknown[] | null, enrichment.suggestedHashtags);
+  // authoritative; absent that, fall back to the submitter's tags (else the
+  // taxonomy's suggestions). Computed BEFORE any mutation so the required-hashtags
+  // gate can reject cleanly: a fact is never approved with an empty tag list.
+  const finalTags = resolveFinalApprovalTags(opts.hashtags, review.hashtags as unknown[] | null, enrichment?.suggestedHashtags);
   if (finalTags.length === 0) {
     res.status(400).json({
       error: "A fact can't be approved without at least one hashtag. Add a hashtag and try again.",
@@ -547,76 +537,56 @@ async function approveForProduction(
     return;
   }
 
-  // Renderability is gated above by the gags: the gag that goes live carries
-  // approved male, female and pet renders, which exercised the same
-  // planner→compiler→image pipeline, so approval makes no synchronous planner
-  // call of its own and proceeds straight to the commit.
-
-  // Approval never rewrites enrichment columns: the staging fact already holds
-  // the materialized layers (AI baseline + override map + effective) written by
-  // the enrichment job and the override endpoints. Re-baselining here was the
-  // old override-wipe bug.
   const canonicalText = stagingFact.canonicalText ?? renderCanonical(stagingFact.text);
 
-  // The render/enrichment gate above validated THIS exact wording. A fact's
-  // wording can no longer change (facts_text_is_locked), so the text half of
-  // this guard is now belt and braces; the activation stays a compare-and-set: activate ONLY while the fact is still inactive AND its text
-  // is still the wording we validated, and approve the review ONLY while it is
-  // still the same production_review cycle. Either mismatch fails
-  // CLOSED — nothing is activated, tagged, approved, embedded, or notified.
+  // The activation stays a compare-and-set: activate ONLY while the fact is
+  // still inactive AND its text is still the wording read above (belt and
+  // braces: facts_text_is_locked), and approve the review ONLY while it is
+  // still this Test Renders cycle, re-read under its lock.
   const validatedText = stagingFact.text;
-  let reviewStateConflict = false;
   try {
     await db.transaction(async (tx) => {
-      // Sole activation chokepoint: re-reads the approved gag in-tx and does the
-      // compare-and-set flip. `expectedEnrichment`
-      // CASes on the RAW staging-fact enrichment the render gate validated above
-      // (not the Zod-normalized `enrichment` variable), so a concurrent Visual
-      // Concept edit between the render gate and this activation is caught rather
-      // than silently publishing unreviewed enrichment. Throws
-      // ConceptMissingError / ActivationConflictError —
-      // never activates on failure.
-      await activateFact(tx, { factId: stagingFact.id, expectedText: validatedText, expectedEnrichment: stagingFact.enrichment });
+      const locked = await lockReviewAt(tx, reviewId, canProductionApprove);
+      if (!locked || locked.stagingFactId !== stagingFact.id) throw new ReviewMovedError(locked?.workflowStage ?? "gone", locked?.status ?? "gone");
+      // Sole activation chokepoint: locks the fact (after the review, the lock
+      // rule's order), re-reads the approved gag in-tx and does the
+      // compare-and-set flip. Throws ConceptMissingError /
+      // ActivationConflictError — never activates on failure.
+      await activateFact(tx, { factId: stagingFact.id, expectedText: validatedText });
       await recordFirstApproval(tx, stagingFact.id, req.user.id);
 
-      const reviewed = await tx.update(pendingReviewsTable).set({
+      await tx.update(pendingReviewsTable).set({
         status: "approved",
-        workflowStage: "production_approved",
+        workflowStage: "approved",
         reviewedById: req.user.id,
         approvedFactId: stagingFact.id,
         adminNote,
         reviewedAt: new Date(),
-        // AUDIT SNAPSHOT ONLY: what shipped at approval time. Runtime/render/edit
-        // truth lives on facts.enrichment and its baseline/override layers — never
-        // read this back as editable state.
+        // AUDIT SNAPSHOT ONLY: the taxonomy as it stood at approval, when it
+        // was valid. Never read back as editable state.
         enrichment,
-        enrichmentStatus: "ok",
-      }).where(and(
-        eq(pendingReviewsTable.id, reviewId),
-        eq(pendingReviewsTable.status, "pending"),
-        eq(pendingReviewsTable.workflowStage, "production_review"),
-        eq(pendingReviewsTable.stagingFactId, stagingFact.id),
-      )).returning({ id: pendingReviewsTable.id });
-      if (reviewed.length === 0) { reviewStateConflict = true; throw new Error("approval_cas_review_conflict"); }
+        enrichmentStatus: stagingFact.enrichmentStatus,
+      }).where(eq(pendingReviewsTable.id, reviewId));
 
       // The moderator-curated list resolved + gated (non-empty) above.
       await attachHashtags(tx, stagingFact.id, finalTags);
       await recordAdminAction({ factId: stagingFact.id, reviewId }, req.user.id, "approve_for_production", { hashtags: finalTags, adminNote }, tx);
     });
   } catch (err) {
+    if (err instanceof ReviewMovedError) {
+      logger.warn({ reviewId, factId: stagingFact.id, stage: err.stage }, "[moderation] approval refused: the review moved");
+      res.status(409).json(reviewMovedBody(err));
+      return;
+    }
     if (err instanceof ActivationConflictError) {
       logger.warn({ reviewId, factId: stagingFact.id }, "[moderation] approval aborted: fact text changed during approval");
       res.status(409).json({ error: "The fact's text changed while you were approving it. Re-review the current wording, then approve again.", code: "FACT_TEXT_CHANGED_DURING_APPROVAL" });
       return;
     }
     if (err instanceof ConceptMissingError) {
-      logger.warn({ reviewId, factId: stagingFact.id }, "[moderation] approval aborted: Visual Concept missing at activation");
-      res.status(409).json({ error: "Save a non-empty Visual Concept before approving for production.", code: "CONCEPT_MISSING" });
-      return;
-    }
-    if (reviewStateConflict) {
-      logger.warn({ reviewId, factId: stagingFact.id }, "[moderation] approval aborted: review state changed during approval");
-      res.status(409).json({ error: "This review's state changed while you were approving it. Reload the review and retry.", code: "REVIEW_STATE_CHANGED_DURING_APPROVAL" });
+      logger.warn({ reviewId, factId: stagingFact.id }, "[moderation] approval aborted: no approved gag at activation");
+      const gaps = await exampleSetGaps(stagingFact.id);
+      res.status(409).json({ error: describeExampleSetGaps(gaps), code: "CONCEPT_MISSING", gaps });
       return;
     }
     throw err;
@@ -660,8 +630,8 @@ router.post("/admin/reviews/:id/approve-for-production", requireAdmin, async (re
 });
 
 // Back-compat alias: the legacy "approve" now means "approve for production" and
-// can ONLY act on a fully-prepped review (production_review) — it can never
-// shortcut a triage_pending review straight to active.
+// can ONLY act on a fully-prepped review (Test Renders) — it can never
+// shortcut a triage review straight to active.
 router.post("/admin/reviews/:id/approve", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
@@ -671,22 +641,16 @@ router.post("/admin/reviews/:id/approve", requireAdmin, async (req: Authenticate
   await approveForProduction(req, res, { reviewId: id, adminNote, hashtags });
 });
 
-// ─── Provisional approval (admin) — first gate ────────────────────────────────
+// ─── Provisional approval (admin) — Triage → Reading ──────────────────────────
 //
-// "This fact is worth implementing." Creates the inactive staging fact and
-// starts paid prep (enrichment). This
-// is the ONLY place enrichment spend begins.
+// "This fact is worth implementing." Creates the inactive staging fact, moves
+// the review to Reading with its reading run (research, then a draft humor
+// note), and starts the taxonomy run beside it. This is the ONLY place prep
+// spend begins.
 
 const ProvisionalApproveBody = z.object({
   adminNote: z.string().max(500).optional(),
 });
-
-/** Acceptance found the review resolved once it held the row's lock. */
-class ReviewNoLongerEligible extends Error {
-  constructor(readonly stage: string, readonly status: string) {
-    super(`Review is ${stage} (${status})`);
-  }
-}
 
 router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
@@ -699,55 +663,16 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
   const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id));
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
 
-  // Idempotent re-click while prep is already running: DON'T just return
-  // "alreadyPrepping" — ENSURE the durable jobs still exist (heals a stranded
-  // "pending" projection left by a failed enqueue), then report their state.
-  if (review.workflowStage === "prep_pending" && review.stagingFactId != null) {
-    const prepDispatch = await ensureFirstTimeStagingPrepJobs(review.stagingFactId);
-    res.json({ success: true, stagingFactId: review.stagingFactId, workflowStage: "prep_pending", alreadyPrepping: true, prepDispatch });
-    return;
-  }
-
-  if (!canProvisionallyApprove(review.workflowStage as ReviewWorkflowStage, review.status)) {
-    res.status(409).json({ error: `Cannot provisionally approve a review in stage ${review.workflowStage} (${review.status}).` });
-    return;
-  }
-
-  // Block re-prep from Step 2 while a concept job is still in-flight: a new prep
-  // cycle would enqueue a fresh fact_visual_concepts job that COALESCES onto the
-  // pending one (review-scoped dedupe), so the gag gate could later complete on
-  // stale candidates. Make the moderator wait for the current run to land first.
-  if (review.workflowStage === "concept_review" && review.stagingFactId != null) {
-    const [conceptFact] = await db
-      .select({ visualConceptStatus: factsTable.visualConceptStatus })
-      .from(factsTable).where(eq(factsTable.id, review.stagingFactId)).limit(1);
-    if (conceptFact?.visualConceptStatus === "pending") {
-      res.status(409).json({
-        error: "Visual ideas are still generating. Wait for them to finish, then retry, edit, reject, or send back to prep.",
-        code: "IDEAS_PENDING",
-      });
-      return;
-    }
-  }
-
-  // Create-or-reuse the staging fact and move the review into prep, in one
-  // transaction (the shared first-time-staging-prep primitive). If the post-commit ensure
-  // fails, the staging fact + prep_pending state remain, so a later re-click
-  // recovers without creating a duplicate fact.
+  // Create the staging fact, move the review to Reading and start its reading
+  // run, in one transaction under the review's lock (lib/reviewLocks.ts): a
+  // triage wording edit takes the same lock, so the fact is created with the
+  // wording as it stands at acceptance, and an edit racing this one either
+  // lands before it or is refused (plan PLAN_THREE_GAGS.md, increment 3).
   let stagingFactId = 0;
   try {
     await db.transaction(async (tx) => {
-      // The review row is locked first, the same lock a triage wording edit
-      // takes, and its wording is read under it: the fact is created with the
-      // wording as it stands at acceptance, and an edit racing this one either
-      // lands before it or is refused (plan PLAN_THREE_GAGS.md, increment 3).
-      const locked = await lockReview(tx, review.id);
-      if (!locked) throw new Error(`Review ${review.id} disappeared during acceptance.`);
-      // The eligibility read above was unlocked: re-check it on the locked row,
-      // so a withdrawal (or any other resolution) committed since then wins.
-      if (!canProvisionallyApprove(locked.workflowStage as ReviewWorkflowStage, locked.status)) {
-        throw new ReviewNoLongerEligible(locked.workflowStage, locked.status);
-      }
+      const locked = await lockReviewAt(tx, review.id, canProvisionallyApprove);
+      if (!locked) throw new ReviewMovedError("gone", "gone");
       const { factId } = await prepareFirstTimeStagingPrep(tx, {
         review: { id: review.id, submittedText: locked.submittedText, submittedById: review.submittedById, submitterDeletedAt: review.submitterDeletedAt, stagingFactId: locked.stagingFactId },
         reviewedById: req.user.id,
@@ -757,23 +682,106 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
       await recordAdminAction({ factId, reviewId: review.id }, req.user.id, "provisional_approval", { adminNote }, tx);
     });
   } catch (err) {
-    if (err instanceof ReviewNoLongerEligible) {
-      res.status(409).json({ error: `Cannot provisionally approve a review in stage ${err.stage} (${err.status}).` });
-      return;
-    }
-    throw err;
+    if (!sendIfReviewMoved(err, res)) throw err;
+    return;
   }
 
-  // Ensure the durable enrichment job (deduped; it gates the advance to
-  // concept_review).
+  // The taxonomy run (deduped): stored data beside moderation; it never moves
+  // the review and blocks nothing.
   const prepDispatch = await ensureFirstTimeStagingPrepJobs(stagingFactId);
 
-  logger.info({ reviewId: id, stagingFactId, adminId: req.user.id }, "[moderation] provisional approval started prep");
+  logger.info({ reviewId: id, stagingFactId, adminId: req.user.id }, "[moderation] provisional approval started the reading");
 
-  res.json({ success: true, stagingFactId, workflowStage: "prep_pending", prepDispatch });
+  res.json({ success: true, stagingFactId, workflowStage: "reading", prepDispatch });
 });
 
-// ─── The wording: edited at triage, withdrawn after it ───────────────────────
+// ─── The Reading step: Try again, and Approve the humor note ──────────────────
+// Plan docs/plans/PLAN_FACT_LIFECYCLE_REBUILD.md, 1B (Issue #1018, increment
+// 1.2c-ii).
+
+// POST /admin/reviews/:id/reading/retry — start another reading run. Offered
+// while the latest run failed, or when none was ever started (a review the
+// stage cutover moved into Reading). Refused while a run is in flight.
+router.post("/admin/reviews/:id/reading/retry", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  try {
+    const outcome = await db.transaction(async (tx) => {
+      const review = await lockReviewAt(tx, id, canRetryReading);
+      if (!review || review.stagingFactId == null) return { kind: "not_found" as const };
+      const latest = await latestReading(review.stagingFactId, tx);
+      if (latest?.status === "pending") return { kind: "running" as const };
+      const { readingId } = await startReading(tx, { factId: review.stagingFactId, reviewId: id, requestedBy: req.user.id });
+      await recordAdminAction({ reviewId: id, factId: review.stagingFactId }, req.user.id, "reading_requested", { readingId, after: latest?.status ?? "none" }, tx);
+      return { kind: "started" as const, readingId };
+    });
+    if (outcome.kind === "not_found") { res.status(404).json({ error: "Review not found" }); return; }
+    if (outcome.kind === "running") {
+      res.status(409).json({ error: "The reading is still being written. Wait for it to finish.", code: "READING_PENDING" });
+      return;
+    }
+    res.status(202).json({ success: true, readingId: outcome.readingId });
+  } catch (err) {
+    if (!sendIfReviewMoved(err, res)) throw err;
+    return;
+  }
+});
+
+// POST /admin/reviews/:id/approve-reading — Reading → Gags. The moderator's
+// note (the draft, edited or not) becomes the fact's approved humor note,
+// recorded with the run it was written from. Ideas were written from the
+// draft as soon as it existed; when the approved note differs from it, or no
+// ideas exist yet, they are written again, so Gags never offers ideas written
+// for another reading of the joke.
+router.post("/admin/reviews/:id/approve-reading", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const parsed = approveReadingSchema.safeParse(req.body ?? {});
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid humor note" }); return; }
+  const { text, readingId } = parsed.data;
+  try {
+    const outcome = await db.transaction(async (tx) => {
+      const review = await lockReviewAt(tx, id, canApproveReading);
+      if (!review || review.stagingFactId == null) return { kind: "not_found" as const };
+      const factId = review.stagingFactId;
+      const latest = await latestReading(factId, tx);
+      if (!latest || latest.status !== "ok") return { kind: "no_reading" as const };
+      if (latest.id !== readingId) return { kind: "newer_reading" as const };
+      await lockFactRow(tx, factId);
+      const approvedAt = new Date();
+      await tx.update(factsTable)
+        .set({ humorNote: text, humorNoteApprovedBy: req.user.id, humorNoteApprovedAt: approvedAt, humorNoteReadingId: readingId })
+        .where(eq(factsTable.id, factId));
+      await tx.update(pendingReviewsTable).set({ workflowStage: "gags" }).where(eq(pendingReviewsTable.id, id));
+      const edited = text !== (latest.draftNote ?? "").trim();
+      await recordAdminAction({ reviewId: id, factId }, req.user.id, "reading_approval", { readingId, text, edited }, tx);
+      // Ideas from the approved note when they were written from another, or
+      // never written (or failed): in this commit, so Gags opens on them working.
+      const [fact] = await tx
+        .select({ status: factsTable.visualConceptStatus, candidates: factsTable.visualConceptCandidates })
+        .from(factsTable).where(eq(factsTable.id, factId)).limit(1);
+      const usedNote = ((fact?.candidates as { humorNoteUsed?: string | null } | null)?.humorNoteUsed ?? "").trim();
+      const rewrite = fact?.status !== "pending" && (fact?.status !== "ok" || usedNote !== text);
+      if (rewrite) await enqueueVisualConceptsForReview({ reviewId: id, factId }, tx);
+      return { kind: "approved" as const, approvedAt, ideasRewritten: rewrite };
+    });
+    if (outcome.kind === "not_found") { res.status(404).json({ error: "Review not found" }); return; }
+    if (outcome.kind === "no_reading") {
+      res.status(409).json({ error: "There is no finished reading to approve yet.", code: "READING_NOT_READY" });
+      return;
+    }
+    if (outcome.kind === "newer_reading") {
+      res.status(409).json({ error: "A newer reading replaced the one on your screen. Reload the review and check it.", code: "READING_REPLACED" });
+      return;
+    }
+    res.json({ success: true, workflowStage: "gags", humorNote: { text, readingId, approvedBy: req.user.id, approvedAt: outcome.approvedAt.toISOString() }, ideasRewritten: outcome.ideasRewritten });
+  } catch (err) {
+    if (!sendIfReviewMoved(err, res)) throw err;
+    return;
+  }
+});
+
+// ─── The wording: edited at triage ───────────────────────
 // Plan docs/plans/PLAN_THREE_GAGS.md, increment 3 (lib/reviewWording.ts).
 
 const WordingBody = z.object({ text: z.string() });
@@ -855,21 +863,21 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
   const { adminNote = null, rejectionReason } = bodyParsed.data;
 
   // Reject from any step before the fact goes live (plan
-  // PLAN_FACT_LIFECYCLE_REBUILD.md, oracle item 13). The review's row lock
-  // serialises it with transitions that take the review first. Approval and
-  // classification completion take the fact first, so against those one side
-  // can fail with a deadlock error and is retried by hand; the shared lock
-  // order across every transition is increment 1.2c-ii's (PR #1036 round 1).
-  const outcome = await db.transaction(async (tx) => {
-    const review = await lockReview(tx, id);
+  // PLAN_FACT_LIFECYCLE_REBUILD.md, oracle item 13), under the lock rule
+  // (lib/reviewLocks.ts): the review, then its staging fact, then the gags.
+  // Every other transition takes the review first too, so a Reject racing an
+  // approval serialises on the review row and the second is told the review
+  // moved.
+  let outcome;
+  try {
+    outcome = await db.transaction(async (tx) => {
+    const review = await lockReviewAt(tx, id, canReject);
     if (!review) return { kind: "not_found" as const };
-    if (review.status !== "pending") return { kind: "resolved" as const, status: review.status };
-    if (!canReject(review.workflowStage as ReviewWorkflowStage, review.status)) return { kind: "not_rejectable" as const, stage: review.workflowStage };
-    const atTriage = review.workflowStage === "triage_pending";
+    const atTriage = review.workflowStage === "triage";
     const now = new Date();
     await tx.update(pendingReviewsTable).set({
       status: "rejected",
-      workflowStage: atTriage ? "triage_rejected" : "production_rejected",
+      workflowStage: "rejected",
       reviewedById: req.user.id,
       adminNote,
       reason: rejectionReason,
@@ -886,7 +894,7 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
       // refused because the review is no longer open. A render still running
       // stores its picture on its attempt, attached to no gag: no screen lists
       // or picks it, like the renders that finished before the rejection.
-      await tx.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, review.stagingFactId)).for("update");
+      await lockFactRow(tx, review.stagingFactId);
       await tx.update(factsTable)
         .set({ enrichmentStatus: sql`CASE WHEN ${factsTable.enrichmentStatus} = 'pending' THEN NULL ELSE ${factsTable.enrichmentStatus} END` })
         .where(eq(factsTable.id, review.stagingFactId));
@@ -895,11 +903,13 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
     }
     await recordAdminAction({ reviewId: id, factId: review.stagingFactId }, req.user.id, "reject", { reason: rejectionReason, adminNote, stage: review.workflowStage, gagsDiscarded }, tx);
     return { kind: "rejected" as const, review };
-  });
+    });
+  } catch (err) {
+    if (!sendIfReviewMoved(err, res)) throw err;
+    return;
+  }
 
   if (outcome.kind === "not_found") { res.status(404).json({ error: "Review not found" }); return; }
-  if (outcome.kind === "resolved") { res.status(409).json({ error: `Review already ${outcome.status}` }); return; }
-  if (outcome.kind === "not_rejectable") { res.status(409).json({ error: `Cannot reject from stage ${outcome.stage}.` }); return; }
   const review = outcome.review;
 
   if (review.submittedById) {
@@ -927,12 +937,13 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
   res.json({ success: true });
 });
 
-// ─── Approve the visual gag: Step 2 (concept_review) → Step 3 (production_review) ─
+// ─── Approve the gags: Gags → Test Renders ────────────────────────────────────
 //
-// Gates on the SAVED enrichment (persisted coreSceneOverride) + generated Visual
-// Ideas — NOT the AI candidate cards or an unsaved browser draft. Each
-// precondition returns a distinct code. Advances via an atomic compare-and-set so
-// two concurrent approvals produce exactly ONE force render batch; the loser 409s.
+// Gates on the SAVED gag (persisted scene) + generated Visual Ideas — NOT the
+// AI candidate cards or an unsaved browser draft. Each precondition returns a
+// distinct code. The advance is made under the review's lock (the lock rule,
+// lib/reviewLocks.ts), so two concurrent approvals, or an approval racing a
+// Reject, produce exactly one transition; the other is told the review moved.
 router.post("/admin/reviews/:id/approve-visual-concept", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
@@ -940,11 +951,8 @@ router.post("/admin/reviews/:id/approve-visual-concept", requireAdmin, async (re
   const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
 
-  if (!canApproveVisualConcept(review.workflowStage as ReviewWorkflowStage, review.status)) {
-    res.status(409).json({
-      error: `Cannot approve the visual gag from stage ${review.workflowStage} (${review.status}).`,
-      code: "CONCEPT_STAGE_ALREADY_ADVANCED",
-    });
+  if (!canApproveGags(review.workflowStage as ReviewWorkflowStage, review.status)) {
+    res.status(409).json(reviewMovedBody(new ReviewMovedError(review.workflowStage, review.status)));
     return;
   }
   if (review.stagingFactId == null) {
@@ -952,10 +960,8 @@ router.post("/admin/reviews/:id/approve-visual-concept", requireAdmin, async (re
     return;
   }
 
-  // Saved-concept gate (distinct codes: ENRICHMENT_INVALID / CONCEPT_MISSING).
-  // Presence-based: gates on a non-empty saved Visual Concept (the enable toggle was
-  // retired). Stale-but-saved is allowed — this reads the *persisted* enrichment, not
-  // the AI candidate cards or a browser-only draft.
+  // Saved-gag gate (distinct codes: NO_STAGING_FACT / CONCEPT_MISSING): reads
+  // the *persisted* gag, never the idea cards or a browser-only draft.
   const saved = await resolveSavedCoreSceneForReview(review);
   if (!saved.ok) { res.status(saved.status).json({ error: saved.error, code: saved.code }); return; }
 
@@ -974,33 +980,19 @@ router.post("/admin/reviews/:id/approve-visual-concept", requireAdmin, async (re
     return;
   }
 
-  // Atomic compare-and-set: advance ONLY if still pending @ concept_review. A
-  // single UPDATE…RETURNING is its own guard — a concurrent approval that already
-  // moved the row leaves this WHERE unmatched, so it returns no row → 409. This,
-  // not the async queue, is the double-click / concurrency guard because the force
-  // render enqueue below carries no dedupe key.
   const stagingFactId = review.stagingFactId;
-  const advancedRows = await db.transaction(async (tx) => {
-    const rows = await tx.update(pendingReviewsTable)
-      .set({ workflowStage: "production_review" })
-      .where(and(
-        eq(pendingReviewsTable.id, id),
-        eq(pendingReviewsTable.status, "pending"),
-        eq(pendingReviewsTable.workflowStage, "concept_review"),
-      ))
-      .returning({ id: pendingReviewsTable.id });
-    if (rows.length > 0) await recordAdminAction({ reviewId: id, factId: stagingFactId }, req.user.id, "gag_approval", {}, tx);
-    return rows;
-  });
-  if (advancedRows.length === 0) {
-    res.status(409).json({
-      error: "This review already advanced past the Visual Concept step.",
-      code: "CONCEPT_STAGE_ALREADY_ADVANCED",
+  try {
+    const outcome = await db.transaction(async (tx) => {
+      if (!(await lockReviewAt(tx, id, canApproveGags))) throw new ReviewMovedError("gone", "gone");
+      await tx.update(pendingReviewsTable).set({ workflowStage: "test_renders" }).where(eq(pendingReviewsTable.id, id));
+      await recordAdminAction({ reviewId: id, factId: stagingFactId }, req.user.id, "gag_approval", {}, tx);
     });
+  } catch (err) {
+    if (!sendIfReviewMoved(err, res)) throw err;
     return;
   }
 
-  // Post-commit — ONLY because THIS request performed the CAS: draw the
+  // Post-commit — ONLY because THIS request made the transition: draw the
   // iteration render (one male render) of each new or changed gag that lacks
   // one for its content. Existing renders are kept and reused; an unchanged
   // gag gets nothing (plan PLAN_GAG_EXAMPLES.md, section C).
@@ -1015,46 +1007,33 @@ router.post("/admin/reviews/:id/approve-visual-concept", requireAdmin, async (re
 
   res.json({
     success: true,
-    workflowStage: "production_review",
+    workflowStage: "test_renders",
     ...(renderPrepareJobId != null ? { renderPrepareJobId } : {}),
   });
 });
 
-// ─── Back to Visual Concept: Step 3 (production_review) → Step 2 (concept_review) ─
+// ─── Back to gags: Test Renders → Gags ────────────────────────────────────────
 //
 // Renders already drawn stay on the review: re-approval draws only gags whose
 // content has no render yet, and reuses the rest (plan PLAN_GAG_EXAMPLES.md).
 router.post("/admin/reviews/:id/back-to-visual-concept", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-
-  const [review] = await db
-    .select({ workflowStage: pendingReviewsTable.workflowStage, status: pendingReviewsTable.status, stagingFactId: pendingReviewsTable.stagingFactId })
-    .from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
-  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
-  if (!(review.status === "pending" && review.workflowStage === "production_review")) {
-    res.status(409).json({ error: `Cannot send back to Visual Concept from stage ${review.workflowStage} (${review.status}).` });
+  try {
+    const moved = await db.transaction(async (tx) => {
+      const review = await lockReviewAt(tx, id, canSendBackToGags);
+      if (!review) return false;
+      await tx.update(pendingReviewsTable).set({ workflowStage: "gags" }).where(eq(pendingReviewsTable.id, id));
+      await recordAdminAction({ reviewId: id, factId: review.stagingFactId }, req.user.id, "back_to_gags", {}, tx);
+      return true;
+    });
+    if (!moved) { res.status(404).json({ error: "Review not found" }); return; }
+  } catch (err) {
+    if (!sendIfReviewMoved(err, res)) throw err;
     return;
   }
-
-  const rows = await db.transaction(async (tx) => {
-    const moved = await tx.update(pendingReviewsTable)
-      .set({ workflowStage: "concept_review" })
-      .where(and(
-        eq(pendingReviewsTable.id, id),
-        eq(pendingReviewsTable.status, "pending"),
-        eq(pendingReviewsTable.workflowStage, "production_review"),
-      ))
-      .returning({ id: pendingReviewsTable.id });
-    if (moved.length > 0) await recordAdminAction({ reviewId: id, factId: review.stagingFactId }, req.user.id, "back_to_gags", {}, tx);
-    return moved;
-  });
-  if (rows.length === 0) {
-    res.status(409).json({ error: "This review is no longer at Test Renders." });
-    return;
-  }
-  logger.info({ reviewId: id, adminUserId: req.user.id }, "[moderation] review sent back to Visual Concept (Step 2)");
-  res.json({ success: true, workflowStage: "concept_review" });
+  logger.info({ reviewId: id, adminUserId: req.user.id }, "[moderation] review sent back to Gags");
+  res.json({ success: true, workflowStage: "gags" });
 });
 
 // ─── Consolidated draft autosave: note / rejection reason (admin) ─────────────
@@ -1110,7 +1089,7 @@ router.patch("/admin/reviews/:id", requireAdmin, async (req: AuthenticatedReques
   res.json({ success: true });
 });
 
-// ─── Moderation render-review tools (production_review) ────────────────────────
+// ─── Moderation render-review tools (Test Renders) ─────────────────────────────
 //
 // The surface a moderator uses to vet a fact's imagery before approval:
 //   POST /admin/reviews/:id/render               render the AI background (t2i)
@@ -1160,8 +1139,8 @@ router.post("/admin/reviews/:id/render", requireAdmin, async (req: Authenticated
 
   const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
-  if (review.workflowStage !== "production_review") {
-    res.status(409).json({ error: `Cannot render from stage ${review.workflowStage}. Finish prep first.` });
+  if (review.workflowStage !== "test_renders") {
+    res.status(409).json({ error: `Cannot render from stage ${review.workflowStage}. Approve the gags first.` });
     return;
   }
   if (review.stagingFactId == null) {
@@ -1170,12 +1149,12 @@ router.post("/admin/reviews/:id/render", requireAdmin, async (req: Authenticated
   }
 
   // Resolve the render input through the review-cycle resolver: the staging
-  // fact's classification with its primary working gag.
+  // fact's primary working gag (the taxonomy is not a render input).
   const cycle = await resolveReviewCycleEnrichment(review);
   if (!cycle) { res.status(409).json({ error: "Staging fact missing for this review." }); return; }
 
-  const ev = validateEnrichment(cycle.rawEnrichment);
-  if (!ev.ok) { res.status(400).json({ error: "fact_enrichment_invalid", details: ev.error }); return; }
+  const ev = validateGagRenderInput(cycle.rawRenderInput);
+  if (!ev.ok) { res.status(400).json({ error: "gag_invalid", details: ev.error }); return; }
 
   let reference;
   try {
@@ -1338,28 +1317,13 @@ router.post("/admin/reviews/:id/visual-concepts/regenerate", requireAdmin, async
     })
     .from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
-  // Regeneration is the Step-2 (Visual Concept) retry path; Visual Ideas are a
-  // Step-2 artifact, so it only runs while the review sits at concept_review.
-  if (review.workflowStage !== "concept_review") {
-    res.status(409).json({ error: `Cannot regenerate visual ideas from stage ${review.workflowStage}. Only available during Visual Concept review (Step 2).` });
+  // Regeneration is the Gags step's retry path; Visual Ideas are a Gags
+  // artifact, so it only runs while the review sits at Gags.
+  if (review.workflowStage !== "gags") {
+    res.status(409).json({ error: `Cannot regenerate visual ideas from stage ${review.workflowStage}. Only available on the Gags step.`, code: "REVIEW_MOVED", workflowStage: review.workflowStage });
     return;
   }
   if (review.stagingFactId == null) { res.status(409).json({ error: "Review has no staging fact." }); return; }
-
-  // Block while a concept job is still in-flight: fact_visual_concepts is review-
-  // scoped-deduped, so a regenerate enqueued now would COALESCE onto the pending
-  // job (returning it, ignoring the draft) and could complete the gag gate on
-  // stale candidates. Force the moderator to wait for the current run to land.
-  const [conceptFact] = await db
-    .select({ visualConceptStatus: factsTable.visualConceptStatus })
-    .from(factsTable).where(eq(factsTable.id, review.stagingFactId)).limit(1);
-  if (conceptFact?.visualConceptStatus === "pending") {
-    res.status(409).json({
-      error: "Visual ideas are still generating. Wait for them to finish, then regenerate.",
-      code: "IDEAS_PENDING",
-    });
-    return;
-  }
 
   // Canonicalize + token-validate the draft with the SAME rules a stored
   // candidate uses. Only offer it as distinct-alt context when non-empty AND
@@ -1375,52 +1339,79 @@ router.post("/admin/reviews/:id/visual-concepts/regenerate", requireAdmin, async
     ? (parsed.data.bubblesDraft ?? []).filter((b) => b.text.trim() && b.entity.trim()).map((b) => ({ type: b.type, entity: b.entity.trim(), text: b.text.trim() }))
     : null;
 
-  await enqueueVisualConceptsForReview({
-    reviewId: id,
-    factId: review.stagingFactId,
-    moderatorDraftScene: draft,
-    moderatorDraftBubbles: draftBubbles,
-  });
-  await recordAdminAction({ reviewId: id, factId: review.stagingFactId }, req.user.id, "gag_ideas_requested", { withDraft: draft != null });
+  // Under the lock rule (lib/reviewLocks.ts): the review, re-checked at Gags,
+  // then the fact the claim writes.
+  const stagingFactId = review.stagingFactId;
+  try {
+    const outcome = await db.transaction(async (tx) => {
+      if (!(await lockReviewAt(tx, id, canApproveGags))) throw new ReviewMovedError("gone", "gone");
+      await lockFactRow(tx, stagingFactId);
+      // Refused while ideas are still being written, read under the fact's
+      // lock: each request is its own generation, so two quick requests would
+      // otherwise both start one (two paid runs, Fable, PR #1041 round 1).
+      const [conceptFact] = await tx
+        .select({ visualConceptStatus: factsTable.visualConceptStatus })
+        .from(factsTable).where(eq(factsTable.id, stagingFactId)).limit(1);
+      if (conceptFact?.visualConceptStatus === "pending") return "ideas_pending" as const;
+      await enqueueVisualConceptsForReview({
+        reviewId: id,
+        factId: stagingFactId,
+        moderatorDraftScene: draft,
+        moderatorDraftBubbles: draftBubbles,
+      }, tx);
+      await recordAdminAction({ reviewId: id, factId: stagingFactId }, req.user.id, "gag_ideas_requested", { withDraft: draft != null }, tx);
+      return "queued" as const;
+    });
+    if (outcome === "ideas_pending") {
+      res.status(409).json({
+        error: "Visual ideas are still generating. Wait for them to finish, then regenerate.",
+        code: "IDEAS_PENDING",
+      });
+      return;
+    }
+  } catch (err) {
+    if (!sendIfReviewMoved(err, res)) throw err;
+    return;
+  }
   logger.info({ reviewId: id, hasDraft: draft != null, adminId: req.user.id }, "[moderation] visual concepts regenerate");
   res.status(202).json({ success: true, visualConceptStatus: "pending" });
 });
 
-// PUT /admin/reviews/:id/humor-note — a moderator confirms or corrects the
-// fact's humor note (plan docs/plans/PLAN_GAG_GENERATOR.md, E). The only
-// writer of facts.humor_note: generation and enrichment never write
-// it. Confirm sends the joke read's text unchanged; a correction sends the
-// edited text. Either way the moderator and the time are recorded.
+// PUT /admin/reviews/:id/humor-note — a moderator corrects the fact's approved
+// humor note on the Gags or Test Renders step (it is first approved at the
+// Reading step: approve-reading). Generation, the reading job and the taxonomy
+// never write it. The moderator and the time are recorded. Ideas written from
+// the previous note read as out of date until regenerated.
 router.put("/admin/reviews/:id/humor-note", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const parsed = humorNoteSaveSchema.safeParse(req.body ?? {});
   if (!parsed.success) { res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid humor note" }); return; }
 
-  const [review] = await db
-    .select({ workflowStage: pendingReviewsTable.workflowStage, stagingFactId: pendingReviewsTable.stagingFactId })
-    .from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
-  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
-  if (!isUnresolvedSubmissionStage(review.workflowStage as ReviewWorkflowStage)) {
-    res.status(409).json({ error: `This review is ${review.workflowStage}; its humor note can no longer be changed here.` });
+  const approvedAt = new Date();
+  try {
+    const saved = await db.transaction(async (tx) => {
+      // The lock rule (lib/reviewLocks.ts): the review, then the fact.
+      const review = await lockReviewAt(tx, id, canEditApprovedNote);
+      if (!review || review.stagingFactId == null) return { kind: "not_found" as const };
+      const factId = review.stagingFactId;
+      await lockFactRow(tx, factId);
+      const rows = await tx
+        .update(factsTable)
+        .set({ humorNote: parsed.data.text, humorNoteApprovedBy: req.user.id, humorNoteApprovedAt: approvedAt })
+        .where(eq(factsTable.id, factId))
+        .returning({ humorNote: factsTable.humorNote });
+      if (rows.length === 0) return { kind: "not_found" as const };
+      await recordAdminAction({ reviewId: id, factId }, req.user.id, "humor_note_save", { text: parsed.data.text }, tx);
+      return { kind: "saved" as const, text: rows[0]!.humorNote, factId };
+    });
+    if (saved.kind === "not_found") { res.status(404).json({ error: "Review not found" }); return; }
+    logger.info({ reviewId: id, factId: saved.factId, adminId: req.user.id }, "[moderation] humor note saved");
+    res.json({ humorNote: { text: saved.text, approvedBy: req.user.id, approvedAt: approvedAt.toISOString() } });
+  } catch (err) {
+    if (!sendIfReviewMoved(err, res)) throw err;
     return;
   }
-  if (review.stagingFactId == null) { res.status(409).json({ error: "Review has no staging fact." }); return; }
-
-  const approvedAt = new Date();
-  const stagingFactId = review.stagingFactId;
-  const [saved] = await db.transaction(async (tx) => {
-    const rows = await tx
-      .update(factsTable)
-      .set({ humorNote: parsed.data.text, humorNoteApprovedBy: req.user.id, humorNoteApprovedAt: approvedAt })
-      .where(eq(factsTable.id, stagingFactId))
-      .returning({ humorNote: factsTable.humorNote });
-    if (rows.length > 0) await recordAdminAction({ reviewId: id, factId: stagingFactId }, req.user.id, "humor_note_save", { text: parsed.data.text }, tx);
-    return rows;
-  });
-  if (!saved) { res.status(404).json({ error: "Fact not found" }); return; }
-  logger.info({ reviewId: id, factId: review.stagingFactId, adminId: req.user.id }, "[moderation] humor note saved");
-  res.json({ humorNote: { text: saved.humorNote, approvedBy: req.user.id, approvedAt: approvedAt.toISOString() } });
 });
 
 // GET frozen diagnostics for ONE attempt (the prompt/plan that produced THIS

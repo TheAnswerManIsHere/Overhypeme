@@ -13,22 +13,13 @@ import { and, eq, desc, inArray } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { pendingReviewsTable, factsTable } from "@workspace/db/schema";
 import {
+  PREPARING_STAGE_VALUES,
   UNRESOLVED_SUBMISSION_STAGE_VALUES,
-  validateEnrichment,
-  type FactEnrichment,
   type ReviewWorkflowStage,
 } from "@workspace/api-zod";
 import { renderCanonical } from "./renderCanonical";
 import { computeSplitTokenIndex } from "./splitTokenIndex";
-import { enqueueJob } from "./asyncJobs";
-import { logger } from "./logger";
-import { claimConceptsForReview, reviewConceptOwner } from "./visualConceptOwner";
-import { gagRenderInput, primaryWorkingGag } from "./gags/resolver";
-
-// Queue name owned by visualConceptJobs.ts (kept as a literal for the same
-// reason — and because visualConceptJobs imports resolveReviewCycleEnrichment
-// from THIS module, so importing it back would create a module cycle).
-const FACT_VISUAL_CONCEPTS_QUEUE = "fact_visual_concepts";
+import { primaryWorkingGag } from "./gags/resolver";
 
 // Matches any pronoun / gendered template token (same detection the approve
 // path uses) so the staging fact records whether it needs pronoun handling.
@@ -39,7 +30,7 @@ type DbLike = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /**
  * THE single ingestion primitive (Phase 2 fact-lifecycle closure): create a
- * Stage-1 (`triage_pending`) review. Every way a fact enters the system —
+ * Stage-1 (`triage`) review. Every way a fact enters the system —
  * manual user submission, bulk import, and any future
  * ingestion path (e.g. an API) — funnels through here, so a fact can never be
  * born active/enriched: it always starts at the front of the moderation pipeline
@@ -70,7 +61,7 @@ export async function createTriageReview(
       submittedById: input.submittedById,
       hashtags: input.hashtags,
       status: "pending",
-      workflowStage: "triage_pending",
+      workflowStage: "triage",
       reason: input.reason ?? null,
       enrichment: null,
       enrichmentStatus: null,
@@ -121,7 +112,7 @@ export async function ensureStagingFact(
  * every linked review is resolved (or none exists).
  *
  * The prep guards below must never key off a RESOLVED row: a fact whose
- * review sits at production_approved is simply a live fact, not "a staging
+ * review sits at approved is simply a live fact, not "a staging
  * fact whose review left prep". Newest-by-created_at keeps the lookup
  * deterministic.
  */
@@ -147,21 +138,13 @@ export async function findUnresolvedReviewForStagingFact(
 }
 
 /**
- * Resolve the render input + text a moderation-side visual surface should use
- * for a review cycle. The single source of truth so every review render,
- * preview and gate reads the SAME input.
- *
- * - The classification: the staging fact's own `facts.enrichment`. Since
- *   migration 0139 it holds no gag.
- * - The gag: the fact's primary working gag (lowest slot, its pending change
- *   if there is one, else its approved version; lib/gags/resolver.ts), joined
- *   in as `visualPromptStrategyOverride`. For a one-gag fact this is exactly
- *   the blob these surfaces read before gags had their own table.
- *
- * Returns the RAW render input (caller validates) so it drops into the
- * existing `validateEnrichment` + `resolveRenderReviewInput` flow unchanged,
- * and `classification` alone for a caller that pairs another gag with it.
- * Null when the review has no staging fact / the fact is missing.
+ * The text and render input a moderation-side visual surface uses for a review
+ * cycle: the staging fact's text, and its primary working gag (lowest slot, its
+ * pending change if there is one, else its approved version;
+ * lib/gags/resolver.ts) as the raw render input `{ visualPromptStrategyOverride }`
+ * (the caller validates with validateGagRenderInput). The taxonomy is not part
+ * of it (Issue #1018, increment 1.2c-ii). Null when the review has no staging
+ * fact / the fact is missing.
  */
 export async function resolveReviewCycleEnrichment(
   review: { stagingFactId: number | null },
@@ -169,61 +152,49 @@ export async function resolveReviewCycleEnrichment(
 ): Promise<{
   factId: number;
   text: string;
-  rawEnrichment: unknown;
-  classification: unknown;
+  rawRenderInput: unknown;
   gagId: number | null;
 } | null> {
   if (review.stagingFactId == null) return null;
   const [fact] = await tx
-    .select({ text: factsTable.text, enrichment: factsTable.enrichment })
+    .select({ text: factsTable.text })
     .from(factsTable)
     .where(eq(factsTable.id, review.stagingFactId))
     .limit(1);
   if (!fact) return null;
-  const classification: unknown = fact.enrichment;
   const primary = await primaryWorkingGag(review.stagingFactId, tx);
-  const rawEnrichment = primary && classification && typeof classification === "object"
-    ? gagRenderInput(classification as FactEnrichment, primary.content)
-    : classification;
-  return { factId: review.stagingFactId, text: fact.text, rawEnrichment, classification, gagId: primary?.gag.id ?? null };
+  return {
+    factId: review.stagingFactId,
+    text: fact.text,
+    rawRenderInput: { visualPromptStrategyOverride: primary?.content ?? undefined },
+    gagId: primary?.gag.id ?? null,
+  };
 }
 
 /**
- * Resolve the SAVED Visual Concept (core scene) for a review cycle, gating the
- * Step-2 "approve the visual gag" transition. Built on resolveReviewCycleEnrichment,
- * the single source of truth every gag-gate check uses.
- *
- * The concept the moderator is approving is the *persisted* enrichment, NOT the
- * AI candidate cards or an unsaved browser draft (the server can't see those).
- * Each failure carries a distinct HTTP status + code so the endpoint returns a
- * precise 4xx. Shared by the endpoint and its tests.
+ * The saved scene of a review's primary gag, gating the Gags step's "Approve
+ * the gags" transition. The moderator approves the *persisted* gag, never the
+ * AI idea cards or an unsaved browser draft. The taxonomy plays no part: a
+ * fact whose taxonomy is missing or failed is approved like any other (Issue
+ * #1018, increment 1.2c-ii). Each failure carries a distinct status and code.
  */
 export type SavedCoreSceneResult =
-  | { ok: true; coreScene: string; enrichment: FactEnrichment }
+  | { ok: true; coreScene: string }
   | { ok: false; status: number; code: string; error: string };
 
 export async function resolveSavedCoreSceneForReview(
   review: { stagingFactId: number | null },
   tx: DbLike = db,
 ): Promise<SavedCoreSceneResult> {
-  const cycle = await resolveReviewCycleEnrichment(review, tx);
-  if (!cycle) {
+  if (review.stagingFactId == null) {
     return { ok: false, status: 409, code: "NO_STAGING_FACT", error: "No staging fact for this review — provisionally approve it first." };
   }
-  const validated = validateEnrichment(cycle.rawEnrichment);
-  if (!validated.ok) {
-    return { ok: false, status: 400, code: "ENRICHMENT_INVALID", error: `Enrichment is invalid: ${validated.error}` };
-  }
-  const enrichment = validated.data;
-  // Presence-based (the enable toggle was retired): the Visual Concept is required
-  // and gates approval purely on a non-empty saved core scene. There is no separate
-  // "enabled" requirement anymore.
-  const ov = enrichment.visualPromptStrategyOverride;
-  const coreScene = ov?.coreSceneOverride?.trim() ?? "";
+  const primary = await primaryWorkingGag(review.stagingFactId, tx);
+  const coreScene = primary?.content?.coreSceneOverride?.trim() ?? "";
   if (!coreScene) {
     return { ok: false, status: 409, code: "CONCEPT_MISSING", error: "Save a non-empty Visual Concept (core scene) before approving the visual gag." };
   }
-  return { ok: true, coreScene, enrichment };
+  return { ok: true, coreScene };
 }
 
 /**
@@ -234,11 +205,14 @@ export async function resolveSavedCoreSceneForReview(
  *
  *  - `live_fact` — no unresolved review cycle and the fact is active: a normal
  *    admin re-enrich. Resolved historical reviews must NOT block this.
- *  - `first_time_staging` — an unresolved cycle still in `prep_pending`.
+ *  - `first_time_staging` — an unresolved cycle past triage (Reading, Gags or
+ *    Test Renders): the taxonomy run started at provisional approval. It runs
+ *    beside moderation and never moves the review (Issue #1018, increment
+ *    1.2c-ii).
  *
  * Skips:
- *  - `staging_prep_left` — a first-time cycle that moved past prep (rejected, or
- *    already at production_review): the original cost guard, unchanged.
+ *  - `staging_prep_left` — an unresolved cycle still at triage (never the case
+ *    for a staging fact; kept so the answer is total).
  *  - `inactive_staging` — no unresolved cycle and the fact is inactive: an
  *    abandoned/rejected first-time staging fact; skip paid work.
  */
@@ -258,85 +232,9 @@ export async function resolveGenericFactEnrichmentDecision(
   if (!fact) return { action: "skip", reason: "fact_missing" };
   const unresolved = await findUnresolvedReviewForStagingFact(factId, tx);
   if (unresolved) {
-    return unresolved.workflowStage === "prep_pending"
+    return (PREPARING_STAGE_VALUES as readonly ReviewWorkflowStage[]).includes(unresolved.workflowStage)
       ? { action: "run", mode: "first_time_staging" }
       : { action: "skip", reason: "staging_prep_left" };
   }
   return fact.isActive ? { action: "run", mode: "live_fact" } : { action: "skip", reason: "inactive_staging" };
-}
-
-/**
- * Advance a review off the terminal outcome of its staging fact's GENERIC
- * enrichment job. Success → concept_review (Step 2: Visual Concept gate);
- * terminal abandon → prep_failed. Acts ONLY on an unresolved cycle still in
- * `prep_pending`.
- *
- * On success we enqueue the Visual-Idea candidates (fact_visual_concepts) but
- * NOT the render batch: renders are Step 3 and only fire once the moderator
- * approves the visual gag (see approve-visual-concept). Visual Ideas are a
- * BLOCKING prep artifact for that gag approval, so the draft job commits with
- * the stage advance or not at all (Issue #1000 §F).
- */
-export async function advanceReviewForStagingFactEnrichment(args: {
-  factId: number;
-  outcome: "success" | "terminal_failed";
-}, tx?: DbLike): Promise<void> {
-  // Given the caller's transaction (the enrichment write), the advance, the
-  // claim and the draft job all commit with it or not at all, and a failure
-  // rolls the whole write back for the job's retry (Issue #1000 §F).
-  const executor = tx ?? db;
-  const review = await findUnresolvedReviewForStagingFact(args.factId, executor);
-  if (!review) return; // live-fact enrichment — nothing to advance
-  if (review.workflowStage !== "prep_pending") {
-    logger.info(
-      { factId: args.factId, reviewId: review.id, stage: review.workflowStage, outcome: args.outcome },
-      "[moderation] stale staging enrichment outcome ignored (not an in-prep cycle)",
-    );
-    return;
-  }
-  const nextStage: ReviewWorkflowStage = args.outcome === "success" ? "concept_review" : "prep_failed";
-  // Conditional, like every other stage transition: a review withdrawn (or
-  // otherwise resolved) since the read above stays as it is, and nothing is
-  // enqueued for it (plan PLAN_THREE_GAGS.md, increment 3).
-  const advanced = await executor
-    .update(pendingReviewsTable)
-    .set({ workflowStage: nextStage })
-    .where(and(
-      eq(pendingReviewsTable.id, review.id),
-      eq(pendingReviewsTable.status, "pending"),
-      eq(pendingReviewsTable.workflowStage, "prep_pending"),
-    ))
-    .returning({ id: pendingReviewsTable.id });
-  if (advanced.length === 0) {
-    logger.info(
-      { factId: args.factId, reviewId: review.id, outcome: args.outcome },
-      "[moderation] staging enrichment outcome ignored (review changed before the advance)",
-    );
-    return;
-  }
-  logger.info(
-    { factId: args.factId, reviewId: review.id, nextStage },
-    "[moderation] staging enrichment advanced review stage",
-  );
-
-  // Success path ONLY: enrichment is valid and the review has entered Step 2
-  // (concept_review). Draft the Visual-Idea candidates for the moderator. These
-  // gate gag approval (Step 2 = Visual Concept gate), so on enqueue failure we
-  // flip the status to "failed" (retryable via regenerate) — never leave it
-  // hanging "pending" with no job behind it. NO render-prepare here: the render
-  // batch is force-enqueued at gag approval (Step 3), not on enrichment success.
-  // Enqueued inline (literal queue name + "pending" status write, matching
-  // enqueueVisualConceptsForReview) so this widely-imported helper doesn't import
-  // visualConceptJobs and create a cycle.
-  // The success path runs inside the enrichment's own fenced write (its one
-  // caller passes `tx`), so a failure here rolls the whole write back for the
-  // job's retry: the stage never advances without its draft job.
-  if (nextStage === "concept_review") {
-    await claimConceptsForReview(executor, args.factId, review.id, { markPending: true });
-    await enqueueJob({
-      queue: FACT_VISUAL_CONCEPTS_QUEUE,
-      payload: { reviewId: review.id, factId: args.factId, owner: reviewConceptOwner(review.id), moderatorDraftScene: null },
-      dedupeKey: `fact_visual_concepts:review:${review.id}`,
-    }, executor);
-  }
 }

@@ -4,8 +4,8 @@ import {
   type RenderReviewState,
 } from "@workspace/api-zod";
 
-/** The three moderation wizard steps a non-terminal review moves through. */
-export type WizardStep = "triage" | "concept" | "render";
+/** The four moderation wizard steps a non-terminal review moves through. */
+export type WizardStep = "triage" | "reading" | "concept" | "render";
 
 /** Coarse visual tone for the queue-state chip. */
 export type QueueTone = "neutral" | "working" | "ready" | "attention" | "resolved";
@@ -33,9 +33,11 @@ export interface ModerationQueueState {
 export function deriveModerationQueueState(review: {
   status: "pending" | "approved" | "rejected";
   workflowStage: ReviewWorkflowStage;
+  /** The staging fact's latest reading run (fact_readings.status); null when none was started. */
+  readingStatus?: PrepStatusLike;
   /** From the staging fact (facts.visual_concept_status). */
   visualConceptStatus?: PrepStatusLike;
-  /** Coarse Step-3 render state from the list aggregate. */
+  /** Coarse Test Renders render state from the list aggregate. */
   renderReviewState?: RenderReviewStateLike;
 }): ModerationQueueState {
   const { status, workflowStage } = review;
@@ -45,21 +47,24 @@ export function deriveModerationQueueState(review: {
 
   // status === "pending"
   switch (workflowStage) {
-    case "triage_pending":
+    case "triage":
       return { label: "Needs triage", spinner: false, actionStep: "triage", tone: "neutral" };
-    case "prep_pending":
-      return { label: "Preparing…", spinner: true, actionStep: "triage", tone: "working" };
-    case "prep_failed":
-      return { label: "Prep failed", spinner: false, actionStep: "triage", tone: "attention" };
-    case "concept_review": {
+    case "reading": {
+      const rs = review.readingStatus;
+      if (rs === "pending") return { label: "Reading the fact…", spinner: true, actionStep: "reading", tone: "working" };
+      if (rs === "ok") return { label: "Ready to check the reading", spinner: false, actionStep: "reading", tone: "ready" };
+      if (rs === "failed") return { label: "The reading failed", spinner: false, actionStep: "reading", tone: "attention" };
+      return { label: "Reading not written yet", spinner: false, actionStep: "reading", tone: "attention" };
+    }
+    case "gags": {
       const cs = review.visualConceptStatus;
       if (cs === "pending") return { label: "Generating visual ideas…", spinner: true, actionStep: "concept", tone: "working" };
-      if (cs === "ok") return { label: "Ready for concept review", spinner: false, actionStep: "concept", tone: "ready" };
+      if (cs === "ok") return { label: "Ready for gags", spinner: false, actionStep: "concept", tone: "ready" };
       if (cs === "failed") return { label: "Visual-ideas generation failed", spinner: false, actionStep: "concept", tone: "attention" };
-      // null/undefined: never generated (e.g. an old-flow row bounced back to Step 2).
+      // null/undefined: never generated (a review the stage cutover moved here).
       return { label: "Visual ideas not generated", spinner: false, actionStep: "concept", tone: "attention" };
     }
-    case "production_review": {
+    case "test_renders": {
       const rs = review.renderReviewState;
       if (rs === "ready") return { label: "Renders ready — needs review", spinner: false, actionStep: "render", tone: "ready" };
       if (rs === "needs_attention") return { label: "Renders need attention", spinner: false, actionStep: "render", tone: "attention" };
@@ -82,13 +87,13 @@ export function deriveModerationQueueState(review: {
 /** Map a workflow stage to its wizard step (null for terminal/resolved stages). */
 export function stageToWizardStep(stage: ReviewWorkflowStage): WizardStep | null {
   switch (stage) {
-    case "triage_pending":
-    case "prep_pending":
-    case "prep_failed":
+    case "triage":
       return "triage";
-    case "concept_review":
+    case "reading":
+      return "reading";
+    case "gags":
       return "concept";
-    case "production_review":
+    case "test_renders":
       return "render";
     default:
       return null;

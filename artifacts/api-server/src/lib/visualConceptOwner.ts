@@ -21,7 +21,14 @@ export type Executor = typeof db | Parameters<Parameters<typeof db.transaction>[
 
 const LIVE_PREFIX = "live:";
 
-export const reviewConceptOwner = (reviewId: number): string => `review:${reviewId}`;
+/**
+ * A review's generation owner. Each request for a review's ideas is its own
+ * generation (`review:<id>:<generation>`), so a later request is never folded
+ * into an earlier job that has already written (Codex, PR #1041 round 1); the
+ * bare `review:<id>` is what jobs queued before generations carried.
+ */
+export const reviewConceptOwner = (reviewId: number, generation?: string): string =>
+  generation ? `review:${reviewId}:${generation}` : `review:${reviewId}`;
 export const liveConceptOwner = (requestId: string): string => `${LIVE_PREFIX}${requestId}`;
 
 /** The WHERE for a write to one fact's candidate state: only while `owner` holds it. */
@@ -44,12 +51,12 @@ export async function claimConceptsForReview(
   executor: Executor,
   factId: number,
   reviewId: number,
-  opts: { markPending?: boolean } = {},
+  opts: { markPending?: boolean; owner?: string } = {},
 ): Promise<void> {
   await executor
     .update(factsTable)
     .set({
-      visualConceptOwner: reviewConceptOwner(reviewId),
+      visualConceptOwner: opts.owner ?? reviewConceptOwner(reviewId),
       visualConceptStatus: opts.markPending
         ? "pending"
         : sql`CASE WHEN ${heldByLiveDraft} THEN NULL ELSE ${factsTable.visualConceptStatus} END`,

@@ -34,7 +34,14 @@ const ENRICHMENT: FactEnrichment = {
   characters: [],
 };
 
-function baseHashInputs(): ScenarioHashInputs {
+/**
+ * A hash input whose render input may be a whole classification: a snapshot
+ * frozen before the taxonomy left moderation carried one beside the gag, and
+ * it must hash exactly as the gag alone (Issue #1018, increment 1.2c-ii).
+ */
+type LegacyHashInputs = Omit<ScenarioHashInputs, "enrichment"> & { enrichment: FactEnrichment };
+
+function baseHashInputs(): LegacyHashInputs {
   return {
     stagingFactId: 1,
     scenarioKey: "i2i_male_default",
@@ -60,13 +67,15 @@ function baseHashInputs(): ScenarioHashInputs {
   };
 }
 
+const hashOf = (inputs: LegacyHashInputs): string => buildScenarioInputHash(inputs as ScenarioHashInputs);
+
 describe("buildScenarioInputHash", () => {
   it("is deterministic for identical inputs", () => {
-    assert.equal(buildScenarioInputHash(baseHashInputs()), buildScenarioInputHash(baseHashInputs()));
+    assert.equal(hashOf(baseHashInputs()), hashOf(baseHashInputs()));
   });
 
   it("does NOT change when a classification field changes (the picture is drawn from the gag alone; PLAN_GAG_DIRECT_RENDER.md, D)", () => {
-    const a = buildScenarioInputHash(baseHashInputs());
+    const a = hashOf(baseHashInputs());
     const inputs = baseHashInputs();
     inputs.enrichment = {
       ...ENRICHMENT,
@@ -76,11 +85,11 @@ describe("buildScenarioInputHash", () => {
       visualLiteralness: "mixed",
       visualComplexity: "high",
     };
-    assert.equal(buildScenarioInputHash(inputs), a);
+    assert.equal(hashOf(inputs), a);
   });
 
   it("does NOT change when only a non-render field changes (notes / hashtags / confidence / overhypeFit / adultSuitability)", () => {
-    const a = buildScenarioInputHash(baseHashInputs());
+    const a = hashOf(baseHashInputs());
     const inputs = baseHashInputs();
     inputs.enrichment = {
       ...ENRICHMENT,
@@ -93,7 +102,7 @@ describe("buildScenarioInputHash", () => {
       overhypeFit: "questionable",
       adultSuitability: "requires_review",
     };
-    assert.equal(buildScenarioInputHash(inputs), a);
+    assert.equal(hashOf(inputs), a);
   });
 
   it("changes when ONLY visualPromptStrategyOverride.coreSceneOverride changes (visual-concept staleness)", () => {
@@ -117,28 +126,28 @@ describe("buildScenarioInputHash", () => {
     const editedScene = baseHashInputs();
     editedScene.enrichment = { ...ENRICHMENT, visualPromptStrategyOverride: override("David rides a T-Rex.") };
 
-    const a = buildScenarioInputHash(withScene);
-    assert.notEqual(a, buildScenarioInputHash(withoutScene));
-    assert.notEqual(a, buildScenarioInputHash(editedScene));
+    const a = hashOf(withScene);
+    assert.notEqual(a, hashOf(withoutScene));
+    assert.notEqual(a, hashOf(editedScene));
     // Deterministic for the identical scene.
     const again = baseHashInputs();
     again.enrichment = { ...ENRICHMENT, visualPromptStrategyOverride: override("David rides a giant rubber duck.") };
-    assert.equal(a, buildScenarioInputHash(again));
+    assert.equal(a, hashOf(again));
   });
 
   it("changes when the reference asset version changes", () => {
-    const a = buildScenarioInputHash(baseHashInputs());
+    const a = hashOf(baseHashInputs());
     const inputs = baseHashInputs();
     inputs.referenceAssetVersion = "2";
-    assert.notEqual(buildScenarioInputHash(inputs), a);
+    assert.notEqual(hashOf(inputs), a);
   });
 
   it("changes when the look style changes", () => {
-    const a = buildScenarioInputHash(baseHashInputs());
+    const a = hashOf(baseHashInputs());
     const inputs = baseHashInputs();
     inputs.lookStyleId = "noir";
     inputs.styleSuffixVersion = "v9";
-    assert.notEqual(buildScenarioInputHash(inputs), a);
+    assert.notEqual(hashOf(inputs), a);
   });
 
   it("is insensitive to modifier ordering", () => {
@@ -146,7 +155,7 @@ describe("buildScenarioInputHash", () => {
     a.enrichment = { ...ENRICHMENT, modifiers: ["a_mod", "b_mod"] };
     const b = baseHashInputs();
     b.enrichment = { ...ENRICHMENT, modifiers: ["b_mod", "a_mod"] };
-    assert.equal(buildScenarioInputHash(a), buildScenarioInputHash(b));
+    assert.equal(hashOf(a), hashOf(b));
   });
 
   it("does NOT change when only a retired text/logo modifier is added (inert legacy data)", () => {
@@ -159,7 +168,7 @@ describe("buildScenarioInputHash", () => {
     };
     // Retired names are filtered out of the render-affecting projection, so
     // removing an old amber chip must not spuriously flip a render stale.
-    assert.equal(buildScenarioInputHash(a), buildScenarioInputHash(withRetired));
+    assert.equal(hashOf(a), hashOf(withRetired));
   });
 
   it("does NOT change when a non-retired custom modifier is added (no modifier reaches the picture since the switch)", () => {
@@ -167,26 +176,26 @@ describe("buildScenarioInputHash", () => {
     a.enrichment = { ...ENRICHMENT, modifiers: ["grounded_realism"] };
     const withCustom = baseHashInputs();
     withCustom.enrichment = { ...ENRICHMENT, modifiers: ["grounded_realism", "custom_live_modifier"] };
-    assert.equal(buildScenarioInputHash(a), buildScenarioInputHash(withCustom));
+    assert.equal(hashOf(a), hashOf(withCustom));
   });
 });
 
 describe("buildScenarioInputHash — fact characters (PLAN_BUBBLE_SPEAKERS.md, A)", () => {
   const MOM = [{ label: "mom", kind: "person" as const, ofSubject: true }];
   it("does NOT change when the character list changes (the retired planner read it; the direct compile does not)", () => {
-    const a = buildScenarioInputHash(baseHashInputs());
-    const b = buildScenarioInputHash({ ...baseHashInputs(), enrichment: { ...ENRICHMENT, characters: MOM } });
+    const a = hashOf(baseHashInputs());
+    const b = hashOf({ ...baseHashInputs(), enrichment: { ...ENRICHMENT, characters: MOM } });
     assert.equal(a, b);
   });
   it("does NOT change for an empty list (hashes exactly as before the field existed)", () => {
-    const a = buildScenarioInputHash(baseHashInputs());
-    const b = buildScenarioInputHash({ ...baseHashInputs(), enrichment: { ...ENRICHMENT, characters: [] } });
+    const a = hashOf(baseHashInputs());
+    const b = hashOf({ ...baseHashInputs(), enrichment: { ...ENRICHMENT, characters: [] } });
     assert.equal(a, b);
   });
   it("does NOT change when only the extraction marker changes", () => {
     const withList = { ...ENRICHMENT, characters: MOM };
-    const a = buildScenarioInputHash({ ...baseHashInputs(), enrichment: withList });
-    const b = buildScenarioInputHash({
+    const a = hashOf({ ...baseHashInputs(), enrichment: withList });
+    const b = hashOf({
       ...baseHashInputs(),
       enrichment: { ...withList, charactersExtraction: { promptVersion: "v1", extractedAt: "2026-11-15T00:00:00.000Z" } },
     });
@@ -223,7 +232,7 @@ describe("engine provenance + status derivation", () => {
 
 describe("buildScenarioInputHash — a gag's cast (PLAN_GAG_DIRECT_RENDER.md, increment 2)", () => {
   const gag = { version: 1 as const, coreSceneOverride: "{NAME} lifts a car; mom gasps.", requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [], bubbles: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [] };
-  const withGag = (vso: unknown) => buildScenarioInputHash({ ...baseHashInputs(), enrichment: { ...ENRICHMENT, visualPromptStrategyOverride: vso as FactEnrichment["visualPromptStrategyOverride"] } });
+  const withGag = (vso: unknown) => hashOf({ ...baseHashInputs(), enrichment: { ...ENRICHMENT, visualPromptStrategyOverride: vso as FactEnrichment["visualPromptStrategyOverride"] } });
   const filled = { ...gag, cast: [{ label: "mom", description: "the woman gasping" }], castExtraction: { promptVersion: "v2", extractedAt: "2026-11-17T00:00:00.000Z", sourceKey: "k" } };
   it("changes when the cast changes (the direct compile draws it)", () => {
     assert.notEqual(withGag(gag), withGag(filled));

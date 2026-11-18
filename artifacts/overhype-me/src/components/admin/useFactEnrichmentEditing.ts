@@ -116,7 +116,7 @@ export type EnrichmentEditTarget = { kind: "fact"; factId: number };
 export interface UseFactEnrichmentEditingOptions {
   target: EnrichmentEditTarget;
   /** Gate: when false, nothing fetches and no editing state exists (the
-   *  moderation modal passes production_review && stagingFactId > 0). */
+   *  Facts editor passes its own condition). */
   enabled: boolean;
   /** Which untracked fields THIS surface may commit through the draft PATCH.
    *  Facts page: suggestedHashtags; moderation: none. */

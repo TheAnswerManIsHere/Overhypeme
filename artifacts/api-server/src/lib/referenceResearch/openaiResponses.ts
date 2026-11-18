@@ -53,14 +53,18 @@ interface CallArgs {
 }
 
 /**
- * The Responses API request body for one research call: the web_search tool,
- * low reasoning effort, Structured Outputs JSON schema, and an output cap that
- * leaves room for reasoning. Pure, so the request shape is testable.
+ * The Responses API request body for one web-search call: the web_search
+ * tool, low reasoning effort, a Structured Outputs JSON schema, and an output
+ * cap that leaves room for reasoning. Shared by reference research and the
+ * moderation reading (readingJobs.ts). Pure, so the request shape is testable.
  */
-export function buildReferenceResearchRequest({
+export function buildWebSearchRequest({
   systemPrompt,
   userMessage,
-}: CallArgs): OpenAI.Responses.ResponseCreateParamsNonStreaming {
+  schemaName,
+  schema,
+  maxOutputTokens = REFERENCE_RESEARCH_MAX_OUTPUT_TOKENS,
+}: CallArgs & { schemaName: string; schema: Record<string, unknown>; maxOutputTokens?: number }): OpenAI.Responses.ResponseCreateParamsNonStreaming {
   return {
     model: REFERENCE_RESEARCH_MODEL,
     tools: [{ type: "web_search" }],
@@ -69,29 +73,24 @@ export function buildReferenceResearchRequest({
       { role: "system", content: systemPrompt },
       { role: "user", content: userMessage },
     ],
-    text: {
-      format: {
-        type: "json_schema",
-        name: "reference_research_result",
-        strict: true,
-        schema: buildResponseJsonSchema(),
-      },
-    },
-    max_output_tokens:
-      REFERENCE_RESEARCH_MAX_OUTPUT_TOKENS + REFERENCE_RESEARCH_REASONING_HEADROOM,
+    text: { format: { type: "json_schema", name: schemaName, strict: true, schema } },
+    max_output_tokens: maxOutputTokens + REFERENCE_RESEARCH_REASONING_HEADROOM,
   };
 }
 
+/** The request body for one reference-research call. */
+export function buildReferenceResearchRequest(args: CallArgs): OpenAI.Responses.ResponseCreateParamsNonStreaming {
+  return buildWebSearchRequest({ ...args, schemaName: "reference_research_result", schema: buildResponseJsonSchema() });
+}
+
 /**
- * Call the Responses API with the request above, returning the raw
- * output_text. The caller validates.
+ * Run one web-search request and return its raw output_text. The caller
+ * validates.
  */
-export async function callReferenceResearchModel(args: CallArgs): Promise<string> {
+export async function callWebSearchModel(request: OpenAI.Responses.ResponseCreateParamsNonStreaming): Promise<string> {
   const openai = getOpenAIClient();
   try {
-    const response = await openai.responses.create(buildReferenceResearchRequest(args), {
-      timeout: REFERENCE_RESEARCH_TIMEOUT_MS,
-    });
+    const response = await openai.responses.create(request, { timeout: REFERENCE_RESEARCH_TIMEOUT_MS });
     return readReferenceResearchText(response as ResearchResponseShape);
   } catch (err) {
     if (err instanceof ReferenceResearchOpenAIError) throw err;
@@ -99,6 +98,14 @@ export async function callReferenceResearchModel(args: CallArgs): Promise<string
     logger.warn({ err }, "[referenceResearch.openaiResponses] call failed");
     throw new ReferenceResearchOpenAIError(`OpenAI Responses call failed: ${msg}`, err);
   }
+}
+
+/**
+ * Call the Responses API with the research request, returning the raw
+ * output_text. The caller validates.
+ */
+export async function callReferenceResearchModel(args: CallArgs): Promise<string> {
+  return callWebSearchModel(buildReferenceResearchRequest(args));
 }
 
 /** The parts of a Responses result the research call reads. */

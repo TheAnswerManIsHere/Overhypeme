@@ -168,7 +168,7 @@ describe("migration 0102 retires the studio's render jobs by provenance", () => 
         submittedById: legendaryId,
         matchingSimilarity: 0,
         status: "pending",
-        workflowStage: "production_review" as never,
+        workflowStage: "test_renders" as never,
         stagingFactId: activeFactId,
       })
       .returning({ id: pendingReviewsTable.id });

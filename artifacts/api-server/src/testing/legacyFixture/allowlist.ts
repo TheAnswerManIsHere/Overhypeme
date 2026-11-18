@@ -240,8 +240,8 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     // 0140: which generation owns the candidates; null (no owner) is how every
     // fact read before the column existed, and the committed fixture predates it.
     visualConceptOwner: "drop",
-    // 0141: set only by a withdrawal; the committed fixture predates it.
-    wordingWithdrawnAt: "drop",
+    // 0155: the reading run an approved note was written from; the committed fixture predates readings.
+    humorNoteReadingId: "drop",
     // 0137: the approved humor note is moderator prose about the joke; its approver maps like any user.
     // Prose, like the blob's jokeRead and humorNoteUsed: the same text gets the same placeholder, so
     // a note equal to either still reads equal after a scrub and the gags keep their freshness.
@@ -290,12 +290,10 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     productionRejectedById: "map-user",
     productionRejectionNote: "prose",
     visualRenderApprovalWaiver: "shape:visualRenderApprovalWaiver",
-    // 0141: triage wording edits and withdrawals; the committed fixture predates them.
+    // 0141: triage wording edits; the committed fixture predates them.
     submittedTextOriginal: "drop",
     wordingEditedBy: "map-user",
     wordingEditedAt: "drop",
-    withdrawnAt: "drop",
-    withdrawnBy: "map-user",
     // 0149: the duplicate verdict; the committed fixture predates it, so every
     // loaded review reads "not checked yet".
     duplicateOutcome: "drop",
@@ -600,6 +598,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
   exclude(s.shareIntentsTable, "telemetry", "per-visitor share events"),
   exclude(s.activityFeedTable, "telemetry", "per-user notification prose"),
   exclude(s.adminActionsTable, "telemetry", "who did what to which fact: admin identities and their edits, written from 0152 on"),
+  exclude(s.factReadingsTable, "not-catalogue", "moderation reading runs (paid research and draft notes), written from 0155 on; the committed fixture predates them"),
   exclude(s.userFactPreferencesTable, "telemetry", "per-user viewing state"),
   exclude(s.referenceResearchCacheTable, "not-catalogue", "cached admin research calls"),
   exclude(s.evalRunsTable, "not-catalogue", "the eval lane, dropped with image_prompt_attempts.eval_*"),

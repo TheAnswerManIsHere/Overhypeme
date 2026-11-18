@@ -126,24 +126,11 @@ describe("activateFact — the sole activation chokepoint", () => {
     assert.equal(row.isActive, false);
   });
 
-  it("throws ActivationConflictError when the enrichment changed under it (concurrent Visual Concept edit)", async () => {
-    const text = `${PREFIX}activate-enrichment-cas`;
+  it("activates whatever the taxonomy says: a change to it under the activation is not a conflict (Issue #1018, increment 1.2c-ii)", async () => {
+    const text = `${PREFIX}activate-taxonomy-free`;
     const id = await insertInactive(text);
-    const [row] = await db.select({ enrichment: factsTable.enrichment }).from(factsTable).where(eq(factsTable.id, id));
-    const staleEnrichment = { ...(row.enrichment as object), taxonomyConfidence: 0.01 };
-    await assert.rejects(
-      () => db.transaction((tx) => activateFact(tx, { factId: id, expectedText: text, expectedEnrichment: staleEnrichment })),
-      (err: unknown) => err instanceof ActivationConflictError,
-    );
-    const [after] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, id));
-    assert.equal(after.isActive, false, "must remain inactive — the row's enrichment no longer matches what was reviewed");
-  });
-
-  it("activates normally when expectedEnrichment matches the row's current enrichment exactly", async () => {
-    const text = `${PREFIX}activate-enrichment-match`;
-    const id = await insertInactive(text);
-    const [row] = await db.select({ enrichment: factsTable.enrichment }).from(factsTable).where(eq(factsTable.id, id));
-    await db.transaction((tx) => activateFact(tx, { factId: id, expectedText: text, expectedEnrichment: row.enrichment }));
+    await db.update(factsTable).set({ enrichment: null }).where(eq(factsTable.id, id));
+    await db.transaction((tx) => activateFact(tx, { factId: id, expectedText: text }));
     const [after] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, id));
     assert.equal(after.isActive, true);
   });

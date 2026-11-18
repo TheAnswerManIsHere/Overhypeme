@@ -112,7 +112,7 @@ async function insertGag(factId: number, slot: number, cols: Record<string, unkn
 async function review(factId: number, adminId: string): Promise<number> {
   return (await one<{ id: number }>(sql`
     INSERT INTO pending_reviews (submitted_text, submitted_by_id, status, workflow_stage, staging_fact_id)
-    VALUES (${P + "refresh"}, ${adminId}, 'pending', 'production_review', ${factId}) RETURNING id`)).id;
+    VALUES (${P + "refresh"}, ${adminId}, 'pending', 'test_renders', ${factId}) RETURNING id`)).id;
 }
 
 interface Seed {

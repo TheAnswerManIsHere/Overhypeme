@@ -29,6 +29,8 @@ import { DEFAULT_NSFW_ENDPOINT } from "./moderation/nsfwClassifier";
 import { FAL_SAFETY_TOLERANCE } from "./moderation/falSafety";
 import { TIER3_MAX_TOKENS, TIER3_TEMPERATURE } from "./sourceImageAnalysis/tier3AiVisionFallback";
 import { buildReferenceResearchRequest } from "./referenceResearch/openaiResponses";
+import { READING_CONFIG_KEYS, getReadingSystem } from "./readingConfig";
+import { buildReadingRequest } from "./readingJobs";
 
 export interface AiSettingRow {
   /** What the step does, in product English. */
@@ -99,15 +101,16 @@ const PROMPT_TEXT: Record<string, () => Promise<string>> = {
   [VISUAL_CONCEPTS_CONFIG_KEYS.system]: getVisualConceptsSystem,
   [IMAGE_PROMPT_CONFIG_KEYS.sourceClassifierSystem]: getFactSourceClassifierSystem,
   [REFERENCE_RESEARCH_CONFIG_KEYS.system]: getReferenceResearchSystem,
+  [READING_CONFIG_KEYS.system]: getReadingSystem,
 };
 
-/** The reference-research call, read from its own request builder (referenceResearch/openaiResponses.ts). */
-function researchStep(): AiSettingRow {
-  const req = buildReferenceResearchRequest({ systemPrompt: "", userMessage: "" }) as unknown as Record<string, unknown>;
+/** A web-search call's row, read from its own request builder (referenceResearch/openaiResponses.ts, readingJobs.ts). */
+function webSearchStep(step: string, request: unknown, promptKey: string): AiSettingRow {
+  const req = request as Record<string, unknown>;
   const reasoning = req["reasoning"] as { effort?: string } | undefined;
   const show = (v: unknown) => (v === undefined || v === null ? NOT_SENT : String(v));
   return {
-    step: "Reference research (web search)",
+    step,
     engine: null,
     model: String(req["model"]),
     parameters: [
@@ -115,7 +118,7 @@ function researchStep(): AiSettingRow {
       { name: "Token limit", value: show(req["max_output_tokens"]) },
       { name: "Temperature", value: show(req["temperature"]) },
     ],
-    promptKey: REFERENCE_RESEARCH_CONFIG_KEYS.system,
+    promptKey,
   };
 }
 
@@ -145,7 +148,8 @@ export async function aiSettingsView(): Promise<AiSettingsView> {
       parameters: chatParameters(utility.endpointId, TIER3_MAX_TOKENS, TIER3_TEMPERATURE, JUDGEMENT_REASONING_EFFORT),
       promptKey: IMAGE_PROMPT_CONFIG_KEYS.sourceClassifierSystem,
     },
-    researchStep(),
+    webSearchStep("Reference research (web search)", buildReferenceResearchRequest({ systemPrompt: "", userMessage: "" }), REFERENCE_RESEARCH_CONFIG_KEYS.system),
+    webSearchStep("Moderation reading: research, then the draft humor note (web search)", buildReadingRequest("", ""), READING_CONFIG_KEYS.system),
     {
       step: "NSFW check on every image",
       engine: null,

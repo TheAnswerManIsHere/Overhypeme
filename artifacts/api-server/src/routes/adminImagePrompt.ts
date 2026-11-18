@@ -13,11 +13,11 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db, imagePromptAttemptsTable, factsTable, pendingReviewsTable } from "@workspace/db";
 import {
-  validateEnrichment,
+  validateGagRenderInput,
   type RenderControls,
   type SubjectRenderMode,
   type SourceImageAnalysis,
-  type FactEnrichment,
+  type GagRenderInput,
   type IdentityPolicy,
 } from "@workspace/api-zod";
 import { requireAdmin } from "./admin";
@@ -26,7 +26,7 @@ import { DirectGagInputError } from "../lib/imagePrompt/directInput";
 import { assembleImagePromptForPreview } from "../lib/imagePrompt/preview";
 import { liveRecipeForEngine } from "../lib/imagePrompt/recipeStore";
 import { resolveReviewCycleEnrichment } from "../lib/moderationStaging";
-import { gagRenderInput, loadGags, primaryGag, workingContent, type GagContent } from "../lib/gags/resolver";
+import { loadGags, primaryGag, workingContent, type GagContent } from "../lib/gags/resolver";
 import { currentImageEngineIds } from "../lib/imageEngineRouting.js";
 import { RenderStyleRefusedError } from "../lib/imagePrompt/styleResolution.js";
 import { NoUsablePhotoError, resolveRenderReviewInput } from "../lib/imagePrompt/resolveRenderReviewInput";
@@ -92,7 +92,7 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
   }
 
   let sourceText: string;
-  let enrichment: FactEnrichment;
+  let enrichment: GagRenderInput;
   let resolvedFactId: number | null = null;
 
   if (Number.isFinite(reviewId) || Number.isFinite(reviewIdForRender)) {
@@ -128,9 +128,9 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
       }
       const chosen = await chosenGagContent(cycle.factId, body.gagId, "working");
       if (chosen === "not_found") { res.status(400).json({ error: "gag_not_found", gagId: body.gagId }); return; }
-      const ev = validateEnrichment(chosen && cycle.classification && typeof cycle.classification === "object"
-        ? gagRenderInput(cycle.classification as FactEnrichment, chosen)
-        : cycle.rawEnrichment);
+      // The render input is the gag alone (validateGagRenderInput): the
+      // taxonomy is not on the render path.
+      const ev = validateGagRenderInput({ visualPromptStrategyOverride: chosen ?? undefined });
       if (!ev.ok) {
         res.status(400).json({ error: "fact_enrichment_invalid", details: ev.error });
         return;
@@ -139,7 +139,7 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
       enrichment = ev.data;
       resolvedFactId = cycle.factId;
     } else {
-      const ev = validateEnrichment(reviewRow.enrichment);
+      const ev = validateGagRenderInput(reviewRow.enrichment);
       if (!ev.ok) {
         res.status(400).json({ error: "fact_enrichment_invalid", details: ev.error });
         return;
@@ -158,14 +158,12 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
       res.status(400).json({ error: "fact_not_found", factId });
       return;
     }
-    // The render input: the fact's classification with a gag joined in
-    // (fact_gags, migration 0139) — the named gag's working content, else the
-    // fact's primary gag (its approved version where it has one).
+    // The render input: the gag alone (fact_gags, migration 0139) — the named
+    // gag's working content, else the fact's primary gag (its approved version
+    // where it has one).
     const chosen = await chosenGagContent(factId, body.gagId, "published");
     if (chosen === "not_found") { res.status(400).json({ error: "gag_not_found", gagId: body.gagId }); return; }
-    const ev = validateEnrichment(chosen && factRow.enrichment && typeof factRow.enrichment === "object"
-      ? gagRenderInput(factRow.enrichment as FactEnrichment, chosen)
-      : factRow.enrichment);
+    const ev = validateGagRenderInput({ visualPromptStrategyOverride: chosen ?? undefined });
     if (!ev.ok) {
       res.status(400).json({ error: "fact_enrichment_invalid", details: ev.error });
       return;

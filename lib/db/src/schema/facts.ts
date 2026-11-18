@@ -91,22 +91,23 @@ export const factsTable = pgTable("facts", {
    */
   visualConceptOwner: varchar("visual_concept_owner", { length: 64 }),
   /**
-   * Set when this fact's submission was withdrawn because its wording needs
-   * replacing (migration 0141): the fact can never go live
-   * (facts_withdrawn_stays_inactive). RETIRED with Withdraw (Issue #1018,
-   * increment 1.2c-i): no longer written; dropped with its check by the stage
-   * cutover's contract migration (1.2c-ii).
-   */
-  wordingWithdrawnAt: timestamp("wording_withdrawn_at", { withTimezone: true }),
-  /**
    * The approved humor note (migration 0137, plan PLAN_GAG_GENERATOR.md): why
    * this fact is funny and what a picture must preserve, in plain prose that
-   * names the subject "Alex". Written only by a moderator's confirm or
-   * correction of a generated joke read; generation, enrichment and refresh
-   * never write it. Read by the gag writer on every later generation. Never
+   * names the subject "Alex". Written only by a moderator: approving the
+   * reading's draft at the Reading step (edited or not), or correcting it on
+   * the Gags step. The reading job writes only its draft, on its own run row
+   * (fact_readings). Read by the gag writer on every later generation. Never
    * shown to end users. Null until a moderator approves one.
    */
   humorNote: text("humor_note"),
+  /**
+   * The reading run the approved note was written from (migration 0155): the
+   * research shown beside the note is this run's, never a later re-run's
+   * (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1B). Null for a note approved before
+   * readings existed. No foreign key in drizzle's declaration to avoid an
+   * import cycle; the migration declares it (ON DELETE SET NULL).
+   */
+  humorNoteReadingId: integer("humor_note_reading_id"),
   /** Who approved the humor note; null when the account is deleted. */
   humorNoteApprovedBy: varchar("humor_note_approved_by").references(() => usersTable.id, { onDelete: "set null" }),
   humorNoteApprovedAt: timestamp("humor_note_approved_at", { withTimezone: true }),

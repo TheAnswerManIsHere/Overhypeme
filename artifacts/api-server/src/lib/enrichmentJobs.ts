@@ -15,7 +15,7 @@
  * handler outcome.
  */
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
   pendingReviewsTable,
@@ -33,10 +33,7 @@ import { recordOverrideHistory } from "./enrichmentOverrideHistory";
 import { currentProcessingSignatureFromConfig } from "./processingSignature";
 import { assertJobOwnership, fencedTransaction } from "./jobFence";
 import { renderCanonical } from "./renderCanonical";
-import {
-  advanceReviewForStagingFactEnrichment,
-  resolveGenericFactEnrichmentDecision,
-} from "./moderationStaging";
+import { resolveGenericFactEnrichmentDecision } from "./moderationStaging";
 import {
   RESUMES_FROM_CHECKPOINTS,
   registerJobHandler,
@@ -140,8 +137,8 @@ export async function runEnrichmentForFact(
     return { ok: false, error: `fact ${factId} not found` };
   }
 
-  // GENERIC-JOB GUARD (cost + isolation): run only for a live fact or an
-  // in-prep first-time staging cycle. Skips are retired as successful no-ops
+  // GENERIC-JOB GUARD (cost + isolation): run only for a live fact or a
+  // first-time staging cycle past triage. Skips are retired as successful no-ops
   // and touch NOTHING — in particular `refresh_candidate_in_review`, where a
   // stale generic job writing facts.* would corrupt an in-flight refresh whose
   // enrichment lives in the candidate VERSION row.
@@ -208,7 +205,7 @@ export async function runEnrichmentForFact(
       .select({ id: factsTable.id, text: factsTable.text, enrichmentOverrides: factsTable.enrichmentOverrides })
       .from(factsTable)
       .where(eq(factsTable.id, factId))
-      .for("update")
+      .for("no key update") // the lock rule's strength (lib/reviewLocks.ts)
       .limit(1);
     if (!locked) return false;
     const overrides = (locked.enrichmentOverrides ?? {}) as EnrichmentOverrides;
@@ -263,14 +260,8 @@ export async function runEnrichmentForFact(
         tx,
       );
     }
-    // Advance a linked staging review prep_pending → concept_review (Step 2)
-    // and queue its Visual-Idea draft, in this same commit (Issue #1000 §F):
-    // apart, a stop after the advance left the review past prep_pending with no
-    // job, and a resumed run skips it as `staging_prep_left`. No-op for a
-    // live-fact re-enrich (no linked review); refused for refresh cycles.
-    if (recheck.mode === "first_time_staging") {
-      await advanceReviewForStagingFactEnrichment({ factId, outcome: "success" }, tx);
-    }
+    // The taxonomy never moves a review or starts idea writing: it is stored
+    // data beside moderation (Issue #1018, increment 1.2c-ii).
     return true;
   });
   if (!wrote) return { ok: true }; // retired as a successful no-op — the new owner (e.g. a refresh cycle) has the fact
@@ -288,12 +279,13 @@ export const enrichmentJobHandler: JobHandler = {
     }
     return { ok: false, error: "enrichmentJob payload missing reviewId/factId" };
   },
-  // Terminal failure (retries exhausted): mark the linked cycle prep_failed so
-  // the moderator can retry or reject.
+  // Terminal failure (retries exhausted): the taxonomy is recorded as failed
+  // and blocks nothing; a review carries on without it.
   async onAbandon(row: AsyncJobRow): Promise<void> {
     const { factId } = (row.payload ?? {}) as EnrichmentJobPayload;
     if (typeof factId === "number") {
-      await advanceReviewForStagingFactEnrichment({ factId, outcome: "terminal_failed" });
+      await db.update(factsTable).set({ enrichmentStatus: "failed" })
+        .where(and(eq(factsTable.id, factId), eq(factsTable.enrichmentStatus, "pending")));
     }
   },
 };

@@ -242,7 +242,7 @@ describe("renders, counted per action", () => {
     factIds.push(f!.id);
     const [g] = await db.insert(factGagsTable).values({ factId: f!.id, slot: 1, pendingContent: scene("{NAME} a gag saved, then withdrawn.") }).returning({ id: factGagsTable.id });
     const [review] = await db.insert(pendingReviewsTable).values({
-      submittedText: "withdrawn", submittedById: adminId, status: "pending", workflowStage: "production_review",
+      submittedText: "withdrawn", submittedById: adminId, status: "pending", workflowStage: "test_renders",
       stagingFactId: f!.id, enrichment: buildPlaceholderFactEnrichment() as never, enrichmentStatus: "ok",
     }).returning({ id: pendingReviewsTable.id });
     const job = { factId: f!.id, gagId: g!.id, scopeReviewId: review!.id, adminUserId: adminId };
@@ -265,7 +265,7 @@ describe("renders, counted per action", () => {
   it("a live fact's queued iteration render is skipped once a refresh opens on it", async () => {
     const { factId, gagId } = await liveFact();
     const [review] = await db.insert(pendingReviewsTable).values({
-      submittedText: "refresh", submittedById: adminId, status: "pending", workflowStage: "concept_review",
+      submittedText: "refresh", submittedById: adminId, status: "pending", workflowStage: "gags",
       stagingFactId: factId, enrichment: buildPlaceholderFactEnrichment() as never, enrichmentStatus: "ok",
     }).returning({ id: pendingReviewsTable.id });
     const result = await reviewRenderScenariosPrepareHandler.run({ factId, gagId, scopeReviewId: null, adminUserId: adminId }, {} as never);

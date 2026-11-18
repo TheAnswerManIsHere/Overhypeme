@@ -151,7 +151,7 @@ export function createGlobalLimiter(overrides: GlobalRateLimiterOverrides = {}):
 export const FACT_SUBMIT_WINDOW_MS = parsePositiveInt(process.env.FACT_SUBMIT_WINDOW_MS, 60_000);
 export const FACT_SUBMIT_MAX = parsePositiveInt(process.env.FACT_SUBMIT_MAX, 5);
 // Max simultaneously-unresolved submissions a single user may have in the queue
-// (stages: triage_pending / prep_pending / prep_failed / production_review).
+// (stages: triage / reading / gags / test_renders).
 export const FACT_SUBMIT_PENDING_CAP = parsePositiveInt(process.env.FACT_SUBMIT_PENDING_CAP, 10);
 
 function rateLimitScope(req: Request): { ip: string; userId?: string } {
