@@ -1436,6 +1436,11 @@ components:
         reason:
           type: string
           nullable: true
+          description: The rejection reason code; set only once the submission is rejected.
+        adminNote:
+          type: string
+          nullable: true
+          description: The moderator's note to the submitter; set only once the submission is rejected.
 
     MyComment:
       type: object

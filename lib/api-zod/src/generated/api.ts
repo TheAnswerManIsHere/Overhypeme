@@ -604,7 +604,18 @@ export const GetMyProfileResponse = zod.object({
         status: zod.string(),
         hashtags: zod.array(zod.string()),
         createdAt: zod.string(),
-        reason: zod.string().nullish(),
+        reason: zod
+          .string()
+          .nullish()
+          .describe(
+            "The rejection reason code; set only once the submission is rejected.",
+          ),
+        adminNote: zod
+          .string()
+          .nullish()
+          .describe(
+            "The moderator's note to the submitter; set only once the submission is rejected.",
+          ),
       }),
     )
     .optional(),

@@ -12,6 +12,14 @@ export interface PendingSubmission {
   status: string;
   hashtags: string[];
   createdAt: string;
-  /** @nullable */
+  /**
+   * The rejection reason code; set only once the submission is rejected.
+   * @nullable
+   */
   reason?: string | null;
+  /**
+   * The moderator's note to the submitter; set only once the submission is rejected.
+   * @nullable
+   */
+  adminNote?: string | null;
 }

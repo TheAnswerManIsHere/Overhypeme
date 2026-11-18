@@ -148,6 +148,7 @@ router.get("/users/me", async (req: Request, res: Response) => {
     hashtags: pendingReviewsTable.hashtags,
     createdAt: pendingReviewsTable.createdAt,
     reason: pendingReviewsTable.reason,
+    adminNote: pendingReviewsTable.adminNote,
   }).from(pendingReviewsTable).where(eq(pendingReviewsTable.submittedById, userId)).orderBy(desc(pendingReviewsTable.createdAt)).limit(50);
   const likedRatings = await db.select({ factId: reactionsTable.targetId }).from(reactionsTable)
     .where(and(
@@ -238,7 +239,11 @@ router.get("/users/me", async (req: Request, res: Response) => {
       status: r.status,
       hashtags: r.hashtags ?? [],
       createdAt: r.createdAt.toISOString(),
-      reason: r.reason ?? null,
+      // The rejection details are the submitter's only once the review is
+      // rejected: before that, both columns hold the moderator's autosaved
+      // draft (PATCH /admin/reviews/:id), which is not theirs to read.
+      reason: r.status === "rejected" ? (r.reason ?? null) : null,
+      adminNote: r.status === "rejected" ? (r.adminNote ?? null) : null,
     })),
     likedFacts: likedSummaries,
     favoriteHashtags,
