@@ -92,6 +92,69 @@ describe("the daily maintenance run", () => {
     assert.deepEqual(ran, MAINTENANCE_JOB_NAMES.filter((n) => n !== "retention-windows"));
   });
 
+  // Review round 1 on PR #1044: three jobs report failure in what they
+  // return rather than by throwing, and the run must not call that success.
+  describe("a job that reports failure in its result", () => {
+    const allOk = () => Object.fromEntries(MAINTENANCE_JOB_NAMES.map((n) => [n, async () => ({})]));
+    const zero = { selected: 0, purged: 0, skipped: 0, failed: 0 };
+    const failing: Array<[string, (typeof MAINTENANCE_JOB_NAMES)[number], unknown]> = [
+      ["a content-purge row it could not purge", "content-purge", { photos: zero, generated: { ...zero, failed: 2 }, memes: zero }],
+      ["an account-deletion step that failed", "account-deletion", { opened: 0, selected: 1, advanced: 0, purged: 0, held: 0, failed: 1 }],
+      ["an incomplete backup capture", "media-backup", "incomplete"],
+      ["a backup that is not configured", "media-backup", "skipped: the media backup is not configured"],
+      ["a backup with no storage to copy", "media-backup", "skipped: PRIVATE_OBJECT_DIR is not set"],
+    ];
+    for (const [what, job, result] of failing) {
+      it(`fails the job and the run on ${what}, keeping the result and running the rest`, async () => {
+        const ran: string[] = [];
+        const runners = Object.fromEntries(MAINTENANCE_JOB_NAMES.map((n) => [n, async () => { ran.push(n); return n === job ? result : {}; }]));
+        const run = await runDailyMaintenance(runners);
+        assert.equal(run.ok, false);
+        const outcome = run.jobs.find((j) => j.job === job)!;
+        assert.equal(outcome.ok, false);
+        assert.deepEqual(outcome.result, result);
+        assert.ok(outcome.error && outcome.error.length > 5, "a plain reason");
+        assert.deepEqual(ran, [...MAINTENANCE_JOB_NAMES]);
+        assert.ok(run.jobs.filter((j) => j.job !== job).every((j) => j.ok));
+      });
+    }
+
+    const benign: Array<[string, (typeof MAINTENANCE_JOB_NAMES)[number], unknown]> = [
+      ["content purged with some rows skipped", "content-purge", { photos: { ...zero, skipped: 3 }, generated: zero, memes: { ...zero, purged: 1 } }],
+      ["an account deletion on hold", "account-deletion", { opened: 0, selected: 1, advanced: 0, purged: 0, held: 1, failed: 0 }],
+      ["a recent backup pair", "media-backup", "skipped: pair abc is recent"],
+      ["another instance capturing", "media-backup", "skipped: another instance is capturing"],
+      ["a completed capture", "media-backup", "completed"],
+      ["the development server", "media-backup", "skipped: not the published deployment"],
+      ["a rate-limit backlog left for tomorrow", "rate-limit-counters", { deleted: 100, runs: 10, budgetExhausted: true }],
+    ];
+    for (const [what, job, result] of benign) {
+      it(`counts ${what} as success`, async () => {
+        const runners = { ...allOk(), [job]: async () => result };
+        const run = await runDailyMaintenance(runners);
+        assert.equal(run.jobs.find((j) => j.job === job)!.ok, true);
+        assert.equal(run.ok, true);
+      });
+    }
+  });
+
+  it("the endpoint answers 500, with each job, when a job reports failure in its result", async () => {
+    // In the published deployment with no backup configured (as in tests),
+    // the media backup answers that it cannot run: a real returned failure.
+    process.env.REPLIT_DEPLOYMENT = "1";
+    try {
+      const app = buildTestApp({ kind: "unauthenticated" }, jobsRouter);
+      const res = await request(app).post("/api/jobs/maintenance").set("x-cron-secret", process.env.CRON_SECRET!);
+      assert.equal(res.status, 500, JSON.stringify(res.body));
+      assert.equal(res.body.ok, false);
+      const backup = res.body.jobs.find((j: { job: string }) => j.job === "media-backup");
+      assert.equal(backup.ok, false);
+      assert.match(backup.error, /cannot run/);
+    } finally {
+      delete process.env.REPLIT_DEPLOYMENT;
+    }
+  });
+
   it("the endpoint refuses a caller without the secret, including a wrong one of the same length", async () => {
     const app = buildTestApp({ kind: "unauthenticated" }, jobsRouter);
     assert.equal((await request(app).post("/api/jobs/maintenance")).status, 403);

@@ -52,70 +52,155 @@ export type MaintenanceJobName = (typeof MAINTENANCE_JOB_NAMES)[number];
 
 type JobRunner = () => Promise<unknown>;
 
-const JOBS: Record<MaintenanceJobName, JobRunner> = {
-  "expired-sessions": async () => (await import("./sessionSweep")).sweepExpiredSessions(),
-  "expired-sign-in-states": async () => {
+/**
+ * A job's own judgement of its result: a plain reason when the work it was
+ * due to do did not happen, or null when it did. Every job states one, so a
+ * job added later has to say what its failure looks like.
+ *
+ * Why it exists: the cleanups were written for the hourly timers, where
+ * catching a failed item and leaving it for the next run is right, so several
+ * of them report failure in what they return rather than by throwing. A throw
+ * is always a failure on top of this.
+ */
+type FailureJudge = (result: unknown) => string | null;
+
+const NEVER_FAILS_BY_RESULT: FailureJudge = () => null;
+
+interface CountsLike { failed?: number }
+
+/** The content purge: a row it could not purge, per kind (photos, generated images, memes). */
+const contentPurgeFailure: FailureJudge = (result) => {
+  const r = (result ?? {}) as Record<string, CountsLike | undefined>;
+  const failed = (["photos", "generated", "memes"] as const)
+    .map((kind) => [kind, r[kind]?.failed ?? 0] as const)
+    .filter(([, n]) => n > 0);
+  return failed.length ? `could not purge ${failed.map(([k, n]) => `${n} ${k}`).join(", ")}` : null;
+};
+
+/** The account-deletion worker: a request it could not schedule or advance. A hold is not a failure. */
+const accountDeletionFailure: FailureJudge = (result) => {
+  const failed = (result as CountsLike | undefined)?.failed ?? 0;
+  return failed > 0 ? `${failed} account deletion step(s) failed` : null;
+};
+
+/**
+ * The media backup, which this run calls only in the published deployment:
+ * an incomplete capture fails, and so do the two answers that there mean the
+ * backup cannot run at all (the state in which every storage delete is also
+ * refused). Another instance capturing, or a recent pair, is someone else
+ * having done the work.
+ */
+const mediaBackupFailure: FailureJudge = (result) => {
+  if (result === "incomplete") return "the backup capture was incomplete";
+  if (result === "skipped: the media backup is not configured" || result === "skipped: PRIVATE_OBJECT_DIR is not set") {
+    return `the backup cannot run (${String(result).replace(/^skipped: /, "")})`;
+  }
+  return null;
+};
+
+interface MaintenanceJob {
+  run: JobRunner;
+  failure: FailureJudge;
+}
+
+const JOBS: Record<MaintenanceJobName, MaintenanceJob> = {
+  "expired-sessions": {
+    run: async () => (await import("./sessionSweep")).sweepExpiredSessions(),
+    failure: NEVER_FAILS_BY_RESULT,
+  },
+  "expired-sign-in-states": {
     // A Google or Apple sign-in's ten-minute state; the auth router also
     // sweeps it every five minutes while the process is up.
-    const { db, oauthPendingStatesTable } = await import("@workspace/db");
-    const { lt } = await import("drizzle-orm");
-    const rows = await db.delete(oauthPendingStatesTable).where(lt(oauthPendingStatesTable.expiresAt, new Date())).returning({ state: oauthPendingStatesTable.state });
-    return { deleted: rows.length };
+    run: async () => {
+      const { db, oauthPendingStatesTable } = await import("@workspace/db");
+      const { lt } = await import("drizzle-orm");
+      const rows = await db.delete(oauthPendingStatesTable).where(lt(oauthPendingStatesTable.expiresAt, new Date())).returning({ state: oauthPendingStatesTable.state });
+      return { deleted: rows.length };
+    },
+    failure: NEVER_FAILS_BY_RESULT,
   },
-  "retention-windows": async () => (await import("./dataLifecycle")).runRetentionWindowJobs(),
-  "finished-jobs": async () => {
+  "retention-windows": {
+    run: async () => (await import("./dataLifecycle")).runRetentionWindowJobs(),
+    failure: NEVER_FAILS_BY_RESULT,
+  },
+  "finished-jobs": {
     // Background jobs' finished rows past each queue's window (they carry
     // what the job was given: an email job its recipient). The worker's own
     // tick does the same while the process is up.
-    const { db } = await import("@workspace/db");
-    const { getRegisteredQueues, purgeTerminalJobs } = await import("./asyncJobs");
-    const deleted: Record<string, number> = {};
-    for (const queue of getRegisteredQueues()) deleted[queue] = await purgeTerminalJobs(db, queue);
-    return { deleted };
+    run: async () => {
+      const { db } = await import("@workspace/db");
+      const { getRegisteredQueues, purgeTerminalJobs } = await import("./asyncJobs");
+      const deleted: Record<string, number> = {};
+      for (const queue of getRegisteredQueues()) deleted[queue] = await purgeTerminalJobs(db, queue);
+      return { deleted };
+    },
+    failure: NEVER_FAILS_BY_RESULT,
   },
-  "transient-renders": async () => (await import("../jobs/transientRenderPurger")).runTransientRenderPurger(),
-  "image-provenance": async () => (await import("../jobs/provenanceRetentionPurger")).runProvenanceRetentionPurge(),
-  "rate-limit-counters": async () => {
+  "transient-renders": {
+    run: async () => (await import("../jobs/transientRenderPurger")).runTransientRenderPurger(),
+    failure: NEVER_FAILS_BY_RESULT,
+  },
+  "image-provenance": {
+    run: async () => (await import("../jobs/provenanceRetentionPurger")).runProvenanceRetentionPurge(),
+    failure: NEVER_FAILS_BY_RESULT,
+  },
+  "rate-limit-counters": {
     // One run is budget-bounded; a daily call keeps going until the backlog
     // is drained or ten runs have passed, which the hourly timer's one-minute
-    // follow-up does on a busy site.
-    const { runRateLimitCounterPurger } = await import("../jobs/rateLimitCounterPurger");
-    let deleted = 0;
-    let runs = 0;
-    let budgetExhausted = true;
-    while (budgetExhausted && runs < 10) {
-      const r = await runRateLimitCounterPurger();
-      deleted += r.deleted;
-      budgetExhausted = r.budgetExhausted;
-      runs += 1;
-    }
-    return { deleted, runs, budgetExhausted };
+    // follow-up does on a busy site. A budget left over continues tomorrow.
+    run: async () => {
+      const { runRateLimitCounterPurger } = await import("../jobs/rateLimitCounterPurger");
+      let deleted = 0;
+      let runs = 0;
+      let budgetExhausted = true;
+      while (budgetExhausted && runs < 10) {
+        const r = await runRateLimitCounterPurger();
+        deleted += r.deleted;
+        budgetExhausted = r.budgetExhausted;
+        runs += 1;
+      }
+      return { deleted, runs, budgetExhausted };
+    },
+    failure: NEVER_FAILS_BY_RESULT,
   },
-  "content-purge": async () => (await import("../jobs/contentPurger")).runContentPurger(),
-  "account-deletion": async () => (await import("./accountDeletion")).runAccountDeletionWorker(),
-  "media-backup": async () => {
+  "content-purge": {
+    run: async () => (await import("../jobs/contentPurger")).runContentPurger(),
+    failure: contentPurgeFailure,
+  },
+  "account-deletion": {
+    run: async () => (await import("./accountDeletion")).runAccountDeletionWorker(),
+    failure: accountDeletionFailure,
+  },
+  "media-backup": {
     // As its hourly scheduler does, only in the published deployment; the
     // capture runs the backup's expiry itself.
-    if (process.env.REPLIT_DEPLOYMENT !== "1") return "skipped: not the published deployment";
-    return (await import("../jobs/mediaBackupJob")).runScheduledMediaBackup();
+    run: async () => {
+      if (process.env.REPLIT_DEPLOYMENT !== "1") return "skipped: not the published deployment";
+      return (await import("../jobs/mediaBackupJob")).runScheduledMediaBackup();
+    },
+    failure: mediaBackupFailure,
   },
 };
 
 /**
- * Runs every job in order. One job's failure is recorded and the rest still
- * run; the run is `ok` only when every job was.
+ * Runs every job in order. A job fails when it throws or when its own
+ * judgement of its result says the work did not happen; either way its
+ * outcome is recorded and the rest still run. The run is `ok` only when every
+ * job was. `runners` replaces a job's runner (tests); its judgement still
+ * applies.
  */
 export async function runDailyMaintenance(
-  jobs: Partial<Record<MaintenanceJobName, JobRunner>> = {},
+  runners: Partial<Record<MaintenanceJobName, JobRunner>> = {},
 ): Promise<MaintenanceRun> {
   const startedAt = new Date();
   const outcomes: MaintenanceJobOutcome[] = [];
   for (const job of MAINTENANCE_JOB_NAMES) {
-    const run = jobs[job] ?? JOBS[job];
+    const run = runners[job] ?? JOBS[job].run;
     const t0 = Date.now();
     try {
       const result = await run();
-      outcomes.push({ job, ok: true, ms: Date.now() - t0, result });
+      const reason = JOBS[job].failure(result);
+      outcomes.push(reason ? { job, ok: false, ms: Date.now() - t0, result, error: reason } : { job, ok: true, ms: Date.now() - t0, result });
     } catch (err) {
       outcomes.push({ job, ok: false, ms: Date.now() - t0, error: err instanceof Error ? err.message.slice(0, 300) : String(err) });
     }
@@ -126,7 +211,7 @@ export async function runDailyMaintenance(
     finishedAt: new Date().toISOString(),
     jobs: outcomes,
   };
-  const failed = outcomes.filter((o) => !o.ok).map((o) => ({ job: o.job, error: o.error }));
+  const failed = outcomes.filter((o) => !o.ok).map((o) => ({ job: o.job, error: o.error, result: o.result }));
   if (out.ok) logger.info({ jobs: outcomes.map((o) => ({ job: o.job, ms: o.ms })) }, "[maintenance] daily run completed");
   else logger.error({ failed }, "[maintenance] daily run had failures");
   return out;
