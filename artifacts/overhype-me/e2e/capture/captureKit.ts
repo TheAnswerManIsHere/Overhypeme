@@ -18,6 +18,7 @@
  * with no vendor key, so a capture can reach neither a paid vendor nor a
  * deployed environment.
  */
+import { dismissedNoticesState } from "../helpers/dismissedNotices";
 import { createHash } from "node:crypto";
 import { execSync } from "node:child_process";
 import fs from "node:fs";
@@ -87,8 +88,9 @@ export async function ensureFreeSession(browser: Browser, baseURL: string): Prom
   if (freeSessionMade) return; // a file left by an earlier run may name a server that is gone
   fs.mkdirSync(path.dirname(FREE_SESSION), { recursive: true });
   // The spec's storageState option applies to this context too, so start it
-  // from an empty session rather than whatever an earlier run left.
-  fs.writeFileSync(FREE_SESSION, JSON.stringify({ cookies: [], origins: [] }));
+  // from a fresh session rather than whatever an earlier run left: no
+  // cookies, and the analytics notice already dismissed, as every test starts.
+  fs.writeFileSync(FREE_SESSION, JSON.stringify(dismissedNoticesState(baseURL)));
   const context = await browser.newContext({ baseURL });
   await signInFree(context);
   await context.storageState({ path: FREE_SESSION });

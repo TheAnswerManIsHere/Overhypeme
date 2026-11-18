@@ -1,4 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600;700&display=swap');
+/* Inter and Oswald are self-hosted (main.tsx imports @fontsource): no request
+   leaves the site for a typeface (launch Phase 14, increment 2). */
 @import "tailwindcss";
 
 @theme inline {

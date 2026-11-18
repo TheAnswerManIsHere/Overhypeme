@@ -22,6 +22,7 @@ import { factDetail, memeDetail, memeItem, stubPublicFacts } from "./helpers/api
 import { brandOrangeRgb } from "./helpers/brandTokens";
 import { FREE_ACCOUNT, TEST_ACCOUNT_PASSWORD, signInThroughForm } from "./helpers/testAccounts";
 import { seedIdentity } from "./helpers/identity";
+import { ANALYTICS_NOTICE_STORAGE } from "./helpers/dismissedNotices";
 
 const DESKTOP = { width: 1280, height: 900 };
 
@@ -234,5 +235,59 @@ test.describe("Public described screens", () => {
   test("/hashtags is the not-found page", async ({ page }) => {
     await page.goto("/hashtags");
     await expect(page.getByRole("heading", { name: /page not found/i })).toBeVisible();
+  });
+
+  // Launch Phase 14, increment 1: the four legal pages are reachable from every
+  // page on a phone, and each shows its version and the counsel note.
+  test("the footer links to the four legal pages on a phone, and each page renders", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await stubPublicFacts(page, { facts: [factDetail({ id: 571, text: "{NAME} read the fine print. It blinked." })] });
+    await page.goto("/");
+    const legal = page.getByRole("navigation", { name: "Legal" });
+    for (const name of ["Terms of Service", "Privacy Policy", "Copyright Policy", "Community Guidelines"]) {
+      await legal.getByRole("link", { name }).scrollIntoViewIfNeeded();
+      await expect(legal.getByRole("link", { name })).toBeVisible();
+    }
+    const pages: Array<[string, string]> = [
+      ["/terms", "Terms of Service"],
+      ["/privacy", "Privacy Policy"],
+      ["/copyright", "Copyright Policy"],
+      ["/guidelines", "Community Guidelines"],
+    ];
+    for (const [path, title] of pages) {
+      await page.goto(path);
+      await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible();
+      await expect(page.getByTestId("legal-version")).toHaveText(/^Version \d{4}-\d{2}-\d{2}/);
+      await expect(page.getByTestId("legal-counsel-note")).toBeVisible();
+      // Readable before anything is asked: no name sheet over a legal page.
+      await expect(page.getByText("What's your name?", { exact: false })).toHaveCount(0);
+    }
+    await page.goto("/terms");
+    await expect(page.getByText("Availeron Consulting, Inc.", { exact: false }).first()).toBeVisible();
+
+    // A screen outside the shared layout carries the links too.
+    await page.goto("/no-such-page");
+    await expect(page.getByRole("navigation", { name: "Legal" }).getByRole("link", { name: "Privacy Policy" })).toBeVisible();
+  });
+});
+
+// Launch Phase 14, increment 2: a first-time visitor sees the analytics notice
+// once; "Got it" stores the value every other test starts from, so this test
+// also proves e2e/helpers/dismissedNotices.ts still matches the component.
+test.describe("Analytics notice", () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
+
+  test("shows once to a new visitor, links to Privacy, and stays dismissed after Got it", async ({ page }) => {
+    await stubPublicFacts(page, { facts: [factDetail({ id: 572, text: "{NAME} counted the visitors. All of them." })] });
+    await page.goto("/");
+    const notice = page.getByTestId("analytics-notice");
+    await expect(notice).toBeVisible();
+    await expect(notice.getByRole("link", { name: "Privacy Policy" })).toHaveAttribute("href", "/privacy");
+    await notice.getByRole("button", { name: "Got it" }).click();
+    await expect(notice).toHaveCount(0);
+    expect(await page.evaluate((k) => localStorage.getItem(k), ANALYTICS_NOTICE_STORAGE.name)).toBe(ANALYTICS_NOTICE_STORAGE.value);
+    await page.reload();
+    await expect(page.getByRole("navigation", { name: "Legal" })).toBeAttached();
+    await expect(page.getByTestId("analytics-notice")).toHaveCount(0);
   });
 });

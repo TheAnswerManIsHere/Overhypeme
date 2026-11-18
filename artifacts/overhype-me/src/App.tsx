@@ -4,12 +4,14 @@ import { AccountIdentityMirror } from "@/components/auth/AccountIdentityMirror";
 import { lazyWithRetry as lazy } from "@/lib/lazy-retry";
 import { Switch, Route, Router as WouterRouter, useLocation, useSearch } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Sentry } from "@/lib/sentry";
+import { Sentry, sentryUserFor } from "@/lib/sentry";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { trackPageView, trackRouteVisit, getTopRoutes } from "@/lib/analytics";
 import { PersonNameProvider } from "@/hooks/use-person-name";
 import { WelcomeModal } from "@/components/WelcomeModal";
+import { LEGAL_SLUGS } from "@/generated/legal";
+import { AnalyticsNotice } from "@/components/legal/AnalyticsNotice";
 import { PendingActionRunner, ShareLinkResolver } from "@/hooks/use-identity-gate";
 import { clearAllWizardStates } from "@/components/meme-builder/wizard/state/wizardStorage";
 import { FactExpansionProvider } from "@/contexts/fact-expansion-context";
@@ -27,6 +29,7 @@ const Onboard = lazy(() => import("@/pages/Onboard"));
 const CheckEmail = lazy(() => import("@/pages/CheckEmail"));
 const AccountDeletion = lazy(() => import("@/pages/AccountDeletion"));
 const AccountSuspended = lazy(() => import("@/pages/AccountSuspended"));
+const LegalPage = lazy(() => import("@/pages/Legal"));
 const AdminDashboard = lazy(() => import("@/pages/admin/index"));
 const AdminFacts = lazy(() => import("@/pages/admin/facts"));
 const AdminUsers = lazy(() => import("@/pages/admin/users"));
@@ -43,6 +46,7 @@ const AdminFeatures = lazy(() => import("@/pages/admin/features"));
 const AdminAiSettings = lazy(() => import("@/pages/admin/aiSettings"));
 const AdminEmailQueue = lazy(() => import("@/pages/admin/emailQueue"));
 const AdminQueueHealth = lazy(() => import("@/pages/admin/queueHealth"));
+const AdminOperations = lazy(() => import("@/pages/admin/operations"));
 const AdminHelp = lazy(() => import("@/pages/admin/help"));
 const ActivityFeed = lazy(() => import("@/pages/ActivityFeed"));
 const MemePage = lazy(() => import("@/pages/MemePage"));
@@ -85,25 +89,12 @@ function AuthProfileSync() {
   const { isAuthenticated, isLoading, user } = useAuth();
   const prevAuthRef = useRef<boolean | null>(null);
 
-  // Keep Sentry's user scope in sync with the auth state.
-  // ID is used for error events; name + email are also set so the feedback
-  // widget pre-populates its fields for logged-in users.
+  // Keep Sentry's user scope in sync with the auth state: the account id only
+  // (launch Phase 14, increment 2; the Privacy page describes it).
   useEffect(() => {
     if (isLoading) return;
-    if (isAuthenticated && user?.id) {
-      // "First Last (DisplayName)", so the feedback widget pre-fills the name.
-      const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ");
-      const displayName = (user as { displayName?: string | null }).displayName ?? "";
-      const name = (fullName && displayName ? `${fullName} (${displayName})` : fullName || displayName) || undefined;
-      Sentry.setUser({
-        id: user.id,
-        email: user.email ?? undefined,
-        name,
-      });
-    } else {
-      Sentry.setUser(null);
-    }
-  }, [isAuthenticated, isLoading, user?.id, user?.email, user?.firstName, user?.lastName, (user as { displayName?: string | null } | null)?.displayName]);
+    Sentry.setUser(isAuthenticated ? sentryUserFor(user) : null);
+  }, [isAuthenticated, isLoading, user?.id]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -290,6 +281,7 @@ function Router() {
         <Route path="/admin/features" component={AdminFeatures} />
         <Route path="/admin/email-queue" component={AdminEmailQueue} />
         <Route path="/admin/queue-health" component={AdminQueueHealth} />
+        <Route path="/admin/operations" component={AdminOperations} />
         <Route path="/admin/help/:chapter" component={AdminHelp} />
         <Route path="/admin/help" component={AdminHelp} />
         <Route path="/admin" component={AdminDashboard} />
@@ -303,10 +295,14 @@ function Router() {
         <Route path="/forgot-password" component={ForgotPassword} />
         <Route path="/reset-password" component={ResetPassword} />
         <Route path="/verify-email" component={VerifyEmail} />
+        {LEGAL_SLUGS.map((slug) => (
+          <Route key={slug} path={`/${slug}`}>{() => <LegalPage slug={slug} />}</Route>
+        ))}
         <Route component={NotFound} />
       </Switch>
       </Suspense>
       <WelcomeModal />
+      <AnalyticsNotice />
     </>
   );
 }
