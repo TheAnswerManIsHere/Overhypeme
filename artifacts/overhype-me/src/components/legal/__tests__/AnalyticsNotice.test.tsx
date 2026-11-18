@@ -49,3 +49,25 @@ describe("what leaves the browser", () => {
     }
   });
 });
+
+// Launch Phase 16, increment 3 (amendment 2): the notice and the Privacy page
+// name exactly the providers the network log shows, and no recordings.
+describe("the disclosures match what is sent", () => {
+  it("the notice names Google Analytics, PostHog and Sentry, and says no recordings are made of the page", () => {
+    window.localStorage.clear();
+    render(<AnalyticsNotice />);
+    const text = screen.getByTestId("analytics-notice").textContent ?? "";
+    expect(text).toContain("Google Analytics and PostHog");
+    expect(text).toContain("without sending them the names you type or what you search for");
+    expect(text).toContain("We use Sentry to find problems");
+    expect(text).not.toMatch(/record/i);
+    expect(ANALYTICS_NOTICE_KEY).toBe("overhype.analyticsNotice.v2");
+  });
+
+  it("the Privacy page lists PostHog and no longer describes recordings of visits", async () => {
+    const { html } = await import("@/generated/legal/privacy");
+    expect(html).toContain("<td>PostHog</td>");
+    expect(html).toContain("Our analytics providers, Google Analytics and PostHog");
+    expect(html).not.toMatch(/recordings? of some visits|records some visits/);
+  });
+});

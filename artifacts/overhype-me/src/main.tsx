@@ -1,8 +1,8 @@
 // First: in development, take the preview key out of the page address before
 // error monitoring starts and could record it (launch Phase 14, increment 3).
 import { devPreviewKey, DEV_PREVIEW_HEADER } from "./lib/devPreviewUnlock";
-// Sentry init must run before App is imported so it can capture render errors.
-import "./lib/sentry";
+// Telemetry must start before App renders so error monitoring can capture render errors.
+import { startTelemetry } from "./lib/telemetry";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "@fontsource/inter/400.css";
@@ -63,5 +63,7 @@ window.fetch = function (input, init) {
 
   return _originalFetch(input, init);
 };
+
+startTelemetry();
 
 createRoot(document.getElementById("root")!).render(<App />);

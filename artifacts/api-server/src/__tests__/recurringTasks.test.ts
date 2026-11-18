@@ -24,6 +24,8 @@ import {
   beginTaskMonitoring,
   taskHealth,
   taskLane,
+  nextRunDelayMs,
+  RETRY_AFTER_FAILURE_MS,
   __resetTaskRecordThrottleForTest,
 } from "../lib/recurringTasks.js";
 import { laneHealth } from "../lib/queueHealth.js";
@@ -77,6 +79,49 @@ describe("the recurring-task inventory", () => {
 
   it("every task's row fits the lane column", () => {
     for (const task of RECURRING_TASKS) assert.ok(taskLane(task.id).length <= 32, task.id);
+  });
+});
+
+// The phone alert of 2026-11-18: the hourly session sweep failed once on a
+// production database that timed out, waited the full hour to try again, and
+// the health check called the site down for half an hour. A single failed run
+// is not a stopped task; every task but the ones that say why must try again
+// soon enough that one failure never makes it overdue.
+describe("one failed run never makes a task overdue", () => {
+  it("retries after a failure, and keeps the cadence after a success", () => {
+    const HOUR = 60 * 60 * 1000;
+    assert.equal(nextRunDelayMs(true, HOUR), HOUR);
+    assert.equal(nextRunDelayMs(false, HOUR), RETRY_AFTER_FAILURE_MS);
+    // Never later than the cadence itself.
+    assert.equal(nextRunDelayMs(false, 20_000), 20_000);
+  });
+
+  it("fits a retry inside every task's grace, unless the task says why it does not retry", async () => {
+    for (const task of RECURRING_TASKS) {
+      if ("noRetryAfterFailure" in task) {
+        assert.ok(task.noRetryAfterFailure.length > 20, `${task.id} must say why it does not retry`);
+        continue;
+      }
+      const cadence = await task.cadenceMs();
+      assert.ok(
+        nextRunDelayMs(false, cadence) < task.graceMs,
+        `${task.id}: a retry after one failure (${nextRunDelayMs(false, cadence)} ms) must land inside its grace (${task.graceMs} ms)`,
+      );
+    }
+  });
+
+  it("every hourly scheduler waits the retry delay, not the full hour, after a failure", () => {
+    // The schedulers are closures in index.ts and membershipSchedules.ts; this
+    // pins that each one routes its next delay through nextRunDelayMs, so a new
+    // or edited scheduler that hard-codes the hour again fails here.
+    const index = readFileSync(join(SRC, "index.ts"), "utf8");
+    for (const hardCoded of ["schedule(HOURLY_MS);", "schedule(60 * 60 * 1000);"]) {
+      assert.ok(!index.includes(hardCoded), `index.ts reschedules with ${hardCoded} regardless of failure`);
+    }
+    assert.ok(!/setInterval\(/.test(index), "index.ts has a setInterval, which cannot retry a failed run early");
+    const membership = readFileSync(join(SRC, "lib/membershipSchedules.ts"), "utf8");
+    assert.ok(membership.includes("nextRunDelayMs(ok, intervalMs)"), "the grace sweep must retry a failed run early");
+    assert.ok(!/setInterval\(/.test(membership), "the grace sweep must not run on a fixed interval");
   });
 });
 

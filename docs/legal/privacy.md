@@ -1,6 +1,6 @@
 ---
 title: Privacy Policy
-version: 2026-11-18.2
+version: 2026-11-18.3
 summary: What we collect, why, who receives it, how long we keep it, and your choices.
 ---
 
@@ -13,7 +13,7 @@ Overhype.me is offered only in the places listed in our [Terms](/terms) and only
 **When you browse, signed in or not**
 
 - **Technical information**: your IP address, browser and device type, the pages you visit, and when. Our hosting and security providers process this to deliver and protect the site.
-- **How you use the site, for fixing errors.** Our error-monitoring provider records some visits, and every visit in which an error happens: the layout of the page and how it was used, with everything you type and all text on the page hidden. It also receives error details and page-speed measurements. A notice tells you this the first time you visit.
+- **How you use the site.** Our analytics providers, Google Analytics and PostHog, receive the pages you visit and the steps you take, such as personalising a fact, making a meme or signing up, with a random identifier and, if you are signed in, your account ID. They do not receive your name, your email address, the names you type or what you search for. Our error-monitoring provider receives error details and page-speed measurements. A notice tells you this the first time you visit.
 - **Your approximate location** (country), worked out from your IP address by our network provider. We use it to decide which marketing-email default to show you and, as described in our Terms, where the Service is offered.
 - **Names you type to personalise facts** are kept in your browser, and sent to our servers when they are needed to show or make something with them.
 
@@ -51,8 +51,9 @@ We share personal information only with the providers that run parts of the Serv
 | Project Arachnid (Canadian Centre for Child Protection) | Detects known child sexual abuse material | Uploaded images |
 | Stripe | Payments | Your email, account reference and purchases |
 | Resend | Sends email | Your email address and the message |
-| Sentry | Finds and diagnoses errors in the site | Error details and page-speed measurements; recordings of some visits and of every visit with an error, with all text and everything you type hidden; for signed-in members, your account ID; and anything you send through its feedback button |
-| Google Analytics | Counts visits | Your IP address, pages visited and device information, with a random identifier |
+| Sentry | Finds and diagnoses errors in the site | Error details and page-speed measurements; for signed-in members, your account ID; and anything you send through its feedback button |
+| Google Analytics | Counts visits and the steps visitors take | Your IP address, pages visited, steps taken and device information, with a random identifier and, for signed-in members, your account ID |
+| PostHog | Shows how visitors move through the site | Your IP address, pages visited, steps taken and device information, with a random identifier and, for signed-in members, your account ID |
 | Google and Apple | Sign-in, if you choose them | What you approve in their sign-in screen |
 
 We also disclose information when the law requires it, to protect people from harm, in connection with a sale or reorganisation of the business, or with your permission.

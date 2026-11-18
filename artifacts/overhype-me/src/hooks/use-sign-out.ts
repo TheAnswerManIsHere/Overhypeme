@@ -6,13 +6,18 @@ import { useCallback } from "react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { usePersonName } from "@/hooks/use-person-name";
 import { clearAllWizardStates } from "@/components/meme-builder/wizard/state/wizardStorage";
+import { forgetPersonalise, resetIdentity } from "@/lib/analytics";
 
-/** Clears this browser's copy of who the person is (name, pronouns) and their meme-builder drafts. */
+/** Clears this browser's copy of who the person is (name, pronouns), their meme-builder drafts and the analytics identity. */
 export function useForgetThisBrowser(): () => void {
   const { reset } = usePersonName();
   return useCallback(() => {
     reset();
     clearAllWizardStates();
+    // Analytics forget the member too, before the sign-out's redirect replaces
+    // the page (launch Phase 16, increment 3).
+    resetIdentity();
+    forgetPersonalise();
   }, [reset]);
 }
 

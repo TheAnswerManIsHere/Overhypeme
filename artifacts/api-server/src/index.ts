@@ -18,7 +18,7 @@ import { runMigrations } from "@workspace/db";
 import { backfillEmbeddings } from "./lib/embeddings";
 import { refreshPricingCache } from "./lib/falPricing";
 import { getConfigString, getConfigInt } from "./lib/adminConfig";
-import { beginTaskMonitoring, recordTaskCompleted } from "./lib/recurringTasks";
+import { beginTaskMonitoring, nextRunDelayMs, recordTaskCompleted } from "./lib/recurringTasks";
 import { attachShutdownHandlers } from "./shutdown";
 import { registerEmailHandler } from "./lib/email.js";
 import { registerEnrichmentJobHandlers } from "./lib/enrichmentJobs.js";
@@ -146,16 +146,25 @@ async function initPricingCache(): Promise<void> {
   } catch (err) {
     logger.warn({ err }, "fal.ai pricing refresh interval unreadable — using one hour");
   }
-  setInterval(async () => {
-    try {
-      const ids = await resolveActiveEndpoints();
-      await refreshPricingCache(ids);
-      logger.info({ count: ids.length }, "fal.ai pricing cache refreshed");
-      void recordTaskCompleted("pricing_refresh");
-    } catch (err) {
-      logger.warn({ err }, "fal.ai pricing cache refresh failed");
-    }
-  }, intervalMs).unref();
+  // A failed refresh tries again in minutes rather than waiting the full
+  // interval, so one provider or database blip never reads as a stopped task
+  // on the health check (recurringTasks.ts, RETRY_AFTER_FAILURE_MS).
+  const schedule = (delayMs: number) => {
+    setTimeout(async () => {
+      let ok = false;
+      try {
+        const ids = await resolveActiveEndpoints();
+        await refreshPricingCache(ids);
+        logger.info({ count: ids.length }, "fal.ai pricing cache refreshed");
+        void recordTaskCompleted("pricing_refresh");
+        ok = true;
+      } catch (err) {
+        logger.warn({ err }, "fal.ai pricing cache refresh failed");
+      }
+      schedule(nextRunDelayMs(ok, intervalMs));
+    }, delayMs).unref();
+  };
+  schedule(intervalMs);
 }
 
 // Hourly: purge transient_renders rows older than the configured TTL.
@@ -164,20 +173,25 @@ async function initPricingCache(): Promise<void> {
 // growing slightly larger for one hour is preferable to a deploy bouncing on
 // a transient DB hiccup.
 function scheduleTransientRenderPurger() {
-  const schedule = () => {
+  // `retry`: the previous run failed, so try again in minutes rather than at
+  // the next top of the hour (recurringTasks.ts, RETRY_AFTER_FAILURE_MS).
+  const schedule = (retry = false) => {
     const now = new Date();
     const nextHour = new Date(now.getTime());
     nextHour.setUTCMinutes(0, 0, 0);
     nextHour.setUTCHours(nextHour.getUTCHours() + 1);
-    const msUntilNext = nextHour.getTime() - now.getTime();
-    logger.info({ nextRunAt: nextHour.toISOString(), msUntilNext }, "transient_renders purger scheduled");
+    const untilTopOfHour = nextHour.getTime() - now.getTime();
+    const msUntilNext = retry ? Math.min(nextRunDelayMs(false, 60 * 60 * 1000), untilTopOfHour) : untilTopOfHour;
+    logger.info({ nextRunAt: new Date(now.getTime() + msUntilNext).toISOString(), msUntilNext, retry }, "transient_renders purger scheduled");
     setTimeout(async () => {
+      let ok = true;
       try {
         const { runTransientRenderPurger } = await import("./jobs/transientRenderPurger");
         const result = await runTransientRenderPurger();
         if (result.deleted > 0) logger.info(result, "transient_renders purger run");
         void recordTaskCompleted("transient_render_purge");
       } catch (err) {
+        ok = false;
         logger.error({ err }, "transient_renders purger failed");
       }
       try {
@@ -187,9 +201,10 @@ function scheduleTransientRenderPurger() {
         await runProvenanceRetentionPurge();
         void recordTaskCompleted("provenance_retention_purge");
       } catch (err) {
+        ok = false;
         logger.error({ err }, "image provenance retention purge failed");
       }
-      schedule();
+      schedule(!ok);
     }, msUntilNext).unref();
   };
   schedule();
@@ -210,13 +225,13 @@ function scheduleRateLimitCounterPurger() {
   const BACKLOG_FOLLOW_UP_MS = 60 * 1000;
   const schedule = (delayMs: number) => {
     setTimeout(async () => {
-      let nextDelayMs = HOURLY_MS;
+      let nextDelayMs = nextRunDelayMs(false, HOURLY_MS);
       try {
         const { runRateLimitCounterPurger } = await import("./jobs/rateLimitCounterPurger");
         // The purger logs its own counts; a second log line here would double
         // every run in the output.
         const result = await runRateLimitCounterPurger();
-        if (result.budgetExhausted) nextDelayMs = BACKLOG_FOLLOW_UP_MS;
+        nextDelayMs = result.budgetExhausted ? BACKLOG_FOLLOW_UP_MS : HOURLY_MS;
         void recordTaskCompleted("rate_limit_counter_purge");
       } catch (err) {
         logger.error({ err }, "rate_limit_counters purge failed");
@@ -238,14 +253,16 @@ function scheduleContentPurger() {
   const HOURLY_MS = 60 * 60 * 1000;
   const schedule = (delayMs: number) => {
     setTimeout(async () => {
+      let ok = false;
       try {
         const { runContentPurger } = await import("./jobs/contentPurger");
         await runContentPurger();
         void recordTaskCompleted("content_purge");
+        ok = true;
       } catch (err) {
         logger.error({ err }, "[content-purger] run failed");
       }
-      schedule(HOURLY_MS);
+      schedule(nextRunDelayMs(ok, HOURLY_MS));
     }, delayMs).unref();
   };
   // Not at boot: nothing about it is urgent to the minute.
@@ -261,14 +278,16 @@ function scheduleAccountDeletionWorker() {
   const HOURLY_MS = 60 * 60 * 1000;
   const schedule = (delayMs: number) => {
     setTimeout(async () => {
+      let ok = false;
       try {
         const { runAccountDeletionWorker } = await import("./lib/accountDeletion");
         await runAccountDeletionWorker();
         void recordTaskCompleted("account_deletion");
+        ok = true;
       } catch (err) {
         logger.error({ err }, "[account-deletion] worker run failed");
       }
-      schedule(HOURLY_MS);
+      schedule(nextRunDelayMs(ok, HOURLY_MS));
     }, delayMs).unref();
   };
   schedule(7 * 60 * 1000);
@@ -286,12 +305,14 @@ function scheduleSessionAndRetentionWindowJobs() {
   const HOURLY_MS = 60 * 60 * 1000;
   const schedule = (delayMs: number) => {
     setTimeout(async () => {
+      let ok = true;
       try {
         const { sweepExpiredSessions } = await import("./lib/sessionSweep");
         const result = await sweepExpiredSessions();
         if (result.deleted > 0) logger.info(result, "[session-sweep] run");
         void recordTaskCompleted("session_sweep");
       } catch (err) {
+        ok = false;
         logger.error({ err }, "[session-sweep] run failed");
       }
       try {
@@ -300,9 +321,12 @@ function scheduleSessionAndRetentionWindowJobs() {
         if (Object.values(result).some((n) => n > 0)) logger.info(result, "[retention-windows] run");
         void recordTaskCompleted("retention_windows");
       } catch (err) {
+        ok = false;
         logger.error({ err }, "[retention-windows] run failed");
       }
-      schedule(HOURLY_MS);
+      // Either failing retries both soon: each is idempotent, and the one that
+      // succeeded costs a near-empty pass.
+      schedule(nextRunDelayMs(ok, HOURLY_MS));
     }, delayMs).unref();
   };
   // Not at boot: nothing about it is urgent to the minute.
@@ -343,16 +367,20 @@ function scheduleMediaBackup() {
   if (process.env.REPLIT_DEPLOYMENT !== "1") return;
   const schedule = (delayMs: number) => {
     setTimeout(async () => {
+      let ok = false;
       try {
         const { runScheduledMediaBackup } = await import("./jobs/mediaBackupJob");
         const outcome = await runScheduledMediaBackup();
         if (outcome.startsWith("skipped")) logger.info({ outcome }, "[media-backup] capture");
         // A skip is a completed run that had nothing to do.
         void recordTaskCompleted("media_backup");
+        ok = true;
       } catch (err) {
         logger.error({ err }, "[media-backup] capture failed");
       }
-      schedule(60 * 60 * 1000);
+      // A retry is safe: the capture takes an advisory lock and skips when a
+      // recent pair exists.
+      schedule(nextRunDelayMs(ok, 60 * 60 * 1000));
     }, delayMs).unref();
   };
   schedule(5 * 60 * 1000);

@@ -60,6 +60,28 @@ export interface RecurringTask {
   graceMs: number;
   /** False where the task deliberately does not run (the media backup outside the published deployment). */
   runsHere?: () => boolean;
+  /**
+   * Set, with the reason, only on a task whose scheduler does NOT try again
+   * soon after a failed run. Every other task's scheduler waits
+   * `nextRunDelayMs(false, cadence)` after a failure, so one transient failure
+   * (a database that times out once) is retried well inside the grace and
+   * never reads as overdue; a task that keeps failing still does, at the same
+   * deadline as before.
+   */
+  noRetryAfterFailure?: string;
+}
+
+/**
+ * How soon a task tries again after a run that failed. Five minutes: long
+ * enough that a database waking up or a provider's blip has passed, short
+ * enough that several attempts fit inside the shortest hourly grace (30
+ * minutes) before the health check calls the task overdue.
+ */
+export const RETRY_AFTER_FAILURE_MS = 5 * MINUTE;
+
+/** The wait before a task's next run: its cadence after a success, the retry delay (never longer than the cadence) after a failure. */
+export function nextRunDelayMs(succeeded: boolean, cadenceMs: number): number {
+  return succeeded ? cadenceMs : Math.min(RETRY_AFTER_FAILURE_MS, cadenceMs);
 }
 
 export const RECURRING_TASKS = [
@@ -143,6 +165,8 @@ export const RECURRING_TASKS = [
     cadenceMs: () => 24 * HOUR,
     firstRunMs: 24 * HOUR,
     graceMs: 3 * HOUR,
+    noRetryAfterFailure:
+      "It emails subscribers: a run that failed part-way may already have sent some, so trying again could send twice. A failed send is worth an alert.",
   },
   {
     id: "oauth_state_sweep",

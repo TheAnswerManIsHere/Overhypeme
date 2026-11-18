@@ -194,6 +194,9 @@ describe("POST /api/callback/apple", () => {
         `Expected no 500, got ${res.status}: ${JSON.stringify(res.body)}`,
       );
       assert.equal(res.status, 302, `Expected 302 redirect, got ${res.status}`);
+      // A new account goes to onboarding marked as a provider sign-up, so the
+      // web app's funnel counts it once (launch Phase 16, increment 3).
+      assert.equal(res.headers["location"], "/onboard?returnTo=%2F&signup=apple");
 
       const setCookie = res.headers["set-cookie"];
       assert.ok(

@@ -15,6 +15,7 @@ import { returnToFromSearch } from "@/lib/safe-return-to";
 import { inferPronounsFromName } from "@/lib/infer-pronouns";
 import { usePersonName } from "@/hooks/use-person-name";
 import { NameFieldHint, useNameField } from "@/hooks/use-name-field";
+import { track, trackPersonaliseOnce } from "@/lib/analytics";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
@@ -113,6 +114,26 @@ export default function Onboard() {
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedDraft = useRef("");
   const loaded = useRef(false);
+
+  // Two funnel outcomes arrive here as one-time markers, counted once and then
+  // dropped from the address so a reload or a revisit cannot count them again:
+  // ?signup=google|apple, a provider-created account (api-server
+  // routes/auth.ts), and ?verified=1, an email just verified (VerifyEmail).
+  // Counting here rather than on the page that navigated away means the event
+  // is sent from a page that stays open.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const signup = params.get("signup");
+    const provider = signup === "google" || signup === "apple" ? signup : null;
+    const verified = params.get("verified") === "1";
+    if (!provider && !verified) return;
+    if (provider) track("sign_up", { method: provider });
+    if (verified) track("verify");
+    params.delete("signup");
+    params.delete("verified");
+    const qs = params.toString();
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`);
+  }, []);
 
   // Revoke any outstanding object URL on unmount to avoid memory leaks if the
   // user navigates away mid-flow.
@@ -226,6 +247,10 @@ export default function Onboard() {
         setCaptchaToken("");
         return;
       }
+      // The server confirmed the name the account renders with: the funnel's
+      // `personalise`, unless this browser already counted one (the name sheet
+      // or tag, before signing up).
+      trackPersonaliseOnce();
       // The browser copy takes the account's identity from the re-read,
       // through AccountIdentityMirror (identity-flow Phase 2): a re-read that
       // failed, or that sign-out discarded, publishes nothing as confirmed.
