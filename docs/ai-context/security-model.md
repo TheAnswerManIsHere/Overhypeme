@@ -83,10 +83,12 @@ entry (David, 2026-10-21; [`decisions.md`](./decisions.md#2026-10-21--the-dev-ad
   account** — matching by email alone would hand the account to whoever
   controls the claim (`UnverifiedProviderEmailError`); a verified claim is
   `email_verified: true` (Google) or `"true"` (Apple) and nothing else.
-- **Rate limits** (C4) on `POST /auth/local-login` and `/auth/register`, scoped
-  by both **`ipFromRequest()`** (CF-Connecting-IP — the raw `X-Forwarded-For` is
-  spoofable, so it is NOT used) and normalized email, via the DB-backed
-  `checkSharedRateLimit`.
+- **Rate limits** (C4) via the DB-backed `checkSharedRateLimit`, keyed on
+  **`ipFromRequest()`** (CF-Connecting-IP — the raw `X-Forwarded-For` is
+  spoofable, so it is NOT used): `POST /auth/local-login` is limited per IP
+  **and**, by a separate counter, per normalized email; `POST /auth/register`
+  is limited per IP only (`localAuth.ts:52-56`, `:100-108`, `:237-272`).
+  Provider sign-in (Google, Apple) has no narrow limiter of its own.
 - **Every password change invalidates the user's other sessions** (C8;
   widened from password reset alone in launch Phase 5, increment 2): reset
   and admin set-password end all of them, set-password keeps only the

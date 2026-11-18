@@ -7,8 +7,7 @@ is set here.
 Pre-merge gates (install, typecheck, codegen drift) are assumed green; spot-check
 only if something below fails.
 
-Sibling UAT: run and accepted 2026-11-17 (Issue #311), then deleted; what the limiter does is now in the Manual, [chapter 9, *Rate limits*](../../manual/9-accounts-and-auth.md#rate-limits)
-(David's click-through — the durable half of the pair).
+Sibling UAT: run and accepted 2026-11-17 (Issue #311), then deleted; what the limiter does is now in the Manual, [chapter 9, *Rate limits*](../../manual/9-accounts-and-auth.md#rate-limits).
 
 **No migration in this PR.** No new table, no schema change — the store is
 in-process memory, not the database. There is nothing to confirm in
@@ -111,5 +110,5 @@ run here):
 
 ## Delete me
 
-Transient — delete once the checklist has been run. The `_UAT.md` sibling is
-the durable half.
+Transient — delete once the checklist has been run. The durable description
+is the Manual's *Rate limits* section, linked above.
