@@ -169,7 +169,12 @@ export const RECURRING_TASKS = [
     site: "lib/asyncJobs.ts",
     cadenceMs: () => MINUTE,
     firstRunMs: MINUTE,
-    graceMs: 10 * MINUTE,
+    // It runs between the bulk lane's batches, not on a timer of its own, and
+    // a healthy batch holds the lane for as long as its jobs take: up to ten
+    // claims over three slots, with execution limits up to 45 minutes. A
+    // deadline a healthy batch cannot reach is hours; a stopped purge costs
+    // nothing for days (finished rows are kept 30 days). PR #1046 round 1.
+    graceMs: 6 * HOUR,
   },
 ] as const satisfies readonly RecurringTask[];
 

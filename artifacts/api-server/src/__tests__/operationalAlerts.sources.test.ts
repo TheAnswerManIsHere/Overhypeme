@@ -31,7 +31,8 @@ import {
   terminalFailure,
   RESUMES_FROM_CHECKPOINTS,
 } from "../lib/asyncJobs.js";
-import { WebhookHandlers, markRejectedBeforeVerification } from "../lib/webhookHandlers.js";
+import { __setWebhookSyncForTest } from "../lib/webhookHandlers.js";
+import type { StripeSyncApi } from "../lib/stripeApi.js";
 import { __setSettlementWriteForTest, settleAtBound } from "../lib/comparison/runs.js";
 import { createApp } from "../app.js";
 
@@ -132,32 +133,47 @@ describe("operational alert sources", () => {
     });
   });
 
-  describe("payment_webhook_failed", () => {
-    const original = WebhookHandlers.processWebhook;
-    after(() => { WebhookHandlers.processWebhook = original; });
-    const post = () =>
-      request(createApp()).post("/api/stripe/webhook").set("stripe-signature", "t=1,v1=x").set("content-type", "application/json").send("{}");
+  describe("payment_webhook_failed, through the real route and the real handler", () => {
+    // Only the sync (signature verification) is substituted; everything else
+    // is the real handler, so every exit before verification is exercised.
+    const syncThat = (processWebhook: () => Promise<void>) => async () => ({ processWebhook } as unknown as StripeSyncApi);
+    after(() => __setWebhookSyncForTest(null));
+    const post = (contentType = "application/json") =>
+      request(createApp()).post("/api/stripe/webhook").set("stripe-signature", "t=1,v1=x").set("content-type", contentType)
+        .send(JSON.stringify({ id: "evt_ohtest", type: "invoice.paid", data: { object: {} } }));
 
-    it("a processing failure is reported, and the answer is still 400 for Stripe to retry", async () => {
-      WebhookHandlers.processWebhook = async () => { throw new Error("Webhook domain handler error"); };
-      const res = await post();
+    it("a body that is not raw JSON is a 400 and is not reported", async () => {
+      __setWebhookSyncForTest(syncThat(async () => {}));
+      const res = await post("text/plain");
       assert.equal(res.status, 400);
-      assert.equal(of("payment_webhook_failed").length, 1);
+      assert.equal(of("payment_webhook_failed").length, 0);
     });
 
-    it("a delivery rejected before it was verified as Stripe's is not reported", async () => {
-      WebhookHandlers.processWebhook = async () => {
-        const err = new Error("No signatures found matching the expected signature");
-        markRejectedBeforeVerification(err);
-        throw err;
-      };
+    it("the sync being unavailable is a 400 and is not reported", async () => {
+      __setWebhookSyncForTest(async () => { throw new Error("Stripe credentials not configured"); });
       const res = await post();
       assert.equal(res.status, 400);
       assert.equal(of("payment_webhook_failed").length, 0);
     });
 
+    it("a bad signature is a 400 and is not reported", async () => {
+      __setWebhookSyncForTest(syncThat(async () => { throw new Error("No signatures found matching the expected signature for payload"); }));
+      const res = await post();
+      assert.equal(res.status, 400);
+      assert.equal(of("payment_webhook_failed").length, 0);
+    });
+
+    it("a verified delivery whose processing fails is reported, and the answer is still 400 for Stripe to retry", async () => {
+      // Verified by the substituted sync; the real handler then fails to get
+      // a Stripe client (no credentials in tests) and throws so Stripe redelivers.
+      __setWebhookSyncForTest(syncThat(async () => {}));
+      const res = await post();
+      assert.equal(res.status, 400);
+      assert.equal(of("payment_webhook_failed").length, 1);
+    });
+
     it("a report that fails does not change the answer", async () => {
-      WebhookHandlers.processWebhook = async () => { throw new Error("boom"); };
+      __setWebhookSyncForTest(syncThat(async () => {}));
       failingCapture();
       assert.equal((await post()).status, 400);
     });

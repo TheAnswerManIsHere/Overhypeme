@@ -9,7 +9,7 @@ import router from "./routes";
 import { logger } from "./lib/logger";
 import { authMiddleware } from "./middlewares/authMiddleware";
 import { requireEligibleActor } from "./middlewares/requireEligibleActor";
-import { WebhookHandlers, wasRejectedBeforeVerification } from "./lib/webhookHandlers";
+import { WebhookHandlers, failedAfterVerification } from "./lib/webhookHandlers";
 import { reportOperationalAlert } from "./lib/operationalAlerts";
 import { noStore } from "./lib/cacheHeaders";
 import { fallbackErrorHandler } from "./lib/errorHandler";
@@ -191,9 +191,9 @@ export function createApp(options: { limiterOverrides?: GlobalRateLimiterOverrid
         logger.error({ err }, "Stripe webhook error");
         // Launch Phase 16: until now this failure reached nobody (the 400 is
         // Stripe's to retry). Reported without a database write; the response
-        // and the processing are unchanged. A delivery that was never verified
-        // as Stripe's is not reported (lib/webhookHandlers.ts).
-        if (!wasRejectedBeforeVerification(err)) {
+        // and the processing are unchanged. Only a failure after the delivery
+        // was verified as Stripe's is reported (lib/webhookHandlers.ts).
+        if (failedAfterVerification(err)) {
           reportOperationalAlert("payment_webhook_failed", { error: (err instanceof Error ? err.name : "non-error").slice(0, 60) });
         }
         res.status(400).json({ error: "Webhook processing error" });

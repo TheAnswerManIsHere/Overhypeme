@@ -15,7 +15,7 @@ import { and, gte, inArray, lte, sql } from "drizzle-orm";
 import type Stripe from "stripe";
 import { db as defaultDb } from "@workspace/db";
 import { asyncJobsTable, stripeProcessedEventsTable } from "@workspace/db/schema";
-import { heldAlertMsOf, registeredQueues } from "./asyncJobs";
+import { heldAlertMsOf, laneOfQueue, registeredQueues } from "./asyncJobs";
 import { laneHealth, type LaneHealth } from "./queueHealth";
 import { taskHealth, type TaskHealth } from "./recurringTasks";
 import type { StripeApi } from "./stripeApi";
@@ -27,8 +27,12 @@ const MINUTE = 60_000;
 
 /**
  * A due job is "unclaimed" once it has waited this long while nothing in its
- * queue was claimed over the same window. A queue that is draining a backlog
- * claims steadily and never trips it; a queue nobody serves does.
+ * queue was claimed over the same window, and its lane holds no live claims.
+ * A queue that is draining a backlog claims steadily and never trips it; a
+ * queue nobody serves does. A lane busy with a long batch claims only between
+ * batches (a tick claims rows due when it started), so a waiting job behind
+ * live work is not unserved; a claim that never ends is the held rule's to
+ * report (PR #1046 round 1).
  */
 export const UNCLAIMED_ALERT_MS = 30 * MINUTE;
 
@@ -42,6 +46,7 @@ export interface StuckJobs {
 export async function stuckJobs(
   dbInstance: Pick<typeof defaultDb, "select"> = defaultDb,
   now: Date = new Date(),
+  busyLanes?: ReadonlySet<string>,
 ): Promise<StuckJobs> {
   const queues = registeredQueues();
   const cutoff = new Date(now.getTime() - UNCLAIMED_ALERT_MS);
@@ -64,7 +69,8 @@ export async function stuckJobs(
         .where(and(inArray(asyncJobsTable.queue, candidates), gte(asyncJobsTable.claimedAt, cutoff)))
         .groupBy(asyncJobsTable.queue);
       const served = new Set(claiming.map((c) => c.queue));
-      unclaimedQueues = candidates.filter((q) => !served.has(q)).sort();
+      const busy = busyLanes ?? new Set((await laneHealth(dbInstance)).filter((l) => l.inFlightCount > 0).map((l) => l.lane));
+      unclaimedQueues = candidates.filter((q) => !served.has(q) && !busy.has(laneOfQueue(q) ?? "bulk")).sort();
     }
   }
 

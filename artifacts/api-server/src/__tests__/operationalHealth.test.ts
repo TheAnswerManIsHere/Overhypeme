@@ -15,8 +15,8 @@ import request from "supertest";
 import { randomUUID } from "node:crypto";
 import type Stripe from "stripe";
 import { db } from "@workspace/db";
-import { asyncJobsTable, stripeProcessedEventsTable } from "@workspace/db/schema";
-import { inArray, like } from "drizzle-orm";
+import { asyncJobsTable, stripeProcessedEventsTable, workerLaneHeartbeatsTable } from "@workspace/db/schema";
+import { eq, inArray, like } from "drizzle-orm";
 
 import healthRouter from "../routes/health.js";
 import {
@@ -106,18 +106,30 @@ describe("stuck jobs", () => {
 
   it("a due job waiting past the window with no claim in its queue is unclaimed", async () => {
     await db.insert(asyncJobsTable).values({ queue: Q, payload: {}, status: "pending", nextAttemptAt: ago(UNCLAIMED_ALERT_MS + 60_000) });
-    assert.deepEqual((await stuckJobs()).unclaimedQueues, [Q]);
+    assert.deepEqual((await stuckJobs(db, new Date(), new Set())).unclaimedQueues.filter((q) => q === Q), [Q]);
+  });
+
+  it("a waiting job is not unclaimed while its lane holds live claims (a long batch claims only between batches)", async () => {
+    await db.insert(asyncJobsTable).values({ queue: Q, payload: {}, status: "pending", nextAttemptAt: ago(UNCLAIMED_ALERT_MS + 60_000) });
+    const instanceId = `ohtest-busy-${randomUUID()}`;
+    await db.insert(workerLaneHeartbeatsTable).values({ instanceId, lane: "bulk", workerProtocolVersion: 2, lastScheduledAt: new Date(), inFlightCount: 1 });
+    try {
+      assert.deepEqual((await stuckJobs()).unclaimedQueues.filter((q) => q === Q), [], "the lane is busy: read from its live heartbeat");
+    } finally {
+      await db.delete(workerLaneHeartbeatsTable).where(eq(workerLaneHeartbeatsTable.instanceId, instanceId));
+    }
+    assert.deepEqual((await stuckJobs(db, new Date(), new Set())).unclaimedQueues.filter((q) => q === Q), [Q], "the same job with an idle lane");
   });
 
   it("a queue draining a backlog (a recent claim) is not", async () => {
     await db.insert(asyncJobsTable).values({ queue: Q, payload: {}, status: "pending", nextAttemptAt: ago(UNCLAIMED_ALERT_MS + 60_000) });
     await db.insert(asyncJobsTable).values({ queue: Q, payload: {}, status: "done", claimedAt: ago(60_000) });
-    assert.deepEqual((await stuckJobs()).unclaimedQueues, []);
+    assert.deepEqual((await stuckJobs(db, new Date(), new Set())).unclaimedQueues.filter((q) => q === Q), []);
   });
 
   it("a recent due job is not", async () => {
     await db.insert(asyncJobsTable).values({ queue: Q, payload: {}, status: "pending", nextAttemptAt: ago(60_000) });
-    assert.deepEqual((await stuckJobs()).unclaimedQueues, []);
+    assert.deepEqual((await stuckJobs(db, new Date(), new Set())).unclaimedQueues.filter((q) => q === Q), []);
   });
 
   it("a claim held past its queue's limit plus the margin is held; a younger one is not", async () => {

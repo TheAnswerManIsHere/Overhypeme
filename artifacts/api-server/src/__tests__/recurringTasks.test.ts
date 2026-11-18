@@ -28,6 +28,7 @@ import {
 } from "../lib/recurringTasks.js";
 import { laneHealth } from "../lib/queueHealth.js";
 import { pruneDepartedInstances } from "../lib/workerHeartbeats.js";
+import { DRILL_HOLD_MS } from "../lib/operationsDrill.js";
 
 const SRC = join(dirname(fileURLToPath(import.meta.url)), "..");
 const TIMER_CALL = /\bset(?:Interval|Timeout)\(/g;
@@ -104,6 +105,18 @@ describe("the completion record", () => {
     const at = new Date(t0.lastCompletedAt!.getTime() + 60 * 60_000 + 31 * 60_000);
     const t1 = (await taskHealth(db, at)).find((t) => t.id === "content_purge")!;
     assert.equal(t1.overdue, true, "an hourly task with no run for 91 minutes is overdue");
+  });
+
+  it("the finished-job purge survives a long healthy bulk batch and the drill's hold, and is overdue once really stopped", async () => {
+    // It runs only between the bulk lane's batches (PR #1046 round 1): a
+    // batch can hold the lane for longer than any one job's 45-minute limit.
+    await beginTaskMonitoring();
+    await recordTaskCompleted("job_retention_purge");
+    const at = (ms: number) => taskHealth(db, new Date(Date.now() + ms)).then((h) => h.find((t) => t.id === "job_retention_purge")!);
+    assert.equal((await at(DRILL_HOLD_MS + 2 * 60_000)).overdue, false, "through the drill's hold");
+    assert.equal((await at(46 * 60_000)).overdue, false, "past the longest bulk execution limit");
+    assert.equal((await at(3 * 3_600_000)).overdue, false, "a long batch of several jobs");
+    assert.equal((await at(6 * 3_600_000 + 2 * 60_000)).overdue, true, "really stopped");
   });
 
   it("with no row at all, a task is judged from this process's start", async () => {

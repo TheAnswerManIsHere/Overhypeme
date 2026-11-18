@@ -1015,21 +1015,25 @@ async function applyDomainEvent(
 }
 
 /**
- * Errors thrown by the first phase — the sync library's signature check and
- * its mirror write — before an event is known to be Stripe's (launch Phase
- * 16). The route does not report these as a failed payment webhook: anyone
- * can post to the address, so reporting them would let a stranger ring the
- * operator's phone. A real breakage there (a wrong signing secret, the mirror
- * write failing) still shows, as events the webhook has not processed, on the
- * polled payments check. Membership only; the error and its handling are
+ * Errors thrown AFTER a delivery was verified as Stripe's (launch Phase 16).
+ * The route reports only these as a failed payment webhook. Anyone can post to
+ * the address, so every exit before verification — a body that is not raw
+ * JSON, the sync being unavailable, a bad signature — stays unreported, or a
+ * stranger could ring the operator's phone. A real breakage there still shows,
+ * as events the webhook has not processed, on the polled payments check.
+ * Marked at one point, where verification is known to have returned
+ * (`processWebhook` below); membership only, the error and its handling are
  * unchanged.
  */
-const REJECTED_BEFORE_VERIFICATION = new WeakSet<object>();
-export function markRejectedBeforeVerification(err: unknown): void {
-  if (err !== null && typeof err === "object") REJECTED_BEFORE_VERIFICATION.add(err);
+const FAILED_AFTER_VERIFICATION = new WeakSet<object>();
+export function failedAfterVerification(err: unknown): boolean {
+  return err !== null && typeof err === "object" && FAILED_AFTER_VERIFICATION.has(err);
 }
-export function wasRejectedBeforeVerification(err: unknown): boolean {
-  return err !== null && typeof err === "object" && REJECTED_BEFORE_VERIFICATION.has(err);
+
+/** The sync the handler verifies with; swappable in tests so the real handler can be driven. */
+let syncProvider: () => ReturnType<typeof getStripeSync> = getStripeSync;
+export function __setWebhookSyncForTest(fn: (() => ReturnType<typeof getStripeSync>) | null): void {
+  syncProvider = fn ?? getStripeSync;
 }
 
 export class WebhookHandlers {
@@ -1059,6 +1063,16 @@ export class WebhookHandlers {
   }
 
   static async processWebhook(payload: Buffer, signature: string): Promise<void> {
+    let verified = false;
+    try {
+      await this.processWebhookPhases(payload, signature, () => { verified = true; });
+    } catch (err) {
+      if (verified && err !== null && typeof err === "object") FAILED_AFTER_VERIFICATION.add(err);
+      throw err;
+    }
+  }
+
+  private static async processWebhookPhases(payload: Buffer, signature: string, onVerified: () => void): Promise<void> {
     if (!Buffer.isBuffer(payload)) {
       throw new Error(
         "STRIPE WEBHOOK ERROR: Payload must be a Buffer. " +
@@ -1072,7 +1086,7 @@ export class WebhookHandlers {
     // secret and throws on any invalid/forged event. After this line succeeds, the event
     // is guaranteed authentic — no second verification pass is needed or correct (the
     // integration manages its own signing secret, separate from STRIPE_WEBHOOK_SECRET).
-    const sync = await getStripeSync();
+    const sync = await syncProvider();
     try {
       await sync.processWebhook(payload, signature);
     } catch (sigErr) {
@@ -1097,9 +1111,10 @@ export class WebhookHandlers {
         { err: sigErr, eventId: eventIdGuess, reason },
         "Stripe webhook rejected before domain processing",
       );
-      markRejectedBeforeVerification(sigErr);
       throw sigErr;
     }
+    // Verified: from here on, a failure is the product's, not a stranger's.
+    onVerified();
 
     // Phase 2: Acquire the Stripe client for domain processing.
     //
