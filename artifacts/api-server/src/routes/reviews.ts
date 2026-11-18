@@ -7,7 +7,7 @@ import { Readable } from "node:stream";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import { db } from "@workspace/db";
 import {
-  pendingReviewsTable, factsTable, usersTable, activityFeedTable,
+  pendingReviewsTable, factReadingsTable, factsTable, usersTable, activityFeedTable,
   hashtagsTable, factHashtagsTable, imagePromptAttemptsTable, factGagsTable,
 } from "@workspace/db/schema";
 import { eq, desc, sql, and, or, ilike, count, inArray } from "drizzle-orm";
@@ -306,10 +306,19 @@ router.get("/admin/reviews", requireAdmin, async (req: Request, res: Response) =
   const productionReviewIds = reviews
     .filter((r) => r.workflowStage === "test_renders")
     .map((r) => r.id);
-  const [renderStates, duplicates] = await Promise.all([
+  // The latest reading run per staging fact, for rows at the Reading step.
+  const readingFactIds = reviews.filter((r) => r.workflowStage === "reading" && r.stagingFactId != null).map((r) => r.stagingFactId!);
+  const [renderStates, duplicates, readingRows] = await Promise.all([
     reviewRenderStates(productionReviewIds),
     duplicateViews(reviews),
+    readingFactIds.length
+      ? db.selectDistinctOn([factReadingsTable.factId], { factId: factReadingsTable.factId, status: factReadingsTable.status })
+          .from(factReadingsTable)
+          .where(inArray(factReadingsTable.factId, readingFactIds))
+          .orderBy(factReadingsTable.factId, desc(factReadingsTable.id))
+      : Promise.resolve([]),
   ]);
+  const readingStatus = new Map(readingRows.map((r) => [r.factId, r.status]));
 
   const enriched = reviews.map((r) => {
     const renderReviewState = r.workflowStage === "test_renders"
@@ -325,6 +334,7 @@ router.get("/admin/reviews", requireAdmin, async (req: Request, res: Response) =
       stagingFact: r.stagingFactId ? stagingMap[r.stagingFactId] ?? null : null,
       rendersRunning: renderReviewState === "running",
       renderReviewState,
+      readingStatus: r.workflowStage === "reading" && r.stagingFactId != null ? readingStatus.get(r.stagingFactId) ?? null : null,
     };
   });
 
