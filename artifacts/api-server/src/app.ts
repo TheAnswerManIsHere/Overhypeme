@@ -18,6 +18,7 @@ import { securityHeaders } from "./lib/securityHeaders";
 import { isDevAdminLoginEnabled } from "./lib/devAdminLogin";
 import { createGlobalLimiter, globalLimiterLogLevel, type GlobalRateLimiterOverrides } from "./lib/rateLimit";
 import { healthzHandler } from "./routes/health";
+import { devPreviewGate } from "./middlewares/devPreviewGate";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const CSRF_COOKIE = "csrf_token";
@@ -175,6 +176,13 @@ export function createApp(options: { limiterOverrides?: GlobalRateLimiterOverrid
       next();
     }
   });
+
+  // The workspace preview address is public while the dev app runs, so in
+  // development every request through it needs the dev preview key (launch
+  // Phase 14, increment 3). No-op in the published deployment and for direct
+  // local requests. Ahead of every route, the webhook and dev-admin-login
+  // included.
+  app.use(devPreviewGate());
 
   // Stripe webhook MUST be registered BEFORE express.json() to get raw Buffer
   app.post(
