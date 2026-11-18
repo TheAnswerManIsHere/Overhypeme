@@ -47,6 +47,7 @@ import {
   type VisualConceptStaleReason,
   type VisualStrategyBubble,
 } from "@workspace/api-zod";
+import { lockFactRow } from "./reviewLocks";
 import { loadGags, normaliseGagContent, openReviewForFact, primaryWorkingGag, type GagContent } from "./gags/resolver";
 import { type Executor,
   claimConceptsForReview,
@@ -89,14 +90,20 @@ export interface FactVisualConceptsJobPayload {
 /** Review-scoped dedupe: an in-flight concept job for a review coalesces; a
  *  terminal one never blocks a fresh (Regenerate) run — the dedupe index only
  *  covers non-terminal rows. */
-export function visualConceptsDedupeKey(reviewId: number): string {
-  return `fact_visual_concepts:review:${reviewId}`;
+/** One generation, one job: keyed by the generation's owner, never shared with an earlier one. */
+export function visualConceptsDedupeKey(owner: string): string {
+  return `fact_visual_concepts:${owner}`;
 }
 
 /**
  * Enqueue concept generation for a review cycle and mark the fact "pending" so the
- * UI shows "working" immediately. Best-effort: the status write is what the UI
- * polls, the job is what does the work; a draft (Regenerate) rides the payload.
+ * UI shows "working" immediately. Each call is a new generation with its own
+ * owner and its own job key, so it is never folded into an earlier job: one
+ * that has already stored its ideas but is not yet marked done would otherwise
+ * absorb the request and leave the fact "pending" with no job to finish it
+ * (Codex, PR #1041 round 1). The earlier generation, if still running, stops
+ * owning the fact and writes nothing. Callers hold the fact row lock and
+ * decide whether a new generation is wanted (lib/reviewLocks.ts).
  */
 export async function enqueueVisualConceptsForReview(args: {
   reviewId: number;
@@ -107,17 +114,18 @@ export async function enqueueVisualConceptsForReview(args: {
   // The review takes the fact's candidate state (a live draft's is cleared)
   // and marks it working, in one write. Given a transaction, both the claim
   // and the job commit with the caller's write or not at all (Issue #1000 §F).
-  await claimConceptsForReview(executor, args.factId, args.reviewId, { markPending: true });
+  const owner = reviewConceptOwner(args.reviewId, randomUUID());
+  await claimConceptsForReview(executor, args.factId, args.reviewId, { markPending: true, owner });
   return enqueueJob({
     queue: FACT_VISUAL_CONCEPTS_QUEUE,
     payload: {
       reviewId: args.reviewId,
       factId: args.factId,
-      owner: reviewConceptOwner(args.reviewId),
+      owner,
       moderatorDraftScene: args.moderatorDraftScene ?? null,
       moderatorDraftBubbles: args.moderatorDraftBubbles ?? null,
     },
-    dedupeKey: visualConceptsDedupeKey(args.reviewId),
+    dedupeKey: visualConceptsDedupeKey(owner),
   }, executor);
 }
 
@@ -363,6 +371,14 @@ export async function runVisualConceptsJob(
   const existingGags = await contextGagsFor(cycle.stagingFactId);
   const humorNote = await humorNoteFor(cycle.stagingFactId);
 
+  // COST GUARD: a later request for this review's ideas is its own generation
+  // and has taken the fact; this one could write nothing, so it pays for nothing.
+  const [holder] = await db.select({ owner: factsTable.visualConceptOwner }).from(factsTable).where(eq(factsTable.id, factId)).limit(1);
+  if (holder?.owner !== owner) {
+    logger.info({ reviewId, factId, owner }, "[fact_visual_concepts] no-op (a later generation owns the fact)");
+    return { ok: true };
+  }
+
   let result;
   try {
     await assertJobOwnership(); // paid AI call: only while this run owns its job (Issue #1000)
@@ -410,6 +426,10 @@ export async function runVisualConceptsJob(
   // they were being written) are not stored: the job runs again, from the
   // note as it is now (Issue #1018, increment 1.2c-ii).
   const outcome = await fencedTransaction(db, async (tx) => {
+    // The fact's lock first (level 2 of the lock rule, lib/reviewLocks.ts), so
+    // an approval of another note cannot commit between this comparison and
+    // the write below (Fable, PR #1041 round 1).
+    await lockFactRow(tx, factId);
     if ((await humorNoteFor(factId, tx)) !== humorNote) return "note_changed" as const;
     const rows = await tx
       .update(factsTable)

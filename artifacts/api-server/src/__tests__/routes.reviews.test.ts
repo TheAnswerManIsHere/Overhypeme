@@ -488,7 +488,7 @@ describe("the taxonomy run beside moderation (Issue #1018, increment 1.2c-ii)", 
       const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
       assert.equal(r.workflowStage, stage, "the review stays where it was");
       const conceptJobs = await db.select({ id: asyncJobsTable.id }).from(asyncJobsTable)
-        .where(and(eq(asyncJobsTable.queue, "fact_visual_concepts"), eq(asyncJobsTable.dedupeKey, `fact_visual_concepts:review:${review.id}`)));
+        .where(and(eq(asyncJobsTable.queue, "fact_visual_concepts"), like(asyncJobsTable.dedupeKey, `fact_visual_concepts:review:${review.id}:%`)));
       assert.equal(conceptJobs.length, 0, "no idea writing started by the taxonomy");
     });
   }

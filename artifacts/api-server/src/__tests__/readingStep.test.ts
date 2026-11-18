@@ -47,8 +47,18 @@ const read = (result: FactReadingResult = RESULT) => async () => ({ result, prov
 const url = (id: number, rest: string) => `/api/admin/reviews/${id}/${rest}`;
 const reviewRow = async (id: number) => (await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)))[0]!;
 const factRow = async (id: number) => (await db.select().from(factsTable).where(eq(factsTable.id, id)))[0]!;
-const ideaJobs = (reviewId: number) => db.select({ id: asyncJobsTable.id, status: asyncJobsTable.status }).from(asyncJobsTable)
-  .where(and(eq(asyncJobsTable.queue, "fact_visual_concepts"), eq(asyncJobsTable.dedupeKey, `fact_visual_concepts:review:${reviewId}`)));
+/** The review's ideas jobs, each its own generation (`fact_visual_concepts:review:<id>:<generation>`), oldest first. */
+const ideaJobs = (reviewId: number, status?: "pending" | "processing" | "done") => db
+  .select({ id: asyncJobsTable.id, status: asyncJobsTable.status, payload: asyncJobsTable.payload }).from(asyncJobsTable)
+  .where(and(
+    eq(asyncJobsTable.queue, "fact_visual_concepts"),
+    like(asyncJobsTable.dedupeKey, `fact_visual_concepts:review:${reviewId}:%`),
+    ...(status ? [eq(asyncJobsTable.status, status)] : []),
+  ))
+  .orderBy(asyncJobsTable.id);
+/** Run a queued ideas job as the worker would: from its own payload, which carries its generation. */
+const runIdeasJob = (job: { payload: unknown }, generate = stubIdeas) =>
+  runVisualConceptsJob(job.payload as Parameters<typeof runVisualConceptsJob>[0], { generate });
 
 /** A submission accepted through the route: at Reading, with its first run pending. */
 async function accepted(): Promise<{ reviewId: number; factId: number; readingId: number }> {
@@ -73,7 +83,7 @@ before(async () => {
 after(async () => {
   const reviews = reviewIds.length ? await db.select({ stagingFactId: pendingReviewsTable.stagingFactId }).from(pendingReviewsTable).where(inArray(pendingReviewsTable.id, reviewIds)) : [];
   const factIds = reviews.map((r) => r.stagingFactId).filter((x): x is number => x != null);
-  for (const id of reviewIds) await db.delete(asyncJobsTable).where(like(asyncJobsTable.dedupeKey, `fact_visual_concepts:review:${id}`));
+  for (const id of reviewIds) await db.delete(asyncJobsTable).where(like(asyncJobsTable.dedupeKey, `fact_visual_concepts:review:${id}:%`));
   if (factIds.length) {
     const runs = await db.select({ id: factReadingsTable.id }).from(factReadingsTable).where(inArray(factReadingsTable.factId, factIds));
     for (const r of runs) await db.delete(asyncJobsTable).where(eq(asyncJobsTable.dedupeKey, `fact_reading:${r.id}`));
@@ -173,8 +183,8 @@ describe("Approve the humor note", () => {
     await runReadingJob({ readingId }, { read: read() });
     // The ideas from the draft land.
     const [job] = await ideaJobs(reviewId);
-    await runVisualConceptsJob({ reviewId, factId }, { generate: stubIdeas });
-    await db.delete(asyncJobsTable).where(eq(asyncJobsTable.id, job!.id));
+    await runIdeasJob(job!);
+    await db.update(asyncJobsTable).set({ status: "done" }).where(eq(asyncJobsTable.id, job!.id));
 
     const res = await request(app).post(url(reviewId, "approve-reading")).send({ text: RESULT.humorNote, readingId });
     assert.equal(res.status, 200, JSON.stringify(res.body));
@@ -188,7 +198,7 @@ describe("Approve the humor note", () => {
     const actions = await db.select({ detail: adminActionsTable.detail }).from(adminActionsTable)
       .where(and(eq(adminActionsTable.reviewId, reviewId), eq(adminActionsTable.action, "reading_approval")));
     assert.deepEqual(actions.map((a) => a.detail), [{ readingId, text: RESULT.humorNote, edited: false }]);
-    assert.equal((await ideaJobs(reviewId)).length, 0, "no rewrite");
+    assert.equal((await ideaJobs(reviewId, "pending")).length, 0, "no rewrite");
 
     const detail = await request(app).get(`/api/admin/reviews/${reviewId}`);
     assert.equal(detail.body.reading.approved.text, RESULT.humorNote);
@@ -199,15 +209,62 @@ describe("Approve the humor note", () => {
     const { reviewId, factId, readingId } = await accepted();
     await runReadingJob({ readingId }, { read: read() });
     const [job] = await ideaJobs(reviewId);
-    await runVisualConceptsJob({ reviewId, factId }, { generate: stubIdeas });
-    await db.delete(asyncJobsTable).where(eq(asyncJobsTable.id, job!.id));
+    await runIdeasJob(job!);
+    await db.update(asyncJobsTable).set({ status: "done" }).where(eq(asyncJobsTable.id, job!.id));
 
     const corrected = "The sharks are the audience; Alex is the show.";
     const res = await request(app).post(url(reviewId, "approve-reading")).send({ text: corrected, readingId });
     assert.equal(res.status, 200, JSON.stringify(res.body));
     assert.equal(res.body.ideasRewritten, true);
-    assert.equal((await ideaJobs(reviewId)).length, 1, "ideas are written again from the approved note");
+    assert.equal((await ideaJobs(reviewId, "pending")).length, 1, "ideas are written again from the approved note");
     assert.equal((await factRow(factId)).visualConceptStatus, "pending");
+  });
+
+  // Codex, PR #1041 round 1: an earlier ideas job that has stored its ideas
+  // but is not yet marked done must not absorb the request for new ones.
+  for (const earlier of ["ok", "failed"] as const) {
+    it(`a rewrite asked for while the earlier job has stored "${earlier}" but is not yet done still runs, from the approved note`, async () => {
+      const { reviewId, factId, readingId } = await accepted();
+      await runReadingJob({ readingId }, { read: read() });
+      const [first] = await ideaJobs(reviewId);
+      if (earlier === "ok") await runIdeasJob(first!);
+      else await db.update(factsTable).set({ visualConceptStatus: "failed" }).where(eq(factsTable.id, factId));
+      await db.update(asyncJobsTable).set({ status: "processing" }).where(eq(asyncJobsTable.id, first!.id));
+
+      const corrected = "The sharks are the audience; Alex is the show.";
+      const res = await request(app).post(url(reviewId, "approve-reading")).send({ text: corrected, readingId });
+      assert.equal(res.status, 200, JSON.stringify(res.body));
+      assert.equal(res.body.ideasRewritten, true);
+      // The earlier job is finalized only now, as the worker would.
+      await db.update(asyncJobsTable).set({ status: "done" }).where(eq(asyncJobsTable.id, first!.id));
+
+      const queued = await ideaJobs(reviewId, "pending");
+      assert.equal(queued.length, 1, "a runnable job remains for the new note");
+      assert.notEqual(queued[0]!.id, first!.id);
+      let sawNote: string | null = null;
+      const ran = await runIdeasJob(queued[0]!, async (input) => { sawNote = input.humorNote; return stubIdeas(input); });
+      assert.equal(ran.ok, true);
+      assert.equal(sawNote, corrected);
+      const f = await factRow(factId);
+      assert.equal(f.visualConceptStatus, "ok");
+      assert.equal((f.visualConceptCandidates as { humorNoteUsed?: string }).humorNoteUsed, corrected);
+    });
+  }
+
+  it("an earlier generation that a later one replaced pays for nothing and writes nothing", async () => {
+    const { reviewId, factId, readingId } = await accepted();
+    await runReadingJob({ readingId }, { read: read() });
+    const [first] = await ideaJobs(reviewId);
+    await runIdeasJob(first!);
+    await request(app).post(url(reviewId, "approve-reading")).send({ text: "A different joke.", readingId });
+    const [second] = await ideaJobs(reviewId, "pending");
+    // The first job is retried (say its finalize failed) after the second was queued.
+    let called = false;
+    const ran = await runIdeasJob(first!, async (input) => { called = true; return stubIdeas(input); });
+    assert.equal(ran.ok, true);
+    assert.equal(called, false, "no paid call for a superseded generation");
+    assert.equal((await factRow(factId)).visualConceptStatus, "pending", "still the later generation's to finish");
+    assert.ok(second);
   });
 
   it("ideas written from a note replaced while they ran are not stored: the job runs again", async () => {
@@ -215,7 +272,8 @@ describe("Approve the humor note", () => {
     await runReadingJob({ readingId }, { read: read() });
     let sawNote: string | null = null;
     const corrected = "Alex is the documentary.";
-    const res = await runVisualConceptsJob({ reviewId, factId }, {
+    const [job] = await ideaJobs(reviewId);
+    const res = await runVisualConceptsJob(job!.payload as Parameters<typeof runVisualConceptsJob>[0], {
       generate: async (input) => {
         sawNote = input.humorNote;
         // The moderator approves an edited note while the ideas are being written.
@@ -252,6 +310,43 @@ describe("Approve the humor note", () => {
     assert.equal(again.status, 409);
     assert.equal(again.body.code, "REVIEW_MOVED");
     assert.equal((await request(app).put(url(reviewId, "humor-note")).send({ text: "Corrected on Gags." })).status, 200);
+  });
+});
+
+describe("Regenerate on the Gags step (Codex and Fable, PR #1041 round 1)", () => {
+  /** A review at Gags whose first ideas job stored "ok" but is not yet marked done. */
+  async function atGagsWithUnfinalizedJob() {
+    const { reviewId, factId, readingId } = await accepted();
+    await runReadingJob({ readingId }, { read: read() });
+    const [first] = await ideaJobs(reviewId);
+    await runIdeasJob(first!);
+    await db.update(asyncJobsTable).set({ status: "processing" }).where(eq(asyncJobsTable.id, first!.id));
+    const ok = await request(app).post(url(reviewId, "approve-reading")).send({ text: RESULT.humorNote, readingId });
+    assert.equal(ok.status, 200, JSON.stringify(ok.body));
+    assert.equal(ok.body.ideasRewritten, false);
+    return { reviewId, factId, first: first! };
+  }
+
+  it("a regenerate while the earlier job is not yet done still gets a job that runs", async () => {
+    const { reviewId, factId, first } = await atGagsWithUnfinalizedJob();
+    const res = await request(app).post(url(reviewId, "visual-concepts/regenerate")).send({});
+    assert.equal(res.status, 202, JSON.stringify(res.body));
+    await db.update(asyncJobsTable).set({ status: "done" }).where(eq(asyncJobsTable.id, first.id));
+    const queued = await ideaJobs(reviewId, "pending");
+    assert.equal(queued.length, 1);
+    assert.equal((await runIdeasJob(queued[0]!)).ok, true);
+    assert.equal((await factRow(factId)).visualConceptStatus, "ok");
+  });
+
+  it("two regenerate requests start one generation", async () => {
+    const { reviewId } = await atGagsWithUnfinalizedJob();
+    const [a, b] = await Promise.all([
+      request(app).post(url(reviewId, "visual-concepts/regenerate")).send({}),
+      request(app).post(url(reviewId, "visual-concepts/regenerate")).send({}),
+    ]);
+    assert.deepEqual([a.status, b.status].sort(), [202, 409]);
+    assert.equal([a, b].find((r) => r.status === 409)!.body.code, "IDEAS_PENDING");
+    assert.equal((await ideaJobs(reviewId, "pending")).length, 1);
   });
 });
 

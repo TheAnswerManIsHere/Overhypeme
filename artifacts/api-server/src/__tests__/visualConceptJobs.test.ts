@@ -325,7 +325,7 @@ describe("POST /admin/reviews/:id/visual-concepts/regenerate", () => {
     // A job was enqueued for this review.
     const [job] = await db.select({ id: asyncJobsTable.id })
       .from(asyncJobsTable)
-      .where(and(eq(asyncJobsTable.queue, "fact_visual_concepts"), eq(asyncJobsTable.dedupeKey, `fact_visual_concepts:review:${reviewId}`)))
+      .where(and(eq(asyncJobsTable.queue, "fact_visual_concepts"), like(asyncJobsTable.dedupeKey, `fact_visual_concepts:review:${reviewId}:%`)))
       .limit(1);
     assert.ok(job, "enqueued a fact_visual_concepts job");
   });
@@ -536,7 +536,10 @@ describe("the gag writer has no fallback model", () => {
       gagWriter.isActive = prevActive;
       const regen = await request(makeApp()).post(`/admin/reviews/${reviewId}/visual-concepts/regenerate`).set("authorization", `Bearer ${adminSid}`).send({});
       assert.equal(regen.status, 202, JSON.stringify(regen.body));
-      const again = await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate("", "After repair.") });
+      // The job Regenerate queued, run from its own payload: it carries the new generation.
+      const [queued] = await db.select({ payload: asyncJobsTable.payload }).from(asyncJobsTable)
+        .where(and(eq(asyncJobsTable.queue, "fact_visual_concepts"), like(asyncJobsTable.dedupeKey, `fact_visual_concepts:review:${reviewId}:%`), eq(asyncJobsTable.status, "pending")));
+      const again = await runVisualConceptsJob(queued!.payload as Parameters<typeof runVisualConceptsJob>[0], { generate: stubGenerate("", "After repair.") });
       assert.equal(again.ok, true);
       const [after] = await db.select({ status: factsTable.visualConceptStatus, note: factsTable.humorNote }).from(factsTable).where(eq(factsTable.id, factId));
       assert.equal(after!.status, "ok");

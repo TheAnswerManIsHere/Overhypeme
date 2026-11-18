@@ -982,7 +982,7 @@ router.post("/admin/reviews/:id/approve-visual-concept", requireAdmin, async (re
 
   const stagingFactId = review.stagingFactId;
   try {
-    await db.transaction(async (tx) => {
+    const outcome = await db.transaction(async (tx) => {
       if (!(await lockReviewAt(tx, id, canApproveGags))) throw new ReviewMovedError("gone", "gone");
       await tx.update(pendingReviewsTable).set({ workflowStage: "test_renders" }).where(eq(pendingReviewsTable.id, id));
       await recordAdminAction({ reviewId: id, factId: stagingFactId }, req.user.id, "gag_approval", {}, tx);
@@ -1325,21 +1325,6 @@ router.post("/admin/reviews/:id/visual-concepts/regenerate", requireAdmin, async
   }
   if (review.stagingFactId == null) { res.status(409).json({ error: "Review has no staging fact." }); return; }
 
-  // Block while a concept job is still in-flight: fact_visual_concepts is review-
-  // scoped-deduped, so a regenerate enqueued now would COALESCE onto the pending
-  // job (returning it, ignoring the draft) and could complete the gag gate on
-  // stale candidates. Force the moderator to wait for the current run to land.
-  const [conceptFact] = await db
-    .select({ visualConceptStatus: factsTable.visualConceptStatus })
-    .from(factsTable).where(eq(factsTable.id, review.stagingFactId)).limit(1);
-  if (conceptFact?.visualConceptStatus === "pending") {
-    res.status(409).json({
-      error: "Visual ideas are still generating. Wait for them to finish, then regenerate.",
-      code: "IDEAS_PENDING",
-    });
-    return;
-  }
-
   // Canonicalize + token-validate the draft with the SAME rules a stored
   // candidate uses. Only offer it as distinct-alt context when non-empty AND
   // valid; an invalid-token draft is silently ignored (best-effort context, not
@@ -1358,9 +1343,16 @@ router.post("/admin/reviews/:id/visual-concepts/regenerate", requireAdmin, async
   // then the fact the claim writes.
   const stagingFactId = review.stagingFactId;
   try {
-    await db.transaction(async (tx) => {
+    const outcome = await db.transaction(async (tx) => {
       if (!(await lockReviewAt(tx, id, canApproveGags))) throw new ReviewMovedError("gone", "gone");
       await lockFactRow(tx, stagingFactId);
+      // Refused while ideas are still being written, read under the fact's
+      // lock: each request is its own generation, so two quick requests would
+      // otherwise both start one (two paid runs, Fable, PR #1041 round 1).
+      const [conceptFact] = await tx
+        .select({ visualConceptStatus: factsTable.visualConceptStatus })
+        .from(factsTable).where(eq(factsTable.id, stagingFactId)).limit(1);
+      if (conceptFact?.visualConceptStatus === "pending") return "ideas_pending" as const;
       await enqueueVisualConceptsForReview({
         reviewId: id,
         factId: stagingFactId,
@@ -1368,7 +1360,15 @@ router.post("/admin/reviews/:id/visual-concepts/regenerate", requireAdmin, async
         moderatorDraftBubbles: draftBubbles,
       }, tx);
       await recordAdminAction({ reviewId: id, factId: stagingFactId }, req.user.id, "gag_ideas_requested", { withDraft: draft != null }, tx);
+      return "queued" as const;
     });
+    if (outcome === "ideas_pending") {
+      res.status(409).json({
+        error: "Visual ideas are still generating. Wait for them to finish, then regenerate.",
+        code: "IDEAS_PENDING",
+      });
+      return;
+    }
   } catch (err) {
     if (!sendIfReviewMoved(err, res)) throw err;
     return;

@@ -93,7 +93,7 @@ export function fixtureRetirement(read: (table: string) => Row[]): FixtureRetire
   for (const f of read("facts")) {
     const owner = f["visual_concept_owner"];
     const blob = f["visual_concept_candidates"] as Record<string, unknown> | null | undefined;
-    const ownedByRetired = typeof owner === "string" && owner.startsWith("review:") && reviewIds.has(Number(owner.slice(7)));
+    const ownedByRetired = typeof owner === "string" && owner.startsWith("review:") && reviewIds.has(parseInt(owner.slice(7), 10));
     if (ownedByRetired || (blob && typeof blob === "object" && blob["source"] === "candidate_version")) clearedFacts.add(num(f["id"])!);
   }
   const clearedBlobReviewIds = new Set<number>();
@@ -134,7 +134,7 @@ export function retireRows(table: string, rows: Row[], r: FixtureRetirement, now
       return rows.map((row) => {
         let out = row;
         const owner = row["visual_concept_owner"];
-        if (typeof owner === "string" && owner.startsWith("review:") && r.reviewIds.has(Number(owner.slice(7)))) {
+        if (typeof owner === "string" && owner.startsWith("review:") && r.reviewIds.has(parseInt(owner.slice(7), 10))) {
           out = { ...out, visual_concept_owner: null, visual_concept_status: null, visual_concept_candidates: null };
         }
         const blob = out["visual_concept_candidates"];
