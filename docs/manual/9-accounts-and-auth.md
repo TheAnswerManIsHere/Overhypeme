@@ -193,6 +193,33 @@ standard gate, so those specifically would treat a viewing-as-user admin
 as a non-admin for as long as the toggle stays on — a known inconsistency
 in a small corner, not how authorization works generally.
 
+### Rate limits
+
+Two layers of limits keep one address or one account from flooding the
+service. Nobody using the product normally meets either.
+
+- **A ceiling on everything under `/api`.** Each server counts requests per
+  address and refuses the excess with a "Too many requests. Please slow
+  down." reply (HTTP 429), never cached. The ceiling is 12,000 requests a
+  minute from one address on one server, far beyond what a person clicking
+  around produces, so it exists to cap a runaway script rather than to shape
+  ordinary use. Two things are never counted: the health check and Stripe's
+  payment notifications, which carry their own signature check. Because
+  each server keeps its own count, the ceiling applies per server, not
+  across the whole service.
+- **Narrow limits where a request costs something.** Signing in and
+  registering are limited by both address and email address. Fact
+  submission is limited by address and signed-in session, since a
+  submission lands in the moderation queue and accepting it spends money on
+  AI work; past the limit the submitter reads "You're submitting facts too
+  quickly. Please slow down." An account entitled to skip the submission
+  limit in the Features grid isn't limited. These counts live in the
+  database, so they hold across every server.
+
+The ceiling was added in 2026-08 (PR #308) as a backstop for the many routes
+that had no limit of their own; the narrow limits were already there and are
+unchanged by it.
+
 ## Why it works this way
 
 - **One order, enforced in one place.** Verify, then onboard, then act is

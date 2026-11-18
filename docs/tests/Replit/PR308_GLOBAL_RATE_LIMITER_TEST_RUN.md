@@ -7,7 +7,7 @@ is set here.
 Pre-merge gates (install, typecheck, codegen drift) are assumed green; spot-check
 only if something below fails.
 
-Sibling: [`PR308_GLOBAL_RATE_LIMITER_UAT.md`](../UAT/PR308_GLOBAL_RATE_LIMITER_UAT.md)
+Sibling UAT: run and accepted 2026-11-17 (Issue #311), then deleted; what the limiter does is now in the Manual, [chapter 9, *Rate limits*](../../manual/9-accounts-and-auth.md#rate-limits)
 (David's click-through — the durable half of the pair).
 
 **No migration in this PR.** No new table, no schema change — the store is
