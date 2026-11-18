@@ -511,20 +511,7 @@ layer still refuses to upgrade, is PR214's doc.)
 
 **Check:** `artifacts/api-server/src/__tests__/routes.stripe.test.ts:returns the user's membership_history rows newest-first`; `artifacts/api-server/src/__tests__/routes.stripe.test.ts:returns refund and dispute rows as well as purchases`; `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:lists purchase, refund and dispute entries with their labels in the profile payment history`
 
-### R7. Deactivating and reinstating a user restores the right tier
-
-**Do:** In Admin → Users, deactivate, then reinstate a user.
-
-**Expect:** They come back at the right tier. This changed for the
-better: reinstating now re-checks Stripe first. Before, if the user's
-subscription had been cancelled while a webhook went missing, reinstating
-them would have handed Legendary back based on a stale local row.
-
-**Lane:** scripted
-
-**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:deactivate then reinstate returns a user with an active admin grant to legendary and a user with none to registered`
-
-**Deferred:** #695 — the Stripe fake's event channel — reinstatement refreshes a Stripe-backed source, and the fake serves no subscription or payment to retrieve
+_R7 retired with the admin deactivate and reinstate actions, removed in launch Phase 5 (Manual chapter 9, *Why it works this way*) (David, 2026-11-18, Q2: retired as not applicable — the behaviour it tested was removed)._
 
 ### R8. Creating a user with Legendary records an admin grant
 

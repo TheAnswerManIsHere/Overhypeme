@@ -366,7 +366,7 @@ out.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.reviews.test.ts:returns 403 ONBOARDING_REQUIRED for non-admin/non-legendary/non-captcha users` `artifacts/api-server/src/__tests__/routes.reviews.test.ts:PENDING CAP: returns 429 PENDING_CAP_REACHED when the user is at the unresolved cap`; `artifacts/api-server/src/__tests__/routes.reviews.test.ts:happy path: inserts a triage_pending review with NO paid prep and returns 201` — a verified registered user still submits; `artifacts/api-server/src/__tests__/routes.reviews.test.ts:PER-MINUTE LIMIT: a non-admin account's submission past the fact_submit window max gets 429 with the 'too quickly' message`
+**Check:** `artifacts/api-server/src/__tests__/routes.reviews.test.ts:returns 403 ONBOARDING_REQUIRED for non-admin/non-legendary users who have not onboarded` `artifacts/api-server/src/__tests__/routes.reviews.test.ts:PENDING CAP: returns 429 PENDING_CAP_REACHED when the user is at the unresolved cap`; `artifacts/api-server/src/__tests__/routes.reviews.test.ts:happy path: inserts a triage_pending review with NO paid prep and returns 201` — a verified registered user still submits; `artifacts/api-server/src/__tests__/routes.reviews.test.ts:PER-MINUTE LIMIT: a non-admin account's submission past the fact_submit window max gets 429 with the 'too quickly' message`
 
 _Step R5 retired with the legacy meme studio, which launch Phase 4 deleted (removal 1, #744; ledger: `docs/retired/README.md`)._
 

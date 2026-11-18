@@ -21,7 +21,11 @@ saves it as your meme.
 
 Upload a photo, or pick one you uploaded before. This is available to anyone
 signed in — no paid plan required — and it needs an account, so a visitor
-who isn't signed in is asked to sign up first. The built-in gradient
+who isn't signed in is asked to sign up first. A JPEG goes up exactly as
+it is. A PNG or WebP is turned into a JPEG in your browser before it is
+sent, because only JPEGs are stored; any transparent area, such as the
+background of a cut-out, comes out black, and the thumbnail shows the
+converted picture, so what you see is what was stored. The built-in gradient
 backgrounds and the [stock images](../ai-context/glossary.md#stock-image) from Pexels were deleted
 before launch (the record is in [`docs/retired/`](../retired/README.md)),
 so there is nothing a signed-out visitor can build on, and the plan is to

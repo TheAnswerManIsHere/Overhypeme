@@ -25,18 +25,7 @@ do.
 
 ## Steps
 
-### 1. A speech bubble appears correctly in the compiled prompt
-
-**Do:** In the Speech & Thought Bubbles editor, click Add bubble, leave
-type Speech and entity subject, type `You're the man of the house now.`,
-then open Runtime Compiled Prompt (Advanced Options / preview).
-
-**Expect:** a `SPEECH & THOUGHT BUBBLES:` section containing one directive
-with your exact text in quotes and a tail "pointing to" the subject's name.
-
-**Lane:** ci
-
-**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits one deterministic directive per bubble in STORED order, with exact serialized text`; `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts:returns one speech directive quoting the exact text, tail pointing to the preview name`
+_Step 1 retired as written (David, 2026-11-18, Q2): it was written against the Advanced Options editor and the old compiler, which PR #1022 replaced with the gag card. The behaviour itself was rebuilt, not removed, and CI still checks it: `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts:returns one speech directive quoting the exact text, tail pointing to the preview name`. The bubble later steps use: a Speech bubble spoken by the subject, text `You're the man of the house now.`._
 
 ### 2. The speech bubble renders correctly at 2K
 
@@ -51,19 +40,7 @@ a caption across the image. Which speaker the balloon belongs to is step
 
 **Deferred:** #628 — Phase 7 (image offering) — speech bubbles are finished in that phase; lettering and tail placement are a judgement on a real render
 
-### 3. A thought bubble attaches to a secondary character in the prompt
-
-**Do:** Add a second bubble: type Thought, entity a role label (e.g. `the
-bartender`), text `Not again.`; make sure the scene actually includes that
-character (mention "a bartender" in the Visual Concept, or add a Scene
-Role Assignment for them); then open the preview.
-
-**Expect:** a second directive — a cloud-shaped thought balloon with a
-trail "leading to the head of the bartender", text `Not again.`
-
-**Lane:** ci
-
-**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits one deterministic directive per bubble in STORED order, with exact serialized text`; `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts:returns a cloud-shaped thought balloon whose trail leads to the head of the bartender`
+_Step 3 retired as written (David, 2026-11-18, Q2): it relied on a Scene Role Assignment, replaced by the gag's cast in PR #1022. The behaviour itself was rebuilt, not removed, and CI still checks it: `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts:returns a cloud-shaped thought balloon whose trail leads to the head of the bartender, bound by the gag's cast`. The bubble later steps use: a Thought bubble for `the bartender`, text `Not again.`, with the bartender named in the scene._
 
 ### 4. The thought bubble renders on the right character
 
@@ -88,26 +65,7 @@ exactly. Which character each one attaches to is step 18's, yours.
 
 **Deferred:** #628 — Phase 7 (image offering) — speech bubbles are finished in that phase; attribution across repeats is a judgement on real renders
 
-### 6. An unmatched entity gets a soft warning, not a block
-
-**Do:** The real-render capture run (`acceptance-run.ts --mode capture`, on the
-Repl under the $3.00 cap, only on your go-ahead for that run), as the dev admin, takes a fixture fact to concept
-review, saves one speech bubble whose entity is `the mailman` (a character
-not in the scene) and one Scene Role Assignment for the subject alone, so
-no planned character can match him, through the enrichment save, approves the concept, runs
-the moderation test render, and captures the full-size result.
-
-**Expect:** a soft amber warning in the editor ("doesn't match subject or
-any Scene Role Assignment…") and, in the preview, an unresolved-entity
-note. The bubble still compiles — the warning doesn't block saving. The test
-render completes and a speech balloon appears reading exactly `Special
-delivery!`. Who speaks the line is not a criterion: the model may add a
-mailman, ignore him or give the line to someone else. A render that fails
-or is blocked is a Fail.
-
-**Lane:** capture
-
-**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits bubble_entity_unresolved with typed context for an unmatched entity, and nothing for matched ones` `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx:soft-warns on an entity matching neither subject nor any role binding — but not on matches`; `artifacts/api-server/src/testing/acceptance/captureJourneys.ts:pr229-s6-render`; `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:200s a bubble whose entity (the mailman) matches no subject or role binding`; `artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx:lists the bubble_entity_unresolved note in the diagnostics when the preview response carries it`; `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx:renders the unmatched-entity soft warning in the amber warning style (text-amber-700)`
+_Step 6 retired: it expected a bubble for a speaker absent from the scene to save and render, and the gag card now refuses that speaker (`SPEAKER_NOT_IN_SCENE`, `artifacts/api-server/src/lib/gags/gagStore.ts`) (David, 2026-11-18, Q2: retired as not applicable — the behaviour it tested was removed)._
 
 ### 7. Bubble text over 60 characters shows a soft warning
 
@@ -166,18 +124,7 @@ now."`
 
 **Deferred:** #628 — Phase 8 (Engine evaluation) — the model proposing a speech bubble from a quote-bearing fact; whether the model proposes one is model behaviour that phase tunes (David, 2026-10-17)
 
-### 12. Using a proposed idea fills both the Concept and the bubble editor
-
-**Do:** Click Use as draft on the idea card from step 11.
-
-**Expect:** the Visual Concept field fills and the bubble appears in the
-Speech & Thought Bubbles editor — the same rows the card showed.
-
-**Lane:** ci
-
-**Check:** `artifacts/overhype-me/src/components/admin/VisualConceptCandidates.test.tsx:"Use as draft" calls onPick with the COMPLETE candidate (scene + bubbles)`
-
-**Deferred:** #628 — Phase 13 (Admin console) — the moderation review pane that wires Use as draft into the Concept field and bubble editor is rebuilt there
+_Step 12 retired with the proposed-idea "Use as draft" flow, replaced by the gag card in the three-gags rebuild (PR #956) (David, 2026-11-18, Q2: retired as not applicable — the behaviour it tested was removed)._
 
 ### 13. The picked bubble renders correctly
 
@@ -201,20 +148,7 @@ speech where the fact has none.
 
 **Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 3: the baseline fact has no dialogue, and no Visual Ideas candidate proposes a bubble
 
-### 15. Picking an idea is blocked while other Advanced edits are unsaved
-
-**Do:** Make an edit to some other Visual Strategy field (e.g. add a
-Required Visual Detail) without saving, then try Use as draft on an idea.
-
-**Expect:** the button is disabled with copy asking you to save or discard
-your current Visual Strategy changes first. (Editing the Concept text or
-bubbles themselves does not block picking — only unrelated fields do.)
-
-**Lane:** ci
-
-**Check:** `artifacts/overhype-me/src/components/admin/candidatePickGate.test.ts:BLOCKS when an unrelated field (e.g. requiredVisualDetails) is unsaved relative to a real persisted base`; `artifacts/overhype-me/src/components/admin/VisualConceptCandidates.test.tsx:pickBlockedReason disables picking with the reason but keeps the cards rendered`; `artifacts/overhype-me/src/components/admin/candidatePickGate.test.ts:does NOT block on scene/bubble-only dirtiness relative to a real persisted base — a pick replaces exactly those fields`
-
-**Deferred:** #628 — Phase 13 (Admin console) — the moderation review pane that computes the pick gate and passes its reason to the idea cards is rebuilt there
+_Step 15 retired with the idea-card pick gate, replaced by the gag card in the three-gags rebuild (PR #956) (David, 2026-11-18, Q2: retired as not applicable — the behaviour it tested was removed)._
 
 ### 16. The step 2 balloon belongs to the subject
 
@@ -277,29 +211,7 @@ prompt.
 
 **Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:zero bubbles → no section, no carveout, no bubble diagnostics`
 
-### R2. The Visual Concept field still works on its own
-
-**Do:** Pick an idea for a fact and check the Visual Concept field.
-
-**Expect:** it still works; picking an idea still fills it.
-
-**Lane:** ci
-
-**Check:** `artifacts/overhype-me/src/components/admin/VisualConceptCandidates.test.tsx:"Use as draft" calls onPick with the COMPLETE candidate (scene + bubbles)`
-
-**Deferred:** #628 — Phase 13 (Admin console) — the moderation review pane that wires Use as draft into the Concept field is rebuilt there
-
-### R3. Advanced Options still saves unrelated fields
-
-**Do:** Save an edit to a role binding or required detail in Advanced
-Options.
-
-**Expect:** it still saves; role bindings / required details are
-unchanged.
-
-**Lane:** ci
-
-**Check:** `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`:canonicalizes {name}/{Name} tokens and rejects unknown tokens in the override — a required detail saves with 200 and reads back; `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:reads a saved role binding back with its entity and visualRole unchanged`
+_R2 retired with the proposed-idea "Use as draft" flow, as step 12 is (PR #956) (David, 2026-11-18, Q2: retired as not applicable — the behaviour it tested was removed)._
 
 ### R4. Editing the Concept or a bubble marks ideas stale, non-blocking
 
@@ -321,4 +233,3 @@ renders — this is non-blocking, as before.
   one isn't a regression. Report a pattern, not a single miss.
 - **Photorealistic scenes** get a clean graphic balloon overlaid on the
   photo — that's the intended meme look, not a bug.
-- An unmatched entity's bubble still renders (step 6) — by design.
