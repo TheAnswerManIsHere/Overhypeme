@@ -19,12 +19,17 @@ run = "pnpm --filter @workspace/overhype-me run dev"
 
 [services.production]
 build = [ "pnpm", "--filter", "@workspace/overhype-me", "run", "build" ]
-publicDir = "artifacts/overhype-me/dist/public"
-serve = "static"
 
-[[services.production.rewrites]]
-from = "/*"
-to = "/index.html"
+# Served by our own process, not Replit's static service, so the published
+# app's files can be refused when a request did not come through Cloudflare
+# (launch Phase 14, increment 3; server/serve.mjs). It answers as the static
+# service did: files as themselves, every other address with index.html.
+[services.production.run]
+args = [ "node", "artifacts/overhype-me/server/serve.mjs" ]
+
+[services.production.run.env]
+PORT = "26169"
+NODE_ENV = "production"
 
 [services.env]
 PORT = "26169"
