@@ -70,4 +70,55 @@ describe("Operations page", () => {
     fireEvent.click(await screen.findByTestId("operations-test-alert"));
     await waitFor(() => expect(screen.getByTestId("operations-test-sent").textContent).toContain("does not ring"));
   });
+  const verdict = (over: Record<string, unknown>) => ({
+    checkedAt: new Date().toISOString(),
+    healthy: true,
+    tasks: { status: "ok", healthy: true, detail: [{ id: "content_purge", label: "Deleted content purge", cadenceMs: 3_600_000, lastCompletedAt: new Date().toISOString(), dueBy: new Date().toISOString(), overdue: false }] },
+    jobs: { status: "ok", healthy: true, detail: { unclaimedQueues: [], held: [] } },
+    payments: { status: "ok", healthy: true, detail: { expected: 4, unprocessed: 0, oldestUnprocessedAt: null } },
+    ...over,
+  });
+  const withAlerts = (health: unknown) => ({
+    checkedAt: new Date().toISOString(),
+    lanes: { status: "ok", lanes: [LANE] },
+    incidents: { status: "ok", incidents: [] },
+    alerts: { status: "ok", health },
+  });
+
+  it("shows what the uptime check reads, part by part", async () => {
+    stub(withAlerts(verdict({})));
+    render(<AdminOperations />);
+    expect((await screen.findByTestId("operations-alert-verdict")).textContent).toContain("reads 200");
+    expect(screen.getByTestId("operations-tasks").textContent).toContain("Deleted content purge");
+    expect(screen.getByTestId("operations-payments").textContent).toContain("4 checked");
+  });
+
+  it("names the part that is failing, and never calls an unjudged part healthy", async () => {
+    stub(withAlerts(verdict({
+      healthy: false,
+      jobs: { status: "ok", healthy: false, detail: { unclaimedQueues: [], held: [{ id: 7, queue: "operations_drill", heldForMs: 180_000 }] } },
+      payments: { status: "unjudgeable", reason: "incomplete" },
+    })));
+    render(<AdminOperations />);
+    expect((await screen.findByTestId("operations-alert-verdict")).textContent).toContain("503");
+    expect(screen.getByTestId("operations-jobs").textContent).toContain("operations_drill job 7: held for 3 min");
+    expect(screen.getByTestId("operations-payments-unjudgeable").textContent).toContain("not a healthy reading");
+    expect(screen.getByTestId("operations-payments-icon-unjudgeable")).toBeTruthy();
+  });
+
+  it("says the verdict is unavailable rather than showing nothing", async () => {
+    stub({ checkedAt: new Date().toISOString(), lanes: { status: "ok", lanes: [] }, incidents: { status: "ok", incidents: [] }, alerts: { status: "unavailable" } });
+    render(<AdminOperations />);
+    expect((await screen.findByTestId("operations-alerts-unavailable")).textContent).toContain("not a healthy reading");
+  });
+
+  it("starts the drill and says when it will read as stuck", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/drill")) return new Response(JSON.stringify({ started: true, alreadyRunning: false, jobId: 1, holdMinutes: 10, alertAfterMinutes: 2 }), { status: 200 });
+      return new Response(JSON.stringify(withAlerts(verdict({}))), { status: 200 });
+    }));
+    render(<AdminOperations />);
+    fireEvent.click(await screen.findByTestId("operations-drill"));
+    await waitFor(() => expect(screen.getByTestId("operations-drill-started").textContent).toContain("stuck after 2 minutes"));
+  });
 });

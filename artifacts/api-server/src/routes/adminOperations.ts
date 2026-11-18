@@ -4,6 +4,7 @@
  *
  *   GET  /admin/operations             — live state + recent incidents
  *   POST /admin/operations/test-alert  — sends a real alert through the whole route
+ *   POST /admin/operations/drill       — starts the "job stopped or wedged" drill
  *
  * Launch Phase 16 (Issue #1029; plan design A, "the in-app half"). Sentry is
  * the only incident store, so the incident list is read from Sentry by the
@@ -13,6 +14,8 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { requireAdmin } from "./admin";
 import { laneHealth } from "../lib/queueHealth";
+import { operationalHealthCached, type OperationalHealth } from "../lib/operationalHealth";
+import { DRILL_ALERT_WHEN_HELD_MS, DRILL_HOLD_MS, startOperationsDrill } from "../lib/operationsDrill";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
 import { alertLabel, alertRouteConnected, alertSourceForTitle, reportOperationalAlert, type AlertSource } from "../lib/operationalAlerts";
 import { isProductionEnv } from "../lib/env";
@@ -167,8 +170,8 @@ async function withinLimit(req: Request, endpoint: string, limit: number): Promi
 router.get("/admin/operations", requireAdmin, async (req: Request, res: Response): Promise<void> => {
   if (!(await withinLimit(req, "admin.operations.read", 60))) { res.status(429).json({ error: "Too many requests" }); return; }
 
-  // Each half is read independently: one failing must not hide the other.
-  const [lanesResult, incidents] = await Promise.all([
+  // Each part is read independently: one failing must not hide another.
+  const [lanesResult, incidents, alerts] = await Promise.all([
     laneHealth().then(
       (lanes) => ({ status: "ok" as const, lanes }),
       (err: unknown) => {
@@ -177,8 +180,18 @@ router.get("/admin/operations", requireAdmin, async (req: Request, res: Response
       },
     ),
     readRecentIncidentsCached(),
+    // The same verdict the combined alert address gives the uptime check,
+    // with the detail it withholds. Never throws: each part says when it
+    // could not be judged.
+    operationalHealthCached().then(
+      (h): { status: "ok"; health: OperationalHealth } => ({ status: "ok", health: h }),
+      (err: unknown) => {
+        logger.error({ err }, "[operations] the alert verdict could not be read");
+        return { status: "unavailable" as const };
+      },
+    ),
   ]);
-  res.json({ checkedAt: new Date().toISOString(), lanes: lanesResult, incidents });
+  res.json({ checkedAt: new Date().toISOString(), lanes: lanesResult, incidents, alerts });
 });
 
 router.post("/admin/operations/test-alert", requireAdmin, async (req: Request, res: Response): Promise<void> => {
@@ -189,6 +202,22 @@ router.post("/admin/operations/test-alert", requireAdmin, async (req: Request, r
   }
   reportOperationalAlert("test", { requestedAt: new Date().toISOString() });
   res.json({ sent: true, rings: isProductionEnv() });
+});
+
+/**
+ * Start the drill (plan design G): a job that holds one background slot for
+ * ten minutes and spends nothing. The combined alert address reads it as
+ * wedged after two, so the uptime check fails and the phone rings.
+ */
+router.post("/admin/operations/drill", requireAdmin, async (req: Request, res: Response): Promise<void> => {
+  if (!(await withinLimit(req, "admin.operations.drill", 5))) { res.status(429).json({ error: "Too many requests" }); return; }
+  try {
+    const { jobId, alreadyRunning } = await startOperationsDrill();
+    res.json({ started: !alreadyRunning, alreadyRunning, jobId, holdMinutes: DRILL_HOLD_MS / 60_000, alertAfterMinutes: DRILL_ALERT_WHEN_HELD_MS / 60_000 });
+  } catch (err) {
+    logger.error({ err }, "[operations] the drill could not be started");
+    res.status(503).json({ error: "The drill could not be started" });
+  }
 });
 
 export default router;

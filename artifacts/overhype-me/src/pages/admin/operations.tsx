@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
-import { AlertTriangle, BellRing, CheckCircle2, ExternalLink, Loader2, RefreshCw, XCircle } from "lucide-react";
+import { AlertTriangle, BellRing, CheckCircle2, ExternalLink, Loader2, RefreshCw, Timer, XCircle } from "lucide-react";
 
 const POLL_INTERVAL_MS = 15_000;
 
@@ -34,12 +34,120 @@ interface Incident {
   link: string;
 }
 
+type Part<T> = { status: "ok"; healthy: boolean; detail: T } | { status: "unjudgeable"; reason?: string };
+
+interface TaskRow {
+  id: string;
+  label: string;
+  cadenceMs: number;
+  lastCompletedAt: string | null;
+  dueBy: string;
+  overdue: boolean;
+}
+
+interface AlertVerdict {
+  checkedAt: string;
+  healthy: boolean;
+  tasks: Part<TaskRow[]>;
+  jobs: Part<{ unclaimedQueues: string[]; held: Array<{ id: number; queue: string; heldForMs: number }> }>;
+  payments: Part<{ expected: number; unprocessed: number; oldestUnprocessedAt: string | null }>;
+}
+
 interface OperationsPayload {
   checkedAt: string;
   lanes: { status: "ok"; lanes: Lane[] } | { status: "unavailable" };
+  /** The verdict the uptime check reads, with its detail. */
+  alerts?: { status: "ok"; health: AlertVerdict } | { status: "unavailable" };
   incidents:
     | { status: "ok"; incidents: Incident[] }
     | { status: "unavailable"; reason: "not_configured" | "unreachable" };
+}
+
+function minutes(ms: number): string {
+  const m = Math.round(ms / 60_000);
+  return m < 1 ? "under a minute" : m < 120 ? `${m} min` : `${Math.round(m / 60)} h`;
+}
+
+const UNJUDGEABLE = "Could not be judged right now, so the uptime check is failing on it. This is not a healthy reading.";
+
+function PartState({ healthy, testId }: { healthy: boolean | null; testId: string }) {
+  if (healthy === null) return <XCircle className="h-4 w-4 text-destructive" data-testid={`${testId}-icon-unjudgeable`} />;
+  return healthy ? <CheckCircle2 className="h-4 w-4 text-green-600" data-testid={`${testId}-icon-ok`} /> : <XCircle className="h-4 w-4 text-destructive" data-testid={`${testId}-icon-failing`} />;
+}
+
+function AlertParts({ verdict }: { verdict: AlertVerdict }) {
+  const { tasks, jobs, payments } = verdict;
+  return (
+    <div className="space-y-4 text-sm">
+      <p data-testid="operations-alert-verdict" className={verdict.healthy ? "text-green-600" : "font-medium text-destructive"}>
+        {verdict.healthy
+          ? "Healthy: the uptime check reads 200."
+          : "Unhealthy: the uptime check reads 503, and after three failed checks your phone rings."}
+      </p>
+
+      <div>
+        <h3 className="mb-1 flex items-center gap-2 font-semibold">
+          <PartState healthy={tasks.status === "ok" ? tasks.healthy : null} testId="operations-tasks" /> Recurring tasks
+        </h3>
+        {tasks.status !== "ok" ? (
+          <p className="text-destructive">{UNJUDGEABLE}</p>
+        ) : (
+          <ul className="space-y-0.5" data-testid="operations-tasks">
+            {tasks.detail.map((t) => (
+              <li key={t.id} className={t.overdue ? "text-destructive" : undefined}>
+                <span className="font-medium">{t.label}</span>
+                <span className="text-muted-foreground">
+                  {" "}· every {minutes(t.cadenceMs)} · last completed {formatTime(t.lastCompletedAt)}
+                  {t.overdue ? ` · overdue since ${formatTime(t.dueBy)}` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div>
+        <h3 className="mb-1 flex items-center gap-2 font-semibold">
+          <PartState healthy={jobs.status === "ok" ? jobs.healthy : null} testId="operations-jobs" /> Stuck jobs
+        </h3>
+        {jobs.status !== "ok" ? (
+          <p className="text-destructive">{UNJUDGEABLE}</p>
+        ) : jobs.healthy ? (
+          <p className="text-muted-foreground">None: every due job is being picked up, and no job is held too long.</p>
+        ) : (
+          <ul className="space-y-0.5 text-destructive" data-testid="operations-jobs">
+            {jobs.detail.unclaimedQueues.map((q) => (
+              <li key={`u-${q}`}>{q}: due jobs waiting over 30 min with nothing picked up</li>
+            ))}
+            {jobs.detail.held.map((h) => (
+              <li key={`h-${h.id}`}>
+                {h.queue} job {h.id}: held for {minutes(h.heldForMs)}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div>
+        <h3 className="mb-1 flex items-center gap-2 font-semibold">
+          <PartState healthy={payments.status === "ok" ? payments.healthy : null} testId="operations-payments" /> Payment webhooks
+        </h3>
+        {payments.status !== "ok" ? (
+          <p className="text-destructive" data-testid="operations-payments-unjudgeable">
+            {payments.reason === "incomplete"
+              ? "Stripe holds more recent events than one check reads, so the comparison is incomplete. This is not a healthy reading."
+              : UNJUDGEABLE}
+          </p>
+        ) : (
+          <p className={payments.healthy ? "text-muted-foreground" : "text-destructive"} data-testid="operations-payments">
+            {payments.detail.unprocessed === 0
+              ? `Every event Stripe sent over the last week has been processed (${payments.detail.expected} checked).`
+              : `${payments.detail.unprocessed} of ${payments.detail.expected} Stripe events from the last week have not been processed; the oldest is from ${formatTime(payments.detail.oldestUnprocessedAt)}.`}
+          </p>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function formatTime(iso: string | null): string {
@@ -54,6 +162,9 @@ export default function AdminOperations() {
   const [staleSince, setStaleSince] = useState<string | null>(null);
   const [test, setTest] = useState<
     { status: "idle" | "sending" | "failed" | "not_connected" } | { status: "sent"; rings: boolean }
+  >({ status: "idle" });
+  const [drill, setDrill] = useState<
+    { status: "idle" | "starting" | "failed" } | { status: "started"; alreadyRunning: boolean; holdMinutes: number; alertAfterMinutes: number }
   >({ status: "idle" });
   const hasData = useRef(false);
   const seq = useRef(0);
@@ -105,6 +216,18 @@ export default function AdminOperations() {
       setTest(body.sent === true ? { status: "sent", rings: body.rings === true } : { status: "not_connected" });
     } catch {
       setTest({ status: "failed" });
+    }
+  };
+
+  const startDrill = async (): Promise<void> => {
+    setDrill({ status: "starting" });
+    try {
+      const res = await fetch("/api/admin/operations/drill", { method: "POST", credentials: "include" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = (await res.json()) as { alreadyRunning: boolean; holdMinutes: number; alertAfterMinutes: number };
+      setDrill({ status: "started", ...body });
+    } catch {
+      setDrill({ status: "failed" });
     }
   };
 
@@ -160,6 +283,17 @@ export default function AdminOperations() {
                 </ul>
               )}
               <p className="mt-1 text-xs text-muted-foreground">Checked {formatTime(data.checkedAt)}.</p>
+            </section>
+
+            <section>
+              <h2 className="mb-2 text-lg font-semibold">What the uptime check reads</h2>
+              {!data.alerts || data.alerts.status !== "ok" ? (
+                <p className="text-sm text-destructive" data-testid="operations-alerts-unavailable">
+                  The alert verdict could not be read. This is not a healthy reading.
+                </p>
+              ) : (
+                <AlertParts verdict={data.alerts.health} />
+              )}
             </section>
 
             <section>
@@ -223,6 +357,29 @@ export default function AdminOperations() {
           )}
           {test.status === "failed" && (
             <p className="mt-2 text-sm text-destructive">The test alert could not be sent. Try again in a minute.</p>
+          )}
+        </section>
+
+        <section>
+          <h2 className="mb-2 text-lg font-semibold">Drill: a background job that stops</h2>
+          <p className="mb-2 text-sm text-muted-foreground">
+            Starts a job that holds one background slot for ten minutes and does nothing else: it spends nothing and
+            changes nothing. After two minutes the check above reads it as stuck; on the live site your phone rings a few
+            minutes later. It ends by itself.
+          </p>
+          <Button variant="outline" onClick={() => void startDrill()} disabled={drill.status === "starting"} data-testid="operations-drill">
+            {drill.status === "starting" ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Timer className="mr-1 h-4 w-4" />}
+            Start the drill
+          </Button>
+          {drill.status === "started" && (
+            <p className="mt-2 text-sm" data-testid="operations-drill-started">
+              {drill.alreadyRunning
+                ? "A drill is already running; no second one was started."
+                : `Started. It reads as stuck after ${drill.alertAfterMinutes} minutes and ends after ${drill.holdMinutes}.`}
+            </p>
+          )}
+          {drill.status === "failed" && (
+            <p className="mt-2 text-sm text-destructive">The drill could not be started. Try again in a minute.</p>
           )}
         </section>
       </div>
