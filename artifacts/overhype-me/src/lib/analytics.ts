@@ -177,6 +177,14 @@ let referrer = "";
  * Cleared once that page view is sent.
  */
 let landingCampaign = "";
+/**
+ * The address's query as the page loaded, read when this module is first
+ * evaluated (at startup, before the app can rewrite the address), so a start
+ * that waits for something (Phase 14's admission check) still sees the
+ * landing link's campaign tags. Null in tests after a reset: the current
+ * address is read instead.
+ */
+let landingSearch: string | null = typeof window !== "undefined" ? window.location.search : null;
 /** Each vendor is on only when its ID was set at build; decided once, at start. */
 let gaOn = false;
 let posthogOn = false;
@@ -353,7 +361,8 @@ export function startAnalytics(): void {
   started = true;
   currentPattern = routePattern(window.location.pathname);
   referrer = cleanReferrer(document.referrer);
-  landingCampaign = campaignQuery(window.location.search);
+  landingCampaign = campaignQuery(landingSearch ?? window.location.search);
+  landingSearch = null;
   const id = gaId();
   const key = posthogKey();
   gaOn = Boolean(id);
@@ -481,6 +490,7 @@ export function __resetAnalyticsForTests(): void {
   currentPattern = "/";
   referrer = "";
   landingCampaign = "";
+  landingSearch = null;
   gaOn = false;
   posthogOn = false;
   posthog = null;
