@@ -14,8 +14,10 @@
  * Proves: one page view per page shown, back and forward included; a
  * personalised landing link, a search and a sign-up carry none of the name,
  * the search words or the email to either vendor; GA4's hits are seen on the
- * wire, the first carrying the pattern; a funnel event after an in-app
- * navigation is filed under its own page; a sign-up is counted; the member is
+ * wire, the first carrying the pattern; a personalised link counts once, on
+ * landing; a funnel event after an in-app navigation (the meme builder,
+ * reached from its fact page) is filed under its own page; a sign-up is
+ * counted; the member is
  * known by internal id; a lapsed session's next visit is not sent under that
  * id; sign-out forgets them.
  */
@@ -318,7 +320,12 @@ test("a submitted fact, a made meme and an upgrade each reach both vendors, file
   await expectBothVendors("submit", "submit", "/submit");
 
   // 2. meme_made: the real builder, its photo from the member's uploads, saved.
-  await page.goto("/facts/1/meme");
+  // Reached in-app from the fact page, with no full load: GA4 must file the
+  // event under the builder's pattern, not the page the visit landed on
+  // (increment 3's first review round; the guard PR #1073 replaced).
+  await page.goto("/facts/1");
+  await expect.poll(() => phEvents.some((e) => e.event === "$pageview" && e.properties?.["$pathname"] === "/facts/:id"), { timeout: 15_000 }).toBe(true);
+  await spa(page, "/facts/1/meme");
   await page.getByRole("button", { name: "Make my meme" }).click();
   await expect.poll(() => stubbed.includes("memes"), { timeout: 15_000 }).toBe(true);
   await expectBothVendors("meme_made", "meme_made", "/facts/:id/:sub");
