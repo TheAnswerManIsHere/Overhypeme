@@ -15,6 +15,8 @@
 # edge cache the OLD bytes under the NEW cache key for a full s-maxage,
 # defeating the version bump. See README.md's Deploy section.
 #
+# Also required on the deployed Worker: the CRON_SECRET secret (see [triggers]).
+#
 # Required env (set as Cloudflare Workers secret or in this repo's .env
 # loaded by the deploy script):
 #   CLOUDFLARE_API_TOKEN  Token with "Edit Cloudflare Workers" scope.
@@ -44,3 +46,21 @@ minify = true
 
 [observability]
 enabled = true
+
+# The daily maintenance run (launch Phase 14, increment 6b; src/maintenance.ts):
+# once a day at 09:23 UTC, a quiet hour in the US, the Worker POSTs
+# MAINTENANCE_URL with the app's CRON_SECRET. Deploying replaces every cron
+# trigger with this list.
+#
+# CRON_SECRET is a Worker secret, never a var: set it in the dashboard
+# (Workers & Pages -> overhype-og-router -> Settings -> Variables and Secrets,
+# type Secret) to the same value as the app's CRON_SECRET. A deploy keeps it,
+# and [secrets] below makes `wrangler deploy` refuse while it is missing.
+[triggers]
+crons = ["23 9 * * *"]
+
+[vars]
+MAINTENANCE_URL = "https://overhype.me/api/jobs/maintenance"
+
+[secrets]
+required = ["CRON_SECRET"]

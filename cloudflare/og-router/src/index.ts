@@ -1,7 +1,8 @@
 /**
  * overhype-og-router — Cloudflare Worker on overhype.me.
  *
- * Two responsibilities:
+ * Three responsibilities (the third, the daily maintenance call, is the
+ * `scheduled` handler; src/maintenance.ts):
  *
  *   1. /m/:slug — bot-vs-human routing.  For known crawler user agents we
  *      serve the crawler-targeted OG shell from `/api/og/m/:slug`.  For
@@ -25,8 +26,9 @@
  * @subsystem worker
  */
 import { isbot } from "isbot";
+import { callDailyMaintenance, type MaintenanceEnv } from "./maintenance";
 
-interface Env {}
+type Env = MaintenanceEnv;
 
 const SLUG_RE = /^\/m\/([A-Za-z0-9_-]+)\/?$/;
 const STRIP_COOKIE_RE = /^\/api\/(memes\/[^/]+\/image|og(\/|$))/;
@@ -96,6 +98,14 @@ async function fetchAndStripCookies(request: Request): Promise<Response> {
 }
 
 export default {
+  /**
+   * The daily maintenance run (wrangler.toml [triggers]). Awaited, so a
+   * throw marks the invocation failed in the Worker's Cron Events.
+   */
+  async scheduled(_controller: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
+    await callDailyMaintenance(env);
+  },
+
   async fetch(request: Request, _env: Env, _ctx: ExecutionContext): Promise<Response> {
     if (request.method !== "GET" && request.method !== "HEAD") {
       return fetch(request);

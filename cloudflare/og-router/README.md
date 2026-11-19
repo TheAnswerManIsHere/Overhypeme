@@ -67,3 +67,20 @@ pnpm --filter @workspace/og-router run dev
 curl -A "Twitterbot/1.0" http://localhost:8787/m/somesample
 curl -A "Mozilla/5.0 (Macintosh)" http://localhost:8787/m/somesample
 ```
+
+## The daily maintenance call
+
+The Worker's `scheduled` handler (`src/maintenance.ts`) POSTs
+`https://overhype.me/api/jobs/maintenance` once a day at 09:23 UTC with the
+app's `CRON_SECRET` in `x-cron-secret`. The app scales to zero when idle and
+its cleanup timers live inside that process, so this call is what runs the
+retention jobs on a quiet day (launch Phase 14, plan S-i).
+
+- **The secret** is a Worker secret named `CRON_SECRET`, equal to the app's.
+  Set it in the dashboard before deploying; `[secrets] required` makes
+  `wrangler deploy` refuse without it, and a deploy never removes it.
+- **A failed day is a failed invocation**: the handler throws on a redirect,
+  a refused secret, a run with any failed job, or an answer it does not
+  recognise, and retries once only on a cold start (502/503/504 or no
+  connection). Read it under the Worker's Logs and Cron Events.
+- **Tests**: `pnpm --filter @workspace/og-router test` (run in CI's Build job).
