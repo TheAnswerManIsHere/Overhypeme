@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { AlertTriangle, X, Mail } from "lucide-react";
 
-
 type RevocationKind = "refund" | "dispute_opened" | "dispute_lost";
 type Notice = { kind: RevocationKind; occurredAt: string } | null;
 

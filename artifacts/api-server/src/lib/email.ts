@@ -21,6 +21,7 @@
  *
  * Brand: dark bg (#0d0d0e), danger orange (BRAND_ORANGE), Oswald + Inter typography.
  */
+import { escapeHtml } from "./htmlEscape";
 import { randomUUID } from "node:crypto";
 import { BRAND_ORANGE, type RejectionReason } from "@workspace/api-zod";
 import { Resend } from "resend";
@@ -53,6 +54,11 @@ export const SUPPORT_ADDRESS = "support@overhype.me";
 
 async function getFromAddress(): Promise<string> {
   return getConfigString("email_from_address", process.env.RESEND_FROM_EMAIL ?? "legends@overhype.me");
+}
+
+/** A message's own reply-to wins; otherwise the configured one. */
+async function resolveReplyTo(override?: string | null): Promise<string | undefined> {
+  return override?.trim() || (await getReplyToAddress());
 }
 
 async function getReplyToAddress(): Promise<string | undefined> {
@@ -266,8 +272,7 @@ export function emailIdempotencyKey(jobId: number, nonce: string): string {
 
 /** Resolve the outgoing message from a job's payload and the current sender settings. */
 async function resolveOutgoingMessage(ep: Pick<EmailJobPayload, "to" | "subject" | "text" | "html" | "replyTo">): Promise<OutgoingEmail> {
-  const [from, configured] = await Promise.all([getFromAddress(), getReplyToAddress()]);
-  const replyTo = ep.replyTo?.trim() || configured;
+  const [from, replyTo] = await Promise.all([getFromAddress(), resolveReplyTo(ep.replyTo)]);
   return {
     to: ep.to,
     from,
@@ -288,7 +293,7 @@ export async function sendEmail(
 ): Promise<void> {
   if (!isEnabled()) {
     const from = await getFromAddress();
-    const replyTo = payload.replyTo?.trim() || (await getReplyToAddress());
+    const replyTo = await resolveReplyTo(payload.replyTo);
     logger.info(
       {
         to: payload.to,
@@ -1217,16 +1222,6 @@ ${divider()}
 // it, and the acknowledgement its sender gets.
 // ---------------------------------------------------------------------------
 
-/** Text a visitor typed, made safe to place in an email's HTML. */
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
 const SUPPORT_CATEGORY_LABEL: Record<string, string> = {
   account: "My account",
   billing: "Billing or membership",
@@ -1248,8 +1243,8 @@ export function buildSupportRequestEmail(req: {
   accountState: string | null;
 }): Pick<EmailPayload, "subject" | "text" | "html"> {
   const label = supportCategoryLabel(req.category);
-  const firstLine = req.message.split("\n")[0]!.slice(0, 60);
-  const subject = `[Support] ${label}: ${firstLine}`.replace(/[\r\n]+/g, " ");
+  const firstLine = req.message.split(/\r\n|\r|\n/)[0]!.slice(0, 60);
+  const subject = `[Support] ${label}: ${firstLine}`;
   const account = req.userId ? `${req.userId} (${req.accountState ?? "eligible"})` : "not signed in";
   const text = [
     `From: ${req.email}`,

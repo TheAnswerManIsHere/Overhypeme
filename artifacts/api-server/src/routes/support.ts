@@ -28,6 +28,17 @@ function isCategory(v: unknown): v is SupportCategory {
   return typeof v === "string" && (SUPPORT_CATEGORIES as readonly string[]).includes(v);
 }
 
+/** Runs one step of a request; a failure is reported to Sentry and answered as false. */
+async function attempt(step: string, fn: () => Promise<unknown>): Promise<boolean> {
+  try {
+    await fn();
+    return true;
+  } catch (err) {
+    Sentry.captureException(err, { tags: { support: step } });
+    return false;
+  }
+}
+
 /** The answer when the request could not reach the inbox: say so, and give the address. */
 function unavailable(res: Response): void {
   res.status(503).json({
@@ -89,30 +100,18 @@ router.post("/support/contact", async (req: Request, res: Response) => {
   const accountState = req.user ? (req.user.eligibility ?? "eligible") : null;
 
   // 1. The inbox, where the request is read and answered.
-  let inboxQueued = true;
-  try {
-    await sendEmail({
-      to: SUPPORT_ADDRESS,
-      replyTo: email,
-      kind: "support_request",
-      ...buildSupportRequestEmail({ email, category, message, userId, accountState }),
-    }, db);
-  } catch (err) {
-    inboxQueued = false;
-    Sentry.captureException(err, { tags: { support: "inbox" } });
-  }
+  const inboxQueued = await attempt("inbox", () => sendEmail({
+    to: SUPPORT_ADDRESS,
+    replyTo: email,
+    kind: "support_request",
+    ...buildSupportRequestEmail({ email, category, message, userId, accountState }),
+  }, db));
 
   // 2. The permanent record (amendment 3): written whatever the inbox did.
-  let recorded = true;
-  try {
-    await db.insert(supportRequestsTable).values({
-      email, category, message, userId, accountState,
-      inboxDelivery: inboxQueued ? "queued" : "failed",
-    });
-  } catch (err) {
-    recorded = false;
-    Sentry.captureException(err, { tags: { support: "record" } });
-  }
+  const recorded = await attempt("record", () => db.insert(supportRequestsTable).values({
+    email, category, message, userId, accountState,
+    inboxDelivery: inboxQueued ? "queued" : "failed",
+  }));
 
   logger.info({ eventType: "support_request", category, inboxQueued, recorded, signedIn: !!userId }, "support_request");
   if (!inboxQueued) {
@@ -121,13 +120,8 @@ router.post("/support/contact", async (req: Request, res: Response) => {
   }
 
   // 3. The acknowledgement: its failure does not undo a request that arrived.
-  let acknowledged = true;
-  try {
-    await sendEmail({ to: email, kind: "support_ack", ...buildSupportAcknowledgementEmail(category) }, db);
-  } catch (err) {
-    acknowledged = false;
-    Sentry.captureException(err, { tags: { support: "acknowledgement" } });
-  }
+  const acknowledged = await attempt("acknowledgement", () =>
+    sendEmail({ to: email, kind: "support_ack", ...buildSupportAcknowledgementEmail(category) }, db));
 
   res.json({ ok: true, acknowledged });
 });

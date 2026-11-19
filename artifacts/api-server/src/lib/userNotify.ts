@@ -13,13 +13,11 @@
 import { eq } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { usersTable } from "@workspace/db/schema";
-import { sendEmail, buildEmailShell, ctaButton, divider, EMAIL_COLORS, SUPPORT_ADDRESS } from "./email.js";
+import { sendEmail, buildEmailShell, ctaButton, divider, EMAIL_COLORS, SUPPORT_ADDRESS as SUPPORT_EMAIL } from "./email.js";
 import { logger } from "./logger.js";
 
 /** Mirrors REVOCATION_EVENTS in stripeStorage.ts and the in-app banner. */
 export type AccessRevocationKind = "refund" | "dispute_opened" | "dispute_lost";
-
-const SUPPORT_EMAIL = SUPPORT_ADDRESS;
 
 /**
  * Look up the user's email and send the access-revoked notice. Safe to call

@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Turnstile, type TurnstileHandle } from "@/components/ui/Turnstile";
 import { Mail, Send } from "lucide-react";
 
+/** Shown when the API cannot be reached at all; the API names its own address otherwise. */
 export const SUPPORT_ADDRESS = "support@overhype.me";
 
 export const SUPPORT_CATEGORIES = [
@@ -30,7 +31,7 @@ function categoryParam(): string {
   return SUPPORT_CATEGORIES.some((o) => o.value === c) ? c : "";
 }
 
-type Outcome = { kind: "sent"; acknowledged: boolean } | { kind: "unavailable" } | null;
+type Outcome = { kind: "sent"; acknowledged: boolean } | { kind: "unavailable"; address: string } | null;
 
 export default function Support() {
   const { user } = useAuth();
@@ -64,18 +65,18 @@ export default function Support() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, category, message, captchaToken, hpField, formStartedAt: formStartedAt.current }),
       });
-      const data = (await res.json().catch(() => ({}))) as { acknowledged?: boolean; error?: string; code?: string };
+      const data = (await res.json().catch(() => ({}))) as { acknowledged?: boolean; error?: string; code?: string; address?: string };
       if (res.ok) {
         setOutcome({ kind: "sent", acknowledged: data.acknowledged !== false });
       } else if (res.status === 503 && data.code === "SUPPORT_UNAVAILABLE") {
-        setOutcome({ kind: "unavailable" });
+        setOutcome({ kind: "unavailable", address: data.address ?? SUPPORT_ADDRESS });
       } else {
         setError(data.error ?? "That didn't send. Please try again.");
         captchaRef.current?.reset();
         setCaptchaToken("");
       }
     } catch {
-      setOutcome({ kind: "unavailable" });
+      setOutcome({ kind: "unavailable", address: SUPPORT_ADDRESS });
     } finally {
       setLoading(false);
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -110,7 +111,7 @@ export default function Support() {
                   <p className="font-medium">We couldn't send your message just now.</p>
                   <p className="mt-1 text-muted-foreground">
                     Please email us at{" "}
-                    <a href={`mailto:${SUPPORT_ADDRESS}`} className="font-semibold text-primary underline">{SUPPORT_ADDRESS}</a>.
+                    <a href={`mailto:${outcome.address}`} className="font-semibold text-primary underline">{outcome.address}</a>.
                   </p>
                 </div>
               </div>
