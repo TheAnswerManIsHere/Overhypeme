@@ -18,6 +18,7 @@
  * exercised through the test seam instead.
  */
 
+import { falQueueSubmitHeaders } from "./falRetention";
 import { aiBackend } from "./aiClients";
 import { fal, getFalApiKey } from "./falClient";
 
@@ -75,7 +76,7 @@ const liveFal: RenderFal = {
   async submit(endpointId, input, signal) {
     const res = await fetch(`${FAL_QUEUE_BASE}/${endpointId}`, {
       method: "POST",
-      headers: { Authorization: `Key ${liveKey()}`, "Content-Type": "application/json" },
+      headers: falQueueSubmitHeaders(liveKey()),
       body: JSON.stringify(input),
       signal,
     });
