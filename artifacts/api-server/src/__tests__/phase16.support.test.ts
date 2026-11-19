@@ -136,6 +136,16 @@ describe("a contact request", () => {
     assert.equal((await rowsFor(email)).length, 3);
   });
 
+  it("judges an address's shape in linear time, and as before", async () => {
+    const { isEmailShape } = await import("../routes/support.js");
+    for (const ok of ["a@b.co", "first.last@sub.example.com"]) assert.equal(isEmailShape(ok), true, ok);
+    for (const bad of ["", "a", "@b.co", "a@b", "a@.co", "a@b.", "a b@c.co", "a@b@c.co"]) assert.equal(isEmailShape(bad), false, bad);
+    const hostile = "!@!." + "!.".repeat(100_000);
+    const started = Date.now();
+    isEmailShape(hostile);
+    assert.ok(Date.now() - started < 50, "the CodeQL attack string is answered at once");
+  });
+
   it("escapes the visitor's text in the inbox copy's HTML", async () => {
     const { buildSupportRequestEmail } = await import("../lib/email.js");
     const out = buildSupportRequestEmail({ email: "a@b.co", category: "bug", message: "<script>x</script>\nmore", userId: null, accountState: null });

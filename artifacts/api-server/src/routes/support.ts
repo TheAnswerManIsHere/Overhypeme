@@ -22,7 +22,20 @@ const MESSAGE_MIN = 10;
 const MESSAGE_MAX = 5000;
 /** A form sent faster than a person can fill it in is a script. */
 const MIN_FORM_AGE_MS = 3000;
-const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/**
+ * One "@" with something before it, and a domain with a dot that is neither
+ * first nor last; no whitespace. Checked by position rather than a regex, so
+ * its cost is linear in the address whatever the visitor sends (CodeQL,
+ * polynomial regex on user input). Callers bound the length first.
+ */
+export function isEmailShape(email: string): boolean {
+  if (/\s/.test(email)) return false;
+  const at = email.indexOf("@");
+  if (at <= 0 || at !== email.lastIndexOf("@")) return false;
+  const domain = email.slice(at + 1);
+  const dot = domain.lastIndexOf(".");
+  return dot > 0 && dot < domain.length - 1;
+}
 
 function isCategory(v: unknown): v is SupportCategory {
   return typeof v === "string" && (SUPPORT_CATEGORIES as readonly string[]).includes(v);
@@ -68,7 +81,7 @@ router.post("/support/contact", async (req: Request, res: Response) => {
   }
 
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-  if (!EMAIL_SHAPE.test(email) || email.length > 320) {
+  if (email.length > 320 || !isEmailShape(email)) {
     res.status(400).json({ error: "Enter the email address we should reply to.", field: "email" });
     return;
   }
