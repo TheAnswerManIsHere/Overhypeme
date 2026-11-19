@@ -18,9 +18,9 @@ export const READ_ONLY_ROUTES: Readonly<Record<RouteKey, { allowed: boolean; why
   // Signing in and out, and recovering a sign-in (plan D: "signing in and out").
   "POST /auth/local-login": { allowed: true, why: "signing in", beforeLookup: true },
   "POST /auth/logout": { allowed: true, why: "signing out", beforeLookup: true },
-  // A first Google or Apple sign-in creates the account, so those sign-ups
-  // continue while paused (signing in stays open; PR #1067's follow-up).
-  "POST /callback/apple": { allowed: true, why: "signing in with Apple (a first sign-in creates the account)", beforeLookup: true },
+  // Signing in with Google or Apple stays open; the callback itself refuses a
+  // first sign-in, which would create the account (Q3: 1; routes/auth.ts, ReadOnlySignupError).
+  "POST /callback/apple": { allowed: true, why: "signing in with Apple (a first sign-in, which creates the account, is refused in the callback)", beforeLookup: true },
   "POST /auth/dev-admin-login": { allowed: true, why: "signing in (dev admin)", beforeLookup: true },
   "POST /auth/forgot-password": { allowed: true, why: "recovering a sign-in, so an admin can reach the switch", beforeLookup: true },
   "POST /auth/reset-password": { allowed: true, why: "recovering a sign-in, so an admin can reach the switch", beforeLookup: true },
@@ -43,6 +43,9 @@ export const READ_ONLY_ROUTES: Readonly<Record<RouteKey, { allowed: boolean; why
   // (Q3: 1), and a buyer back from Stripe has already paid.
   "POST /users/me/deletion/cancel": { allowed: true, why: "keeps an account the still-running deletion job would remove" },
   "POST /stripe/checkout/confirm": { allowed: true, why: "confirms a purchase already paid for" },
+  // Stripe keeps renewing while paused, so a member can still stop paying.
+  "POST /stripe/subscription/cancel": { allowed: true, why: "stops a subscription Stripe keeps renewing while paused" },
+  "POST /stripe/portal": { allowed: true, why: "opens Stripe's billing page, where a member can cancel or fix payment" },
   // Q7: 1 — the contact form keeps working, so a member can reach a person during a pause.
   "POST /support/contact": { allowed: true, why: "a support request (Q7: 1)" },
   // Q11: 1 — a member may save a name and pronouns, and nothing else (checked on the body below).
@@ -81,8 +84,6 @@ export const READ_ONLY_ROUTES: Readonly<Record<RouteKey, { allowed: boolean; why
   "POST /share/invite": { allowed: false, why: "sends an invitation email" },
   "POST /stripe/checkout": { allowed: false, why: "starts a purchase" },
 
-  "POST /stripe/portal": { allowed: false, why: "opens billing management" },
-  "POST /stripe/subscription/cancel": { allowed: false, why: "changes a subscription" },
   "POST /stripe/subscription/reactivate": { allowed: false, why: "changes a subscription" },
   "POST /stripe/subscription/switch-plan": { allowed: false, why: "changes a subscription" },
 };

@@ -36,6 +36,7 @@ import { getSafeReturnTo } from "../lib/safeReturnTo";
 import { logger } from "../lib/logger";
 import { recordTaskCompleted } from "../lib/recurringTasks";
 import { effectiveTierForRow } from "../lib/membershipState";
+import { isReadOnly } from "../lib/readOnlyMode";
 
 // Re-exported for back-compat with other route modules that import from "./auth".
 // Canonical home is `lib/auth.ts` so the auth middleware can use it without a
@@ -162,6 +163,18 @@ export class UnverifiedProviderEmailError extends Error {
 }
 
 
+/**
+ * A first Google or Apple sign-in creates the account, and read-only mode
+ * stops public writes, creating an account by any route included (Q3: 1).
+ * An existing account still signs in.
+ */
+export class ReadOnlySignupError extends Error {
+  constructor() {
+    super("Account creation is paused while read-only mode is on");
+    this.name = "ReadOnlySignupError";
+  }
+}
+
 /** Google sends a boolean; Apple sends the string "true". Anything else is unverified. */
 export function providerEmailVerified(claims: Record<string, unknown>): boolean {
   const v = claims.email_verified;
@@ -188,6 +201,8 @@ async function upsertUser(
   if (existing[0]?.suspendedAt) throw new SuspendedAccountError();
   const emailVerified = providerEmailVerified(claims);
   if (!isNewUser && !emailVerified) throw new UnverifiedProviderEmailError();
+  // Decided before anything is written, like the two refusals above.
+  if (isNewUser && (await isReadOnly())) throw new ReadOnlySignupError();
 
   // Sanitize OIDC name claims through the same validator as user-supplied
   // names. Provider claims are user-influenced (Apple in particular lets
@@ -400,6 +415,10 @@ async function handleOAuthCallback(
   } catch (err) {
     if (err instanceof UnverifiedProviderEmailError) {
       res.redirect(`${basePath}/login?error=unverified_provider_email`);
+      return;
+    }
+    if (err instanceof ReadOnlySignupError) {
+      res.redirect(`${basePath}/login?error=read_only_signup`);
       return;
     }
     // Refused before anything is written or a session minted, the way every
