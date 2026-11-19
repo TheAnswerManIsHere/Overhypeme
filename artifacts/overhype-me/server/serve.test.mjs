@@ -24,6 +24,7 @@ beforeAll(async () => {
   writeFileSync(path.join(root, "assets", "index-abc.js"), "console.log(1)");
   writeFileSync(path.join(root, "fonts", "inter.woff2"), "w2");
   writeFileSync(path.join(root, "favicon.svg"), "<svg/>");
+  writeFileSync(path.join(root, "unavailable.html"), "<!doctype html><title>unavailable</title>");
   writeFileSync(path.join(root, "assets", "big.js"), Buffer.alloc(8 * 1024 * 1024, 97));
   writeFileSync(path.join(path.dirname(root), "outside-secret.txt"), "secret");
   server = createServer(createHandler(root));
@@ -100,3 +101,67 @@ describe("the published web server", () => {
   });
 });
 
+
+describe("the published web server's Replit-address redirect (launch Phase 14, increment 3)", () => {
+  let published;
+  let pbase;
+
+  /** A raw request, so the Host header can be set (fetch forbids it). */
+  function hit(p, headers = {}) {
+    return new Promise((resolve, reject) => {
+      const u = new URL(p, pbase);
+      get({ hostname: u.hostname, port: u.port, path: u.pathname + u.search, headers }, (res) => {
+        let body = "";
+        res.on("data", (c) => (body += c));
+        res.on("end", () => resolve({ status: res.statusCode, headers: res.headers, body }));
+      }).on("error", reject);
+    });
+  }
+
+  beforeAll(async () => {
+    published = createServer(createHandler(root, { redirectReplitHost: true, canonicalOrigin: "https://overhype.me" }));
+    await new Promise((r) => published.listen(0, "127.0.0.1", r));
+    pbase = `http://127.0.0.1:${published.address().port}`;
+  });
+  afterAll(async () => {
+    await new Promise((r) => published.close(r));
+  });
+
+  it("sends a request on Replit's address to overhype.me, with none of the app's files", async () => {
+    for (const p of ["/", "/assets/index-abc.js", "/facts/1?x=1"]) {
+      const res = await hit(p, { host: "overhypeme.replit.app" });
+      expect(res.status, p).toBe(308);
+      expect(res.headers.location, p).toBe(`https://overhype.me${p}`);
+      expect(res.body, p).not.toContain("console.log");
+    }
+  });
+
+  it("serves the app on the canonical host and on any other non-Replit host", async () => {
+    for (const host of ["overhype.me", "localhost:26169"]) {
+      const res = await hit("/facts/1", { host });
+      expect(res.status, host).toBe(200);
+      expect(res.body, host).toContain("<title>app</title>");
+    }
+  });
+
+  it("answers the health check on any address", async () => {
+    const res = await hit("/__health", { host: "overhypeme.replit.app" });
+    expect(res.status).toBe(200);
+    expect(res.body).toBe("ok");
+  });
+
+  it("serves the explanation page at /unavailable", async () => {
+    const res = await hit("/unavailable", { host: "overhype.me" });
+    expect(res.status).toBe(200);
+    expect(res.body).toContain("<title>unavailable</title>");
+  });
+
+  it("does not redirect unless told to, as in development", async () => {
+    const dev = createServer(createHandler(root));
+    await new Promise((r) => dev.listen(0, "127.0.0.1", r));
+    const res = await new Promise((resolve) => get({ hostname: "127.0.0.1", port: dev.address().port, path: "/", headers: { host: "x.replit.app" } }, resolve));
+    res.resume();
+    await new Promise((r) => dev.close(r));
+    expect(res.statusCode).toBe(200);
+  });
+});
