@@ -9,7 +9,7 @@ import { supportRequestsTable, SUPPORT_CATEGORIES, type SupportCategory } from "
 import { verifyCaptcha } from "../lib/captcha";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
 import { ipFromRequest } from "../lib/transientRenderLog";
-import { sendEmail, SUPPORT_ADDRESS, buildSupportRequestEmail, buildSupportAcknowledgementEmail } from "../lib/email";
+import { sendEmail, isEnabled, SUPPORT_ADDRESS, buildSupportRequestEmail, buildSupportAcknowledgementEmail } from "../lib/email";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -39,6 +39,18 @@ export function isEmailShape(email: string): boolean {
 
 function isCategory(v: unknown): v is SupportCategory {
   return typeof v === "string" && (SUPPORT_CATEGORIES as readonly string[]).includes(v);
+}
+
+/**
+ * Whether this process can send email at all. With no transport, `sendEmail`
+ * only logs and returns, so the inbox step would read as queued when nothing
+ * will ever reach the inbox (Codex, PR #1071 round 2): it is a failed step.
+ */
+let deliveryAvailable: () => boolean = isEnabled;
+
+/** Test seam: the email layer's answer is fixed when it loads, so a test supplies its own (null restores it). */
+export function __setSupportDeliveryCheckForTests(fn: (() => boolean) | null): void {
+  deliveryAvailable = fn ?? isEnabled;
 }
 
 /** Runs one step of a request; a failure is reported to Sentry and answered as false. */
@@ -113,12 +125,15 @@ router.post("/support/contact", async (req: Request, res: Response) => {
   const accountState = req.user ? (req.user.eligibility ?? "eligible") : null;
 
   // 1. The inbox, where the request is read and answered.
-  const inboxQueued = await attempt("inbox", () => sendEmail({
+  const inboxQueued = await attempt("inbox", async () => {
+    if (!deliveryAvailable()) throw new Error("support request not sent: this process has no email transport");
+    await sendEmail({
     to: SUPPORT_ADDRESS,
     replyTo: email,
     kind: "support_request",
     ...buildSupportRequestEmail({ email, category, message, userId, accountState }),
-  }, db));
+    }, db);
+  });
 
   // 2. The permanent record (amendment 3): written whatever the inbox did.
   const recorded = await attempt("record", () => db.insert(supportRequestsTable).values({

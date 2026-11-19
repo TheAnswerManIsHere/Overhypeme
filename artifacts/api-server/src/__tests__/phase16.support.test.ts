@@ -17,6 +17,7 @@ import { createApp } from "../app.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 import { SUPPORT_ADDRESS } from "../lib/email.js";
 import { __acceptForTests, __resetReadOnlyForTests } from "../lib/readOnlyMode.js";
+import { __setSupportDeliveryCheckForTests } from "../routes/support.js";
 
 const PREFIX = "t-p16sup-";
 const app = createApp();
@@ -134,6 +135,22 @@ describe("a contact request", () => {
     const res = await request(app).post("/api/support/contact").send(body(email));
     assert.equal(res.status, 429);
     assert.equal((await rowsFor(email)).length, 3);
+  });
+
+  it("with no email transport: says it couldn't send, shows the address, keeps the request as failed, queues nothing (Codex, round 2)", async () => {
+    __setSupportDeliveryCheckForTests(() => false);
+    try {
+      const email = `${PREFIX}${randomUUID()}@example.com`;
+      const res = await request(app).post("/api/support/contact").send(body(email));
+      assert.equal(res.status, 503, JSON.stringify(res.body));
+      assert.equal(res.body.code, "SUPPORT_UNAVAILABLE");
+      assert.equal(res.body.address, SUPPORT_ADDRESS);
+      const [row] = await rowsFor(email);
+      assert.equal(row?.inboxDelivery, "failed", "the request is kept, marked as never reaching the inbox");
+      assert.equal((await inboxJobsFor(email)).length, 0, "no inbox copy and no acknowledgement are queued");
+    } finally {
+      __setSupportDeliveryCheckForTests(null);
+    }
   });
 
   it("judges an address's shape in linear time, and as before", async () => {
