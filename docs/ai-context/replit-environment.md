@@ -399,23 +399,25 @@ it (scoped: start the existing workflows, change nothing) to start them.
 then, not minutes later, and if either is still down, find out why before
 asking him to test.
 
-## The dev preview address is public, so its API needs a key
+## The dev preview address is public, so its admin shortcut needs a key
 
 The workspace preview address (`*.replit.dev`) answers the open internet
 while the dev app runs (measured 2026-11-18: from outside, the dev page and
 `/api/healthz` both answered 200, and an unauthenticated
-`POST /api/auth/dev-admin-login` minted an administrator session). Since
-launch Phase 14, increment 3, the dev API refuses any request through that
-address without the **`DEV_PREVIEW_KEY`** secret (Repl Secrets pane), sent by
-header or cookie (`artifacts/api-server/src/middlewares/devPreviewGate.ts`).
-David unlocks a browser once by opening the preview with
-`?devPreviewKey=<key>`: the page stores the key, strips it from the address
-before monitoring starts, sends it as a header on every API call, and asks
-the gate for its cookie with a keyed POST. The key never travels in an API
-address. **Inside Replit's embedded pane**, script calls and the triple-tap
-admin login always work; pictures and sign-in links need the cookie, which
-the pane may drop, so for those open the preview in its own tab. With no key
-set, the preview's API refuses everything.
+`POST /api/auth/dev-admin-login` minted an administrator session). So the dev
+admin shortcut, and only it, refuses a request through that address without
+the **`DEV_PREVIEW_KEY`** secret (Repl Secrets pane), sent by header or
+cookie. The check is on the shortcut's own handler (`routes/localAuth.ts`,
+`previewKeyAdmits` in `middlewares/devPreviewGate.ts`), so every spelling
+Express routes there is covered; the middleware only serves the unlock call. Every
+other dev address, Stripe's test webhook and sign-up included, answers as it
+always did (David, Q21: 1, 2026-11-19, narrowing PR #1060's whole-API gate,
+which got in the way of testing). David unlocks a browser once by opening the
+preview with `?devPreviewKey=<key>`: the page stores the key, strips it from
+the address before monitoring starts, sends it as a header on API calls, and
+asks the gate for its cookie with a keyed POST; the triple-tap admin login
+then works, in a tab or in the embedded pane. The key never travels in an API
+address. With no key set, the shortcut is refused through the preview.
 Direct local requests (`curl localhost:8080`, the Repl agent's checks) are
 never gated, and the published deployment never is.
 

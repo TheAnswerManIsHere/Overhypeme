@@ -1,5 +1,5 @@
 /**
- * @purpose devPreviewGate: in a Replit workspace (development), refuses every API request that reached the server through the public `*.replit.dev` preview address unless it carries DEV_PREVIEW_KEY, by header or cookie; requests to localhost and Stripe's signed test webhook are untouched, and the published deployment never gates. A keyed POST /api/dev-preview-gate sets the cookie.
+ * @purpose The dev preview key: previewKeyAdmits(req) is the check the dev admin shortcut's own handler makes (routes/localAuth.ts) — in a Replit workspace (development), a request through the public `*.replit.dev` preview address needs DEV_PREVIEW_KEY by header or cookie; direct local requests and the published deployment always pass. devPreviewGate() mounts only the unlock call, a keyed POST /api/dev-preview-gate that sets the cookie; every other API address is untouched.
  * @subsystem security
  *
  * Why (launch Phase 14, increment 3; measured 2026-11-18): the workspace
@@ -8,9 +8,22 @@
  * /api/auth/dev-admin-login minted an administrator session. The plan's rule:
  * a reachable development preview is protected, not accepted.
  *
- * Fail-closed: with no DEV_PREVIEW_KEY set, preview-address requests are all
- * refused. Direct local requests (the Repl agent's checks, `curl localhost:8080`,
- * the workflow's own health probe) are never gated.
+ * Only that shortcut is gated (David, Q21: 1, 2026-11-19): the whole-API gate
+ * of PR #1060 got in the way of testing and turned away Stripe's test
+ * webhook, while the measured hole was the admin shortcut. The rest of the
+ * dev API is reachable as it was before, sign-up included.
+ *
+ * The check lives on the shortcut's own handler, not in a middleware that
+ * compares the address: Express matches routes case-insensitively and with an
+ * optional trailing slash, so a literal comparison ahead of the router let
+ * `/api/auth/dev-admin-login/` and `/API/auth/DEV-ADMIN-LOGIN` through
+ * (PR #1072 round 1; docs/ai-context/security-model.md: "a stricter match
+ * than the router's is a bypass"). On the handler, whatever Express routes
+ * there is checked.
+ *
+ * Fail-closed: with no DEV_PREVIEW_KEY set, the shortcut is refused through
+ * the preview. Direct local requests (the Repl agent's checks,
+ * `curl localhost:8080`) are never gated.
  */
 import { timingSafeEqual } from "node:crypto";
 import type { Request, Response, NextFunction } from "express";
@@ -19,14 +32,6 @@ import { isProductionEnv } from "../lib/env";
 export const DEV_PREVIEW_COOKIE = "dev_preview_key";
 export const DEV_PREVIEW_HEADER = "x-dev-preview-key";
 const GATE_PATH = "/api/dev-preview-gate";
-/**
- * Stripe's test-mode webhook. Dev registers it at the preview address
- * (lib/stripeInit.ts, from getSiteBaseUrl(), which is the dev domain when
- * SITE_BASE_URL is unset), and Stripe cannot carry the key. The route
- * verifies Stripe's signature before it acts, so the key would add nothing
- * there; every other address stays gated.
- */
-const STRIPE_WEBHOOK_PATH = "/api/stripe/webhook";
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 /** True in a Replit workspace (development), never in the published deployment or a bare local stack. */
@@ -60,43 +65,55 @@ function matchesKey(given: unknown, key: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function refuse(res: Response): void {
+/** The refusal the shortcut answers when the key is missing or wrong. */
+export function refuseDevPreview(res: Response): void {
   res.status(403).json({
     error: "dev_preview_locked",
-    message: "This development preview is private. Open the preview once with ?devPreviewKey=<DEV_PREVIEW_KEY> to unlock this browser. Inside Replit's embedded pane, pictures and sign-in need the preview open in its own tab.",
+    message: "The dev admin shortcut needs the preview key. Open the preview once with ?devPreviewKey=<DEV_PREVIEW_KEY> to unlock this browser.",
   });
 }
 
+/**
+ * True when this request may use the dev admin shortcut as far as the preview
+ * key is concerned: always outside a Replit workspace and for direct local
+ * requests; through the preview, only with DEV_PREVIEW_KEY by header or cookie.
+ * Refused when no key is configured (fail closed).
+ */
+export function previewKeyAdmits(req: Request, env: NodeJS.ProcessEnv = process.env): boolean {
+  if (!isGatedEnvironment(env)) return true;
+  if (isDirectLocalRequest(req)) return true;
+  const key = env.DEV_PREVIEW_KEY ?? "";
+  if (!key) return false;
+  return matchesKey(req.headers[DEV_PREVIEW_HEADER], key) || matchesKey(readCookie(req.headers.cookie, DEV_PREVIEW_COOKIE), key);
+}
+
+/**
+ * The unlock call alone: a keyed POST /api/dev-preview-gate through the
+ * preview sets the cookie a navigation to the shortcut carries. Mounted ahead
+ * of the origin and CSRF checks, since its fetch carries no CSRF header. Every
+ * other request passes untouched; a variant spelling of this address reaches
+ * no route (404) and sets nothing.
+ */
 export function devPreviewGate(env: NodeJS.ProcessEnv = process.env) {
   const gated = isGatedEnvironment(env);
   return (req: Request, res: Response, next: NextFunction): void => {
-    if (!gated) return next();
+    if (!gated || req.path !== GATE_PATH) return next();
     if (isDirectLocalRequest(req)) return next();
-    if (req.method === "POST" && req.path === STRIPE_WEBHOOK_PATH) return next();
     const key = env.DEV_PREVIEW_KEY ?? "";
-
-    if (!key) return refuse(res);
-    const fromCookie = readCookie(req.headers.cookie, DEV_PREVIEW_COOKIE);
-    const keyed = matchesKey(req.headers[DEV_PREVIEW_HEADER], key);
-    if (!keyed && !matchesKey(fromCookie, key)) return refuse(res);
-
-    // The web app's unlock call: a keyed POST, never a key in an address, so
-    // no log or trace records it. It sets the cookie for what script cannot
-    // key (pictures, navigations); Partitioned lets an embedded preview pane
-    // keep it where the browser refuses third-party cookies.
-    if (req.path === GATE_PATH && req.method === "POST" && keyed) {
-      res.cookie(DEV_PREVIEW_COOKIE, key, {
-        httpOnly: true,
-        secure: true,
-        sameSite: "none",
-        partitioned: true,
-        path: "/",
-        maxAge: 90 * 86_400_000,
-      });
-      res.status(204).end();
-      return;
-    }
-    return next();
+    // A key in the address is never accepted: only the header unlocks.
+    if (!key || req.method !== "POST" || !matchesKey(req.headers[DEV_PREVIEW_HEADER], key)) return refuseDevPreview(res);
+    // Never a key in an address, so no log or trace records it. Partitioned
+    // lets an embedded preview pane keep the cookie where the browser refuses
+    // third-party cookies.
+    res.cookie(DEV_PREVIEW_COOKIE, key, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "none",
+      partitioned: true,
+      path: "/",
+      maxAge: 90 * 86_400_000,
+    });
+    res.status(204).end();
   };
 }
 

@@ -9,6 +9,7 @@ import { db, usersTable, passwordResetTokensTable, emailVerificationTokensTable 
 import { eq, and, or, sql, isNull, gt, getTableColumns } from "drizzle-orm";
 import { createSession, createSignInSession, SuspendedAccountError, updateSession, deleteSession, getSessionId, revokeUserSessions, type SessionData } from "../lib/auth";
 import { isDevAdminLoginEnabled } from "../lib/devAdminLogin";
+import { previewKeyAdmits, refuseDevPreview } from "../middlewares/devPreviewGate";
 import { getSafeReturnTo } from "../lib/safeReturnTo";
 import { isAdminById } from "./auth";
 import { sendEmail, buildPasswordResetEmail, buildEmailVerificationEmail, buildEmailChangeVerificationEmail } from "../lib/email";
@@ -907,6 +908,13 @@ async function handleDevAdminLogin(req: Request, res: Response) {
   // disabled. See docs/ai-context/security-model.md.
   if (!isDevAdminLoginEnabled()) {
     res.status(404).json({ error: "Not found" });
+    return;
+  }
+  // The dev preview address is public, so through it the shortcut needs the
+  // dev preview key (launch Phase 14, increment 3; David, Q21). Checked here,
+  // on the handler, so every spelling Express routes to it is covered.
+  if (!previewKeyAdmits(req)) {
+    refuseDevPreview(res);
     return;
   }
 

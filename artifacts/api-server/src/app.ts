@@ -179,11 +179,10 @@ export function createApp(options: { limiterOverrides?: GlobalRateLimiterOverrid
     }
   });
 
-  // The workspace preview address is public while the dev app runs, so in
-  // development every request through it needs the dev preview key (launch
-  // Phase 14, increment 3). No-op in the published deployment and for direct
-  // local requests. Ahead of every route, the webhook and dev-admin-login
-  // included.
+  // The dev preview key's unlock call (launch Phase 14, increment 3): ahead of
+  // the origin and CSRF checks, since its fetch carries no CSRF header. The
+  // key itself guards only the dev admin shortcut, checked in its handler
+  // (routes/localAuth.ts). No-op in the published deployment.
   app.use(devPreviewGate());
 
   // Stripe webhook MUST be registered BEFORE express.json() to get raw Buffer
