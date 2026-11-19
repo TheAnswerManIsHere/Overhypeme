@@ -150,7 +150,8 @@ The approved scope says "Never: session replay", without qualification. The web 
 - **A contact page** that works signed out: email, a category, a message; a captcha and a rate limit; the account id attached when there is a session. It sends to the inbox with the member's address as reply-to, and sends the member an acknowledgement. If the request could not be stored in the inbox, the page says so and shows the address. If only the acknowledgement failed, the member is told the request was received.
 - **Reachable from every account state.** The page and its one request are permitted for suspended, unverified, un-onboarded and deletion-pending accounts, in the web app's redirect rules and in the API's gate, widening nothing else for them. Links: the suspended screen, the footer, the billing banner.
 - **The Gmail alias is replaced everywhere**: the class is every site `git grep -n "overhypeme+support"` finds, the stored reply-to value included.
-- No support table and no ticketing vendor.
+- **Every request is also kept in our own database** (amendment 3; David's Q17: 1, 2026-11-19). Resend keeps email data for 30 days on every plan (Resend, *Account quotas and limits*: "Resend retains email data for 30 days across all plans"), so the inbox alone cannot meet "every request is kept". Each request the contact page accepts is written to one append-only table of our own (who sent it, the account id when there is a session, the category, the message, when, and what Resend answered), in the same request that sends it to the inbox. The inbox stays where requests are read and answered; replies live only there and keep Resend's 30 days. The table adds one migration, serialized against Issue #1018's under the collision rule. If the row cannot be written, the request is still sent to the inbox and the failure is reported to Sentry; if neither can be done, the page says so and shows the address. *(Until amendment 3 this read: "No support table and no ticketing vendor.")*
+- No ticketing vendor.
 
 ### F. Policy, rollback and the restart question
 
@@ -193,7 +194,7 @@ The oracle's six increments are seven pull requests: alerts ships as two, so the
 - **Operations page:** shows each source's live state and recent incidents; shows "unavailable" when Sentry cannot be read; the test alert reaches David's phone.
 - **Analytics:** with the vendor IDs unset at build, no request leaves for GA4 or PostHog. With them set, a scripted journey from a fresh browser that has not dismissed the notice shows all eight events in PostHog and in GA4. The **actual outbound payloads** are inspected on first load, on navigation (back and forward included), on a personalised landing link, on a search, and on sign-in and sign-out, with each vendor configured alone and both together; they show one page view per page shown, and carry no name, email, search text or personalised address. No Sentry replay request is made. The published Privacy page and the notice name exactly the analytics and monitoring providers the network log shows.
 - **Read-only mode:** the route-table test. With the mode on, a scripted pass shows browsing works signed out and signed in, personalising works signed out (and signed in, per Q11), each public write is refused with the notice, an admin action succeeds, a webhook is processed, and the switch turns off. Two failure cases are tested: a pause stays in force when the refresh fails, and an older read does not undo a newer save. Exercised live in G.
-- **Support:** a signed-out visitor and a member in each restricted account state send a request that appears as a thread in the inbox, with an acknowledgement in their mailbox; a direct email and a reply stay in one thread; no Gmail alias remains.
+- **Support:** a signed-out visitor and a member in each restricted account state send a request that appears as a thread in the inbox and as a row in the support table (amendment 3), with an acknowledgement in their mailbox; a failed row write still delivers the request and reports to Sentry; a direct email and a reply stay in one thread; no Gmail alias remains.
 - **Policy:** the page exists and David can follow the rollback steps; the restart question has a written, evidenced answer.
 - **Row 8:** the afternoon's table, complete, with the spend row as Q9 decides.
 
@@ -211,6 +212,10 @@ The oracle's six increments are seven pull requests: alerts ships as two, so the
 - **Sentry session replay is removed**, following the approved scope's "Never: session replay". (Q8 as first drafted is retired.)
 - ~~Analytics stay off until Phase 14's notice grants consent.~~ Superseded by David's Q14 → 1 on Issue #1030 (amendment 2): analytics run for every visitor; the notice informs.
 - **Bookkeeping writes made by page views continue during read-only mode.**
+
+## Amendment 3 (2026-11-19)
+
+- **Q17: 1** (Issue #1029) — Resend keeps email data 30 days; every support request is also saved in an append-only table of our own, and Resend stays the working inbox. Design E's "No support table" is replaced (above).
 
 ## Answered by David (2026-11-17)
 
