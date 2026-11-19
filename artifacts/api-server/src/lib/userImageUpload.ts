@@ -14,7 +14,7 @@ import { ObjectStorageService } from "./objectStorage";
 import { isArachnidFailOpen, scanFaceSource } from "./moderation/arachnid";
 import { quarantineImage } from "./moderation/quarantine";
 import { checkUploadRateLimit } from "./moderation/uploadRateLimit";
-import { classifyAndDecide, isNsfwClassifierFailOpen } from "./moderation/nsfwClassifier";
+import { classifyAndDecide, isNsfwClassifierFailOpen, uploadForClassifier } from "./moderation/nsfwClassifier";
 import { GENERIC_REJECT_MESSAGE } from "./moderation/types";
 import { finishAndStore } from "./provenance/records";
 
@@ -226,7 +226,7 @@ async function runNsfwClassifier(
   buffer: Buffer,
   contentType: string,
 ): Promise<{ state: "proceed"; isNsfw: boolean } | { state: "rejected" }> {
-  const { getFalApiKey, ensureFalConfigured, fal } = await import("./falClient");
+  const { getFalApiKey, ensureFalConfigured } = await import("./falClient");
   if (!getFalApiKey()) {
     req.log.warn("[user-upload] fal.ai key not configured — skipping NSFW classifier");
     return { state: "proceed", isNsfw: false };
@@ -234,7 +234,8 @@ async function runNsfwClassifier(
   try {
     ensureFalConfigured();
     const blob = new Blob([new Uint8Array(buffer)], { type: contentType });
-    const classifierUrl = await fal.storage.upload(blob);
+    // Set to expire an hour after upload (vendor expiry, launch Phase 14).
+    const classifierUrl = await uploadForClassifier(blob);
     // The NSFW opt-in is withdrawn until adult content ships (launch Phase 5,
     // S13): a flagged upload is rejected whatever the account's old column says.
     const decision = await classifyAndDecide(classifierUrl, { nsfwModeEnabled: false });
