@@ -377,6 +377,22 @@ describe("personalise is counted once per browser", () => {
   });
 });
 
+describe("a personalised link counts once, even when it applies before analytics starts (Q16: 1)", () => {
+  it("is held until start and then sent once, and a later name save does not count again", async () => {
+    vi.stubEnv("VITE_GA_MEASUREMENT_ID", "");
+    vi.stubEnv("VITE_POSTHOG_KEY", "phc_test123");
+    localStorage.removeItem("overhype.analytics.personaliseCounted");
+    trackPersonaliseOnce(); // the link's name saved on load, analytics not started yet
+    expect(phCapture).not.toHaveBeenCalled();
+    startAnalytics();
+    resetIdentity();
+    await flush();
+    expect(phCapture.mock.calls.filter((c) => c[0] === "personalise")).toHaveLength(1);
+    trackPersonaliseOnce(); // the friend then saves a name in the name tag
+    expect(phCapture.mock.calls.filter((c) => c[0] === "personalise")).toHaveLength(1);
+  });
+});
+
 describe("what PostHog adds by itself is scrubbed before sending", () => {
   it("replaces its URL properties and drops titles and element chains", async () => {
     vi.stubEnv("VITE_POSTHOG_KEY", "phc_test123");

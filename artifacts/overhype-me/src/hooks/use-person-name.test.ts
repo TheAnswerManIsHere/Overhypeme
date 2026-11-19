@@ -103,6 +103,15 @@ describe("commitLinkHalves (a signed-out visitor keeps the link's halves, #723)"
     expect(resolveInitialIdentity(s, null, null)).toEqual({ name: "Grace", pronouns: "they/them", pronounsSupplied: true, pending: { name: null, pronouns: null } });
   });
 
+  it("answers whether the link's name was saved, which is what counts as personalising (Q16: 1)", () => {
+    const fresh = memoryStorage();
+    expect(commitLinkHalves(fresh, resolveInitialIdentity(fresh, "Grace", null).pending)).toBe(true);
+    const named = memoryStorage({ fact_db_name: "Ada" });
+    expect(commitLinkHalves(named, resolveInitialIdentity(named, "Grace", null).pending)).toBe(false);
+    const pronounsOnly = memoryStorage();
+    expect(commitLinkHalves(pronounsOnly, resolveInitialIdentity(pronounsOnly, null, "they/them").pending)).toBe(false);
+  });
+
   it("never touches a half the browser already held", () => {
     const s = memoryStorage({ fact_db_name: "Ada", fact_db_pronouns: "she/her" });
     commitLinkHalves(s, resolveInitialIdentity(s, "Grace", "they/them").pending);

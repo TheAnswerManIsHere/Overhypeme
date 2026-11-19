@@ -172,23 +172,25 @@ test("analytics send route patterns and funnel events, never a name, a search or
     expect((firstSet?.[1] as { page_location: string }).page_location).toMatch(/\/facts\/:id\?utm_source=newsletter&utm_campaign=launch-week$/);
   }
 
-  // A funnel event after an in-app navigation (no full load) is filed under the
-  // page it happened on, in both vendors: the name saved through the name tag
-  // on /pricing, reached from /search in-app. (The share link already gave
-  // the name, so the welcome sheet does not open.)
-  await page.getByRole("button", { name: new RegExp(`^As: ${NAME}`) }).filter({ visible: true }).first().click();
-  await page.getByPlaceholder("Your name").filter({ visible: true }).first().fill(NAME);
-  await page.getByRole("button", { name: "Apply" }).filter({ visible: true }).first().click();
+  // A friend arriving by a personalised link has personalised (David's Q16: 1):
+  // counted once, on landing, filed under the landing page's pattern. Saving a
+  // name later through the name tag on /pricing (reached in-app) counts nothing.
   if (googleOnWire) {
     await expect.poll(() => gaWire.some((h) => h.get("en") === "personalise"), { timeout: 20_000 }).toBe(true);
     const personaliseHit = gaWire.find((h) => h.get("en") === "personalise")!;
-    expect(personaliseHit.get("dt"), "GA4 files the event under the page it happened on").toBe("/pricing");
-    expect(personaliseHit.get("dl")).toMatch(/\/pricing$/);
+    expect(personaliseHit.get("dt"), "GA4 files the link's personalise under the landing page").toBe("/facts/:id");
+    expect(personaliseHit.get("dl")).toMatch(/\/facts\/:id(\?utm_source=newsletter&utm_campaign=launch-week)?$/);
   } else {
     await expect.poll(() => gaCommands.some((c) => c[0] === "event" && c[1] === "personalise"), { timeout: 20_000 }).toBe(true);
   }
   await expect.poll(() => phEvents.some((e) => e.event === "personalise"), { timeout: 15_000 }).toBe(true);
-  expect(phEvents.find((e) => e.event === "personalise")?.properties?.["$pathname"]).toBe("/pricing");
+  expect(phEvents.find((e) => e.event === "personalise")?.properties?.["$pathname"]).toBe("/facts/:id");
+  await page.getByRole("button", { name: new RegExp(`^As: ${NAME}`) }).filter({ visible: true }).first().click();
+  await page.getByPlaceholder("Your name").filter({ visible: true }).first().fill(NAME);
+  await page.getByRole("button", { name: "Apply" }).filter({ visible: true }).first().click();
+  await page.waitForTimeout(1500);
+  expect(phEvents.filter((e) => e.event === "personalise"), "the name-tag save after the link counts nothing more").toHaveLength(1);
+  expect(gaCommands.filter((c) => c[0] === "event" && c[1] === "personalise")).toHaveLength(1);
 
   // Sign up through the real form, then sign out.
   const email = `analytics-${randomUUID()}@test.local`;
