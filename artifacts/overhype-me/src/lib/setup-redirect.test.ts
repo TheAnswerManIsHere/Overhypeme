@@ -19,6 +19,12 @@ describe("setupRedirectFor", () => {
     expect(setupRedirectFor("suspended", "/submit")).toBe("/account/suspended");
     for (const p of ["/account/suspended", "/login"]) expect(setupRedirectFor("suspended", p)).toBeNull();
   });
+  it("the contact page is reachable from every account state (launch Phase 16, increment 5)", () => {
+    for (const state of ["suspended", "deletion_pending", "unverified", "unonboarded"] as const) {
+      expect(setupRedirectFor(state, "/support")).toBeNull();
+      expect(setupRedirectFor(state, "/support?category=account")).toBeNull();
+    }
+  });
   it("an eligible account, or one not signed in, is left where it is", () => {
     expect(setupRedirectFor("eligible", "/submit")).toBeNull();
     expect(setupRedirectFor(undefined, "/submit")).toBeNull();

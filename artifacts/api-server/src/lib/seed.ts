@@ -355,7 +355,7 @@ export async function ensureSchema(): Promise<void> {
     {
       label: "admin_config seed email_reply_to",
       ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
-            VALUES ('email_reply_to', 'overhypeme+support@gmail.com', 'string', 'Transactional Email Reply-To Address',
+            VALUES ('email_reply_to', 'support@overhype.me', 'string', 'Transactional Email Reply-To Address',
                     'The "Reply-To" address on all outgoing transactional emails. Users who reply to an automated email will reach this address. Leave blank to use the From address.',
                     false)
             ON CONFLICT (key) DO NOTHING`,

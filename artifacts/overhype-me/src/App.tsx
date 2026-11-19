@@ -54,6 +54,7 @@ const MemePage = lazy(() => import("@/pages/MemePage"));
 const Pricing = lazy(() => import("@/pages/Pricing"));
 const Login = lazy(() => import("@/pages/Login"));
 const ForgotPassword = lazy(() => import("@/pages/ForgotPassword"));
+const Support = lazy(() => import("@/pages/Support"));
 const ResetPassword = lazy(() => import("@/pages/ResetPassword"));
 const VerifyEmail = lazy(() => import("@/pages/VerifyEmail"));
 const TopFacts = lazy(() => import("@/pages/TopFacts"));
@@ -298,6 +299,7 @@ function Router() {
         <Route path="/pricing" component={Pricing} />
         <Route path="/login" component={Login} />
         <Route path="/forgot-password" component={ForgotPassword} />
+        <Route path="/support" component={Support} />
         <Route path="/reset-password" component={ResetPassword} />
         <Route path="/verify-email" component={VerifyEmail} />
         {LEGAL_SLUGS.map((slug) => (

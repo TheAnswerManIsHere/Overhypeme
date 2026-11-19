@@ -5,7 +5,9 @@
 import { LEGAL_SLUGS } from "@/generated/legal";
 
 /** Where an account that cannot act yet may be without being sent on. */
-const SETUP_EXEMPT_ROOTS = ["/onboard", "/check-email", "/verify-email", "/login", "/forgot-password", "/reset-password", "/account/deletion", "/account/suspended", ...LEGAL_SLUGS.map((s) => `/${s}`)];
+const SETUP_EXEMPT_ROOTS = ["/onboard", "/check-email", "/verify-email", "/login", "/forgot-password", "/reset-password", "/account/deletion", "/account/suspended",
+  // Asking for help works from every account state (launch Phase 16, increment 5).
+  "/support", ...LEGAL_SLUGS.map((s) => `/${s}`)];
 
 /** The account states that cannot act yet, each sent to its own screen. */
 const REDIRECTED_STATES = new Set<string | null | undefined>(["suspended", "deletion_pending", "unverified", "unonboarded"]);

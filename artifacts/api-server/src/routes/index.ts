@@ -31,6 +31,7 @@ import adminProvenanceRouter from "./adminProvenance";
 import shareRouter from "./share";
 import shareCopyRouter from "./shareCopy";
 import shareIntentsRouter from "./shareIntents";
+import supportRouter from "./support";
 import lookStylesRouter from "./lookStyles";
 
 const router: IRouter = Router();
@@ -66,6 +67,7 @@ router.use(adminProvenanceRouter);
 router.use(shareRouter);
 router.use(shareCopyRouter);
 router.use(shareIntentsRouter);
+router.use(supportRouter);
 router.use(lookStylesRouter);
 router.use(importRouter);
 

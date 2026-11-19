@@ -14,6 +14,7 @@
  * Cache-Control is set to 1h public — the response is deterministic for a
  * given slug at a given moment, and Cloudflare caches it at the edge.
  */
+import { escapeHtml } from "../lib/htmlEscape";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import { memesTable, factsTable, usersTable } from "@workspace/db/schema";
@@ -34,14 +35,7 @@ const DEFAULT_OG_IMAGE_PATH = "/og-default.png";
  * nodes in the OG shell. We never accept HTML from these fields, but the
  * data is user-authored (display names, fact text), so escape is required.
  */
-function esc(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+const esc = escapeHtml;
 
 interface OgShellInput {
   title: string;

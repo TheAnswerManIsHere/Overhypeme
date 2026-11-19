@@ -169,6 +169,13 @@ export const RETENTION_SCHEDULE: Readonly<Record<string, RetentionEntry>> = {
     personal: "who shared which meme where",
     rules: [{ kind: "account-deletion", effect: "deleted" }, { kind: "with-parent", parent: "memes" }],
   },
+  support_requests: {
+    personal: "a support request: the sender's email address, their message, and their account",
+    rules: [
+      { kind: "kept", reason: "the permanent record of every support request (launch Phase 16, plan amendment 3, Q17: 1)" },
+      { kind: "account-deletion", effect: "deleted" },
+    ],
+  },
   search_history: {
     personal: "a member's searches",
     rules: [{ kind: "job", job: "retention-windows", window: "90 days" }, { kind: "account-deletion", effect: "deleted" }],

@@ -71,7 +71,7 @@ export function cleanProperties(props: FunnelProperties | undefined): Record<str
 const STATIC_ROUTES = new Set<string>([
   "/", "/search", "/submit", "/profile", "/onboard", "/check-email",
   "/account/deletion", "/account/suspended", "/top-facts", "/library",
-  "/hall-of-fame", "/activity", "/pricing", "/login", "/forgot-password",
+  "/hall-of-fame", "/activity", "/pricing", "/login", "/forgot-password", "/support",
   "/reset-password", "/verify-email", "/admin",
   ...LEGAL_SLUGS.map((slug) => `/${slug}`),
 ]);

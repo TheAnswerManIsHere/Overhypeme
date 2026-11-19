@@ -46,18 +46,25 @@ const RECOVERY: readonly RouteKey[] = [
 ];
 
 /**
+ * Asking for help works from every account state (launch Phase 16, increment
+ * 5, plan design E): a suspended or stuck member is the one most likely to need it.
+ */
+const SUPPORT: readonly RouteKey[] = ["POST /support/contact"];
+
+/**
  * State → the routes that state may still write through. One exported table,
  * so a change to it is a visible decision; the gate test holds its own copy
  * written from the plan and diffs the two (plan T1).
  */
 export const GATE_EXCEPTIONS: Readonly<Record<Exclude<Eligibility, "eligible">, readonly RouteKey[]>> = {
   // Increment 6 decides suspension; only logout works there (transition table).
-  suspended: ["POST /auth/logout"],
+  suspended: ["POST /auth/logout", ...SUPPORT],
   // Keeping the account is the one write a pending deletion allows (Increment 5).
-  deletion_pending: [...RECOVERY, "POST /users/me/deletion/cancel"],
-  unverified: [...RECOVERY],
+  deletion_pending: [...RECOVERY, ...SUPPORT, "POST /users/me/deletion/cancel"],
+  unverified: [...RECOVERY, ...SUPPORT],
   unonboarded: [
     ...RECOVERY,
+    ...SUPPORT,
     "PUT /users/me/onboarding/draft",
     "POST /users/me/onboarding",
     // A verified account that never finished set-up may still leave (plan: open

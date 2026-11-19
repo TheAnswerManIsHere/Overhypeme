@@ -46,6 +46,8 @@ export const READ_ONLY_ROUTES: Readonly<Record<RouteKey, { allowed: boolean; why
   // Stripe keeps renewing while paused, so a member can still stop paying.
   "POST /stripe/subscription/cancel": { allowed: true, why: "stops a subscription Stripe keeps renewing while paused" },
   "POST /stripe/portal": { allowed: true, why: "opens Stripe's billing page, where a member can cancel or fix payment" },
+  // Q7: 1 — the contact form keeps working, so a member can reach a person during a pause.
+  "POST /support/contact": { allowed: true, why: "a support request (Q7: 1)" },
   // Q11: 1 — a member may save a name and pronouns, and nothing else (checked on the body below).
   "PATCH /users/me": { allowed: true, why: "a name and pronouns only (Q11); any other field is refused" },
 

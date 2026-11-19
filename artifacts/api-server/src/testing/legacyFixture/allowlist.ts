@@ -596,6 +596,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
   exclude(s.transientRendersTable, "runtime-state", "IP-hash-keyed abuse log"),
   exclude(s.searchHistoryTable, "telemetry", "free-text search queries"),
   exclude(s.shareIntentsTable, "telemetry", "per-visitor share events"),
+  exclude(s.supportRequestsTable, "telemetry", "support requests: private messages and the addresses that sent them, written from 0156 on"),
   exclude(s.activityFeedTable, "telemetry", "per-user notification prose"),
   exclude(s.adminActionsTable, "telemetry", "who did what to which fact: admin identities and their edits, written from 0152 on"),
   exclude(s.factReadingsTable, "not-catalogue", "moderation reading runs (paid research and draft notes), written from 0155 on; the committed fixture predates them"),

@@ -35,11 +35,13 @@ const RECOVERY = [
   "POST /callback/apple",
   "POST /auth/dev-admin-login",
 ];
+// Launch Phase 16, increment 5 (plan design E): asking for help works from every state.
+const SUPPORT = ["POST /support/contact"];
 const PLAN_EXCEPTIONS = {
-  suspended: ["POST /auth/logout"],
-  deletion_pending: [...RECOVERY, "POST /users/me/deletion/cancel"],
-  unverified: [...RECOVERY],
-  unonboarded: [...RECOVERY, "PUT /users/me/onboarding/draft", "POST /users/me/onboarding", "POST /users/me/deletion"],
+  suspended: ["POST /auth/logout", ...SUPPORT],
+  deletion_pending: [...RECOVERY, ...SUPPORT, "POST /users/me/deletion/cancel"],
+  unverified: [...RECOVERY, ...SUPPORT],
+  unonboarded: [...RECOVERY, ...SUPPORT, "PUT /users/me/onboarding/draft", "POST /users/me/onboarding", "POST /users/me/deletion"],
 };
 
 type State = "unverified" | "unonboarded" | "eligible";

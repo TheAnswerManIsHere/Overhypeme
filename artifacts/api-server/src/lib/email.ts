@@ -21,6 +21,7 @@
  *
  * Brand: dark bg (#0d0d0e), danger orange (BRAND_ORANGE), Oswald + Inter typography.
  */
+import { escapeHtml } from "./htmlEscape";
 import { randomUUID } from "node:crypto";
 import { BRAND_ORANGE, type RejectionReason } from "@workspace/api-zod";
 import { Resend } from "resend";
@@ -48,12 +49,20 @@ import { fencedTransaction } from "./jobFence";
 // The validate-no-cycles script (pnpm --filter @workspace/api-server run check:cycles)
 // will fail CI if a static import is reintroduced.
 
+/** Where members reach a person: the Resend support inbox (launch Phase 16, increment 5). */
+export const SUPPORT_ADDRESS = "support@overhype.me";
+
 async function getFromAddress(): Promise<string> {
   return getConfigString("email_from_address", process.env.RESEND_FROM_EMAIL ?? "legends@overhype.me");
 }
 
+/** A message's own reply-to wins; otherwise the configured one. */
+async function resolveReplyTo(override?: string | null): Promise<string | undefined> {
+  return override?.trim() || (await getReplyToAddress());
+}
+
 async function getReplyToAddress(): Promise<string | undefined> {
-  const v = await getConfigString("email_reply_to", "overhypeme+support@gmail.com");
+  const v = await getConfigString("email_reply_to", SUPPORT_ADDRESS);
   return v.trim() || undefined;
 }
 
@@ -175,6 +184,8 @@ export interface EmailPayload {
   subject: string;
   text: string;
   html?: string;
+  /** This message's reply-to, in place of the configured one (a support request answers its sender). */
+  replyTo?: string;
 }
 
 /**
@@ -186,6 +197,8 @@ export interface EmailJobPayload {
   subject: string;
   text: string;
   html?: string | null;
+  /** This message's own reply-to; absent or null uses the configured one. */
+  replyTo?: string | null;
   kind?: string | null;
   /** The job's sending record (plan §E). Absent on a job an earlier release enqueued. */
   delivery?: EmailDelivery;
@@ -258,8 +271,8 @@ export function emailIdempotencyKey(jobId: number, nonce: string): string {
 }
 
 /** Resolve the outgoing message from a job's payload and the current sender settings. */
-async function resolveOutgoingMessage(ep: Pick<EmailJobPayload, "to" | "subject" | "text" | "html">): Promise<OutgoingEmail> {
-  const [from, replyTo] = await Promise.all([getFromAddress(), getReplyToAddress()]);
+async function resolveOutgoingMessage(ep: Pick<EmailJobPayload, "to" | "subject" | "text" | "html" | "replyTo">): Promise<OutgoingEmail> {
+  const [from, replyTo] = await Promise.all([getFromAddress(), resolveReplyTo(ep.replyTo)]);
   return {
     to: ep.to,
     from,
@@ -280,7 +293,7 @@ export async function sendEmail(
 ): Promise<void> {
   if (!isEnabled()) {
     const from = await getFromAddress();
-    const replyTo = await getReplyToAddress();
+    const replyTo = await resolveReplyTo(payload.replyTo);
     logger.info(
       {
         to: payload.to,
@@ -312,6 +325,7 @@ export async function sendEmail(
     subject: payload.subject,
     text: payload.text,
     html: payload.html ?? null,
+    ...(payload.replyTo ? { replyTo: payload.replyTo } : {}),
   };
   const jobPayload: EmailJobPayload = {
     ...base,
@@ -1200,5 +1214,66 @@ ${divider()}
     body,
     "You&#39;re receiving this because you have an active Overhype.me Legendary subscription.",
   );
+  return { subject, text, html };
+}
+
+// ---------------------------------------------------------------------------
+// Support (launch Phase 16, increment 5): the request as the inbox receives
+// it, and the acknowledgement its sender gets.
+// ---------------------------------------------------------------------------
+
+const SUPPORT_CATEGORY_LABEL: Record<string, string> = {
+  account: "My account",
+  billing: "Billing or membership",
+  bug: "Something isn't working",
+  content: "A fact, meme or comment",
+  other: "Something else",
+};
+
+export function supportCategoryLabel(category: string): string {
+  return SUPPORT_CATEGORY_LABEL[category] ?? category;
+}
+
+/** The request as it lands in the support inbox; its reply-to is the sender (set by the caller). */
+export function buildSupportRequestEmail(req: {
+  email: string;
+  category: string;
+  message: string;
+  userId: string | null;
+  accountState: string | null;
+}): Pick<EmailPayload, "subject" | "text" | "html"> {
+  const label = supportCategoryLabel(req.category);
+  const firstLine = req.message.split(/\r\n|\r|\n/)[0]!.slice(0, 60);
+  const subject = `[Support] ${label}: ${firstLine}`;
+  const account = req.userId ? `${req.userId} (${req.accountState ?? "eligible"})` : "not signed in";
+  const text = [
+    `From: ${req.email}`,
+    `About: ${label}`,
+    `Account: ${account}`,
+    "",
+    req.message,
+  ].join("\n");
+  const html = `<p><strong>From:</strong> ${escapeHtml(req.email)}<br/><strong>About:</strong> ${escapeHtml(label)}<br/><strong>Account:</strong> ${escapeHtml(account)}</p><p style="white-space:pre-wrap">${escapeHtml(req.message)}</p>`;
+  return { subject, text, html };
+}
+
+/** The acknowledgement the sender gets: what happens next, and that replying reaches a person. */
+export function buildSupportAcknowledgementEmail(category: string): Pick<EmailPayload, "subject" | "text" | "html"> {
+  const subject = "We got your message — Overhype.me";
+  const label = supportCategoryLabel(category);
+  const text = [
+    "WE GOT YOUR MESSAGE.",
+    "",
+    `Thanks for writing to us about: ${label}.`,
+    "A person reads every message, and we'll reply to this address.",
+    `Anything to add? Reply to this email, or write to ${SUPPORT_ADDRESS}.`,
+    "",
+    "— The Overhype.me Team",
+  ].join("\n");
+  const body = `
+<h1 style="margin:0 0 16px;font-family:'Oswald','Arial Narrow','Roboto Condensed','sans-serif-condensed','Helvetica Neue',Arial,sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Arial Narrow';">We Got Your<br/>Message</h1>
+<p style="margin:0 0 10px;font-size:15px;color:#aaaaaa;line-height:1.75;">Thanks for writing to us about <strong style="color:#ffffff;">${escapeHtml(label)}</strong>.</p>
+<p style="margin:0 0 32px;font-size:15px;color:#aaaaaa;line-height:1.75;">A person reads every message, and we'll reply to this address. Anything to add? Reply to this email, or write to <strong style="color:#ffffff;">${SUPPORT_ADDRESS}</strong>.</p>`;
+  const html = buildEmailShell(body, "You&#39;re receiving this because this address was used on the Overhype.me contact page.");
   return { subject, text, html };
 }

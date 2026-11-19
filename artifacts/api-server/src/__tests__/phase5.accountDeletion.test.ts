@@ -12,7 +12,7 @@ import bcrypt from "bcryptjs";
 import { db } from "@workspace/db";
 import {
   accountDeletionRequestsTable, commentsTable, entitlementSourceDisputesTable, pendingReviewsTable, factsTable, membershipEntitlementsTable,
-  memesTable, ncmecReportsTable, reactionsTable, sessionsTable, uploadImageMetadataTable, userAiImagesTable, usersTable,
+  memesTable, ncmecReportsTable, reactionsTable, sessionsTable, supportRequestsTable, uploadImageMetadataTable, userAiImagesTable, usersTable,
   userGenerationCostsTable, imagePromptAttemptsTable,
 } from "@workspace/db/schema";
 import { and, eq, inArray, like, sql } from "drizzle-orm";
@@ -447,8 +447,22 @@ describe("the account deletion state machine (T3)", () => {
     });
     const [ownAttempt, othersAttempt] = await db.insert(imagePromptAttemptsTable).values([attempt(userId), attempt(other)]).returning({ id: imagePromptAttemptsTable.id });
 
+    // Q19 (David, 2026-11-19): support requests sent signed in, and signed out
+    // from the account's address in any letter case, go with the account.
+    const support = (who: string | null, email: string) => ({ email, category: "account", message: `${PREFIX}help me please`, userId: who, inboxDelivery: "queued" });
+    const supportRows = await db.insert(supportRequestsTable).values([
+      support(userId, `${userId}@test.local`),
+      support(null, `${userId}@TEST.local`.toUpperCase()),
+      support(other, `${other}@test.local`),
+      support(null, `${PREFIX}stranger@test.local`),
+    ]).returning({ id: supportRequestsTable.id });
+
     await acceptAccountDeletion(userId, { requestedBy, purgeAfter: past(), kick: false });
     assert.equal(await advanceAccountDeletion(userId), "done");
+
+    const supportLeft = await db.select({ id: supportRequestsTable.id }).from(supportRequestsTable).where(inArray(supportRequestsTable.id, supportRows.map((r) => r.id)));
+    assert.deepEqual(supportLeft.map((r) => r.id).sort((a, b) => a - b), [supportRows[2]!.id, supportRows[3]!.id].sort((a, b) => a - b), "the person's support requests go, signed in or from their address; others' stay");
+    await db.delete(supportRequestsTable).where(inArray(supportRequestsTable.id, supportRows.map((r) => r.id)));
 
     // Whoever asked: the account, its files, memes and uploads go; facts,
     // safety records and a fact gallery's background stay.

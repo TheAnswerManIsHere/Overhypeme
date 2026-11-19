@@ -22,6 +22,7 @@ export * from "./rateLimit";
 export * from "./moderation";
 export * from "./transientRenders";
 export * from "./shareIntents";
+export * from "./supportRequests";
 export * from "./imagePromptAttempts";
 export * from "./referenceResearchCache";
 export * from "./enrichmentOverrideHistory";
