@@ -13,6 +13,7 @@ import {
   memesTable,
   reactionsTable,
   stripeCheckoutRequestLedgerTable,
+  supportRequestsTable,
   uploadImageMetadataTable,
   userAiImagesTable,
   userGenerationCostsTable,
@@ -652,6 +653,13 @@ async function purgeAccount(userId: string): Promise<void> {
           rendered_fact_text = NULL, compiled_prompt = NULL, visual_plan = NULL, subject_fact_compatibility = NULL
       WHERE user_id = ${userId}
     `);
+
+    // Their support requests go with the account (David, Q19: 1, 2026-11-19):
+    // those sent signed in, and those sent signed out from the account's
+    // address, which are the same person's words.
+    const [owner] = await tx.select({ email: usersTable.email }).from(usersTable).where(eq(usersTable.id, userId));
+    const sentFromAddress = owner?.email ? sql`lower(${supportRequestsTable.email}) = lower(${owner.email})` : undefined;
+    await tx.delete(supportRequestsTable).where(or(eq(supportRequestsTable.userId, userId), sentFromAddress));
 
     // Last: the user row. Its cascades take sessions, tokens, entitlements,
     // preferences, share intents and this request; `ncmec_reports` and

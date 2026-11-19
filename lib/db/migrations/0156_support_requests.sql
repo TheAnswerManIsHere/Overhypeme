@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS support_requests (
   email varchar(320) NOT NULL,
   category varchar(20) NOT NULL,
   message text NOT NULL,
-  user_id varchar REFERENCES users(id) ON DELETE SET NULL,
+  user_id varchar REFERENCES users(id) ON DELETE CASCADE,
   account_state varchar(20),
   inbox_delivery varchar(10) NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),

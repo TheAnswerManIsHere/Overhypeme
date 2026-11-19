@@ -173,7 +173,7 @@ export const RETENTION_SCHEDULE: Readonly<Record<string, RetentionEntry>> = {
     personal: "a support request: the sender's email address, their message, and their account",
     rules: [
       { kind: "kept", reason: "the permanent record of every support request (launch Phase 16, plan amendment 3, Q17: 1)" },
-      { kind: "gap", closeBy: "before Soft launch, David decides whether a deleted account's requests are deleted with it; today only the account link is dropped (Issue #1029)" },
+      { kind: "account-deletion", effect: "deleted" },
     ],
   },
   search_history: {

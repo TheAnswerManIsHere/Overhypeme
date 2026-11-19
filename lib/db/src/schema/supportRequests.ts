@@ -7,8 +7,9 @@ import { usersTable } from "./auth";
 
 /**
  * One support request, as the visitor sent it. Insert-only; no update and no
- * soft-delete. The account link is dropped (not the request) when the account
- * is deleted, so a request is kept as it was sent.
+ * soft-delete. A deleted account's requests go with it (David, Q19: 1): the
+ * account purge deletes those it sent and those sent from its address, and the
+ * cascade covers the rest.
  */
 export const supportRequestsTable = pgTable("support_requests", {
   id: serial("id").primaryKey(),
@@ -18,7 +19,7 @@ export const supportRequestsTable = pgTable("support_requests", {
   category: varchar("category", { length: 20 }).notNull(),
   message: text("message").notNull(),
   /** The signed-in account, when there was a session. */
-  userId: varchar("user_id").references(() => usersTable.id, { onDelete: "set null" }),
+  userId: varchar("user_id").references(() => usersTable.id, { onDelete: "cascade" }),
   /** The account's state when it wrote (eligible, suspended, unverified, unonboarded, deletion_pending). */
   accountState: varchar("account_state", { length: 20 }),
   /** Whether the request reached the inbox's send queue: 'queued' or 'failed'. */
