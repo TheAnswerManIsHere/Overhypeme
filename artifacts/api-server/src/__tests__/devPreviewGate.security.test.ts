@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import express from "express";
 import request from "supertest";
 
-import { devPreviewGate, isGatedEnvironment } from "../middlewares/devPreviewGate.js";
+import { devPreviewGate, isGatedEnvironment, previewKeyAdmits } from "../middlewares/devPreviewGate.js";
 
 const DEV_DOMAIN = "abc-00-xyz.spock.replit.dev";
 const KEY = "k3y-for-tests-0123456789";
@@ -22,11 +22,11 @@ function appWith(env: NodeJS.ProcessEnv) {
   const app = express();
   app.use(devPreviewGate(env));
   app.get("/api/healthz", (_req, res) => res.json({ status: "ok" }));
-  app.post("/api/auth/dev-admin-login", (_req, res) => res.json({ ok: true }));
-  app.get("/api/auth/dev-admin-login", (_req, res) => res.send("<script>/* login page */</script>"));
-  app.post("/api/auth/dev-admin-login/x", (_req, res) => res.json({ ok: true }));
   app.post("/api/auth/register", (_req, res) => res.json({ ok: true }));
   app.post("/api/stripe/webhook", (_req, res) => res.json({ received: true }));
+  // The shortcut's own check is previewKeyAdmits, on its handler; this stand-in
+  // answers what the check decides (the real route: localAuth.devAdminLogin.security.test.ts).
+  app.all("/api/auth/dev-admin-login", (req, res) => (previewKeyAdmits(req, env) ? res.json({ ok: true }) : res.status(403).json({ error: "dev_preview_locked" })));
   return app;
 }
 
@@ -37,7 +37,7 @@ function viaPreview(req: request.Test): request.Test {
   return req.set("Host", DEV_DOMAIN).set("X-Forwarded-For", "203.0.113.9");
 }
 
-describe("devPreviewGate", () => {
+describe("the dev preview key", () => {
   it("is active only in a Replit workspace", () => {
     assert.equal(isGatedEnvironment(workspace), true);
     assert.equal(isGatedEnvironment({ ...workspace, REPLIT_DEPLOYMENT: "1" }), false);
@@ -45,26 +45,18 @@ describe("devPreviewGate", () => {
     assert.equal(isGatedEnvironment({ NODE_ENV: "development" }), false);
   });
 
-  it("refuses the dev admin shortcut through the preview without the key, by either method", async () => {
-    const app = appWith(workspace);
-    const post = await viaPreview(request(app).post("/api/auth/dev-admin-login"));
-    assert.equal(post.status, 403);
-    assert.equal(post.body.error, "dev_preview_locked");
-    assert.equal((await viaPreview(request(app).get("/api/auth/dev-admin-login?returnTo=/admin"))).status, 403);
-  });
-
-  it("leaves every other dev address open without the key (David, Q21: 1)", async () => {
+  it("leaves every address but the unlock call to the routes, without the key (David, Q21: 1)", async () => {
     const app = appWith(workspace);
     assert.equal((await viaPreview(request(app).get("/api/healthz"))).status, 200);
     assert.equal((await viaPreview(request(app).post("/api/auth/register"))).status, 200);
     assert.equal((await viaPreview(request(app).post("/api/stripe/webhook"))).status, 200);
-    assert.equal((await viaPreview(request(app).post("/api/auth/dev-admin-login/x"))).status, 200);
   });
 
-  it("admits the shortcut with the key by header or by cookie", async () => {
+  it("admits the shortcut with the key by header or by cookie, and refuses it without", async () => {
     const app = appWith(workspace);
+    assert.equal((await viaPreview(request(app).post("/api/auth/dev-admin-login"))).status, 403);
     assert.equal((await viaPreview(request(app).post("/api/auth/dev-admin-login")).set("X-Dev-Preview-Key", KEY)).status, 200);
-    assert.equal((await viaPreview(request(app).get("/api/auth/dev-admin-login?returnTo=/admin")).set("Cookie", `dev_preview_key=${KEY}`)).status, 200);
+    assert.equal((await viaPreview(request(app).get("/api/auth/dev-admin-login")).set("Cookie", `dev_preview_key=${KEY}`)).status, 200);
   });
 
   it("refuses a wrong key, including one of a different length", async () => {
@@ -79,14 +71,15 @@ describe("devPreviewGate", () => {
     assert.equal(res.status, 403);
   });
 
-  it("lets a direct local request reach the shortcut without the key", async () => {
+  it("lets a direct local request use the shortcut without the key", async () => {
     const app = appWith(workspace);
     assert.equal((await request(app).post("/api/auth/dev-admin-login").set("Host", "localhost:8080")).status, 200);
     assert.equal((await request(app).post("/api/auth/dev-admin-login").set("Host", "127.0.0.1:8080")).status, 200);
   });
 
-  it("refuses the shortcut and the unlock call through the preview when no key is configured", async () => {
-    const app = appWith({ NODE_ENV: "development", REPLIT_DEV_DOMAIN: DEV_DOMAIN });
+  it("refuses the shortcut and the unlock call when no key is configured, and leaves the rest open", async () => {
+    const env = { NODE_ENV: "development", REPLIT_DEV_DOMAIN: DEV_DOMAIN };
+    const app = appWith(env);
     assert.equal((await viaPreview(request(app).post("/api/auth/dev-admin-login")).set("X-Dev-Preview-Key", "")).status, 403);
     assert.equal((await viaPreview(request(app).post("/api/dev-preview-gate")).set("X-Dev-Preview-Key", "")).status, 403);
     assert.equal((await viaPreview(request(app).get("/api/healthz"))).status, 200);

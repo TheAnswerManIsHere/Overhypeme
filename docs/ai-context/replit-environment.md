@@ -407,7 +407,9 @@ while the dev app runs (measured 2026-11-18: from outside, the dev page and
 `POST /api/auth/dev-admin-login` minted an administrator session). So the dev
 admin shortcut, and only it, refuses a request through that address without
 the **`DEV_PREVIEW_KEY`** secret (Repl Secrets pane), sent by header or
-cookie (`artifacts/api-server/src/middlewares/devPreviewGate.ts`). Every
+cookie. The check is on the shortcut's own handler (`routes/localAuth.ts`,
+`previewKeyAdmits` in `middlewares/devPreviewGate.ts`), so every spelling
+Express routes there is covered; the middleware only serves the unlock call. Every
 other dev address, Stripe's test webhook and sign-up included, answers as it
 always did (David, Q21: 1, 2026-11-19, narrowing PR #1060's whole-API gate,
 which got in the way of testing). David unlocks a browser once by opening the
