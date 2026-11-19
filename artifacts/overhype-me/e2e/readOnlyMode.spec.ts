@@ -71,8 +71,8 @@ test("read-only mode: on from Operations, browsing and a name save carry on, a w
     // A write the member makes on purpose is refused, and the app says why.
     const refused = await appWrite(member, "POST", "/api/memes", {});
     expect(refused).toEqual({ status: 503, code: "READ_ONLY_MODE" });
-    // The toast's visible text, not the copy its screen-reader announcer holds for a moment
-    // (two matches would fail strict mode depending on timing; PR #1071's CI).
+    // Scoped to the toast list: the toast's screen-reader announcement carries
+    // the same words for a moment after it opens, so an unscoped match can find two.
     await expect(member.getByLabel("Notifications (F8)").getByText("Changes are paused for a little while. Nothing you typed is lost")).toBeVisible();
 
     // An admin action still works while it is on: the test alert.

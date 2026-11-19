@@ -394,6 +394,11 @@ export function startAnalytics(): void {
     if (before.userId) identify(before.userId);
     else resetIdentity();
   }
+  // A personalised link applied on load, before analytics started (Q16: 1).
+  if (personaliseBeforeStart) {
+    personaliseBeforeStart = false;
+    track("personalise");
+  }
 }
 
 /** One page shown: the only source of page views for either vendor. */
@@ -444,11 +449,15 @@ export function trackUpgradeOnce(checkoutSessionId: string | null): void {
 }
 
 const PERSONALISE_COUNTED_KEY = "overhype.analytics.personaliseCounted";
+/** A `personalise` counted before analytics started, sent at start. */
+let personaliseBeforeStart = false;
 
 /**
  * The funnel's `personalise`: counted once per browser, the first time a
- * visitor's name is saved for rendering — in the name sheet, the name tag, or
- * account set-up when neither came first. Most visitors are asked for a name
+ * visitor's name is saved for rendering — in the name sheet, the name tag,
+ * account set-up when neither came first, or a personalised link a friend
+ * arrived by (David's Q16: 1, 2026-11-19). A link applies on load, which can
+ * be before analytics starts, so one counted then is held and sent at start. Most visitors are asked for a name
  * on arrival and sign up later, so set-up re-saving that name must not count
  * it again. The mark is cleared only when the browser forgets the visitor
  * (`forgetPersonalise`, from sign-out), never by `resetIdentity`, which runs
@@ -458,7 +467,8 @@ export function trackPersonaliseOnce(): void {
   const storage = storageSafe;
   if (storage.get(PERSONALISE_COUNTED_KEY)) return;
   storage.set(PERSONALISE_COUNTED_KEY, "1");
-  track("personalise");
+  if (started) track("personalise");
+  else personaliseBeforeStart = true;
 }
 
 /** The browser forgot who this visitor is: their next name save counts again. */
@@ -515,6 +525,7 @@ export function __resetAnalyticsForTests(): void {
   posthogIdentityQueue = [];
   identityKnown = false;
   identityBeforeStart = undefined;
+  personaliseBeforeStart = false;
   identifiedAs = null;
 }
 

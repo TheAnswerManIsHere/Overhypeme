@@ -31,6 +31,12 @@ args = [ "node", "artifacts/overhype-me/server/serve.mjs" ]
 PORT = "26169"
 NODE_ENV = "production"
 
+# The publish's start-up check asks this path, which serve.mjs answers before
+# its Replit-address redirect, so the check passes whatever host the platform
+# uses (launch Phase 14, increment 3).
+[services.production.health.startup]
+path = "/__health"
+
 [services.env]
 PORT = "26169"
 BASE_PATH = "/"

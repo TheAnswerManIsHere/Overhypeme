@@ -5,6 +5,7 @@
 
 import { createContext, useCallback, useContext, useRef, useState, useEffect, ReactNode, createElement } from "react";
 import { displayPronouns, DEFAULT_PRONOUNS } from "@/lib/pronouns";
+import { trackPersonaliseOnce } from "@/lib/analytics";
 
 const STORAGE_KEY_NAME     = "fact_db_name";
 const STORAGE_KEY_PRONOUNS = "fact_db_pronouns";
@@ -121,9 +122,12 @@ export function resolveInitialIdentity(
  * are theirs. A half the browser holds by now (another tab saved it while this
  * one waited) is never overwritten, the same rule the link obeyed on load.
  */
-export function commitLinkHalves(storage: SafeStorage, pending: PendingLinkHalves) {
-  if (pending.name && !storage.get(STORAGE_KEY_NAME)?.trim()) storage.set(STORAGE_KEY_NAME, pending.name);
+/** Saves the link's halves the visitor has not set; answers whether the link's name was saved. */
+export function commitLinkHalves(storage: SafeStorage, pending: PendingLinkHalves): boolean {
+  const nameSaved = !!pending.name && !storage.get(STORAGE_KEY_NAME)?.trim();
+  if (nameSaved) storage.set(STORAGE_KEY_NAME, pending.name!);
   if (pending.pronouns && !storage.get(STORAGE_KEY_PRONOUNS)?.trim()) storage.set(STORAGE_KEY_PRONOUNS, pending.pronouns);
+  return nameSaved;
 }
 
 /** The held link halves once another tab has written or cleared `key`: that half is no longer the link's to decide. */
@@ -308,7 +312,8 @@ export function PersonNameProvider({ children }: { children: ReactNode }) {
     const pending = pendingRef.current;
     pendingRef.current = NO_PENDING_LINK;
     if (!signedIn) {
-      commitLinkHalves(storage, pending);
+      // A friend's name from the link is a personalisation, counted once per browser (Q16: 1).
+      if (commitLinkHalves(storage, pending)) trackPersonaliseOnce();
     } else {
       if (pending.name) setNameState(DEFAULT_NAME);
       if (pending.pronouns) {

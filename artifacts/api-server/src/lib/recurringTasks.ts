@@ -279,6 +279,7 @@ export const TIMER_SITES: readonly TimerSite[] = [
   { file: "testing/acceptance/inner.ts", calls: 1, kind: "not-recurring", note: "Test tooling." },
   { file: "testing/acceptance/selfTest.ts", calls: 1, kind: "not-recurring", note: "Test tooling." },
   { file: "testing/acceptance/sink.ts", calls: 1, kind: "not-recurring", note: "Test tooling." },
+  { file: "testing/sentryLeakProbe.ts", calls: 1, kind: "not-recurring", note: "Test tooling: waits once for the stub transport to flush." },
 ];
 
 type TaskDb = Pick<typeof defaultDb, "insert" | "delete" | "select">;

@@ -1,16 +1,47 @@
 import type { Breadcrumb, Event } from "@sentry/node";
 import { scrubObject, scrubUrl } from "@workspace/redact";
 
+/**
+ * Request headers monitoring may keep: none can carry a credential. Every
+ * other header is dropped, in both places the SDK copies headers to
+ * (`event.request.headers`, and the request span's `http.request.header.*`
+ * attributes). Closed by default, so a secret header — the dev preview key,
+ * the `sid` session cookie, any secret header added later — can never leak by
+ * being forgotten (PR #1063 round 1).
+ */
+export const SAFE_REQUEST_HEADERS: ReadonlySet<string> = new Set([
+  "accept",
+  "accept-encoding",
+  "accept-language",
+  "content-length",
+  "content-type",
+  "host",
+  "origin",
+  "user-agent",
+]);
+
+const SPAN_HEADER_PREFIX = "http.request.header.";
+
+/** Drops every `http.request.header.*` attribute whose header is not on the safe list. */
+function scrubSpanHeaders(data: Record<string, unknown> | undefined): void {
+  if (!data) return;
+  for (const key of Object.keys(data)) {
+    if (!key.startsWith(SPAN_HEADER_PREFIX)) continue;
+    // The SDK writes `x-foo` as `x_foo`, and a cookie as `cookie.<name>`.
+    const header = key.slice(SPAN_HEADER_PREFIX.length).replace(/_/g, "-");
+    if (!SAFE_REQUEST_HEADERS.has(header)) delete data[key];
+  }
+}
+
 export function scrubSentryEvent(event: Event): void {
+  scrubSpanHeaders(event.contexts?.trace?.data as Record<string, unknown> | undefined);
+  for (const span of event.spans ?? []) scrubSpanHeaders(span.data as Record<string, unknown> | undefined);
   if (event.request) {
     delete event.request.cookies;
     if (event.request.headers) {
-      delete event.request.headers.authorization;
-      delete event.request.headers.cookie;
-      delete event.request.headers["x-api-key"];
-      // The dev preview key (middlewares/devPreviewGate.ts) rides on every
-      // preview API call; it never reaches monitoring.
-      delete event.request.headers["x-dev-preview-key"];
+      for (const name of Object.keys(event.request.headers)) {
+        if (!SAFE_REQUEST_HEADERS.has(name.toLowerCase())) delete event.request.headers[name];
+      }
     }
     if (typeof event.request.url === "string") {
       event.request.url = scrubUrl(event.request.url);
