@@ -470,6 +470,84 @@ describe("a landing address's campaign tags reach GA4 (fix after PR #1059)", () 
     fresh.__resetAnalyticsForTests();
   });
 
+  describe("a browser PostHog remembers as signed in, on a signed-out load (Codex, PR #1070 round 1)", () => {
+    // PostHog 1.450.0's reset empties its session store; the mock does the same,
+    // and each capture records the session properties it would carry.
+    let session: Record<string, string> = {};
+    const sent: Array<{ event: string; session: Record<string, string> }> = [];
+    beforeEach(() => {
+      session = {};
+      sent.length = 0;
+      phGetProperty.mockReturnValue("identified");
+      phRegisterForSession.mockImplementation((props: Record<string, string>) => { session = { ...session, ...props }; });
+      phReset.mockImplementation(() => { session = {}; });
+      phCapture.mockImplementation((event: string) => { sent.push({ event, session: { ...session } }); });
+    });
+    afterEach(() => {
+      phRegisterForSession.mockReset();
+      phReset.mockReset();
+      phCapture.mockReset();
+    });
+
+    async function landThenMoveOn() {
+      vi.stubEnv("VITE_GA_MEASUREMENT_ID", "");
+      vi.stubEnv("VITE_POSTHOG_KEY", "phc_test123");
+      window.history.replaceState(null, "", "/?utm_source=newsletter&utm_campaign=launch-week&utm_term=Alice%20Smith");
+      vi.resetModules();
+      const fresh = await import("./analytics");
+      window.history.replaceState(null, "", "/pricing");
+      return fresh;
+    }
+    function expectTaggedPageView() {
+      expect(phReset).toHaveBeenCalledTimes(1);
+      expect(phRegisterForSession).toHaveBeenCalledTimes(1);
+      const view = sent.find((c) => c.event === "$pageview");
+      expect(view?.session).toEqual({ utm_source: "newsletter", utm_campaign: "launch-week" });
+    }
+
+    it("the sign-in check answers before PostHog has loaded", async () => {
+      const fresh = await landThenMoveOn();
+      fresh.startAnalytics();
+      fresh.resetIdentity();
+      fresh.page("/pricing");
+      await flush();
+      expectTaggedPageView();
+      fresh.__resetAnalyticsForTests();
+    });
+
+    it("PostHog loads before the sign-in check answers", async () => {
+      const fresh = await landThenMoveOn();
+      fresh.startAnalytics();
+      fresh.page("/pricing");
+      await flush();
+      expect(sent).toEqual([]);
+      fresh.resetIdentity();
+      expectTaggedPageView();
+      fresh.__resetAnalyticsForTests();
+    });
+
+    it("the sign-in check answered before analytics started", async () => {
+      const fresh = await landThenMoveOn();
+      fresh.resetIdentity();
+      fresh.startAnalytics();
+      fresh.page("/pricing");
+      await flush();
+      expectTaggedPageView();
+      fresh.__resetAnalyticsForTests();
+    });
+
+    it("a later sign-out does not register the landing tags again", async () => {
+      const fresh = await landThenMoveOn();
+      fresh.startAnalytics();
+      fresh.identify("member-1");
+      fresh.page("/pricing");
+      await flush();
+      fresh.resetIdentity();
+      expect(phRegisterForSession).toHaveBeenCalledTimes(1);
+      fresh.__resetAnalyticsForTests();
+    });
+  });
+
   it("PostHog registers nothing when the landing address had no clean tags", async () => {
     vi.stubEnv("VITE_GA_MEASUREMENT_ID", "");
     vi.stubEnv("VITE_POSTHOG_KEY", "phc_test123");

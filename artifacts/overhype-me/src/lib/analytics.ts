@@ -189,8 +189,10 @@ let landingSearch: string | null = typeof window !== "undefined" ? window.locati
  * The landing link's campaign tags, as PostHog session properties. PostHog
  * reads tags from the address at each event (`document.URL`), so a start that
  * comes after the visitor has moved on (PostHog's idle load, Phase 14's
- * admission check) would lose them; they are registered for the session at
- * load instead. Already allowlisted by key and value.
+ * admission check) would lose them. They are registered once, in
+ * `flushPosthog`, after the start-up identity calls (a reset there empties
+ * PostHog's session store) and before the first held event. Already
+ * allowlisted by key and value; emptied once registered.
  */
 let posthogLandingTags: Record<string, string> = {};
 /** Each vendor is on only when its ID was set at build; decided once, at start. */
@@ -248,6 +250,11 @@ function flushPosthog(): void {
   posthogIdentityQueue = [];
   posthogQueue = [];
   for (const fn of identityCalls) fn(ph);
+  // After any start-up reset, before the first event: both load orders pass here.
+  if (Object.keys(posthogLandingTags).length > 0) {
+    ph.register_for_session(posthogLandingTags);
+    posthogLandingTags = {};
+  }
   for (const fn of captures) fn(ph);
 }
 
@@ -349,7 +356,6 @@ function startPosthog(key: string): void {
       person_profiles: "identified_only",
       before_send: scrubPosthogEvent,
     });
-    if (Object.keys(posthogLandingTags).length > 0) ph.register_for_session(posthogLandingTags);
     posthog = ph;
     flushPosthog();
   }).catch(() => {
@@ -394,7 +400,7 @@ export function startAnalytics(): void {
 export function page(path: string): void {
   if (!started) return;
   currentPattern = routePattern(path);
-  // GA4 only: PostHog has the landing tags as session properties (`startPosthog`),
+  // GA4 only: PostHog has the landing tags as session properties (`flushPosthog`),
   // and `scrubPosthogEvent` holds any it reads from the address to the same check.
   const location = patternUrl(currentPattern) + landingCampaign;
   landingCampaign = "";
