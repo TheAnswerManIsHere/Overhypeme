@@ -1,5 +1,5 @@
 /**
- * @purpose The permanent record of every support request the contact page accepts (launch Phase 16, increment 5; plan amendment 3, David's Q17: 1): the Resend inbox is where requests are read and answered, and keeps mail 30 days, so each request is also written here. Append-only.
+ * @purpose The permanent record of every support request the contact page accepts (launch Phase 16, increment 5; plan amendment 3, David's Q17: 1): the support mailbox is where requests are read and answered (amendment 4), and a mailbox alone is not the record, so each request is also written here. Append-only.
  * @subsystem operations
  */
 import { pgTable, serial, varchar, text, timestamp, index } from "drizzle-orm/pg-core";

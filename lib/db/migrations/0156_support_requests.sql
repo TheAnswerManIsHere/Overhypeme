@@ -1,7 +1,7 @@
 -- Support requests (launch Phase 16, increment 5; plan
 -- docs/plans/PLAN_PHASE16_ANALYTICS_OPERATIONS.md, design E and amendment 3,
--- David's Q17: 1). Resend keeps mail 30 days, so every request the contact
--- page accepts is also kept here. Expand only: one new table, which the
+-- David's Q17: 1). A mailbox alone is not the record, so every request the
+-- contact page accepts is also kept here. Expand only: one new table, which the
 -- previous release never reads, and the stored reply-to moved off the retired
 -- Gmail alias.
 --
