@@ -9,6 +9,8 @@ import router from "./routes";
 import { logger } from "./lib/logger";
 import { authMiddleware } from "./middlewares/authMiddleware";
 import { requireEligibleActor } from "./middlewares/requireEligibleActor";
+import { readOnlyGate } from "./middlewares/readOnlyGate";
+import { isReadOnly } from "./lib/readOnlyMode";
 import { WebhookHandlers, failedAfterVerification } from "./lib/webhookHandlers";
 import { reportOperationalAlert } from "./lib/operationalAlerts";
 import { noStore } from "./lib/cacheHeaders";
@@ -19,7 +21,6 @@ import { isDevAdminLoginEnabled } from "./lib/devAdminLogin";
 import { createGlobalLimiter, globalLimiterLogLevel, type GlobalRateLimiterOverrides } from "./lib/rateLimit";
 import { healthzHandler } from "./routes/health";
 import { devPreviewGate } from "./middlewares/devPreviewGate";
-import { originGuard } from "./middlewares/originGuard";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const CSRF_COOKIE = "csrf_token";
@@ -184,12 +185,6 @@ export function createApp(options: { limiterOverrides?: GlobalRateLimiterOverrid
   // local requests. Ahead of every route, the webhook and dev-admin-login
   // included.
   app.use(devPreviewGate());
-  // In the published deployment, nothing that did not come through Cloudflare
-  // is answered, and no visitor from a place the site does not serve (launch
-  // Phase 14, increment 3; middlewares/originGuard.ts). Ahead of every route,
-  // the Stripe webhook and the sign-in callbacks included: they reach
-  // overhype.me through Cloudflare. /api/healthz is exempt for the platform.
-  app.use(originGuard());
 
   // Stripe webhook MUST be registered BEFORE express.json() to get raw Buffer
   app.post(
@@ -326,6 +321,11 @@ export function createApp(options: { limiterOverrides?: GlobalRateLimiterOverrid
   // that is not yet eligible cannot write, except through the routes its state
   // allows. After authMiddleware, which sets req.user.eligibility.
   app.use(requireEligibleActor);
+  // Read-only mode (launch Phase 16, increment 4): while the switch is on, a
+  // visitor's or member's own writes are refused with READ_ONLY_MODE. After
+  // the body parsers (a name-only profile save is read from the body), and
+  // after the Stripe webhook, which is registered above everything.
+  app.use(readOnlyGate);
 
   // Attach the authenticated user (id only — no PII) to the per-request Sentry
   // isolation scope so every reported error/transaction in this request can be
@@ -363,7 +363,9 @@ export function createApp(options: { limiterOverrides?: GlobalRateLimiterOverrid
     try {
       const { getPublicConfig } = await import("./lib/adminConfig");
       const config = await getPublicConfig();
-      res.json(config);
+      // The site-wide notice. A server that has never confirmed the switch
+      // refuses writes (isReadOnly answers true), and says so here too.
+      res.json({ ...config, readOnlyMode: await isReadOnly() });
     } catch {
       res.json({});
     }

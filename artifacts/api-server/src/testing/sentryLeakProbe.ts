@@ -1,5 +1,5 @@
 /**
- * @purpose Run by sentryFilter.leak.test.ts in its own process: sends real requests carrying marker credentials (the origin secret header, a `sid` cookie, the dev preview key, an authorization header) through the real @sentry/node SDK with this repo's scrubber and a stub transport, and prints, as JSON, every place in each captured event where a marker value survived.
+ * @purpose Run by sentryFilter.leak.test.ts in its own process: sends real requests carrying marker credentials (a custom secret header, a `sid` cookie, the dev preview key, an authorization header) through the real @sentry/node SDK with this repo's scrubber and a stub transport, and prints, as JSON, every place in each captured event where a marker value survived.
  * @subsystem security
  *
  * A separate process because Sentry.init is global and would leak into other

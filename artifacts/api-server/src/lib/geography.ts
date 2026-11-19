@@ -1,5 +1,5 @@
 /**
- * @purpose The one list of places Overhype.me does not serve (launch Phase 14, increment 3; plan S9 and product intent 6): the EEA, the UK, and OFAC's broadly sanctioned jurisdictions — whole countries by ISO code, and three Ukrainian regions by Cloudflare region code. isBlockedLocation judges a visitor from Cloudflare's location headers; cloudflareRedirectExpression prints the same list as the Cloudflare redirect rule's expression, so the edge rule and the API's backstop are written from one list.
+ * @purpose The one list of places Overhype.me does not serve (launch Phase 14, increment 3; plan S9 and product intent 6): the EEA, the UK, and OFAC's broadly sanctioned jurisdictions — whole countries by ISO code, and three Ukrainian regions by Cloudflare region code. cloudflareRedirectExpression prints it as the Cloudflare redirect rule's expression, which David pastes into the dashboard.
  * @subsystem security
  *
  * The EU list is Cloudflare's own `ip.src.is_in_european_union` membership
@@ -36,13 +36,6 @@ export const BLOCKED_UA_REGIONS: ReadonlySet<string> = new Set(["43", "40", "14"
 
 /** The explanation page every refused visitor is sent to. */
 export const EXPLANATION_PATH = "/unavailable";
-
-/** True when Cloudflare's location headers place the visitor somewhere the site does not serve. */
-export function isBlockedLocation(country: string | undefined, regionCode: string | undefined): boolean {
-  const c = (country ?? "").trim().toUpperCase();
-  if (BLOCKED_COUNTRIES.has(c)) return true;
-  return c === "UA" && BLOCKED_UA_REGIONS.has((regionCode ?? "").trim().toUpperCase());
-}
 
 /**
  * The Cloudflare redirect rule's expression for the same list: every address

@@ -116,6 +116,41 @@ export function cleanReferrer(referrer: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Campaign tags: the one part of the landing address that goes to GA4.
+// ---------------------------------------------------------------------------
+
+/** The campaign tags GA4 reads from a page address; every other parameter is dropped. */
+export const CAMPAIGN_KEYS = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "utm_id"] as const;
+
+/**
+ * A campaign tag's value is a code a link's author chose ("newsletter",
+ * "launch-week"): letters, digits, dot, underscore and hyphen, at most 100.
+ * Anything else (a space, an "@", other punctuation) is dropped, so an email
+ * address or a full name put in a hand-made link cannot leave the browser.
+ */
+const CAMPAIGN_VALUE = /^[A-Za-z0-9._-]{1,100}$/;
+
+export function isCleanCampaignValue(value: unknown): boolean {
+  return typeof value === "string" && CAMPAIGN_VALUE.test(value);
+}
+
+/**
+ * The campaign tags of an address's query, allowlisted by key and by value,
+ * as a query string ("?utm_source=newsletter&utm_campaign=launch-week"), or
+ * "" when there are none.
+ */
+export function campaignQuery(search: string): string {
+  const params = new URLSearchParams(search);
+  const kept = new URLSearchParams();
+  for (const key of CAMPAIGN_KEYS) {
+    const value = params.get(key);
+    if (value !== null && isCleanCampaignValue(value)) kept.set(key, value);
+  }
+  const query = kept.toString();
+  return query ? `?${query}` : "";
+}
+
+// ---------------------------------------------------------------------------
 // Vendors.
 // ---------------------------------------------------------------------------
 
@@ -135,6 +170,31 @@ let started = false;
 let currentPattern = "/";
 /** This visit's referrer as sent: computed once, since it cannot change in a single-page app. */
 let referrer = "";
+/**
+ * The landing address's campaign tags, carried on the first page view's
+ * address only (and every hit on that page), as on a site where only the
+ * landing address has them: GA4 attributes the visit from its first hit.
+ * Cleared once that page view is sent.
+ */
+let landingCampaign = "";
+/**
+ * The address's query as the page loaded, read when this module is first
+ * evaluated (at startup, before the app can rewrite the address), so a start
+ * that waits for something (Phase 14's admission check) still sees the
+ * landing link's campaign tags. Null in tests after a reset: the current
+ * address is read instead.
+ */
+let landingSearch: string | null = typeof window !== "undefined" ? window.location.search : null;
+/**
+ * The landing link's campaign tags, as PostHog session properties. PostHog
+ * reads tags from the address at each event (`document.URL`), so a start that
+ * comes after the visitor has moved on (PostHog's idle load, Phase 14's
+ * admission check) would lose them. They are registered once, in
+ * `flushPosthog`, after the start-up identity calls (a reset there empties
+ * PostHog's session store) and before the first held event. Already
+ * allowlisted by key and value; emptied once registered.
+ */
+let posthogLandingTags: Record<string, string> = {};
 /** Each vendor is on only when its ID was set at build; decided once, at start. */
 let gaOn = false;
 let posthogOn = false;
@@ -153,23 +213,6 @@ let posthogIdentityQueue: Array<(ph: PostHog) => void> = [];
 let posthogQueue: Array<(ph: PostHog) => void> = [];
 /** An identity decision made before analytics started, applied at start. */
 let identityBeforeStart: { userId: string | null } | undefined;
-/**
- * Page views and funnel events made before analytics started, in the order
- * made. The app renders while the visitor-admission check (lib/admission) is
- * still pending, and a one-time outcome counted in that moment (a sign-up or
- * verification marker consumed as Onboard opens) would otherwise be lost for
- * good. Held in memory only and sent only from `startAnalytics`, so a visit
- * that is never admitted sends nothing and the list dies with the tab.
- * Replayed in order, so each event is filed under the page it was made on.
- */
-type HeldCall = { kind: "page"; path: string } | { kind: "track"; event: FunnelEvent; props?: FunnelProperties };
-let heldBeforeStart: HeldCall[] = [];
-/** Nothing drains the list on a visit that is never admitted: keep it small. */
-const HELD_BEFORE_START_CAP = 50;
-
-function holdBeforeStart(call: HeldCall): void {
-  if (heldBeforeStart.length < HELD_BEFORE_START_CAP) heldBeforeStart.push(call);
-}
 
 /** Carries the page a PostHog call was made on through to `before_send`. */
 const PAGE_PATTERN = "__page_pattern";
@@ -207,6 +250,11 @@ function flushPosthog(): void {
   posthogIdentityQueue = [];
   posthogQueue = [];
   for (const fn of identityCalls) fn(ph);
+  // After any start-up reset, before the first event: both load orders pass here.
+  if (Object.keys(posthogLandingTags).length > 0) {
+    ph.register_for_session(posthogLandingTags);
+    posthogLandingTags = {};
+  }
   for (const fn of captures) fn(ph);
 }
 
@@ -216,7 +264,9 @@ function flushPosthog(): void {
  * future PostHog adds (as `$session_entry_url` was found to be, by the
  * outbound browser test) is covered too: any web address becomes this site's
  * route pattern or another site's origin, any pathname its pattern, and page
- * titles and clicked-element text are dropped.
+ * titles and clicked-element text are dropped. Campaign tags PostHog reads
+ * from the address (`utm_source`, `$initial_utm_source`, …) keep only a value
+ * that passes the same check GA4's do.
  */
 export function scrubPosthogEvent(event: CaptureResult | null): CaptureResult | null {
   if (!event) return event;
@@ -231,7 +281,9 @@ export function scrubPosthogEvent(event: CaptureResult | null): CaptureResult | 
     for (const key of Object.keys(bag)) {
       const lower = key.toLowerCase();
       const value = bag[key];
-      if (lower.endsWith("title") || lower.endsWith("href") || lower === "$elements_chain" || lower === "$elements") {
+      if (/(^|_)utm_/.test(lower)) {
+        if (!isCleanCampaignValue(value)) delete bag[key];
+      } else if (lower.endsWith("title") || lower.endsWith("href") || lower === "$elements_chain" || lower === "$elements") {
         delete bag[key];
       } else if (lower === "$current_url") {
         bag[key] = patternUrl(madeOn);
@@ -264,7 +316,7 @@ function startGa(id: string): void {
   // `config` would override every later `set` (Google's parameter precedence),
   // leaving events after an in-app navigation filed under the landing page.
   // Set before `config`, so the first hit already carries the pattern.
-  window.gtag("set", { page_location: patternUrl(currentPattern), page_title: currentPattern, page_referrer: referrer });
+  window.gtag("set", { page_location: patternUrl(currentPattern) + landingCampaign, page_title: currentPattern, page_referrer: referrer });
   window.gtag("config", id, {
     send_page_view: false,
     allow_google_signals: false,
@@ -324,6 +376,9 @@ export function startAnalytics(): void {
   started = true;
   currentPattern = routePattern(window.location.pathname);
   referrer = cleanReferrer(document.referrer);
+  landingCampaign = campaignQuery(landingSearch ?? window.location.search);
+  posthogLandingTags = Object.fromEntries(new URLSearchParams(landingCampaign));
+  landingSearch = null;
   const id = gaId();
   const key = posthogKey();
   gaOn = Boolean(id);
@@ -339,22 +394,16 @@ export function startAnalytics(): void {
     if (before.userId) identify(before.userId);
     else resetIdentity();
   }
-  const held = heldBeforeStart;
-  heldBeforeStart = [];
-  for (const call of held) {
-    if (call.kind === "page") page(call.path);
-    else track(call.event, call.props);
-  }
 }
 
 /** One page shown: the only source of page views for either vendor. */
 export function page(path: string): void {
-  if (!started) {
-    holdBeforeStart({ kind: "page", path });
-    return;
-  }
+  if (!started) return;
   currentPattern = routePattern(path);
-  const location = patternUrl(currentPattern);
+  // GA4 only: PostHog has the landing tags as session properties (`flushPosthog`),
+  // and `scrubPosthogEvent` holds any it reads from the address to the same check.
+  const location = patternUrl(currentPattern) + landingCampaign;
+  landingCampaign = "";
   // `set` carries the pattern into every later hit on this page.
   ga("set", { page_location: location, page_title: currentPattern, page_referrer: referrer });
   ga("event", "page_view", { page_location: location, page_title: currentPattern });
@@ -363,10 +412,7 @@ export function page(path: string): void {
 
 /** One confirmed funnel outcome. */
 export function track(event: FunnelEvent, props?: FunnelProperties): void {
-  if (!started) {
-    holdBeforeStart({ kind: "track", event, props });
-    return;
-  }
+  if (!started) return;
   const clean = cleanProperties(props);
   ga("event", gaEventName(event), clean);
   capture(event, clean);
@@ -459,6 +505,9 @@ export function __resetAnalyticsForTests(): void {
   started = false;
   currentPattern = "/";
   referrer = "";
+  landingCampaign = "";
+  landingSearch = null;
+  posthogLandingTags = {};
   gaOn = false;
   posthogOn = false;
   posthog = null;
@@ -466,7 +515,6 @@ export function __resetAnalyticsForTests(): void {
   posthogIdentityQueue = [];
   identityKnown = false;
   identityBeforeStart = undefined;
-  heldBeforeStart = [];
   identifiedAs = null;
 }
 

@@ -83,15 +83,6 @@ describe("GET /healthz", () => {
   });
 });
 
-describe("GET /admission", () => {
-  it("answers 200 {admitted:true}, never cached (the origin guard in app.ts does the refusing)", async () => {
-    const res = await request(makeApp()).get("/admission");
-    assert.equal(res.status, 200);
-    assert.deepEqual(res.body, { admitted: true });
-    assert.equal(res.headers["cache-control"], "no-store");
-  });
-});
-
 describe("GET /health", () => {
   // The describe contains exactly one test, so suite-level before/after
   // is enough — beforeEach/afterEach would just duplicate the same cleanup

@@ -50,11 +50,9 @@
 
     <!-- Google Analytics 4 and PostHog start from src/lib/analytics.ts (via lib/telemetry), not here. -->
 
-    <!-- Google AdSense — loaded only when VITE_ADSENSE_PUBLISHER_ID is set at build time, and only once the API has admitted this visit: lib/telemetry.ts calls window.__ohStartAds (launch Phase 14, increment 3). -->
+    <!-- Google AdSense — loaded only when VITE_ADSENSE_PUBLISHER_ID is set at build time -->
     <script id="adsense-init">
-      window.__ohStartAds = function() {
-        if (window.__ohStartAds.started) return;
-        window.__ohStartAds.started = true;
+      (function() {
         var pubId = "%VITE_ADSENSE_PUBLISHER_ID%";
         if (!pubId || pubId.indexOf("%") !== -1 || pubId === "undefined") return;
         var s = document.createElement("script");
@@ -62,7 +60,7 @@
         s.crossOrigin = "anonymous";
         s.src = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=" + pubId;
         document.head.appendChild(s);
-      };
+      })();
     </script>
   </head>
   <body>

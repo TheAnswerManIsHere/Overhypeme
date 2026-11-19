@@ -5,9 +5,9 @@ import { scrubObject, scrubUrl } from "@workspace/redact";
  * Request headers monitoring may keep: none can carry a credential. Every
  * other header is dropped, in both places the SDK copies headers to
  * (`event.request.headers`, and the request span's `http.request.header.*`
- * attributes). Closed by default, so a new secret header — the origin secret
- * Cloudflare adds (launch Phase 14, increment 3), the dev preview key, the
- * `sid` session cookie — can never leak by being forgotten (PR #1063 round 1).
+ * attributes). Closed by default, so a secret header — the dev preview key,
+ * the `sid` session cookie, any secret header added later — can never leak by
+ * being forgotten (PR #1063 round 1).
  */
 export const SAFE_REQUEST_HEADERS: ReadonlySet<string> = new Set([
   "accept",

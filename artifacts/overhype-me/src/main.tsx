@@ -1,8 +1,10 @@
 // First: in development, take the preview key out of the page address before
 // error monitoring starts and could record it (launch Phase 14, increment 3).
 import { devPreviewKey, DEV_PREVIEW_HEADER } from "./lib/devPreviewUnlock";
+// Telemetry must start before App renders so error monitoring can capture render errors.
+import { startTelemetry } from "./lib/telemetry";
+import { inspectForReadOnly } from "./lib/readOnlyNotice";
 import { createRoot } from "react-dom/client";
-import { admitAndStart } from "./lib/admission";
 import App from "./App";
 import "@fontsource/inter/400.css";
 import "@fontsource/inter/500.css";
@@ -58,14 +60,18 @@ window.fetch = function (input, init) {
     }
 
     init = { ...init, headers };
+
+    // Read-only mode (launch Phase 16, increment 4): a refused write raises
+    // the site-wide notice; the caller still reads the response as before.
+    return _originalFetch(input, init).then((response) => {
+      void inspectForReadOnly(response);
+      return response;
+    });
   }
 
   return _originalFetch(input, init);
 };
 
+startTelemetry();
 
 createRoot(document.getElementById("root")!).render(<App />);
-
-// Error monitoring, analytics and ads start only once the API has admitted
-// this visit (launch Phase 14, increment 3; lib/admission.ts).
-void admitAndStart();

@@ -1,5 +1,5 @@
 /**
- * @purpose Serves the built web app (dist/public) in the published deployment from a process of our own instead of Replit's static service, so increment 3 of launch Phase 14 can refuse a request that did not come through Cloudflare for the app's files as well as its API (plan PLAN_PHASE14_COMPLIANCE.md, S-e2, the feasibility step).
+ * @purpose Serves the built web app (dist/public) in the published deployment from a process of our own instead of Replit's static service, so increment 3 of launch Phase 14 can send a visitor on Replit's own address to overhype.me, where Cloudflare's country rule applies (plan PLAN_PHASE14_COMPLIANCE.md, the feasibility step; scope as slimmed by David, Q20, 2026-11-19).
  * @subsystem public-site
  *
  * It reproduces what the static service did (measured 2026-11-18 on the
@@ -8,17 +8,18 @@
  * so in-app navigation works. One deliberate difference: a missing file under
  * /assets/ or /fonts/ is a 404, not index.html served as a script.
  *
- * In the published deployment it refuses any request without the secret only
- * Cloudflare adds (plan S-e; the API's middlewares/originGuard.ts is its
- * twin): such a request is sent to the canonical host, or refused there. The
- * health path and nothing else is answered first.
+ * In the published deployment a request addressed to a Replit hostname
+ * (`*.replit.app`) is sent to the canonical host, so an ordinary visitor
+ * never reaches the app around Cloudflare. It is an address check, not a
+ * proof: a deliberate visitor can still go around Cloudflare, as a VPN goes
+ * around any country rule (David, Q20: a shared secret with Cloudflare is a
+ * hardening item before Full US launch). The health path is answered first.
  *
  * Node built-ins only, and no build step: the published run command starts
  * it directly, so it depends on nothing the API's build produces. The
  * workspace preview is unchanged: development still runs Vite.
  */
 import { createServer } from "node:http";
-import { timingSafeEqual } from "node:crypto";
 import { createReadStream, statSync } from "node:fs";
 import { pipeline } from "node:stream";
 import path from "node:path";
@@ -49,13 +50,13 @@ const CONTENT_TYPES = {
   ".webm": "video/webm",
 };
 
-/** The platform's start-up health check (artifact.toml); answered before the origin check. */
+/** The platform's start-up health check (artifact.toml); answered before the host check, whatever address the platform uses. */
 const HEALTH_PATH = "/__health";
 
-/** Header only Cloudflare's transform rule adds; its value is ORIGIN_SECRET (launch Phase 14, increment 3, plan S-e). */
-const ORIGIN_HEADER = "x-overhype-origin";
+/** Replit's own published hostnames; a request addressed to one is sent to the canonical host. */
+const REPLIT_HOST = /\.replit\.app$/;
 
-/** The explanation page every refused visitor is sent to; a script-free file in the build. Same path as the API's lib/geography.ts and the web app's lib/admission.ts. */
+/** The explanation page Cloudflare's country rule sends a refused visitor to; a script-free file in the build. Same path as the API's lib/geography.ts. */
 const EXPLANATION_PATH = "/unavailable";
 const EXPLANATION_FILE = "/unavailable.html";
 
@@ -86,45 +87,20 @@ function send(req, res, { file, stat }) {
   pipeline(createReadStream(file), res, () => {});
 }
 
-/**
- * True when the request carries the secret only Cloudflare adds, compared in
- * constant time. `secret` is the configured value as bytes, or null. The API's
- * middlewares/originGuard.ts holds the same check; this file cannot import it.
- */
-export function cameThroughCloudflare(req, secret) {
-  const given = req.headers[ORIGIN_HEADER];
-  if (!secret || typeof given !== "string" || given.length === 0) return false;
-  const a = Buffer.from(given);
-  return a.length === secret.length && timingSafeEqual(a, secret);
-}
-
-/**
- * A request that did not come through Cloudflare gets none of the app's
- * files. One addressed to another host is sent to the canonical one; one
- * already addressed to it (a direct connection to the origin with the real
- * hostname, or a deployment missing its secret) gets a refusal page with a
- * link, so it can never loop.
- */
-function refuse(req, res, canonicalOrigin, canonicalHost) {
-  const host = String(req.headers.host ?? "").toLowerCase();
-  if (host && host !== canonicalHost) {
-    res.writeHead(308, { location: canonicalOrigin + (req.url ?? "/"), "cache-control": "no-store" });
-    return res.end();
-  }
-  res.writeHead(403, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-  return res.end(`<!doctype html><meta charset="utf-8"><title>Overhype.me</title><p>Please visit <a href="${canonicalOrigin}">${canonicalOrigin}</a>.</p>`);
+/** True when the request is addressed to one of Replit's own hostnames rather than the canonical one. */
+export function onReplitHost(req) {
+  const host = String(req.headers.host ?? "").toLowerCase().split(":")[0];
+  return REPLIT_HOST.test(host);
 }
 
 /**
  * The request handler for a built app at `root` (an absolute directory).
- * `options.originSecret`, when `options.guarded` is true (the published
- * deployment), must arrive in the x-overhype-origin header.
+ * When `options.redirectReplitHost` is true (the published deployment), a
+ * request on a Replit hostname is sent to `options.canonicalOrigin`.
  */
 export function createHandler(root, options = {}) {
   const absoluteRoot = path.resolve(root);
-  const { guarded = false, originSecret, canonicalOrigin = "https://overhype.me" } = options;
-  const secret = originSecret ? Buffer.from(originSecret) : null;
-  const canonicalHost = new URL(canonicalOrigin).host;
+  const { redirectReplitHost = false, canonicalOrigin = "https://overhype.me" } = options;
   return (req, res) => {
     if (req.method !== "GET" && req.method !== "HEAD") {
       res.writeHead(405, { allow: "GET, HEAD" });
@@ -141,7 +117,12 @@ export function createHandler(root, options = {}) {
       res.writeHead(200, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
       return res.end("ok");
     }
-    if (guarded && !cameThroughCloudflare(req, secret)) return refuse(req, res, canonicalOrigin, canonicalHost);
+    if (redirectReplitHost && onReplitHost(req)) {
+      // Plain concatenation, never new URL(req.url, origin): a target such as
+      // //evil.example would then replace the host (an open redirect).
+      res.writeHead(308, { location: canonicalOrigin + (req.url ?? "/"), "cache-control": "no-store" });
+      return res.end();
+    }
     if (urlPath === EXPLANATION_PATH) {
       const page = fileAt(absoluteRoot, EXPLANATION_FILE);
       if (page) return send(req, res, page);
@@ -165,8 +146,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const root = process.env.WEB_PUBLIC_DIR ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../dist/public");
   const port = Number(process.env.PORT ?? 26169);
   const handler = createHandler(root, {
-    guarded: process.env.REPLIT_DEPLOYMENT === "1",
-    originSecret: process.env.ORIGIN_SECRET,
+    redirectReplitHost: process.env.REPLIT_DEPLOYMENT === "1",
     // Mirrors the API's getSiteBaseUrl() for the deployment (lib/siteUrl.ts).
     canonicalOrigin: (process.env.SITE_BASE_URL ?? "https://overhype.me").replace(/\/$/, ""),
   });

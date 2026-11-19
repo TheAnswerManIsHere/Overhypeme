@@ -12,16 +12,17 @@ container.
   (PR #1049, PR #1050), not Replit's static service. Proven after David's
   publish of 2026-11-18: a missing `/assets/x.js` answers 404 `text/plain` on
   both `overhype.me` and `overhypeme.replit.app`.
-- So the origin-secret check goes into `serve.mjs` as well as the API, with the
-  platform health check exempt. Replit's private deployment is not needed.
+- So `serve.mjs` can send a visitor on the Replit address to `overhype.me`,
+  with the platform health check exempt. Replit's private deployment is not
+  needed.
 
 ## Origin inventory
 
 | Address | What answers | Measured | After increment 3 |
 | --- | --- | --- | --- |
-| `overhype.me` | Cloudflare → Replit | `HTTP/2 200`, `server: cloudflare`, `cf-cache-status: DYNAMIC` (page and `/api/healthz`) | redirect rule, then origin secret |
+| `overhype.me` | Cloudflare → Replit | `HTTP/2 200`, `server: cloudflare`, `cf-cache-status: DYNAMIC` (page and `/api/healthz`) | redirect rule |
 | `www.overhype.me` | Cloudflare redirect rule "Redirect from WWW to root [Template]" | `HTTP/2 301`, `location: https://overhype.me/` | unchanged |
-| `overhypeme.replit.app` | Replit directly | `HTTP/2 200`, `server: Google Frontend` | refused: no origin secret |
+| `overhypeme.replit.app` | Replit directly | `HTTP/2 200`, `server: Google Frontend` | pages: 308 to `overhype.me`; API unchanged (Q20) |
 | og-router Worker's `*.workers.dev` | — | not enabled: the Worker's Domains tab lists only its three `overhype.me` routes (`/m/*`, `/api/og/*`, `/api/memes/*`) | nothing to close |
 | dev preview `*.spock.replit.dev` | Replit | **public while the dev app runs**: `/` 200 (the Vite page), `/api/healthz` 200 `{"status":"ok"}`, and an unauthenticated `POST /api/auth/dev-admin-login` 200 (mints an admin session; `ENABLE_DEV_ADMIN_LOGIN` is on there). Stopped: `HTTP/1.1 502`, `Replit-Cluster: spock` | its API gated by `DEV_PREVIEW_KEY` (PR #1060); the dev app kept stopped when not in use until then |
 
@@ -65,8 +66,20 @@ publishes; its API is what PR #1060 closes.
 Redirect rules run before Workers and the cache, so one redirect rule refuses
 both the blocked countries and the three Ukrainian regions for every address,
 the Worker's routes included. The Worker's own region check (S-d) is dropped.
-The API keeps a region check on requests carrying the origin secret, as the
-backstop S-e describes. Undo: restore the Worker check.
+Undo: restore the Worker check.
+
+### Scope slimmed by David, 2026-11-19 (Q20: 3)
+
+Built and then cut before merge: a secret header Cloudflare adds and the
+origin requires (S-e), the API's region backstop on it, and the web app
+starting analytics and monitoring only after the API admits the visit
+(S-e2's second half). Why: a country rule's job is to show the site is not
+offered in those places; a VPN defeats any country rule, and the secret only
+stops a visitor who deliberately goes around Cloudflare, at the price of a
+publish-order dependency and a site-wide outage on any mismatch. Kept: the
+Cloudflare redirect rule, the explanation page, the Replit-address redirect
+for pages, and the monitoring header allowlist. The secret is a hardening
+item to revisit before Full US launch (decisions.md, 2026-11-19).
 
 ## Mail (Q9)
 

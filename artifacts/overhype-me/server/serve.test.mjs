@@ -102,16 +102,15 @@ describe("the published web server", () => {
 });
 
 
-describe("the published web server's front door (launch Phase 14, increment 3)", () => {
-  const SECRET = "origin-secret-for-tests-0123456789";
-  let guarded;
-  let gbase;
+describe("the published web server's Replit-address redirect (launch Phase 14, increment 3)", () => {
+  let published;
+  let pbase;
 
   /** A raw request, so the Host header can be set (fetch forbids it). */
   function hit(p, headers = {}) {
     return new Promise((resolve, reject) => {
-      const u = new URL(p, gbase);
-      get({ hostname: u.hostname, port: u.port, path: u.pathname, headers }, (res) => {
+      const u = new URL(p, pbase);
+      get({ hostname: u.hostname, port: u.port, path: u.pathname + u.search, headers }, (res) => {
         let body = "";
         res.on("data", (c) => (body += c));
         res.on("end", () => resolve({ status: res.statusCode, headers: res.headers, body }));
@@ -120,22 +119,16 @@ describe("the published web server's front door (launch Phase 14, increment 3)",
   }
 
   beforeAll(async () => {
-    guarded = createServer(createHandler(root, { guarded: true, originSecret: SECRET, canonicalOrigin: "https://overhype.me" }));
-    await new Promise((r) => guarded.listen(0, "127.0.0.1", r));
-    gbase = `http://127.0.0.1:${guarded.address().port}`;
+    published = createServer(createHandler(root, { redirectReplitHost: true, canonicalOrigin: "https://overhype.me" }));
+    await new Promise((r) => published.listen(0, "127.0.0.1", r));
+    pbase = `http://127.0.0.1:${published.address().port}`;
   });
   afterAll(async () => {
-    await new Promise((r) => guarded.close(r));
+    await new Promise((r) => published.close(r));
   });
 
-  it("serves the app to a request that came through Cloudflare", async () => {
-    const res = await hit("/facts/1", { host: "overhype.me", "x-overhype-origin": SECRET });
-    expect(res.status).toBe(200);
-    expect(res.body).toContain("<title>app</title>");
-  });
-
-  it("sends a request on another host to the canonical one, with none of the app's files", async () => {
-    for (const p of ["/", "/assets/index-abc.js", "/facts/1"]) {
+  it("sends a request on Replit's address to overhype.me, with none of the app's files", async () => {
+    for (const p of ["/", "/assets/index-abc.js", "/facts/1?x=1"]) {
       const res = await hit(p, { host: "overhypeme.replit.app" });
       expect(res.status, p).toBe(308);
       expect(res.headers.location, p).toBe(`https://overhype.me${p}`);
@@ -143,40 +136,32 @@ describe("the published web server's front door (launch Phase 14, increment 3)",
     }
   });
 
-  it("refuses, without a redirect loop, a request on the canonical host that skipped Cloudflare", async () => {
-    const res = await hit("/", { host: "overhype.me" });
-    expect(res.status).toBe(403);
-    expect(res.headers.location).toBeUndefined();
-    expect(res.body).not.toContain("<title>app</title>");
+  it("serves the app on the canonical host and on any other non-Replit host", async () => {
+    for (const host of ["overhype.me", "localhost:26169"]) {
+      const res = await hit("/facts/1", { host });
+      expect(res.status, host).toBe(200);
+      expect(res.body, host).toContain("<title>app</title>");
+    }
   });
 
-  it("refuses a wrong secret, including one of another length", async () => {
-    expect((await hit("/", { host: "overhype.me", "x-overhype-origin": "short" })).status).toBe(403);
-    expect((await hit("/", { host: "overhype.me", "x-overhype-origin": SECRET.replace("o", "O") })).status).toBe(403);
-  });
-
-  it("refuses everything when the deployment has no secret configured", async () => {
-    const bare = createServer(createHandler(root, { guarded: true }));
-    await new Promise((r) => bare.listen(0, "127.0.0.1", r));
-    const res = await fetch(`http://127.0.0.1:${bare.address().port}/`, { headers: { "x-overhype-origin": "" }, redirect: "manual" });
-    await new Promise((r) => bare.close(r));
-    expect(res.status).toBe(308);
-    expect(await res.text()).not.toContain("<title>app</title>");
-  });
-
-  it("answers the health check without the secret", async () => {
+  it("answers the health check on any address", async () => {
     const res = await hit("/__health", { host: "overhypeme.replit.app" });
     expect(res.status).toBe(200);
     expect(res.body).toBe("ok");
   });
 
   it("serves the explanation page at /unavailable", async () => {
-    const res = await hit("/unavailable", { host: "overhype.me", "x-overhype-origin": SECRET });
+    const res = await hit("/unavailable", { host: "overhype.me" });
     expect(res.status).toBe(200);
     expect(res.body).toContain("<title>unavailable</title>");
   });
 
-  it("is unguarded unless told otherwise, as in development", async () => {
-    expect((await fetch(`${base}/`)).status).toBe(200);
+  it("does not redirect unless told to, as in development", async () => {
+    const dev = createServer(createHandler(root));
+    await new Promise((r) => dev.listen(0, "127.0.0.1", r));
+    const res = await new Promise((resolve) => get({ hostname: "127.0.0.1", port: dev.address().port, path: "/", headers: { host: "x.replit.app" } }, resolve));
+    res.resume();
+    await new Promise((r) => dev.close(r));
+    expect(res.statusCode).toBe(200);
   });
 });

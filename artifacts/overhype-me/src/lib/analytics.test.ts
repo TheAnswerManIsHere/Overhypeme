@@ -4,7 +4,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { phInit, phCapture, phIdentify, phReset, phGetProperty } = vi.hoisted(() => ({
+const { phInit, phCapture, phIdentify, phReset, phGetProperty, phRegisterForSession } = vi.hoisted(() => ({
+  phRegisterForSession: vi.fn(),
   phInit: vi.fn(),
   phCapture: vi.fn(),
   phIdentify: vi.fn(),
@@ -13,12 +14,13 @@ const { phInit, phCapture, phIdentify, phReset, phGetProperty } = vi.hoisted(() 
 }));
 
 vi.mock("posthog-js/dist/module.slim", () => ({
-  default: { init: phInit, capture: phCapture, identify: phIdentify, reset: phReset, get_property: phGetProperty },
+  default: { init: phInit, capture: phCapture, identify: phIdentify, reset: phReset, get_property: phGetProperty, register_for_session: phRegisterForSession },
 }));
 
 import {
   __resetAnalyticsForTests,
   cleanProperties,
+  campaignQuery,
   cleanReferrer,
   identify,
   page,
@@ -51,6 +53,7 @@ beforeEach(() => {
   phIdentify.mockClear();
   phReset.mockClear();
   phGetProperty.mockReset();
+  phRegisterForSession.mockClear();
 });
 
 afterEach(() => {
@@ -405,75 +408,175 @@ describe("what PostHog adds by itself is scrubbed before sending", () => {
   });
 });
 
-describe("calls made while the admission check is pending (launch Phase 14, increment 3)", () => {
-  beforeEach(() => {
+describe("a landing address's campaign tags reach GA4 (fix after PR #1059)", () => {
+  it("keeps only the listed tags, and only code-shaped values", () => {
+    expect(campaignQuery("?utm_source=newsletter&utm_medium=email&utm_campaign=launch-week&displayName=Alice&gclid=abc"))
+      .toBe("?utm_source=newsletter&utm_medium=email&utm_campaign=launch-week");
+    expect(campaignQuery("?utm_term=Alice%20Smith&utm_content=alice%40example.com&utm_id=spring_2027")).toBe("?utm_id=spring_2027");
+    expect(campaignQuery("?utm_source=" + "a".repeat(101))).toBe("");
+    expect(campaignQuery("?q=Alice")).toBe("");
+    expect(campaignQuery("")).toBe("");
+  });
+
+  it("the landing page view carries them, and the page after it does not", () => {
     vi.stubEnv("VITE_GA_MEASUREMENT_ID", "G-TEST123");
+    vi.stubEnv("VITE_POSTHOG_KEY", "");
+    window.history.replaceState(null, "", "/facts/7?displayName=Alice&utm_source=newsletter&utm_campaign=launch-week&utm_term=Alice%20Smith");
+    startAnalytics();
+    const landing = `${window.location.origin}/facts/:id?utm_source=newsletter&utm_campaign=launch-week`;
+    // Before config, so even a hit sent before the first page view is attributed.
+    expect(gaCalls().find((c) => c[0] === "set")).toEqual(["set", expect.objectContaining({ page_location: landing })]);
+    page("/facts/7");
+    expect(gaCalls()).toContainEqual(["event", "page_view", { page_location: landing, page_title: "/facts/:id" }]);
+    page("/pricing");
+    expect(gaCalls()).toContainEqual(["event", "page_view", { page_location: `${window.location.origin}/pricing`, page_title: "/pricing" }]);
+    expect(gaCalls().at(-2)).toEqual(["set", expect.objectContaining({ page_location: `${window.location.origin}/pricing` })]);
+    expect(JSON.stringify(gaCalls())).not.toContain("Alice");
+  });
+
+  it("the tags are those of the address the page loaded with, not of a later one", async () => {
+    vi.stubEnv("VITE_GA_MEASUREMENT_ID", "G-TEST123");
+    vi.stubEnv("VITE_POSTHOG_KEY", "");
+    window.history.replaceState(null, "", "/?utm_source=newsletter");
+    vi.resetModules();
+    const fresh = await import("./analytics");
+    // The app moves on before analytics starts (Phase 14's admission check).
+    window.history.replaceState(null, "", "/pricing");
+    window.dataLayer = [];
+    fresh.startAnalytics();
+    fresh.page("/pricing");
+    expect(gaCalls()).toContainEqual(["event", "page_view", { page_location: `${window.location.origin}/pricing?utm_source=newsletter`, page_title: "/pricing" }]);
+    fresh.__resetAnalyticsForTests();
+  });
+
+  it("PostHog gets the landing tags for the session even after the visitor has moved on (owed after PR #1069)", async () => {
+    vi.stubEnv("VITE_GA_MEASUREMENT_ID", "");
     vi.stubEnv("VITE_POSTHOG_KEY", "phc_test123");
-    window.localStorage.clear();
-  });
-
-  it("a sign-up and a verification counted as Onboard opens reach both vendors once, after admission, under the page they were made on", async () => {
-    page("/onboard");
-    track("sign_up", { method: "google" });
-    track("verify");
-    window.history.replaceState(null, "", "/facts/7"); // the visitor has moved on by the time admission answers
-    startAnalytics();
-    resetIdentity();
+    window.history.replaceState(null, "", "/facts/7?utm_source=newsletter&utm_campaign=launch-week&utm_term=Alice%20Smith&displayName=Alice");
+    vi.resetModules();
+    const fresh = await import("./analytics");
+    // The app moves on before analytics starts, and PostHog reads the address at each event.
+    window.history.replaceState(null, "", "/pricing");
+    fresh.startAnalytics();
+    fresh.resetIdentity();
+    fresh.page("/pricing");
     await flush();
-    const gaEvents = gaCalls().filter((c) => c[0] === "event");
-    expect(gaEvents.map((c) => c[1])).toEqual(["page_view", "sign_up", "verify"]);
-    expect(phCapture.mock.calls).toEqual([
-      ["$pageview", { __page_pattern: "/onboard" }],
-      ["sign_up", { method: "google", __page_pattern: "/onboard" }],
-      ["verify", { __page_pattern: "/onboard" }],
-    ]);
+    expect(phRegisterForSession).toHaveBeenCalledTimes(1);
+    expect(phRegisterForSession).toHaveBeenCalledWith({ utm_source: "newsletter", utm_campaign: "launch-week" });
+    // Registered before the queued page view is sent, so it carries them.
+    expect(phRegisterForSession.mock.invocationCallOrder[0]).toBeLessThan(
+      phCapture.mock.invocationCallOrder[phCapture.mock.calls.findIndex((c) => c[0] === "$pageview")]!,
+    );
+    fresh.__resetAnalyticsForTests();
   });
 
-  it("the same calls on a visit that is never admitted send nothing", async () => {
-    page("/onboard");
-    track("sign_up", { method: "google" });
-    track("verify");
-    await flush();
-    expect(window.dataLayer).toEqual([]);
-    expect(document.head.querySelector("script[src*='googletagmanager']")).toBeNull();
-    expect(phInit).not.toHaveBeenCalled();
+  describe("a browser PostHog remembers as signed in, on a signed-out load (Codex, PR #1070 round 1)", () => {
+    // PostHog 1.450.0's reset empties its session store; the mock does the same,
+    // and each capture records the session properties it would carry.
+    let session: Record<string, string> = {};
+    const sent: Array<{ event: string; session: Record<string, string> }> = [];
+    beforeEach(() => {
+      session = {};
+      sent.length = 0;
+      phGetProperty.mockReturnValue("identified");
+      phRegisterForSession.mockImplementation((props: Record<string, string>) => { session = { ...session, ...props }; });
+      phReset.mockImplementation(() => { session = {}; });
+      phCapture.mockImplementation((event: string) => { sent.push({ event, session: { ...session } }); });
+    });
+    afterEach(() => {
+      phRegisterForSession.mockReset();
+      phReset.mockReset();
+      phCapture.mockReset();
+    });
+
+    async function landThenMoveOn() {
+      vi.stubEnv("VITE_GA_MEASUREMENT_ID", "");
+      vi.stubEnv("VITE_POSTHOG_KEY", "phc_test123");
+      window.history.replaceState(null, "", "/?utm_source=newsletter&utm_campaign=launch-week&utm_term=Alice%20Smith");
+      vi.resetModules();
+      const fresh = await import("./analytics");
+      window.history.replaceState(null, "", "/pricing");
+      return fresh;
+    }
+    function expectTaggedPageView() {
+      expect(phReset).toHaveBeenCalledTimes(1);
+      expect(phRegisterForSession).toHaveBeenCalledTimes(1);
+      const view = sent.find((c) => c.event === "$pageview");
+      expect(view?.session).toEqual({ utm_source: "newsletter", utm_campaign: "launch-week" });
+    }
+
+    it("the sign-in check answers before PostHog has loaded", async () => {
+      const fresh = await landThenMoveOn();
+      fresh.startAnalytics();
+      fresh.resetIdentity();
+      fresh.page("/pricing");
+      await flush();
+      expectTaggedPageView();
+      fresh.__resetAnalyticsForTests();
+    });
+
+    it("PostHog loads before the sign-in check answers", async () => {
+      const fresh = await landThenMoveOn();
+      fresh.startAnalytics();
+      fresh.page("/pricing");
+      await flush();
+      expect(sent).toEqual([]);
+      fresh.resetIdentity();
+      expectTaggedPageView();
+      fresh.__resetAnalyticsForTests();
+    });
+
+    it("the sign-in check answered before analytics started", async () => {
+      const fresh = await landThenMoveOn();
+      fresh.resetIdentity();
+      fresh.startAnalytics();
+      fresh.page("/pricing");
+      await flush();
+      expectTaggedPageView();
+      fresh.__resetAnalyticsForTests();
+    });
+
+    it("a later sign-out does not register the landing tags again", async () => {
+      const fresh = await landThenMoveOn();
+      fresh.startAnalytics();
+      fresh.identify("member-1");
+      fresh.page("/pricing");
+      await flush();
+      fresh.resetIdentity();
+      expect(phRegisterForSession).toHaveBeenCalledTimes(1);
+      fresh.__resetAnalyticsForTests();
+    });
   });
 
-  it("an upgrade confirmed before admission is one purchase after it, and none on a repeat", async () => {
-    trackUpgradeOnce("cs_test_9");
-    trackUpgradeOnce("cs_test_9");
-    startAnalytics();
-    resetIdentity();
-    await flush();
-    expect(gaCalls().filter((c) => c[0] === "event" && c[1] === "purchase")).toHaveLength(1);
-    expect(phCapture.mock.calls.filter((c) => c[0] === "upgrade")).toHaveLength(1);
-  });
-
-  it("the first page of an admitted visit is counted once", async () => {
-    page("/");
-    startAnalytics();
-    resetIdentity();
-    await flush();
-    expect(gaCalls().filter((c) => c[0] === "event" && c[1] === "page_view")).toHaveLength(1);
-    expect(phCapture.mock.calls.filter((c) => c[0] === "$pageview")).toHaveLength(1);
-  });
-
-  it("holds at most a small fixed number of calls", async () => {
-    for (let i = 0; i < 200; i++) track("share", { platform: "x" });
-    startAnalytics();
-    resetIdentity();
-    await flush();
-    expect(phCapture.mock.calls.length).toBeLessThanOrEqual(50);
-    expect(phCapture.mock.calls.length).toBeGreaterThan(0);
-  });
-
-  it("a test reset forgets held calls", async () => {
-    track("verify");
-    __resetAnalyticsForTests();
+  it("PostHog registers nothing when the landing address had no clean tags", async () => {
+    vi.stubEnv("VITE_GA_MEASUREMENT_ID", "");
     vi.stubEnv("VITE_POSTHOG_KEY", "phc_test123");
+    window.history.replaceState(null, "", "/?utm_term=Alice%20Smith");
     startAnalytics();
     resetIdentity();
     await flush();
-    expect(phCapture).not.toHaveBeenCalled();
+    expect(phInit).toHaveBeenCalled();
+    expect(phRegisterForSession).not.toHaveBeenCalled();
+  });
+
+  it("an address with no campaign tags sends the bare pattern", () => {
+    vi.stubEnv("VITE_GA_MEASUREMENT_ID", "G-TEST123");
+    vi.stubEnv("VITE_POSTHOG_KEY", "");
+    window.history.replaceState(null, "", "/search?q=Alice");
+    startAnalytics();
+    page("/search?q=Alice");
+    expect(gaCalls()).toContainEqual(["event", "page_view", { page_location: `${window.location.origin}/search`, page_title: "/search" }]);
+  });
+
+  it("PostHog keeps the campaign tags it reads only when their value passes the same check", () => {
+    const event = {
+      uuid: "1", event: "$pageview",
+      properties: { utm_source: "newsletter", utm_term: "Alice Smith", __page_pattern: "/" },
+      $set_once: { $initial_utm_source: "newsletter", $initial_utm_content: "alice@example.com" },
+    } as unknown as Parameters<typeof scrubPosthogEvent>[0];
+    const out = scrubPosthogEvent(event)!;
+    expect(out.properties).toMatchObject({ utm_source: "newsletter" });
+    expect(out.properties).not.toHaveProperty("utm_term");
+    expect(out.$set_once).toEqual({ $initial_utm_source: "newsletter" });
   });
 });
