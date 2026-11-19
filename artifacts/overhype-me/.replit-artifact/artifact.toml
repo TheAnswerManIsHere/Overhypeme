@@ -32,8 +32,8 @@ PORT = "26169"
 NODE_ENV = "production"
 
 # The publish's start-up check asks this path, which serve.mjs answers before
-# its origin check: every other address refuses a request that did not come
-# through Cloudflare, the platform's own included (launch Phase 14, increment 3).
+# its Replit-address redirect, so the check passes whatever host the platform
+# uses (launch Phase 14, increment 3).
 [services.production.health.startup]
 path = "/__health"
 
