@@ -32,10 +32,11 @@ test("a clean run: one POST to the configured URL with the secret, redirects not
   assert.deepEqual(r.jobs, [{ job: "expired-sessions", ok: true, ms: 3 }], "a job's result is not carried into the log");
 });
 
-test("with no MAINTENANCE_URL it calls the canonical host", async () => {
+test("with no MAINTENANCE_URL it calls Replit's own address, not overhype.me", async () => {
   const { calls, fetchImpl } = recorder(json(200, okBody));
   await callDailyMaintenance({ CRON_SECRET: "s" }, fetchImpl, noSleep);
   assert.equal(calls[0].url, DEFAULT_MAINTENANCE_URL);
+  assert.equal(DEFAULT_MAINTENANCE_URL, "https://overhypeme.replit.app/api/jobs/maintenance");
 });
 
 test("no secret: nothing is called and the invocation fails", async () => {

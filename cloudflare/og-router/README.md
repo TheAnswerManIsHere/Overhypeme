@@ -71,7 +71,9 @@ curl -A "Mozilla/5.0 (Macintosh)" http://localhost:8787/m/somesample
 ## The daily maintenance call
 
 The Worker's `scheduled` handler (`src/maintenance.ts`) POSTs
-`https://overhype.me/api/jobs/maintenance` once a day at 09:23 UTC with the
+`https://overhypeme.replit.app/api/jobs/maintenance` (Replit's own address,
+so Cloudflare's country rule and its ~100-second origin wait do not apply)
+once a day at 09:23 UTC with the
 app's `CRON_SECRET` in `x-cron-secret`. The app scales to zero when idle and
 its cleanup timers live inside that process, so this call is what runs the
 retention jobs on a quiet day (launch Phase 14, plan S-i).

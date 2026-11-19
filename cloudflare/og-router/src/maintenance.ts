@@ -19,7 +19,14 @@ export interface MaintenanceEnv {
   MAINTENANCE_URL?: string;
 }
 
-export const DEFAULT_MAINTENANCE_URL = "https://overhype.me/api/jobs/maintenance";
+/**
+ * Replit's own address: the API answers there without Cloudflare in front,
+ * so neither the country rule nor Cloudflare's wait for an origin's answer
+ * applies to the call. Pages at this host redirect to overhype.me; the API
+ * does not (measured 2026-11-19: POST without the secret answers 403 from
+ * `server: Google Frontend`, no redirect).
+ */
+export const DEFAULT_MAINTENANCE_URL = "https://overhypeme.replit.app/api/jobs/maintenance";
 
 /** How long to wait before the one retry: long enough for a cold start. */
 export const RETRY_DELAY_MS = 30_000;
@@ -62,9 +69,9 @@ function readJobs(body: unknown): JobOutcome[] | null {
  * Calls the maintenance run once, with one retry after `RETRY_DELAY_MS` when
  * the app answers 502/503/504 or cannot be reached. Resolves only on a 200
  * whose body says every job succeeded; every other outcome throws a plain
- * reason. A redirect is never followed: the canonical host answers a
- * refused country with a redirect to /unavailable, and following it would
- * turn "the call never reached the API" into a page that looks fine.
+ * reason. A redirect is never followed: a page there, or the canonical
+ * host's country rule, answers with a redirect, and following it would turn
+ * "the call never reached the API" into a page that looks fine.
  */
 export async function callDailyMaintenance(
   env: MaintenanceEnv,

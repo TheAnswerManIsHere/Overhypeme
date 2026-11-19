@@ -52,6 +52,11 @@ enabled = true
 # MAINTENANCE_URL with the app's CRON_SECRET. Deploying replaces every cron
 # trigger with this list.
 #
+# MAINTENANCE_URL is Replit's own address, not overhype.me: the API there
+# answers directly (pages redirect to overhype.me; the API does not), so the
+# call is not judged by Cloudflare's country rule wherever the cron runs, and
+# is not cut off by Cloudflare's ~100-second wait for an origin's answer.
+#
 # CRON_SECRET is a Worker secret, never a var: set it in the dashboard
 # (Workers & Pages -> overhype-og-router -> Settings -> Variables and Secrets,
 # type Secret) to the same value as the app's CRON_SECRET. A deploy keeps it,
@@ -60,7 +65,7 @@ enabled = true
 crons = ["23 9 * * *"]
 
 [vars]
-MAINTENANCE_URL = "https://overhype.me/api/jobs/maintenance"
+MAINTENANCE_URL = "https://overhypeme.replit.app/api/jobs/maintenance"
 
 [secrets]
 required = ["CRON_SECRET"]
