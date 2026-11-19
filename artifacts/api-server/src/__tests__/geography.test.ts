@@ -20,6 +20,10 @@ const EU27 = [
 ];
 
 describe("the list of refused places", () => {
+  it("refuses exactly 41 places, so one added by mistake fails here", () => {
+    assert.equal(BLOCKED_COUNTRIES.size, 27 + 7 + 4 + 3);
+  });
+
   it("refuses every EU member state, the rest of the EEA, the UK and OFAC's sanctioned countries", () => {
     assert.equal(EU27.length, 27);
     for (const code of [...EU27, "IS", "LI", "NO", "GB", "CU", "IR", "KP"]) {
@@ -50,7 +54,7 @@ describe("the printed Cloudflare rule", () => {
   it("names every refused country and region", () => {
     for (const code of BLOCKED_COUNTRIES) assert.ok(rule.includes(`"${code}"`), code);
     for (const region of BLOCKED_UA_REGIONS) assert.ok(rule.includes(`"${region}"`), region);
-    assert.ok(rule.includes('ip.src.country eq "UA"'));
+    assert.ok(rule.includes('(ip.src.country eq "UA" and ip.src.region_code in {"43" "40" "14" "09"})'), "the region codes apply to Ukraine only");
   });
 
   it("spares the explanation page, so a refused visitor is not redirected in a loop", () => {
