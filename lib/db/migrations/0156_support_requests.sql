@@ -17,12 +17,16 @@
 CREATE TABLE IF NOT EXISTS support_requests (
   id serial PRIMARY KEY,
   email varchar(320) NOT NULL,
-  category varchar(20) NOT NULL CHECK (category IN ('account', 'billing', 'bug', 'content', 'other')),
+  category varchar(20) NOT NULL,
   message text NOT NULL,
   user_id varchar REFERENCES users(id) ON DELETE SET NULL,
   account_state varchar(20),
-  inbox_delivery varchar(10) NOT NULL CHECK (inbox_delivery IN ('queued', 'failed')),
-  created_at timestamptz NOT NULL DEFAULT now()
+  inbox_delivery varchar(10) NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  -- Written in the form PostgreSQL prints back, so a dump and restore (production
+  -- adoption, phase3.productionAdopt.test.ts) compares equal to a migrated database.
+  CONSTRAINT support_requests_category_check CHECK (((category)::text = ANY (ARRAY[('account'::character varying)::text, ('billing'::character varying)::text, ('bug'::character varying)::text, ('content'::character varying)::text, ('other'::character varying)::text]))),
+  CONSTRAINT support_requests_inbox_delivery_check CHECK (((inbox_delivery)::text = ANY (ARRAY[('queued'::character varying)::text, ('failed'::character varying)::text])))
 );
 
 CREATE INDEX IF NOT EXISTS idx_support_requests_created ON support_requests (created_at);

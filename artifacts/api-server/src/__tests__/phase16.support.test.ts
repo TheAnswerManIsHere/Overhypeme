@@ -8,6 +8,11 @@ import { describe, it, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
+// The email layer fixes its transport when it first loads; set the dummy key
+// before it does, so this suite queues mail in any environment and shard order
+// (the same pre-condition emailDeliverAuth.test.ts states).
+process.env.RESEND_API_KEY = process.env.RESEND_API_KEY ?? "re_test_dummy";
+
 import request from "supertest";
 import { db } from "@workspace/db";
 import { usersTable, supportRequestsTable, asyncJobsTable, rateLimitCountersTable } from "@workspace/db/schema";
