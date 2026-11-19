@@ -30,7 +30,7 @@ import { getSafeReturnTo } from "../lib/safeReturnTo.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 
 const ADMIN_EMAIL = "overhypeme+admin@gmail.com";
-const ENV_KEYS = ["ENABLE_DEV_ADMIN_LOGIN", "NODE_ENV", "REPLIT_DEPLOYMENT"] as const;
+const ENV_KEYS = ["ENABLE_DEV_ADMIN_LOGIN", "NODE_ENV", "REPLIT_DEPLOYMENT", "REPLIT_DEV_DOMAIN", "DEV_PREVIEW_KEY"] as const;
 let savedEnv: Record<string, string | undefined>;
 
 beforeEach(() => {
@@ -48,11 +48,15 @@ function enable() {
   process.env.ENABLE_DEV_ADMIN_LOGIN = "true";
   delete process.env.NODE_ENV;
   delete process.env.REPLIT_DEPLOYMENT;
+  delete process.env.REPLIT_DEV_DOMAIN;
+  delete process.env.DEV_PREVIEW_KEY;
 }
 function disable() {
   delete process.env.ENABLE_DEV_ADMIN_LOGIN;
   delete process.env.NODE_ENV;
   delete process.env.REPLIT_DEPLOYMENT;
+  delete process.env.REPLIT_DEV_DOMAIN;
+  delete process.env.DEV_PREVIEW_KEY;
 }
 
 describe("isDevAdminLoginEnabled — fail-closed env matrix", () => {
@@ -165,6 +169,62 @@ describe("dev-admin-login route — grants when enabled (non-prod preview)", () 
     const html = res.text;
     assert.match(html, /window\.location\.replace\("\/"\)/, "off-site returnTo must be sanitized to '/'");
     assert.doesNotMatch(html, /evil\.com/, "the off-site host must never appear in the redirect");
+  });
+
+  // PR #1072 round 1: a literal address comparison ahead of the router let
+  // the shortcut through by another spelling. The key is now checked on the
+  // handler, so every spelling Express routes here needs it.
+  describe("through the public dev preview, every spelling Express routes here needs the key", () => {
+    const PREVIEW = "abc-00-xyz.spock.replit.dev";
+    const KEY = "k3y-for-tests-0123456789";
+    const SPELLINGS = [
+      "/api/auth/dev-admin-login",
+      "/api/auth/dev-admin-login/",
+      "/api/auth/DEV-ADMIN-LOGIN",
+      "/API/AUTH/dev-admin-login",
+      "/Api/Auth/Dev-Admin-Login/",
+    ];
+    function onPreview() {
+      enable();
+      process.env.REPLIT_DEV_DOMAIN = PREVIEW;
+      process.env.DEV_PREVIEW_KEY = KEY;
+    }
+    const via = (r: request.Test) => r.set("Host", PREVIEW).set("X-Forwarded-For", "203.0.113.9");
+
+    it("refuses GET, POST and HEAD without the key, with no session cookie", async () => {
+      onPreview();
+      for (const p of SPELLINGS) {
+        for (const method of ["get", "post", "head"] as const) {
+          const res = await via(request(app())[method](p));
+          assert.equal(res.status, 403, `${method.toUpperCase()} ${p}`);
+          assert.equal(res.headers["set-cookie"], undefined, `${method.toUpperCase()} ${p} must not set a cookie`);
+        }
+      }
+    });
+
+    it("refuses a wrong key, and every spelling when no key is configured", async () => {
+      onPreview();
+      for (const p of SPELLINGS) {
+        assert.equal((await via(request(app()).post(p)).set("X-Dev-Preview-Key", "wrong")).status, 403, p);
+      }
+      delete process.env.DEV_PREVIEW_KEY;
+      for (const p of SPELLINGS) {
+        assert.equal((await via(request(app()).post(p)).set("X-Dev-Preview-Key", "")).status, 403, p);
+      }
+    });
+
+    it("grants with the key, by header or by cookie", async () => {
+      onPreview();
+      for (const p of SPELLINGS) {
+        assert.equal((await via(request(app()).post(p)).set("X-Dev-Preview-Key", KEY).send({})).status, 200, `header ${p}`);
+        assert.equal((await via(request(app()).get(p)).set("Cookie", `dev_preview_key=${KEY}`)).status, 200, `cookie ${p}`);
+      }
+    });
+
+    it("needs no key for a direct local request", async () => {
+      onPreview();
+      assert.equal((await request(app()).post("/api/auth/dev-admin-login").set("Host", "localhost:8080").send({})).status, 200);
+    });
   });
 
   it("GET honors a safe same-origin returnTo", async () => {
