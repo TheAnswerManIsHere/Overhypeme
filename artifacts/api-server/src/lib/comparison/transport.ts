@@ -11,6 +11,7 @@
  * cost nothing to repeat.
  */
 
+import { falQueueSubmitHeaders } from "../falRetention";
 import { fal, getFalApiKey } from "../falClient";
 
 export interface ComparisonFal {
@@ -32,7 +33,7 @@ const liveFal: ComparisonFal = {
     if (!key) throw new Error("FAL_AI_API_KEY (or FAL_KEY) is not set, so no comparison call can be submitted");
     const res = await fetch(`${FAL_QUEUE_BASE}/${endpointId}`, {
       method: "POST",
-      headers: { Authorization: `Key ${key}`, "Content-Type": "application/json" },
+      headers: falQueueSubmitHeaders(key),
       body: JSON.stringify(input),
     });
     const text = await res.text();

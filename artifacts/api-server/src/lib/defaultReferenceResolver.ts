@@ -23,6 +23,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ReferenceIdentityType } from "@workspace/api-zod";
 import { DEFAULT_REFERENCE_ASSET_VERSION } from "./factRenderScenarios";
+import { REFERENCE_UPLOAD_LIFECYCLE, REFERENCE_URL_RENEW_AFTER_MS } from "./falRetention";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = path.resolve(__dirname, "../assets");
@@ -83,15 +84,27 @@ export class ReferenceAssetUnavailableError extends Error {
 }
 
 // Test seam: replace the fal upload so tests never hit the network.
-type FalUpload = (bytes: Uint8Array, contentType: string) => Promise<string>;
+type FalUpload = (bytes: Uint8Array, contentType: string, opts: { lifecycle: typeof REFERENCE_UPLOAD_LIFECYCLE }) => Promise<string>;
 let falUploadOverride: FalUpload | null = null;
 export function __setReferenceFalUploadForTest(fn: FalUpload | null): void {
   falUploadOverride = fn;
   urlCache.clear();
 }
+/** The current upload seam, so a test can restore what another file set (the suite shares one process). */
+export function __getReferenceFalUploadForTest(): FalUpload | null {
+  return falUploadOverride;
+}
 
-// Memoized fal URL per (identityType@version) — the asset never changes within a version.
-const urlCache = new Map<string, Promise<string>>();
+// Test seam: the clock the cache's renewal reads.
+let now: () => number = Date.now;
+export function __setReferenceClockForTest(fn: (() => number) | null): void {
+  now = fn ?? Date.now;
+}
+
+// Memoized fal URL per (identityType@version[@maxEdge]) — the asset never
+// changes within a version, but fal's copy expires (`REFERENCE_UPLOAD_LIFECYCLE`),
+// so an entry is uploaded afresh once it is `REFERENCE_URL_RENEW_AFTER_MS` old.
+const urlCache = new Map<string, { url: Promise<string>; uploadedAt: number }>();
 
 async function statRealAsset(meta: ReferenceAssetMeta): Promise<number> {
   let size: number;
@@ -110,10 +123,11 @@ async function statRealAsset(meta: ReferenceAssetMeta): Promise<number> {
 }
 
 async function uploadToFal(buf: Buffer, contentType: string): Promise<string> {
-  if (falUploadOverride) return falUploadOverride(new Uint8Array(buf), contentType);
+  const opts = { lifecycle: REFERENCE_UPLOAD_LIFECYCLE };
+  if (falUploadOverride) return falUploadOverride(new Uint8Array(buf), contentType, opts);
   const { fal, ensureFalConfigured } = await import("./falClient.js");
   ensureFalConfigured();
-  return fal.storage.upload(new Blob([new Uint8Array(buf)], { type: contentType }));
+  return fal.storage.upload(new Blob([new Uint8Array(buf)], { type: contentType }), opts);
 }
 
 /**
@@ -134,7 +148,8 @@ export async function resolveDefaultReferenceUrl(
 ): Promise<{ url: string; version: string }> {
   const meta = referenceAssetMeta(identityType);
   const cacheKey = `${identityType}@${meta.version}${opts.maxEdgePx ? `@${opts.maxEdgePx}` : ""}`;
-  let pending = urlCache.get(cacheKey);
+  const cached = urlCache.get(cacheKey);
+  let pending = cached && now() - cached.uploadedAt < REFERENCE_URL_RENEW_AFTER_MS ? cached.url : undefined;
   if (!pending) {
     pending = (async () => {
       await statRealAsset(meta);
@@ -147,10 +162,10 @@ export async function resolveDefaultReferenceUrl(
         .toBuffer();
       return uploadToFal(resized, "image/jpeg");
     })().catch((err) => {
-      urlCache.delete(cacheKey); // allow retry on a later request
+      if (urlCache.get(cacheKey)?.url === pending) urlCache.delete(cacheKey); // allow retry on a later request
       throw err;
     });
-    urlCache.set(cacheKey, pending);
+    urlCache.set(cacheKey, { url: pending, uploadedAt: now() });
   }
   return { url: await pending, version: meta.version };
 }
