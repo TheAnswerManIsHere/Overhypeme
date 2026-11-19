@@ -61,6 +61,82 @@ interface OperationsPayload {
   incidents:
     | { status: "ok"; incidents: Incident[] }
     | { status: "unavailable"; reason: "not_configured" | "unreachable" };
+  /** Read-only mode as the server that answered is enforcing it. */
+  readOnly?: ReadOnlyState;
+}
+
+interface ReadOnlyState {
+  instanceId: string;
+  enforcing: "on" | "off";
+  status: "ok" | "stale" | "unavailable";
+  confirmedAt: string | null;
+  savedAt: string | null;
+  refreshSeconds: number;
+}
+
+/**
+ * The read-only switch (launch Phase 16, increment 4, plan design D). Each
+ * server keeps its own copy and picks a change up within its refresh
+ * interval, so the panel shows what the server that answered is enforcing.
+ */
+function ReadOnlyPanel({ state, onChanged }: { state: ReadOnlyState | undefined; onChanged: (s: ReadOnlyState) => void }) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!state) {
+    return <p className="text-sm text-destructive" data-testid="read-only-unavailable">The read-only switch could not be read.</p>;
+  }
+  const on = state.enforcing === "on";
+  const save = async (next: boolean): Promise<void> => {
+    if (next && !window.confirm("Turn read-only mode on? Visitors and members will not be able to change anything until you turn it off.")) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/operations/read-only", {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ on: next }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = (await res.json()) as { readOnly: ReadOnlyState };
+      onChanged(body.readOnly);
+    } catch (err) {
+      setError(`The switch could not be saved (${err instanceof Error ? err.message : String(err)}). Nothing changed.`);
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <div className="space-y-2 text-sm" data-testid="read-only-panel">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className={on ? "font-semibold text-destructive" : "font-semibold text-green-700"} data-testid="read-only-state">
+          {on ? "On: new accounts, submissions, memes, comments and purchases are paused" : "Off: the site is open for changes"}
+        </span>
+        <Button size="sm" variant={on ? "primary" : "danger"} disabled={saving} onClick={() => void save(!on)} data-testid="read-only-toggle">
+          {saving ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+          {on ? "Turn read-only mode off" : "Turn read-only mode on"}
+        </Button>
+      </div>
+      {state.status === "stale" && (
+        <p className="text-amber-600" data-testid="read-only-stale">
+          Stale: this server could not re-read the switch; it is holding the last value it confirmed ({formatTime(state.confirmedAt)}).
+        </p>
+      )}
+      {state.status === "unavailable" && (
+        <p className="text-destructive" data-testid="read-only-server-unavailable">
+          Unavailable: this server has never been able to read the switch, so it is refusing changes.
+        </p>
+      )}
+      {error && <p className="text-destructive">{error}</p>}
+      <p className="text-xs text-muted-foreground">
+        While on, these carry on: browsing, personalising, saving a name and pronouns, signing in to an existing account,
+        password recovery, cancelling an account deletion or a subscription, Stripe's billing page, confirming a checkout
+        already paid for, admin work, background jobs and payment webhooks. Each server picks up a change within about {state.refreshSeconds} seconds. This reading is from
+        server {state.instanceId.slice(0, 8)}, confirmed {formatTime(state.confirmedAt)}
+        {state.savedAt ? `; last saved ${formatTime(state.savedAt)}` : ""}.
+      </p>
+    </div>
+  );
 }
 
 function minutes(ms: number): string {
@@ -262,6 +338,11 @@ export default function AdminOperations() {
 
         {data && (
           <>
+            <section>
+              <h2 className="mb-2 text-lg font-semibold">Read-only mode</h2>
+              <ReadOnlyPanel state={data.readOnly} onChanged={(readOnly) => setData((d) => (d ? { ...d, readOnly } : d))} />
+            </section>
+
             <section>
               <h2 className="mb-2 text-lg font-semibold">Background work</h2>
               {data.lanes.status === "unavailable" ? (

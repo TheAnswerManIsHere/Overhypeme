@@ -31,6 +31,9 @@ function getAuthError(): string | null {
   if (err === "account_suspended") {
     return "This account is suspended.";
   }
+  if (err === "read_only_signup") {
+    return "New accounts are paused for a short while. If you already have an account, sign in with it; otherwise please try again shortly.";
+  }
   if (err === "unverified_provider_email") {
     return "That sign-in didn't confirm your email address, and an account already uses it. Sign in with your password, or reset it from \"Forgot password\".";
   }

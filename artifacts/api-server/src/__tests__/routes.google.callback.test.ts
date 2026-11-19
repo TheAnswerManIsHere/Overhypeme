@@ -45,6 +45,8 @@ import {
   _resetGoogleConfigCacheForTest,
 } from "../lib/auth.js";
 
+import { __acceptForTests, __resetReadOnlyForTests } from "../lib/readOnlyMode.js";
+
 import type {
   TokenEndpointResponse,
   TokenEndpointResponseHelpers,
@@ -128,6 +130,7 @@ after(async () => {
 });
 
 afterEach(() => {
+  __resetReadOnlyForTests();
   _resetAuthCodeGrantForTest();
   _resetClientDiscoveryForTest();
   _resetGoogleConfigCacheForTest();
@@ -504,5 +507,53 @@ describe("GET /api/callback/google — the provider's verified-email claim", () 
     } finally {
       restoreEnv();
     }
+  });
+
+  // Launch Phase 16, read-only mode, Q3: 1: a pause stops public writes, and
+  // creating an account is one by any route. A first provider sign-in creates
+  // the account, so it is refused; an existing account still signs in.
+  describe("while read-only mode is on", () => {
+    const pause = () => __acceptForTests({ on: true, updatedAt: Date.now(), confirmedAt: Date.now() });
+    const callback = async (email: string) => {
+      _setAuthCodeGrantForTest(async () => makeFakeTokens(email));
+      const state = randomUUID();
+      await _storePendingStateForTest(state, { codeVerifier: "v", nonce: "n", returnTo: "/", isPopup: false });
+      return request(makeApp()).get("/api/callback/google").query({ code: "c", state });
+    };
+
+    it("refuses a first sign-in, which would create the account: no user, no session", async () => {
+      const restoreEnv = applyFakeGoogleEnv();
+      _setClientDiscoveryForTest(makeFakeDiscovery());
+      const email = `${USER_PREFIX}${randomUUID()}@test.local`;
+      try {
+        pause();
+        const res = await callback(email);
+        assert.equal(res.status, 302);
+        assert.match(res.headers["location"] ?? "", /\/login\?error=read_only_signup$/);
+        const setCookie = [res.headers["set-cookie"] ?? []].flat() as string[];
+        assert.ok(!setCookie.some((c) => c.startsWith("sid=")), "no session is minted");
+        const rows = await db.select().from(usersTable).where(eq(usersTable.email, email));
+        assert.equal(rows.length, 0, "no account is created");
+      } finally {
+        restoreEnv();
+      }
+    });
+
+    it("an existing account still signs in", async () => {
+      const restoreEnv = applyFakeGoogleEnv();
+      _setClientDiscoveryForTest(makeFakeDiscovery());
+      const email = `${USER_PREFIX}${randomUUID()}@test.local`;
+      try {
+        assert.equal((await callback(email)).status, 302, "created before the pause");
+        pause();
+        const res = await callback(email);
+        assert.equal(res.status, 302);
+        assert.doesNotMatch(res.headers["location"] ?? "", /error=/);
+        const setCookie = [res.headers["set-cookie"] ?? []].flat() as string[];
+        assert.ok(setCookie.some((c) => c.startsWith("sid=")), "a session is minted");
+      } finally {
+        restoreEnv();
+      }
+    });
   });
 });
