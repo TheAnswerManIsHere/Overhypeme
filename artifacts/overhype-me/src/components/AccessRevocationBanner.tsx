@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { AlertTriangle, X, Mail } from "lucide-react";
 
-const SUPPORT_EMAIL = "overhypeme+support@gmail.com";
 
 type RevocationKind = "refund" | "dispute_opened" | "dispute_lost";
 type Notice = { kind: RevocationKind; occurredAt: string } | null;
@@ -75,7 +74,7 @@ export function AccessRevocationBanner() {
             <span className="font-semibold">Membership update:</span>{" "}
             {describeNotice(notice.kind)}{" "}
             <a
-              href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Membership access question")}`}
+              href="/support?category=billing"
               className="inline-flex items-center gap-1 underline hover:no-underline font-semibold"
             >
               <Mail className="w-3 h-3" />

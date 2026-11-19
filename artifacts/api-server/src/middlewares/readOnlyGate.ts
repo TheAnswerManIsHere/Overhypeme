@@ -43,6 +43,8 @@ export const READ_ONLY_ROUTES: Readonly<Record<RouteKey, { allowed: boolean; why
   // (Q3: 1), and a buyer back from Stripe has already paid.
   "POST /users/me/deletion/cancel": { allowed: true, why: "keeps an account the still-running deletion job would remove" },
   "POST /stripe/checkout/confirm": { allowed: true, why: "confirms a purchase already paid for" },
+  // Q7: 1 — the contact form keeps working, so a member can reach a person during a pause.
+  "POST /support/contact": { allowed: true, why: "a support request (Q7: 1)" },
   // Q11: 1 — a member may save a name and pronouns, and nothing else (checked on the body below).
   "PATCH /users/me": { allowed: true, why: "a name and pronouns only (Q11); any other field is refused" },
 

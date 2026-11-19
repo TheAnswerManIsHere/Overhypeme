@@ -15,7 +15,7 @@ import {
 
 const KINDS: AccessRevocationKind[] = ["refund", "dispute_opened", "dispute_lost"];
 
-const SUPPORT_EMAIL = "overhypeme+support@gmail.com";
+const SUPPORT_EMAIL = "support@overhype.me";
 
 // Patterns that would indicate sensitive Stripe data has leaked into the
 // email body. These should never appear in either the text or the HTML.

@@ -3,6 +3,7 @@ import { Navbar } from "./Navbar";
 import { PrimaryNav } from "./PrimaryNav";
 import { AdSlot } from "@/components/AdSlot";
 import { AccessRevocationBanner } from "@/components/AccessRevocationBanner";
+import { Link } from "wouter";
 import { LegalLinks } from "@/components/legal/LegalLinks";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Mail, X, CheckCircle, Loader2 } from "lucide-react";
@@ -104,6 +105,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
             The world's most personalized facts database. Enter your name. Become legendary.
           </p>
           <LegalLinks className="md:mt-8 text-sm text-muted-foreground" />
+          <div className="mt-3 text-sm">
+            <Link href="/support" className="text-muted-foreground hover:text-primary" data-testid="footer-support">Contact support</Link>
+          </div>
           <div className="mt-6 text-xs text-border tracking-wider">
             © {new Date().getFullYear()} Availeron Consulting, Inc. ALL RIGHTS RESERVED.
           </div>
