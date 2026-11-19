@@ -207,10 +207,16 @@ describe("the worker renders through the engine recorded at construction", () =>
       async result() { throw new Error("unused"); },
       async history() { throw new Error("unused"); },
     });
+    // The key is set here, around the one call that needs it: the suite shares
+    // one process, and another file's tests (falPricing) delete both key
+    // variables, so a key set once in `before` may be gone by now (PR #1071's CI).
+    const savedKey = process.env["FAL_KEY"];
+    process.env["FAL_KEY"] ||= "test-key";
     try {
       await imageGenerationHandler.run({ attemptId: attempt!.id }, {} as never);
     } finally {
       __setRenderFalForTest(null);
+      if (savedKey === undefined) delete process.env["FAL_KEY"]; else process.env["FAL_KEY"] = savedKey;
     }
     assert.equal(calls.length, 1);
     assert.equal(calls[0]!.endpoint, "fal-ai/nano-banana-2", "the code's endpoint");
