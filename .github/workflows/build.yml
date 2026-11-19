@@ -290,6 +290,12 @@ jobs:
       - name: Budget gate thunk check
         run: pnpm run check:budget-gate-thunk
 
+      # The Cloudflare Worker sits outside the workspace typecheck (it is not
+      # under artifacts/). Its daily maintenance caller fails closed on any
+      # answer but a clean run (launch Phase 14, increment 6b).
+      - name: Worker typecheck and tests
+        run: pnpm --filter @workspace/og-router run typecheck && pnpm --filter @workspace/og-router run test
+
       - name: Build app
         run: pnpm run build
         env:
