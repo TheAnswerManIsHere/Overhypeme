@@ -110,7 +110,7 @@ function ReadOnlyPanel({ state, onChanged }: { state: ReadOnlyState | undefined;
     <div className="space-y-2 text-sm" data-testid="read-only-panel">
       <div className="flex flex-wrap items-center gap-3">
         <span className={on ? "font-semibold text-destructive" : "font-semibold text-green-700"} data-testid="read-only-state">
-          {on ? "On: visitors and members cannot change anything" : "Off: the site is open for changes"}
+          {on ? "On: new accounts, submissions, memes, comments and purchases are paused" : "Off: the site is open for changes"}
         </span>
         <Button size="sm" variant={on ? "primary" : "danger"} disabled={saving} onClick={() => void save(!on)} data-testid="read-only-toggle">
           {saving ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
@@ -129,8 +129,9 @@ function ReadOnlyPanel({ state, onChanged }: { state: ReadOnlyState | undefined;
       )}
       {error && <p className="text-destructive">{error}</p>}
       <p className="text-xs text-muted-foreground">
-        While on, browsing, personalising, saving a name and pronouns, signing in, admin work, background jobs and payment
-        webhooks carry on. Each server picks up a change within about {state.refreshSeconds} seconds. This reading is from
+        While on, these carry on: browsing, personalising, saving a name and pronouns, signing in to an existing account,
+        password recovery, cancelling an account deletion or a subscription, Stripe's billing page, confirming a checkout
+        already paid for, admin work, background jobs and payment webhooks. Each server picks up a change within about {state.refreshSeconds} seconds. This reading is from
         server {state.instanceId.slice(0, 8)}, confirmed {formatTime(state.confirmedAt)}
         {state.savedAt ? `; last saved ${formatTime(state.savedAt)}` : ""}.
       </p>
