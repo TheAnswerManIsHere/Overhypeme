@@ -32,6 +32,34 @@ import { logger } from "../logger";
 export const DEFAULT_NSFW_ENDPOINT = "fal-ai/imageutils/nsfw";
 export const DEFAULT_NSFW_THRESHOLD = 0.85;
 
+/**
+ * How long fal keeps the member's photo it is given to classify (launch
+ * Phase 14, increment 6b: vendor expiry). The classifier reads it within
+ * seconds of the upload; an hour covers the SDK's own retries. fal's
+ * documentation: uploaded files are "subject to the same retention controls"
+ * as generated media, set per upload by `X-Fal-Object-Lifecycle-Preference`,
+ * which the client sends from this `lifecycle` option.
+ */
+export const CLASSIFIER_UPLOAD_LIFECYCLE = { expiresIn: "1h" } as const;
+
+/**
+ * Keeps the classification request (the photo's address and the score) out
+ * of fal's request history, which otherwise holds inputs and outputs "for
+ * 90 days by default". Nothing reads this request back from fal.
+ */
+export const NO_REQUEST_HISTORY_HEADERS = { "X-Fal-Store-IO": "0" } as const;
+
+/**
+ * Uploads a member's photo to fal storage for the classifier, set to expire
+ * after `CLASSIFIER_UPLOAD_LIFECYCLE`. Returns the URL fal serves it from.
+ */
+export async function uploadForClassifier(
+  blob: Blob,
+  upload: (file: Blob, opts: { lifecycle: typeof CLASSIFIER_UPLOAD_LIFECYCLE }) => Promise<string> = (file, opts) => fal.storage.upload(file, opts),
+): Promise<string> {
+  return upload(blob, { lifecycle: CLASSIFIER_UPLOAD_LIFECYCLE });
+}
+
 export interface NsfwClassifierResult {
   score: number;
   model: string;
@@ -40,7 +68,7 @@ export interface NsfwClassifierResult {
 
 export interface NsfwClassifierOverrides {
   /** Test hook: stub the fal client. */
-  falImpl?: { subscribe: (model: string, opts: { input: Record<string, unknown>; logs?: boolean }) => Promise<unknown> };
+  falImpl?: { subscribe: (model: string, opts: { input: Record<string, unknown>; logs?: boolean; headers?: Record<string, string> }) => Promise<unknown> };
   endpoint?: string;
   timeoutMs?: number;
 }
@@ -85,7 +113,7 @@ export async function classifyNsfwByUrl(
     // fal.subscribe doesn't expose abort directly; we wrap in Promise.race
     // so callers honour the configured timeout regardless of SDK behaviour.
     const raw = await Promise.race([
-      client.subscribe(endpoint, { input: { image_url: imageUrl }, logs: false }),
+      client.subscribe(endpoint, { input: { image_url: imageUrl }, logs: false, headers: { ...NO_REQUEST_HISTORY_HEADERS } }),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error(`NSFW classifier timed out after ${timeoutMs}ms`)), timeoutMs),
       ),
