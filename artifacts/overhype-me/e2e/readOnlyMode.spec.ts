@@ -60,6 +60,13 @@ test("read-only mode: on from Operations, browsing and a name save carry on, a w
       const [n, shell] = await Promise.all([notice.boundingBox(), admin.page.getByTestId("admin-shell").boundingBox()]);
       return n && shell ? shell.y - (n.y + n.height) : -1;
     }, { message: "the admin screen starts below the notice" }).toBeGreaterThanOrEqual(-1);
+    // On a phone the notice wraps to several lines; the admin screen still starts below it.
+    await admin.page.setViewportSize({ width: 393, height: 852 });
+    await expect.poll(async () => {
+      const [n, shell] = await Promise.all([notice.boundingBox(), admin.page.getByTestId("admin-shell").boundingBox()]);
+      return n && shell && n.height > 40 ? shell.y - (n.y + n.height) : -99;
+    }, { message: "on a phone, the admin screen starts below the wrapped notice" }).toBeGreaterThanOrEqual(-1);
+    await admin.page.setViewportSize({ width: 1280, height: 720 });
 
     // A signed-out visitor: browsing works and the notice is shown.
     const visitorContext = await browser.newContext();
