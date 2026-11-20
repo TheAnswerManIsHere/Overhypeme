@@ -8,10 +8,15 @@ import { Loader2, Copy, Check, Mail, ArrowRight, Send } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Turnstile, type TurnstileHandle } from "@/components/ui/Turnstile";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
+import { isReadOnlyNow } from "@/lib/readOnlyNotice";
 
 // ── AI suggestion (mirrors NameTag logic) ───────────────────────────────────
 
 async function fetchSuggestedPronouns(name: string, signal: AbortSignal): Promise<string | null> {
+  // Not sent while the site is read-only: the server would refuse it, and a
+  // refusal would pop "maintenance" at someone only typing a name (#1109 D3).
+  if (isReadOnlyNow()) return null;
   try {
     const res = await fetch("/api/ai/suggest-pronouns", {
       method: "POST",
@@ -504,6 +509,7 @@ export function ShareModal({ open, onClose, path = "/", factId, shareText }: Sha
                         onExpire={() => setCaptchaToken("")}
                       />
                     )}
+                    <PausedWhenReadOnly className="w-full">
                     <Button
                       variant="primary"
                       className="w-full gap-2"
@@ -514,6 +520,7 @@ export function ShareModal({ open, onClose, path = "/", factId, shareText }: Sha
                       <Send className="w-3.5 h-3.5" />
                       Send Invite
                     </Button>
+                    </PausedWhenReadOnly>
                   </div>
                 )}
               </div>

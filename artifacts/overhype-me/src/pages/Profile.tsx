@@ -20,6 +20,13 @@ import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFr
 import { uploadUserImage } from "@/lib/image-upload";
 import { shouldAskForRealPhoto } from "@/lib/profile-photo";
 import { STRIPE_UNVERIFIED_CODE, STRIPE_UNVERIFIED_CONFIRM_MESSAGE } from "@workspace/api-zod";
+import { confirmNotReadOnly, isReadOnlyNow, isReadOnlyRefusal, READ_ONLY_REFUSED_FULL } from "@/lib/readOnlyNotice";
+
+/** The profile fields the server lets through while the site is read-only (api-server readOnlyGate, READ_ONLY_PROFILE_FIELDS). */
+const READ_ONLY_SAVABLE_FIELDS = ["displayName", "pronouns"];
+const PROFILE_HELD_BACK_MESSAGE =
+  "Your other changes aren't saved yet: they stay here, and you can save them once Overhype.me's maintenance is over.";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
@@ -623,6 +630,16 @@ export default function Profile() {
       return;
     }
 
+    // While the site is read-only only a name and pronouns can be saved (Phase 16
+    // Q11). Other edits stay in the form, shown as not saved, and save once the
+    // pause ends; nothing is sent that the server would refuse (#1109 D5).
+    const heldBack = isReadOnlyNow() ? Object.keys(body).filter((k) => !READ_ONLY_SAVABLE_FIELDS.includes(k)) : [];
+    for (const k of heldBack) delete body[k];
+    if (heldBack.length > 0 && Object.keys(body).length === 0) {
+      setEditError(PROFILE_HELD_BACK_MESSAGE);
+      return;
+    }
+
     try {
       const result = await updateProfile.mutateAsync({ data: body });
       await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
@@ -630,6 +647,10 @@ export default function Profile() {
       // re-read, through AccountIdentityMirror (identity-flow Phase 2), never
       // from what was submitted: a re-read that did not land confirms nothing.
       const confirmed = await refreshUser();
+      if (heldBack.length > 0) {
+        setEditSuccess(`Your name and pronouns are saved. ${PROFILE_HELD_BACK_MESSAGE}`);
+        return; // the editor stays open with the unsaved edits in it
+      }
       if (!confirmed && (body.displayName !== undefined || body.pronouns !== undefined)) {
         setEditSuccess("Profile saved. We couldn't refresh it here yet; reload the page to see the change everywhere.");
         setEditing(false);
@@ -643,8 +664,13 @@ export default function Profile() {
       setEditing(false);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err: unknown) {
-      const errObj = err as { response?: { data?: { error?: string } }; message?: string };
-      setEditError(errObj?.response?.data?.error ?? errObj?.message ?? "Failed to update profile.");
+      const errObj = err as { response?: { data?: { error?: string } }; data?: { error?: string }; message?: string };
+      // The server's own words, never the client's "HTTP 503 …:" wrapper around them (#1109 D8).
+      setEditError(
+        isReadOnlyRefusal(err)
+          ? READ_ONLY_REFUSED_FULL
+          : errObj?.response?.data?.error ?? errObj?.data?.error ?? errObj?.message ?? "Failed to update profile.",
+      );
     }
   }
 
@@ -836,6 +862,7 @@ export default function Profile() {
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {!hasCustomPhoto && (
+                    <PausedWhenReadOnly>
                     <Button
                       onClick={() => fileInputRef.current?.click()}
                       disabled={photoUploading}
@@ -844,6 +871,7 @@ export default function Profile() {
                     >
                       {photoUploading ? <><Loader2 className="w-4 h-4 animate-spin" /> Uploading…</> : <><Camera className="w-4 h-4" /> Add Photo</>}
                     </Button>
+                    </PausedWhenReadOnly>
                   )}
                   {!hasDisplayName && (
                     <Button
@@ -918,12 +946,14 @@ export default function Profile() {
                 <span className="font-bold">Email change pending</span> — Check your inbox to confirm <strong>{profile.pendingEmail}</strong>
               </p>
             </div>
+            <PausedWhenReadOnly>
             <button
               onClick={resendVerification}
               className="text-xs text-amber-400 hover:text-amber-300 underline shrink-0 transition-colors"
             >
               Resend
             </button>
+            </PausedWhenReadOnly>
           </div>
         )}
         {resendStatus && (
@@ -939,17 +969,19 @@ export default function Profile() {
                 <span className="font-bold">Check your email</span> — We sent a verification link to <strong>{profile.email}</strong>. Verify to unlock all features.
               </p>
             </div>
+            <PausedWhenReadOnly>
             <button
               onClick={resendVerification}
               className="text-xs text-amber-400 hover:text-amber-300 underline shrink-0 transition-colors"
             >
               Resend
             </button>
+            </PausedWhenReadOnly>
           </div>
         )}
 
         {/* Edit Success / Error */}
-        {editSuccess && (
+        {editSuccess && !editing && (
           <div className="flex items-center gap-3 bg-green-500/20 border-2 border-green-500 rounded-sm p-4 mb-8">
             <CheckCircle className="w-5 h-5 text-green-500 shrink-0" />
             <p className="text-foreground">{editSuccess}</p>
@@ -965,6 +997,7 @@ export default function Profile() {
               alt={profile.displayName ?? "User"}
               className="w-[120px] h-[120px] rounded-full border-2 border-primary object-cover bg-secondary shadow-[0_0_24px_rgba(249,115,22,0.25)]"
             />
+            <PausedWhenReadOnly>
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={photoUploading}
@@ -973,6 +1006,7 @@ export default function Profile() {
             >
               {photoUploading ? <Loader2 className="w-6 h-6 text-white animate-spin" /> : <Camera className="w-6 h-6 text-white" />}
             </button>
+            </PausedWhenReadOnly>
           </div>
 
           {/* Name + stats */}
@@ -1071,6 +1105,7 @@ export default function Profile() {
               className="hidden"
               onChange={handlePhotoChange}
             />
+            <PausedWhenReadOnly>
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={photoUploading}
@@ -1089,12 +1124,14 @@ export default function Profile() {
                 }
               </div>
             </button>
+            </PausedWhenReadOnly>
             {photoError && (
               <p className="absolute top-full mt-1 left-0 w-48 text-xs text-destructive font-medium bg-card border border-destructive/40 rounded-sm px-2 py-1 z-20">{photoError}</p>
             )}
 
             {/* Avatar source toggle — anyone with a custom photo */}
             {profile.profileImageUrl && (
+              <PausedWhenReadOnly>
               <div className="mt-2 flex items-center gap-1 bg-secondary/80 rounded-sm p-0.5 border border-border/60">
                 <button
                   disabled={avatarSourceToggling}
@@ -1125,6 +1162,7 @@ export default function Profile() {
                   )}
                 </button>
               </div>
+              </PausedWhenReadOnly>
             )}
           </div>
 
@@ -1235,22 +1273,26 @@ export default function Profile() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-1">First Name</label>
+                    <PausedWhenReadOnly className="w-full">
                     <input
                       type="text"
                       {...firstNameField.inputProps}
                       placeholder="Legal first name"
                       className="w-full bg-secondary border border-border rounded-sm px-3 py-2 text-foreground outline-none focus:border-primary transition-colors"
                     />
+                    </PausedWhenReadOnly>
                     <NameFieldHint hint={firstNameField.hint} />
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-1">Last Name</label>
+                    <PausedWhenReadOnly className="w-full">
                     <input
                       type="text"
                       {...lastNameField.inputProps}
                       placeholder="Legal last name"
                       className="w-full bg-secondary border border-border rounded-sm px-3 py-2 text-foreground outline-none focus:border-primary transition-colors"
                     />
+                    </PausedWhenReadOnly>
                     <NameFieldHint hint={lastNameField.hint} />
                   </div>
                 </div>
@@ -1259,6 +1301,7 @@ export default function Profile() {
               {/* Avatar Style Picker */}
               <div>
                 <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-2">Avatar Style</label>
+                <PausedWhenReadOnly>
                 <div className="flex flex-wrap gap-3">
                   {AVATAR_STYLES.map((style) => (
                     <button
@@ -1277,6 +1320,7 @@ export default function Profile() {
                     </button>
                   ))}
                 </div>
+                </PausedWhenReadOnly>
                 <p className="text-xs text-muted-foreground mt-1">Your avatar is generated from your unique ID — same look everywhere, no photo needed.</p>
               </div>
 
@@ -1289,6 +1333,7 @@ export default function Profile() {
                   {profile.profileImageUrl && (
                     <img src={profile.profileImageUrl} alt="Current photo" className="w-12 h-12 rounded-sm border border-border object-cover" />
                   )}
+                  <PausedWhenReadOnly>
                   <Button
                     type="button"
                     variant="outline"
@@ -1298,9 +1343,11 @@ export default function Profile() {
                   >
                     {photoUploading ? <><Loader2 className="w-4 h-4 animate-spin" /> Uploading…</> : <><Camera className="w-4 h-4" /> {profile.profileImageUrl ? "Change Photo" : "Upload Photo"}</>}
                   </Button>
+                  </PausedWhenReadOnly>
                   {profile.profileImageUrl && (
                     <div className="flex flex-col gap-1">
                       <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">Display as</p>
+                      <PausedWhenReadOnly>
                       <div className="flex items-center gap-1 bg-secondary/80 rounded-sm p-0.5 border border-border/60">
                         <button
                           type="button"
@@ -1332,6 +1379,7 @@ export default function Profile() {
                           )}
                         </button>
                       </div>
+                      </PausedWhenReadOnly>
                     </div>
                   )}
                 </div>
@@ -1346,6 +1394,7 @@ export default function Profile() {
                     Once the user has 2+ raw uploads on file, surface them as a
                     horizontal strip so they can re-tag any previously uploaded
                     photo as their profile photo without re-uploading. */}
+                <PausedWhenReadOnly className="w-full">
                 <ProfilePhotoThumbnailPicker
                   currentProfileImageUrl={profile.profileImageUrl ?? null}
                   busy={photoUploading}
@@ -1365,6 +1414,7 @@ export default function Profile() {
                     }
                   }}
                 />
+                </PausedWhenReadOnly>
               </div>
 
               <div>
@@ -1393,6 +1443,7 @@ export default function Profile() {
               )}
               <div className="mt-3">
                 <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-1">New Email Address</label>
+                <PausedWhenReadOnly className="w-full max-w-md">
                 <input
                   type="email"
                   value={draftEmail}
@@ -1400,12 +1451,16 @@ export default function Profile() {
                   placeholder="Enter new email to request a change"
                   className="w-full max-w-md bg-secondary border border-border rounded-sm px-3 py-2 text-foreground outline-none focus:border-primary transition-colors"
                 />
+                </PausedWhenReadOnly>
                 <p className="text-xs text-muted-foreground mt-1">A verification email will be sent to the new address before the change takes effect.</p>
               </div>
             </div>
 
             {editError && (
               <p className="text-destructive text-sm font-medium mt-4">{editError}</p>
+            )}
+            {editing && editSuccess && (
+              <p className="text-sm font-medium mt-4 text-foreground" data-testid="profile-partial-save">{editSuccess}</p>
             )}
 
             <div className="flex gap-3 mt-6">
@@ -1459,23 +1514,28 @@ export default function Profile() {
                     <span className="text-xs bg-gray-400/20 text-gray-300 border border-gray-400/40 px-2 py-0.5 rounded-sm font-bold">Active</span>
                   )}
                   {appleLinked && canUnlinkApple && unlinkConfirmProvider !== "apple" && (
+                    <PausedWhenReadOnly>
                     <button
                       onClick={() => { setUnlinkConfirmProvider("apple"); setUnlinkError(""); setUnlinkSuccess(""); }}
                       className="text-xs text-muted-foreground hover:text-destructive transition-colors underline shrink-0 ml-1"
                     >
                       Unlink
                     </button>
+                    </PausedWhenReadOnly>
                   )}
                   {appleLinked && !canUnlinkApple && (
                     <span className="text-xs text-amber-500/80 shrink-0 ml-1">Set a password to enable unlinking</span>
                   )}
                   {!appleLinked && (
+                    <PausedWhenReadOnly>
                     <a
                       href={`${BASE_URL}api/link/apple?returnTo=/profile`}
+                      onClick={(e) => { e.preventDefault(); const href = e.currentTarget.href; void confirmNotReadOnly().then((ok) => { if (ok) window.location.href = href; }); }}
                       className="text-xs text-muted-foreground hover:text-primary transition-colors underline shrink-0 ml-1"
                     >
                       Link
                     </a>
+                    </PausedWhenReadOnly>
                   )}
                 </div>
 
@@ -1490,6 +1550,7 @@ export default function Profile() {
                     </p>
                     {unlinkError && <p className="text-xs text-destructive font-medium">{unlinkError}</p>}
                     <div className="flex gap-3">
+                      <PausedWhenReadOnly>
                       <Button
                         variant="outline"
                         size="sm"
@@ -1499,6 +1560,7 @@ export default function Profile() {
                       >
                         {unlinkLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Unlinking…</> : "Yes, Unlink Apple"}
                       </Button>
+                      </PausedWhenReadOnly>
                       <Button variant="outline" size="sm" onClick={() => { setUnlinkConfirmProvider(null); setUnlinkError(""); }}>
                         Cancel
                       </Button>
@@ -1522,23 +1584,28 @@ export default function Profile() {
                     <span className="text-xs bg-blue-500/20 text-blue-400 border border-blue-500/40 px-2 py-0.5 rounded-sm font-bold">Active</span>
                   )}
                   {googleLinked && canUnlinkGoogle && unlinkConfirmProvider !== "google" && (
+                    <PausedWhenReadOnly>
                     <button
                       onClick={() => { setUnlinkConfirmProvider("google"); setUnlinkError(""); setUnlinkSuccess(""); }}
                       className="text-xs text-muted-foreground hover:text-destructive transition-colors underline shrink-0 ml-1"
                     >
                       Unlink
                     </button>
+                    </PausedWhenReadOnly>
                   )}
                   {googleLinked && !canUnlinkGoogle && (
                     <span className="text-xs text-amber-500/80 shrink-0 ml-1">Set a password to enable unlinking</span>
                   )}
                   {!googleLinked && (
+                    <PausedWhenReadOnly>
                     <a
                       href={`${BASE_URL}api/link/google?returnTo=/profile`}
+                      onClick={(e) => { e.preventDefault(); const href = e.currentTarget.href; void confirmNotReadOnly().then((ok) => { if (ok) window.location.href = href; }); }}
                       className="text-xs text-muted-foreground hover:text-primary transition-colors underline shrink-0 ml-1"
                     >
                       Link
                     </a>
+                    </PausedWhenReadOnly>
                   )}
                 </div>
 
@@ -1553,6 +1620,7 @@ export default function Profile() {
                     </p>
                     {unlinkError && <p className="text-xs text-destructive font-medium">{unlinkError}</p>}
                     <div className="flex gap-3">
+                      <PausedWhenReadOnly>
                       <Button
                         variant="outline"
                         size="sm"
@@ -1562,6 +1630,7 @@ export default function Profile() {
                       >
                         {unlinkLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Unlinking…</> : "Yes, Unlink Google"}
                       </Button>
+                      </PausedWhenReadOnly>
                       <Button variant="outline" size="sm" onClick={() => { setUnlinkConfirmProvider(null); setUnlinkError(""); }}>
                         Cancel
                       </Button>
@@ -1600,10 +1669,12 @@ export default function Profile() {
               {/* Toggle set/change password form */}
               {!showPasswordSection ? (
                 <div className="space-y-2">
+                  <PausedWhenReadOnly>
                   <Button variant="outline" size="sm" onClick={() => { setShowPasswordSection(true); setPasswordError(""); setPasswordSuccess(""); }} className="gap-2">
                     <KeyRound className="w-4 h-4" />
                     {hasPassword ? "Change Password" : "Set a Password"}
                   </Button>
+                  </PausedWhenReadOnly>
                   {linkedProviders.length > 0 && !hasPassword && (
                     <p className="text-xs text-amber-500/80">Setting a password also lets you unlink your social sign-in later.</p>
                   )}
@@ -1705,6 +1776,7 @@ export default function Profile() {
                   <p className="font-bold text-sm text-foreground">Moderation alerts</p>
                   <p className="text-xs text-muted-foreground">Emails for new fact submissions awaiting review.</p>
                 </div>
+                <PausedWhenReadOnly>
                 <button
                   role="switch"
                   aria-checked={notifAdminAlerts}
@@ -1720,6 +1792,7 @@ export default function Profile() {
                     }`}
                   />
                 </button>
+                </PausedWhenReadOnly>
               </label>
 
               {/* Dispute alerts toggle */}
@@ -1728,6 +1801,7 @@ export default function Profile() {
                   <p className="font-bold text-sm text-foreground">Dispute alerts</p>
                   <p className="text-xs text-muted-foreground">Emails for new payment disputes that need attention.</p>
                 </div>
+                <PausedWhenReadOnly>
                 <button
                   role="switch"
                   aria-checked={notifDisputeAlerts}
@@ -1743,6 +1817,7 @@ export default function Profile() {
                     }`}
                   />
                 </button>
+                </PausedWhenReadOnly>
               </label>
             </div>
 

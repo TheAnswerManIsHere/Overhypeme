@@ -19,7 +19,8 @@ import { Textarea } from "@/components/ui/Input";
 import { AccessGate } from "@/components/AccessGate";
 import { Turnstile, type TurnstileHandle } from "@/components/ui/Turnstile";
 import { useAskBefore, useAskBeforeSignedIn } from "@/hooks/use-identity-gate";
-import { isReadOnlyRefusal } from "@/lib/readOnlyNotice";
+import { isReadOnlyNow, isReadOnlyRefusal } from "@/lib/readOnlyNotice";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
 
 type FormState = "idle" | "submitting" | "error";
 
@@ -156,6 +157,8 @@ export function FactComments({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // A form can still be submitted from the keyboard; while paused it is a no-op (#1109).
+    if (isReadOnlyNow()) return;
     askBeforeSignedIn(`/login?from=/facts/${fact.id}`, submitComment);
   };
 
@@ -337,6 +340,7 @@ export function FactComments({
           </div>
         )}
         <div className="flex justify-end pl-9">
+          <PausedWhenReadOnly>
           <button
             type="submit"
             disabled={!canSubmit}
@@ -344,6 +348,7 @@ export function FactComments({
           >
             {formState === "submitting" ? "Posting…" : "Post"}
           </button>
+          </PausedWhenReadOnly>
         </div>
       </form>
     );
@@ -394,9 +399,11 @@ export function FactComments({
           ) : (
             <span />
           )}
+          <PausedWhenReadOnly className="w-full sm:w-auto">
           <Button type="submit" isLoading={formState === "submitting"} disabled={!canSubmit} className="w-full sm:w-auto">
             POST COMMENT
           </Button>
+          </PausedWhenReadOnly>
         </div>
       </form>
     );
@@ -442,12 +449,14 @@ export function FactComments({
 
           {renderFeedComposer()}
 
+          <PausedWhenReadOnly className="w-full">
           <button
             onClick={() => setLocation(`/facts/${fact.id}/meme`)}
             className="w-full h-11 bg-primary text-white rounded-xl font-display font-bold text-sm tracking-widest uppercase flex items-center justify-center gap-2 hover:opacity-90 transition-opacity shadow-[0_4px_16px_rgba(255,101,0,0.25)]"
           >
             <Flame className="w-4 h-4" /> Make a meme of this
           </button>
+          </PausedWhenReadOnly>
 
           <Link
             href={`/facts/${fact.id}`}

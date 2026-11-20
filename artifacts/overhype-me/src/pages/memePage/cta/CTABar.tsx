@@ -12,6 +12,7 @@
  */
 import { ArrowRight, Crown, Download, Library, Share2, Upload } from "lucide-react";
 import { Link } from "wouter";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
 
 /* ─── shared atoms ───────────────────────────────────────────────────────── */
 
@@ -214,6 +215,7 @@ export function CTABarRegisteredOther({
 }) {
   return (
     <div className="space-y-3" data-testid="cta-registered-other">
+<PausedWhenReadOnly className="w-full">
       <PrimaryButton
         onClick={factTemplateReady ? onMakeAboutMe : undefined}
         disabled={!factTemplateReady}
@@ -221,6 +223,7 @@ export function CTABarRegisteredOther({
       >
         {factTemplateReady ? "Make this fact about me" : "Loading…"} <ArrowRight className="w-4 h-4" />
       </PrimaryButton>
+      </PausedWhenReadOnly>
       <SecondaryButton href="/" testId="browse-more-facts">
         <Library className="w-4 h-4" /> Browse more facts
       </SecondaryButton>
@@ -239,6 +242,7 @@ export function CTABarLegendaryOther({
 }) {
   return (
     <div className="space-y-3" data-testid="cta-legendary-other">
+<PausedWhenReadOnly className="w-full">
       <PrimaryButton
         onClick={factTemplateReady ? onMakeAboutMe : undefined}
         disabled={!factTemplateReady}
@@ -246,6 +250,7 @@ export function CTABarLegendaryOther({
       >
         <Crown className="w-4 h-4" /> {factTemplateReady ? "Make this fact about me" : "Loading…"}
       </PrimaryButton>
+      </PausedWhenReadOnly>
       <SecondaryButton href="/library" testId="browse-more-facts">
         <Library className="w-4 h-4" /> Browse more facts
       </SecondaryButton>

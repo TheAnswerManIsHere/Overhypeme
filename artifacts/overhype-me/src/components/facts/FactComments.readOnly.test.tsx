@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { FactSummary } from "@workspace/api-client-react";
 import { FactComments } from "./FactComments";
-import { __resetReadOnlyNoticeForTests, noteReadOnlyRefusal } from "@/lib/readOnlyNotice";
+import { __resetReadOnlyNoticeForTests, noteReadOnlyRefusal, setReadOnlyNow } from "@/lib/readOnlyNotice";
 
 const toast = vi.fn();
 let onError: ((err: unknown) => void) | undefined;
@@ -74,11 +74,23 @@ describe("a comment that fails", () => {
       expect(box.value).toBe("Legend.");
     });
 
-    it(`${variant} form: any other failure still says it failed, even while the site is paused`, () => {
-      noteReadOnlyRefusal();
+    it(`${variant} form: any other failure still says it failed, even once the site is known to be paused`, () => {
       postComment(variant);
+      act(() => noteReadOnlyRefusal());
       act(() => onError!({ status: 500, data: { error: "boom" } }));
       expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: "Failed to post comment" }));
+    });
+
+    it(`${variant} form: while the site is known to be paused, the post button is grayed out and submitting sends nothing (#1109)`, () => {
+      setReadOnlyNow(true);
+      render(<FactComments fact={fact} variant={variant} />);
+      const box = (screen.queryByPlaceholderText("Smack some knowledge on us...") ??
+        screen.getByPlaceholderText("Add a comment…")) as HTMLTextAreaElement;
+      fireEvent.change(box, { target: { value: "Legend." } });
+      expect(screen.getAllByTestId("read-only-paused").length).toBeGreaterThan(0);
+      fireEvent.submit(box.closest("form")!);
+      expect(onError, "nothing was sent").toBeUndefined();
+      expect(box.value).toBe("Legend.");
     });
   }
 });

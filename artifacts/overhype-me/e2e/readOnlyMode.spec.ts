@@ -95,7 +95,7 @@ test("read-only mode: on from Operations, browsing and a name save carry on, a w
     expect(refused).toEqual({ status: 503, code: "READ_ONLY_MODE" });
     // Scoped to the toast list: the toast's screen-reader announcement carries
     // the same words for a moment after it opens, so an unscoped match can find two.
-    await expect(member.getByLabel("Notifications (F8)").getByText("Changes are paused for a little while. Nothing you typed is lost")).toBeVisible();
+    await expect(member.getByLabel("Notifications (F8)").getByText("Real men get pedicures. We can't process any data until we're done waiting for our toes to dry.")).toBeVisible();
 
     // An admin action still works while it is on: the test alert.
     const adminAction = await admin.page.evaluate(async () => (await fetch("/api/admin/operations/test-alert", { method: "POST", credentials: "include" })).status);

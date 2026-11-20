@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/Button";
 import { SubscriptionInfo } from "@/components/SubscriptionInfo";
 import { formatAmount, findAnnualPriceId, getAnnualSavingsPercent } from "@/components/subscriptionHelpers";
 import { Star, CreditCard, Zap, ExternalLink, AlertCircle, RefreshCw, ArrowUpCircle, XCircle, CheckCircle2 } from "lucide-react";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
 
 interface Subscription {
   id: string;
@@ -572,6 +573,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
             }}
             reactivateButton={
               !isLifetime && cancelAtPeriodEnd && periodEnd ? (
+                <PausedWhenReadOnly>
                 <Button
                   variant="outline"
                   size="sm"
@@ -582,6 +584,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
                   <RefreshCw className="w-4 h-4" />
                   {reactivateLoading ? "Reactivating..." : "Reactivate Subscription"}
                 </Button>
+                </PausedWhenReadOnly>
               ) : undefined
             }
           />
@@ -612,6 +615,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
             <div className="flex flex-col gap-3 pt-1">
               {/* Monthly-to-annual switch */}
               {isMonthly && annualPriceAvailable && (
+                <PausedWhenReadOnly>
                 <Button
                   variant="outline"
                   size="sm"
@@ -621,6 +625,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
                   <ArrowUpCircle className="w-4 h-4" />
                   Switch to Annual{savingsPercent ? ` — save ${savingsPercent}%` : ""}
                 </Button>
+                </PausedWhenReadOnly>
               )}
 
               <Button

@@ -1,6 +1,9 @@
 import { type ReactNode } from "react";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
 
 interface Props {
+  /** The action saves something: grayed out while the site is read-only. */
+  writes?: boolean;
   label: string;
   onClick: () => void;
   disabled?: boolean;
@@ -25,13 +28,9 @@ export function WizardPrimaryAction({
   loading,
   subText,
   aboveAction,
+  writes,
 }: Props) {
-  return (
-    <div
-      className="fixed inset-x-0 bottom-0 bg-gradient-to-t from-[#111] via-[#111] to-transparent pt-6 pb-[max(env(safe-area-inset-bottom),16px)] px-4"
-      data-testid="wizard-primary-action"
-    >
-      {aboveAction && <div className="mb-3">{aboveAction}</div>}
+  const button = (
       <button
         type="button"
         onClick={onClick}
@@ -41,6 +40,15 @@ export function WizardPrimaryAction({
       >
         {loading ? "Working…" : label}
       </button>
+  );
+  return (
+    <div
+      className="fixed inset-x-0 bottom-0 bg-gradient-to-t from-[#111] via-[#111] to-transparent pt-6 pb-[max(env(safe-area-inset-bottom),16px)] px-4"
+      data-testid="wizard-primary-action"
+    >
+      {aboveAction && <div className="mb-3">{aboveAction}</div>}
+      {/* A step that saves is grayed out while the site is read-only (#1109 D4). */}
+      {writes ? <PausedWhenReadOnly className="w-full">{button}</PausedWhenReadOnly> : button}
       {subText && (
         <div className="text-center text-xs text-white/60 mt-2">{subText}</div>
       )}

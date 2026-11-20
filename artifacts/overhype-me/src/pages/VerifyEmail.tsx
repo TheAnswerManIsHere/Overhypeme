@@ -7,6 +7,8 @@ import { useLocation } from "wouter";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
 import { CheckCircle, XCircle, Loader2, Mail } from "lucide-react";
+import { resendVerification } from "@/lib/resendVerification";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
 
 type Status = "loading" | "success" | "already" | "error";
 
@@ -92,20 +94,19 @@ export default function VerifyEmail() {
                 <h1 className="font-display text-2xl font-bold tracking-wider mb-2">Verification Failed</h1>
                 <p className="text-muted-foreground text-sm mb-6">{message}</p>
                 <div className="flex flex-col gap-3">
+                  <PausedWhenReadOnly className="w-full">
                   <Button
                     variant="primary"
                     className="w-full gap-2"
                     onClick={async () => {
-                      await fetch("/api/auth/resend-verification", {
-                        method: "POST",
-                        credentials: "include",
-                      });
-                      setStatus("success");
-                      setMessage("A new verification email has been sent. Please check your inbox.");
+                      const result = await resendVerification();
+                      if (result.sent) setStatus("success");
+                      setMessage(result.message);
                     }}
                   >
                     <Mail className="w-4 h-4" /> Resend Verification Email
                   </Button>
+                  </PausedWhenReadOnly>
                   <Button variant="outline" className="w-full" onClick={() => setLocation("/")}>
                     Go to Home
                   </Button>

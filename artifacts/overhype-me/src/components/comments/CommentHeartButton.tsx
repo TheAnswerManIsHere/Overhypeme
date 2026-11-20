@@ -8,6 +8,7 @@ import { useHeartComment } from "@workspace/api-client-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useLocation } from "wouter";
 import { useAskBeforeSignedIn } from "@/hooks/use-identity-gate";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
 
 interface CommentHeartButtonProps {
   commentId: number;
@@ -51,6 +52,7 @@ export function CommentHeartButton({ commentId, initialHeartCount, initialViewer
   };
 
   return (
+    <PausedWhenReadOnly>
     <button
       type="button"
       onClick={onClick}
@@ -63,5 +65,6 @@ export function CommentHeartButton({ commentId, initialHeartCount, initialViewer
       <Heart className={`w-4 h-4 ${active ? "fill-current" : ""}`} />
       <span>{count}</span>
     </button>
+    </PausedWhenReadOnly>
   );
 }

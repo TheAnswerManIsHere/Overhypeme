@@ -16,6 +16,7 @@ import {
 import { FactCard } from "@/components/facts/FactCard";
 import { useDebouncedValue } from "@/components/meme-builder/hooks/useDebouncedValue";
 import { Button } from "@/components/ui/Button";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
 
 export type SubmissionType = "facts" | "comments";
 export type SubmissionStatus = "review" | "live" | "declined" | "gone";
@@ -301,7 +302,7 @@ function EmptyState({ type, status, q, typeIsEmpty, onClearSearch }: {
   } else if (typeIsEmpty && type === "facts") {
     title = "You haven't submitted any facts yet.";
     detail = "Write one about anyone — it reads with each visitor's own name.";
-    action = <Link href="/submit"><Button>SUBMIT A FACT</Button></Link>;
+    action = <PausedWhenReadOnly><Link href="/submit"><Button>SUBMIT A FACT</Button></Link></PausedWhenReadOnly>;
   } else if (typeIsEmpty) {
     title = "You haven't commented on any facts yet.";
     detail = "Open any fact and add a comment under it.";
@@ -314,7 +315,7 @@ function EmptyState({ type, status, q, typeIsEmpty, onClearSearch }: {
       declined: `No declined ${noun}.`,
       gone: `No ${noun} have been taken down.`,
     }[status];
-    if (status === "review" && type === "facts") action = <Link href="/submit"><Button variant="outline">SUBMIT A FACT</Button></Link>;
+    if (status === "review" && type === "facts") action = <PausedWhenReadOnly><Link href="/submit"><Button variant="outline">SUBMIT A FACT</Button></Link></PausedWhenReadOnly>;
   }
 
   return (

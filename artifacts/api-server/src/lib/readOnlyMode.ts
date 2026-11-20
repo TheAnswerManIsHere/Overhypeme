@@ -15,7 +15,9 @@ export const READ_ONLY_REFRESH_MS = 30_000;
 
 /** The code every refusal carries; the web app recognises it. */
 export const READ_ONLY_CODE = "READ_ONLY_MODE";
-export const READ_ONLY_MESSAGE = "Overhype.me is paused for changes right now. You can keep browsing; please try this again shortly.";
+/** David's wording (#1109 Q32): the title and text the web app's refusal popup shows, as one message for forms that show the server's error. */
+export const READ_ONLY_MESSAGE =
+  "Overhype.me is undergoing maintenance. Real men get pedicures. We can't process any data until we're done waiting for our toes to dry. Try again in a few minutes.";
 
 /** A value this server has confirmed by reading or writing it. */
 type Confirmed = { on: boolean; updatedAt: number; confirmedAt: number };

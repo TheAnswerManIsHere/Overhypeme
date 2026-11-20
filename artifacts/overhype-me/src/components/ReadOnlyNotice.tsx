@@ -3,9 +3,12 @@
  * @subsystem operations
  */
 import { useEffect, useRef, useState } from "react";
+import { useLocation } from "wouter";
 import { toast } from "@/hooks/use-toast";
 import {
   isReadOnlyNow,
+  READ_ONLY_ADMIN_WARNING,
+  READ_ONLY_EXPLANATION,
   onReadOnlyChange,
   onReadOnlyRefusal,
   READ_ONLY_REFUSED_MESSAGE,
@@ -75,15 +78,21 @@ export function ReadOnlyNotice() {
     };
   }, [on]);
 
+  // Admin screens say what still works for an admin, and when not to (#1109 D6).
+  const [path] = useLocation();
+  const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+  const admin = /^\/admin(\/|$)/.test(path.startsWith(base) ? path.slice(base.length) || "/" : path);
+
   if (!on) return null;
   return (
     <div
       ref={ref}
       role="status"
       data-testid="read-only-notice"
+      data-audience={admin ? "admin" : "public"}
       className="relative z-[60] w-full bg-primary text-primary-foreground text-center text-sm font-medium px-4 py-1.5 shadow"
     >
-      Overhype.me is undergoing maintenance. Real men get pedicures. Keep browsing but the site is read-only until we're done waiting for our toes to dry.
+      {admin ? READ_ONLY_ADMIN_WARNING : READ_ONLY_EXPLANATION}
     </div>
   );
 }

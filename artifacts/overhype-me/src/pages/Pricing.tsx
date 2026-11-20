@@ -5,6 +5,8 @@ import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
 import { Zap, Star, Check, Lock, ThumbsUp, Send, MessageSquare, Image, Share2, ShieldOff, UserCircle, Crown, CalendarDays } from "lucide-react";
 import { selectPlanPrices, type StripePlan } from "./pricingPlans";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
+import { isReadOnlyNow } from "@/lib/readOnlyNotice";
 
 // Pricing framing: Free is the whole loop (browse, vote, submit, make and share
 // memes with your own photo); Legendary is the perks the entitlement grid
@@ -57,6 +59,7 @@ function PricingCard({
         <span className="text-4xl font-display font-bold text-foreground">{price}</span>
         <span className="text-muted-foreground text-sm ml-1">/{period}</span>
       </div>
+      <PausedWhenReadOnly className="w-full">
       <Button
         className="w-full"
         disabled={!priceId || loading}
@@ -64,6 +67,7 @@ function PricingCard({
       >
         {loading ? "Loading…" : "Upgrade Now"}
       </Button>
+      </PausedWhenReadOnly>
     </div>
   );
 }
@@ -88,6 +92,7 @@ export default function Pricing() {
   }, []);
 
   async function handleSelect(priceId: string) {
+    if (isReadOnlyNow()) return; // purchases are paused while the site is read-only (#1109)
     if (!isAuthenticated) { setLocation("/login"); return; }
     setLoadingPriceId(priceId);
     setError(null);
@@ -191,6 +196,7 @@ export default function Pricing() {
           ) : (
             <div className="space-y-3 mb-6">
               {monthlyPrice && (
+                <PausedWhenReadOnly className="w-full">
                 <button
                   onClick={() => handleSelect(monthlyPrice.id)}
                   disabled={loadingPriceId === monthlyPrice.id}
@@ -205,8 +211,10 @@ export default function Pricing() {
                     <div className="text-[11px] text-muted-foreground">/month</div>
                   </div>
                 </button>
+                </PausedWhenReadOnly>
               )}
               {lifetimePrice && (
+                <PausedWhenReadOnly className="w-full">
                 <button
                   onClick={() => handleSelect(lifetimePrice.id)}
                   disabled={loadingPriceId === lifetimePrice.id}
@@ -221,8 +229,10 @@ export default function Pricing() {
                     <div className="text-[11px] opacity-85">one-time</div>
                   </div>
                 </button>
+                </PausedWhenReadOnly>
               )}
               {annualPrice && (
+                <PausedWhenReadOnly className="w-full">
                 <button
                   onClick={() => handleSelect(annualPrice.id)}
                   disabled={loadingPriceId === annualPrice.id}
@@ -244,6 +254,7 @@ export default function Pricing() {
                     <div className="text-[11px] text-muted-foreground">/year</div>
                   </div>
                 </button>
+                </PausedWhenReadOnly>
               )}
               {!monthlyPrice && !annualPrice && !lifetimePrice && (
                 <p className="text-center text-muted-foreground py-8">No plans available right now.</p>
@@ -412,6 +423,7 @@ export default function Pricing() {
             : `${fmt(ctaPrice.unit_amount)} once`;
         return (
           <div className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-card/95 backdrop-blur border-t-2 border-primary/40 px-4 py-3 shadow-[0_-8px_24px_rgba(0,0,0,0.35)]">
+            <PausedWhenReadOnly className="w-full">
             <Button
               onClick={() => handleSelect(ctaPrice.id)}
               disabled={loadingPriceId === ctaPrice.id}
@@ -420,6 +432,7 @@ export default function Pricing() {
               <Crown className="w-4 h-4" />
               {loadingPriceId === ctaPrice.id ? "Loading…" : <>Go Legendary <span className="opacity-80 font-normal">· {ctaLabel}</span></>}
             </Button>
+            </PausedWhenReadOnly>
           </div>
         );
       })()}
