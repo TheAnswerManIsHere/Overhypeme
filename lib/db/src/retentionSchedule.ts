@@ -266,8 +266,7 @@ export const RETENTION_SCHEDULE: Readonly<Record<string, RetentionEntry>> = {
   async_jobs: {
     personal: "what a job was given (an email job carries its recipient)",
     rules: [
-      { kind: "job", job: "finished-jobs", window: "finished rows, by when they were queued, each queue's retention setting (30 days)" },
-      { kind: "kept", reason: "an admin alert that an email could not be delivered (admin_abandoned_email_alert), which repeats the recipient and subject, is exempt from the purge (email.ts retainDuringPurge) and disclosed on the Privacy page" },
+      { kind: "job", job: "finished-jobs", window: "finished rows, by when they were queued, each queue's retention setting (30 days); no row is exempt, staff alerts included" },
     ],
   },
   rate_limit_counters: {

@@ -44,7 +44,8 @@ describe("the Privacy page's retention table", () => {
     assert.equal(row("Your searches"), `${SEARCH_HISTORY_RETENTION_DAYS} days`);
     assert.match(row("What your pictures cost us"), new RegExp(`^${GENERATION_COST_RETENTION_MONTHS} months`));
     assert.match(row("Payment records"), new RegExp(`kept ${WEBHOOK_AUDIT_RETENTION_DAYS} days`));
-    assert.match(row("Emails we send you"), /30 days after it was queued, except an alert to our staff/);
+    assert.match(row("Emails we send you"), /30 days after it was queued\./);
+    assert.doesNotMatch(row("Emails we send you"), /except|is kept/, "the purge has no exemption, so the row states none");
     assert.match(row("Abuse limits (your IP address, account, session or an email address you entered)"), /at most a day/);
     for (const r of ["Photos, memes and pictures you delete", "Your photos, memes and pictures when your account is deleted"]) {
       assert.doesNotMatch(row(r), /after they were made/, "backup retention is measured from removal, not from the copy");

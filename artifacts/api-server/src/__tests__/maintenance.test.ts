@@ -323,3 +323,31 @@ describe("the daily maintenance run", () => {
     assert.equal(res.body.jobs.length, MAINTENANCE_JOB_NAMES.length);
   });
 });
+
+// Issue #1030, 6b "Recorded, not fixed": the Privacy page says our record of
+// each email goes 30 days after it was queued, with no exception. A staff
+// alert about an undeliverable email repeats the recipient and subject, so it
+// is cleaned up like every other email row.
+describe("the finished-jobs purge", () => {
+  it("removes an old staff alert about an undeliverable email like any email, keeping recent rows", async () => {
+    // The real email handler, as production registers it (index.ts), so its
+    // retention setting and any exemption it declares are in force.
+    const { registerEmailHandler } = await import("../lib/email.js");
+    const { purgeTerminalJobs, registeredQueues } = await import("../lib/asyncJobs.js");
+    if (!registeredQueues().includes("email")) registerEmailHandler();
+    const tag = `purge-${randomUUID()}`;
+    const rows = (await db.execute(sql`
+      INSERT INTO async_jobs (queue, payload, status, created_at) VALUES
+        ('email', ${JSON.stringify({ kind: "admin_abandoned_email_alert", to: "staff@example.test", subject: tag })}::jsonb, 'done', now() - interval '31 days'),
+        ('email', ${JSON.stringify({ kind: "admin_abandoned_email_alert", to: "staff@example.test", subject: tag })}::jsonb, 'failed', now() - interval '31 days'),
+        ('email', ${JSON.stringify({ kind: "welcome", to: "member@example.test", subject: tag })}::jsonb, 'done', now() - interval '31 days'),
+        ('email', ${JSON.stringify({ kind: "admin_abandoned_email_alert", to: "staff@example.test", subject: tag })}::jsonb, 'done', now() - interval '29 days')
+      RETURNING id`)).rows as Array<{ id: number }>;
+    assert.equal(rows.length, 4);
+    const deleted = await purgeTerminalJobs(db, "email");
+    assert.ok(deleted >= 3);
+    const left = await db.execute(sql`SELECT created_at > now() - interval '30 days' AS recent FROM async_jobs WHERE payload->>'subject' = ${tag}`);
+    assert.deepEqual(left.rows.map((r) => (r as { recent: boolean }).recent), [true]);
+    await db.execute(sql`DELETE FROM async_jobs WHERE payload->>'subject' = ${tag}`);
+  });
+});

@@ -184,7 +184,7 @@ export const PRIVACY_RETENTION_ROWS: readonly PrivacyRetentionRow[] = [
   },
   {
     information: "Emails we send you",
-    howLong: "Our record of each email is removed 30 days after it was queued, except an alert to our staff that an email could not be delivered, which repeats the address and subject and is kept. Our email provider, Resend, keeps sent emails and their logs for 30 days",
+    howLong: "Our record of each email is removed 30 days after it was queued. Our email provider, Resend, keeps sent emails and their logs for 30 days",
     covers: ["async_jobs", "resend"],
   },
   {
