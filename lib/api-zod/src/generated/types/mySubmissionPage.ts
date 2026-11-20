@@ -5,13 +5,10 @@
  * API specification for Overhype.me
  * OpenAPI spec version: 0.1.0
  */
+import type { MySubmission } from "./mySubmission";
 
-export interface MyComment {
-  id: number;
-  factId: number;
+export interface MySubmissionPage {
+  items: MySubmission[];
   /** @nullable */
-  factText?: string | null;
-  text: string;
-  status: string;
-  createdAt: string;
+  nextCursor: string | null;
 }

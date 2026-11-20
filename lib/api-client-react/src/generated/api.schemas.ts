@@ -300,34 +300,6 @@ export const UserProfileMembershipTier = {
   legendary: "legendary",
 } as const;
 
-export interface PendingSubmission {
-  id: number;
-  text: string;
-  status: string;
-  hashtags: string[];
-  createdAt: string;
-  /**
-   * The rejection reason code; set only once the submission is rejected.
-   * @nullable
-   */
-  reason?: string | null;
-  /**
-   * The moderator's note to the submitter; set only once the submission is rejected.
-   * @nullable
-   */
-  adminNote?: string | null;
-}
-
-export interface MyComment {
-  id: number;
-  factId: number;
-  /** @nullable */
-  factText?: string | null;
-  text: string;
-  status: string;
-  createdAt: string;
-}
-
 export interface UserProfile {
   id: string;
   /** @nullable */
@@ -359,12 +331,109 @@ export interface UserProfile {
   adminNotifications?: boolean;
   /** Admin only: whether this admin receives dispute alert emails. Omitted for non-admins. */
   disputeNotifications?: boolean;
-  submittedFacts: FactSummary[];
   likedFacts: FactSummary[];
   favoriteHashtags: string[];
   searchHistory: string[];
-  pendingSubmissions?: PendingSubmission[];
-  myComments?: MyComment[];
+}
+
+export interface MySubmissionStatusCounts {
+  review: number;
+  live: number;
+  declined: number;
+  gone: number;
+}
+
+export interface MySubmissionTypeCounts {
+  facts: MySubmissionStatusCounts;
+  comments: MySubmissionStatusCounts;
+}
+
+export interface MySubmissionCounts {
+  totals: MySubmissionTypeCounts;
+  /** With a search term, how many match in each status; null without one. */
+  matches: MySubmissionTypeCounts | null;
+}
+
+export type MySubmissionKind =
+  (typeof MySubmissionKind)[keyof typeof MySubmissionKind];
+
+export const MySubmissionKind = {
+  review: "review",
+  fact: "fact",
+  fact_gone: "fact_gone",
+  comment: "comment",
+} as const;
+
+/**
+ * How far a fact under review has got; null otherwise.
+ * @nullable
+ */
+export type MySubmissionProgress =
+  | (typeof MySubmissionProgress)[keyof typeof MySubmissionProgress]
+  | null;
+
+export const MySubmissionProgress = {
+  first_look: "first_look",
+  preparing: "preparing",
+} as const;
+
+/**
+ * One submission. `kind` says which fields apply: "review" (a fact under review or declined), "fact" (an approved, live fact, in `fact`), "fact_gone" (an approved fact since taken down) or "comment".
+ */
+export interface MySubmission {
+  kind: MySubmissionKind;
+  id: number;
+  text: string;
+  hashtags: string[];
+  createdAt: string;
+  /**
+   * When it was approved or declined.
+   * @nullable
+   */
+  decidedAt?: string | null;
+  /**
+   * How far a fact under review has got; null otherwise.
+   * @nullable
+   */
+  progress?: MySubmissionProgress;
+  /**
+   * The decline reason code; set only on a declined fact.
+   * @nullable
+   */
+  reason?: string | null;
+  /**
+   * The team's note; set only on a declined fact or comment.
+   * @nullable
+   */
+  teamNote?: string | null;
+  /** The live fact, for kind "fact". */
+  fact?: FactSummary | null;
+  /**
+   * The fact a comment is on.
+   * @nullable
+   */
+  factId?: number | null;
+  /**
+   * The wording of the fact a comment is on.
+   * @nullable
+   */
+  factText?: string | null;
+  /**
+   * Whether the fact a comment is on is live.
+   * @nullable
+   */
+  factLive?: boolean | null;
+  /**
+   * An approved comment hidden while it is looked at again.
+   * @nullable
+   */
+  hidden?: boolean | null;
+}
+
+export interface MySubmissionPage {
+  items: MySubmission[];
+  /** @nullable */
+  nextCursor: string | null;
 }
 
 export interface UpdateProfileRequest {
@@ -616,6 +685,47 @@ export type ListHashtagsParams = {
   search?: string;
   limit?: number;
 };
+
+export type GetMySubmissionCountsParams = {
+  /** @maxLength 100 */
+  q?: string;
+};
+
+export type ListMySubmissionsParams = {
+  type: ListMySubmissionsType;
+  status: ListMySubmissionsStatus;
+  /** @maxLength 100 */
+  q?: string;
+  sort?: ListMySubmissionsSort;
+  /** @maxLength 200 */
+  cursor?: string;
+};
+
+export type ListMySubmissionsType =
+  (typeof ListMySubmissionsType)[keyof typeof ListMySubmissionsType];
+
+export const ListMySubmissionsType = {
+  facts: "facts",
+  comments: "comments",
+} as const;
+
+export type ListMySubmissionsStatus =
+  (typeof ListMySubmissionsStatus)[keyof typeof ListMySubmissionsStatus];
+
+export const ListMySubmissionsStatus = {
+  review: "review",
+  live: "live",
+  declined: "declined",
+  gone: "gone",
+} as const;
+
+export type ListMySubmissionsSort =
+  (typeof ListMySubmissionsSort)[keyof typeof ListMySubmissionsSort];
+
+export const ListMySubmissionsSort = {
+  newest: "newest",
+  oldest: "oldest",
+} as const;
 
 export type CheckDuplicateBody = {
   /**

@@ -8,18 +8,26 @@ import { ImageCard } from "@/components/ui/ImageCard";
 import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
 import { AccessGate } from "@/components/AccessGate";
 import { MemeHeartButton } from "@/components/memes/MemeHeartButton";
-import { SubmissionReviewList } from "@/components/library/SubmissionReviewList";
-import { Link, useLocation } from "wouter";
+import { SubmissionsPanel, submissionTotal, useSubmissionCounts } from "@/components/library/SubmissionsPanel";
+import { Link, useLocation, useSearch } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  AlertTriangle, Bell, ChevronLeft, ChevronRight, CheckCircle, Clock,
+  AlertTriangle, Bell, ChevronLeft, ChevronRight, Clock,
   FileText, ImageIcon, Images, Lock, Plus, RotateCcw, ThumbsUp, Trash2,
 } from "lucide-react";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
-type LibraryTab = "liked" | "submitted" | "history" | "images" | "memes" | "deleted" | "activity";
+type LibraryTab = "liked" | "submitted" | "history" | "images" | "memes" | "deleted";
+
+const LIBRARY_TABS: readonly LibraryTab[] = ["liked", "submitted", "history", "images", "memes", "deleted"];
+
+/** The open tab is in the address (`?tab=`), so a link, a reload or Back returns to it. */
+function tabFrom(search: string): LibraryTab {
+  const tab = new URLSearchParams(search).get("tab");
+  return (LIBRARY_TABS as readonly string[]).includes(tab ?? "") ? (tab as LibraryTab) : "liked";
+}
 
 interface UploadItem {
   objectPath: string;
@@ -109,7 +117,14 @@ export default function Library() {
     query: { queryKey: getGetMyProfileQueryKey(), enabled: isAuthenticated, retry: false },
   });
 
-  const [activeTab, setActiveTab] = useState<LibraryTab>("liked");
+  const search = useSearch();
+  const activeTab = tabFrom(search);
+  // A tab change is a history entry, and starts the new tab's view afresh.
+  const setActiveTab = (tab: LibraryTab) => {
+    if (tab !== activeTab) setLocation(tab === "liked" ? "/library" : `/library?tab=${tab}`);
+  };
+  const submissionCounts = useSubmissionCounts("", isAuthenticated);
+  const submissionCount = submissionTotal(submissionCounts.data);
   const tabsRef = useRef<HTMLDivElement>(null);
   const [tabScroll, setTabScroll] = useState({ left: false, right: false });
 
@@ -268,7 +283,7 @@ export default function Library() {
               icon={<ThumbsUp className="w-5 h-5" />} label={`Liked Facts (${profile.likedFacts.length})`} />
             <TabButton active={activeTab === "submitted"} onClick={() => setActiveTab("submitted")}
               icon={<FileText className="w-5 h-5" />}
-              label={`Submissions (${profile.submittedFacts.length + (profile.pendingSubmissions?.length ?? 0) + (profile.myComments?.length ?? 0)})`} />
+              label={submissionCount === null ? "Submissions" : `Submissions (${submissionCount})`} />
             <TabButton active={activeTab === "memes"} onClick={() => setActiveTab("memes")}
               icon={<ImageIcon className="w-5 h-5" />} label="My Memes" />
             <TabButton active={activeTab === "images"} onClick={() => setActiveTab("images")}
@@ -291,66 +306,7 @@ export default function Library() {
             </div>
           )}
 
-          {activeTab === "submitted" && (
-            <div className="space-y-8">
-              <SubmissionReviewList submissions={profile.pendingSubmissions ?? []} />
-
-              {profile.submittedFacts.length > 0 && (
-                <div>
-                  {(profile.pendingSubmissions?.length ?? 0) > 0 && (
-                    <h3 className="font-display text-base uppercase tracking-wider text-muted-foreground mb-4 flex items-center gap-2">
-                      <CheckCircle className="w-4 h-4 text-green-500" /> Approved &amp; Live
-                    </h3>
-                  )}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {profile.submittedFacts.map(fact => <FactCard key={fact.id} fact={fact} />)}
-                  </div>
-                </div>
-              )}
-
-              {(profile.myComments?.length ?? 0) > 0 && (
-                <div>
-                  <h3 className="font-display text-base uppercase tracking-wider text-muted-foreground mb-4 flex items-center gap-2">
-                    <FileText className="w-4 h-4" /> Your Comments
-                  </h3>
-                  <div className="space-y-3">
-                    {profile.myComments!.map((comment) => (
-                      <div key={comment.id} className="bg-card border border-border rounded-sm p-4 space-y-2">
-                        {comment.factText && (
-                          <p className="text-xs text-muted-foreground italic border-l-2 border-primary/40 pl-2 leading-relaxed line-clamp-2">
-                            {comment.factText}
-                          </p>
-                        )}
-                        <p className="text-sm text-foreground leading-relaxed">{comment.text}</p>
-                        <div className="flex items-center justify-between gap-2 pt-1">
-                          <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-sm border ${
-                            comment.status === "pending"
-                              ? "bg-amber-500/10 text-amber-400 border-amber-500/40"
-                              : comment.status === "approved"
-                              ? "bg-green-500/10 text-green-400 border-green-500/40"
-                              : "bg-destructive/10 text-destructive border-destructive/40"
-                          }`}>
-                            {comment.status === "pending" ? "Awaiting Approval" : comment.status === "approved" ? "Visible" : comment.status}
-                          </span>
-                          <div className="flex items-center gap-3">
-                            <span className="text-xs text-muted-foreground">{new Date(comment.createdAt).toLocaleDateString()}</span>
-                            <Link href={`/facts/${comment.factId}`} className="text-xs text-primary hover:underline">View Fact →</Link>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {profile.submittedFacts.length === 0 && (profile.pendingSubmissions?.length ?? 0) === 0 && (profile.myComments?.length ?? 0) === 0 && (
-                <div className="text-center py-12 bg-card border-2 border-dashed border-border rounded-sm">
-                  <p className="text-muted-foreground text-lg mb-4">You haven't submitted any facts yet.</p>
-                  <Link href="/submit"><Button>SUBMIT FACT</Button></Link>
-                </div>
-              )}
-            </div>
-          )}
+          {activeTab === "submitted" && <SubmissionsPanel />}
 
           {activeTab === "history" && (
             <div className="bg-card border-2 border-border rounded-sm p-6 max-w-2xl">
@@ -534,8 +490,16 @@ export default function Library() {
 }
 
 function TabButton({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
+  // The open tab comes from the address, so it can be one scrolled out of
+  // view on a phone; bring it into the row's view.
+  const ref = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (active) ref.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [active]);
   return (
     <button
+      ref={ref}
+      aria-current={active ? "page" : undefined}
       onClick={onClick}
       className={`flex items-center gap-2 px-6 py-4 font-display text-lg uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap ${
         active ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"

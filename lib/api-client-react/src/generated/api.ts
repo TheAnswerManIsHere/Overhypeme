@@ -39,6 +39,7 @@ import type {
   FactListResponse,
   GetAdminFlaggedComments200,
   GetHeroFactParams,
+  GetMySubmissionCountsParams,
   HandleBrowserLoginCallbackParams,
   HashtagListResponse,
   HealthStatus,
@@ -48,10 +49,13 @@ import type {
   ListFactMemesParams,
   ListFactsParams,
   ListHashtagsParams,
+  ListMySubmissionsParams,
   ListRelatedFactsParams,
   MemeDetail,
   MemeListResponse,
   MemeRecord,
+  MySubmissionCounts,
+  MySubmissionPage,
   RateFactRequest,
   RatingResult,
   RecordFactShareResponse,
@@ -3062,6 +3066,368 @@ export const useRecordSearch = <
 > => {
   return useMutation(getRecordSearchMutationOptions(options), queryClient);
 };
+
+export const getGetMySubmissionCountsUrl = (
+  params?: GetMySubmissionCountsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : String(value));
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/users/me/submissions/counts?${stringifiedParams}`
+    : `/api/users/me/submissions/counts`;
+};
+
+/**
+ * @summary How many of the current user's submissions are in each status, and how many match a search
+ */
+export const getMySubmissionCounts = async (
+  params?: GetMySubmissionCountsParams,
+  options?: Parameters<typeof customFetch>[1],
+): Promise<MySubmissionCounts> => {
+  return customFetch<MySubmissionCounts>(getGetMySubmissionCountsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetMySubmissionCountsQueryKey = (
+  params?: GetMySubmissionCountsParams,
+) => {
+  return [
+    `/api/users/me/submissions/counts`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetMySubmissionCountsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMySubmissionCounts>>,
+  TError = ErrorType<ErrorEnvelope>,
+>(
+  params?: GetMySubmissionCountsParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getMySubmissionCounts>>,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetMySubmissionCountsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getMySubmissionCounts>>
+  > = ({ signal }) =>
+    getMySubmissionCounts(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMySubmissionCounts>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetMySubmissionCountsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMySubmissionCounts>>
+>;
+export type GetMySubmissionCountsQueryError = ErrorType<ErrorEnvelope>;
+
+export function useGetMySubmissionCounts<
+  TData = Awaited<ReturnType<typeof getMySubmissionCounts>>,
+  TError = ErrorType<ErrorEnvelope>,
+>(
+  params: undefined | GetMySubmissionCountsParams,
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getMySubmissionCounts>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getMySubmissionCounts>>,
+          TError,
+          Awaited<ReturnType<typeof getMySubmissionCounts>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetMySubmissionCounts<
+  TData = Awaited<ReturnType<typeof getMySubmissionCounts>>,
+  TError = ErrorType<ErrorEnvelope>,
+>(
+  params?: GetMySubmissionCountsParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getMySubmissionCounts>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getMySubmissionCounts>>,
+          TError,
+          Awaited<ReturnType<typeof getMySubmissionCounts>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetMySubmissionCounts<
+  TData = Awaited<ReturnType<typeof getMySubmissionCounts>>,
+  TError = ErrorType<ErrorEnvelope>,
+>(
+  params?: GetMySubmissionCountsParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getMySubmissionCounts>>,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+/**
+ * @summary How many of the current user's submissions are in each status, and how many match a search
+ */
+
+export function useGetMySubmissionCounts<
+  TData = Awaited<ReturnType<typeof getMySubmissionCounts>>,
+  TError = ErrorType<ErrorEnvelope>,
+>(
+  params?: GetMySubmissionCountsParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getMySubmissionCounts>>,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions = getGetMySubmissionCountsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getListMySubmissionsUrl = (params: ListMySubmissionsParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : String(value));
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/users/me/submissions?${stringifiedParams}`
+    : `/api/users/me/submissions`;
+};
+
+/**
+ * @summary One page of the current user's submissions of one type in one status
+ */
+export const listMySubmissions = async (
+  params: ListMySubmissionsParams,
+  options?: Parameters<typeof customFetch>[1],
+): Promise<MySubmissionPage> => {
+  return customFetch<MySubmissionPage>(getListMySubmissionsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListMySubmissionsQueryKey = (
+  params?: ListMySubmissionsParams,
+) => {
+  return [`/api/users/me/submissions`, ...(params ? [params] : [])] as const;
+};
+
+export const getListMySubmissionsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listMySubmissions>>,
+  TError = ErrorType<ErrorEnvelope>,
+>(
+  params: ListMySubmissionsParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof listMySubmissions>>,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListMySubmissionsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listMySubmissions>>
+  > = ({ signal }) => listMySubmissions(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listMySubmissions>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type ListMySubmissionsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listMySubmissions>>
+>;
+export type ListMySubmissionsQueryError = ErrorType<ErrorEnvelope>;
+
+export function useListMySubmissions<
+  TData = Awaited<ReturnType<typeof listMySubmissions>>,
+  TError = ErrorType<ErrorEnvelope>,
+>(
+  params: ListMySubmissionsParams,
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof listMySubmissions>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listMySubmissions>>,
+          TError,
+          Awaited<ReturnType<typeof listMySubmissions>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useListMySubmissions<
+  TData = Awaited<ReturnType<typeof listMySubmissions>>,
+  TError = ErrorType<ErrorEnvelope>,
+>(
+  params: ListMySubmissionsParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof listMySubmissions>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listMySubmissions>>,
+          TError,
+          Awaited<ReturnType<typeof listMySubmissions>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useListMySubmissions<
+  TData = Awaited<ReturnType<typeof listMySubmissions>>,
+  TError = ErrorType<ErrorEnvelope>,
+>(
+  params: ListMySubmissionsParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof listMySubmissions>>,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+/**
+ * @summary One page of the current user's submissions of one type in one status
+ */
+
+export function useListMySubmissions<
+  TData = Awaited<ReturnType<typeof listMySubmissions>>,
+  TError = ErrorType<ErrorEnvelope>,
+>(
+  params: ListMySubmissionsParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof listMySubmissions>>,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions = getListMySubmissionsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
 
 export const getCheckDuplicateUrl = () => {
   return `/api/ai/check-duplicate`;

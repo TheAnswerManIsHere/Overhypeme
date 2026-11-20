@@ -15,6 +15,7 @@ import { requireAdmin } from "./admin";
 import { embedFactAsync } from "../lib/embeddings";
 import { renderCanonical } from "../lib/renderCanonical";
 import { logActivity } from "../lib/activity";
+import { likeContains } from "../lib/sqlLike";
 import { sendEmail, buildReviewApprovedEmail, buildReviewRejectedEmail } from "../lib/email";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { notifyAdmins } from "../lib/adminNotify";
@@ -258,7 +259,7 @@ router.get("/admin/reviews", requireAdmin, async (req: Request, res: Response) =
   const searchClause = q === ""
     ? undefined
     : or(
-        ilike(pendingReviewsTable.submittedText, `%${q.replace(/[\\%_]/g, "\\$&")}%`),
+        ilike(pendingReviewsTable.submittedText, likeContains(q)),
         idMatch ? eq(pendingReviewsTable.id, parseInt(idMatch[1]!, 10)) : undefined,
       );
   const statusClause = status === "all" ? undefined : eq(pendingReviewsTable.status, status);
