@@ -165,6 +165,7 @@ Last, on the deployed site, one row per fault: the fault, its detector, when the
 | Source | Fault | What must be shown about the fault itself |
 |---|---|---|
 | Unhandled error | a forced error on the deployed API | — |
+| Process crash (amendment 5) | the crash drill, started from the Operations page, ends the process that answers | the error reached Sentry before the process exited, and the platform restarted it |
 | Site down | the deployment made unreachable for the monitor's window | — |
 | Job stopped or wedged | a drill job, started from the Operations page, that never finishes | the polled check turned unhealthy while the job was still held, before its time limit ended it |
 | Rehearsal: worker killed mid-render | a publish while a render is running | the old owner stopped while the job was still processing; if a publish does not produce that, another controlled stop is used |
@@ -172,7 +173,7 @@ Last, on the deployed site, one row per fault: the fault, its detector, when the
 | Payment webhooks failing | David breaks the endpoint in Stripe's test mode | — |
 | Spend not recorded | see Q9 | — |
 
-No fault endpoint ships. The drill job spends nothing and grants nothing; it occupies one job slot until its time limit ends it. Monitor intervals and failure tolerances are detection settings chosen in the build, not a deadline.
+No fault endpoint ships but the crash drill (amendment 5): an admin-only route that ends the process only on an explicit confirmation. The drill job spends nothing and grants nothing; it occupies one job slot until its time limit ends it. Monitor intervals and failure tolerances are detection settings chosen in the build, not a deadline.
 
 ## Increments (one PR each)
 
@@ -221,6 +222,11 @@ The oracle's six increments are seven pull requests: alerts ships as two, so the
 
 - **Approved by David** ("Approved. q25 1.", recorded in the Issue #1029 comment headed "Amendment 4 approved, Q25: 1 done — 2026-11-19") — design E's tracked place is the dedicated Gmail mailbox, not a Resend inbox. Inbound mail to `support@overhype.me` arrives through Cloudflare Email Routing; replies go out as `support@overhype.me` through Gmail "Send mail as" over Resend SMTP. The contact page, its acknowledgement and the `support_requests` table (Q17: 1) are unchanged. The inbox proof (Q18) becomes "a request arrives in the Gmail mailbox and a reply stays in one thread". The open question about how long a Resend inbox keeps a thread is retired.
 - **Q25: 1** — the unused Resend `support@overhype.me` inbox is removed and receiving is switched off on the Resend domain; sending is unchanged.
+
+## Amendment 5 (2026-11-20)
+
+- **Approved by David** (Q30: 1, in chat, recorded on Issue #1029 in the comment headed "David's answers (2026-11-20)"): the fault-injection afternoon also crashes the live server for real, to prove a crash reaches David's phone. The one real production crash on record (2026-10-31, Issue #826) never reached Sentry, and the afternoon's forced error leaves the process running. The change is one admin-only route, `POST /admin/operations/crash-drill`, which acts only on `{ confirm: "crash" }`, answers first, then throws outside any request so the existing `fatalExit` reports to Sentry and exits. A button on the Operations page sends it after a confirmation. Cost: about 12–15 seconds in which the instance that answered does not serve, and requests in flight on it are dropped.
+- **Q29 (David):** the afternoon is planned for Tuesday 2026-11-24.
 
 ## Answered by David (2026-11-17)
 
