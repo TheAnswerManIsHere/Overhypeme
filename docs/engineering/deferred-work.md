@@ -90,7 +90,7 @@ we've sequenced for later.
     sweep, decided 2026-10-12) is recorded below.
 
 - **~~Nothing alerts if the `rate_limit_counters` purge silently stops running.~~ — SHIPPED, PR #1046 (closed at the 2026-11-20 `/maintenance` pass).**
-  - **Closed.** Launch Phase 16, increment 2 put the purge in the recurring-task inventory (`recurringTasks.ts`, task `rate_limit_counter_purge`): each completed run is recorded, and a run overdue past its grace reads as overdue on the health check and alerts. PR #1091 then moved it onto the shared scheduler (`lib/taskScheduler.ts`). The text below is the original entry, kept for its history.
+  - **Closed.** Launch Phase 16, increment 2 put the purge in the recurring-task inventory (`recurringTasks.ts`, task `rate_limit_counter_purge`): each completed run is recorded, and a run overdue past its grace reads as overdue on the health check and alerts. PR #1091 then moved it onto the shared scheduler (`artifacts/api-server/src/lib/taskScheduler.ts`). The text below is the original entry, kept for its history.
   - **Launch plan placement (David, 2026-10-12): not blocking — Phase 16's general stopped-job alert; Phase 14's retention policy names the table's IP addresses.** Still true at `92024f3`. The session-token half is weaker than stated below: the `sessions` table already stores the same ids in plain form (`auth.ts:139-141`), so rows left behind add only expired ids. The readable `key_raw` is used only by `purgeRateLimitCountersByPrefix`, which has no caller — dropping it is an optional tidy-up for the next rate-limiter change.
   - **What.** `jobs/rateLimitCounterPurger.ts` reports through structured log
     lines only (matching `transientRenderPurger`, the job it was modelled on).
@@ -455,13 +455,16 @@ re-gather it when the work is scheduled.
     are sharp ×3 and `zod`, both parked, so no High row needs triage. **No
     in-range sweep was run this pass**: with no High row to clear, a
     lockfile-only PR and its review round were not spent on the moderates.
+    The per-pass trigger did fire; skipping it is this pass's exception,
+    taken on recommendation and reported, not a change to the rule.
     Grouped Dependabot PR #1064 (9 updates, opened 2026-11-18) fails every CI
     job at `pnpm install --frozen-lockfile` with
     `ERR_PNPM_LOCKFILE_CONFIG_MISMATCH` (its lockfile does not carry the
     workspace's `overrides`), the failure that superseded #648, and it also
     carries `zod` 3.25.76 → 4.6.6, the parked major. This is its first pass
-    unmergeable; if it still is at the next pass, the two-pass trigger fires
-    and that pass runs the sweep in its place.
+    unmergeable. The revisit trigger below is unchanged, so the next pass
+    runs the sweep; if #1064 is still unmergeable then, the two-pass trigger
+    also fires and that sweep replaces it.
 
 - **recharts v2 → v3.**
   - **Launch plan placement (on my recommendation, David delegated 2026-10-13): not blocking.** Upgraded with Phase 13's dashboard rebuild, which rewrites the charts anyway, or sooner if a security advisory lands against v2.
@@ -509,7 +512,8 @@ re-gather it when the work is scheduled.
 
 ## Code-level tech debt
 
-- **Async-queue enqueue-side status write isn't transactional with `enqueueJob` (PR #256).**
+- **~~Async-queue enqueue-side status write isn't transactional with `enqueueJob` (PR #256).~~ — CLOSED, overtaken by PR #971 (closed at the 2026-11-20 `/maintenance` pass).**
+  - **Closed.** Both producers this entry names are gone. Phase 4 deleted the Pexels enqueue, and PR #971 (Compiler review, Phase 2) retired the `fact_ai_meme_backfill` queue and deleted `enqueueFactAiMemeBackfill` with its separate `"pending"` write. `aiMemeBackfillJobs.ts` now only drains leftover jobs ("nothing enqueues here any more"), and `POST /admin/facts/backfill-ai-memes` answers 410. Separately, PR #1009 made `enqueueJob` run its insert under a savepoint inside a caller's transaction (`asyncJobs.ts:412-414`), which is the capability *Why deferred now* below says is missing. That is shared queue hardening, not a repair of this race; the race closed because its producers were removed. The text below is the original entry, kept for its history.
   - **Launch plan placement (on my recommendation, David delegated 2026-10-13): not blocking.** The Pexels half was deleted with Pexels in Phase 4, removal 6, so one enqueue path remains; the AI-meme half rides Phase 11's async-jobs work if it fits, otherwise it waits to be seen in Seed. Only a status label can go stale.
   - **What.** `aiMemeBackfillJobs.ts`'s `enqueueFactAiMemeBackfill` (and,
     until Phase 4 deleted it, `factPexelsJobs.ts`'s `enqueueFactPexels`) writes the
@@ -530,19 +534,12 @@ re-gather it when the work is scheduled.
     AI-meme status display stuck at "pending" after the underlying job
     actually completed. No data loss; a moderator/admin can force a re-enqueue
     to clear it.
-  - **Trigger fired, re-parked (2026-11-20 `/maintenance`).** Job resume
-    (PRs #1009, #1017, #1026) changed `asyncJobs.ts`'s claim and finish, but
-    not the enqueue/dedupe path this race lives on, and the fold-in did not
-    happen. A trigger of "the next time the file is touched" has now passed
-    once without anyone acting on it, so it is narrowed to the code that
-    actually carries the race.
-  - **Revisit trigger.** The next change to `enqueueJob`'s dedupe path or to
-    `aiMemeBackfillJobs.ts`'s enqueue, or this race observed in production
-    status data (not just theoretically) — fold in transactional
-    composition then.
+  - **Revisit trigger.** Next time `asyncJobs.ts`'s enqueue/dedupe machinery is
+    touched for another reason, or this race is observed in production status
+    data (not just theoretically), fold in transactional composition then.
 
 - **~~Async-jobs reclaim finalize has no fencing token (PR #283).~~ — SHIPPED, PRs #1009, #1017 and #1026 (closed at the 2026-11-20 `/maintenance` pass).**
-  - **Closed.** Job resume increment 3 (PR #1026) landed, which is the closing condition the line below names: every queue now has the lease, the fenced finish and its resume. The text below is the original entry, kept for its history.
+  - **Closed.** Job resume increment 3 (PR #1026) landed, which is the closing condition the line below names. Every claim now has an owner, a lease and a fenced finish in the queue core, and every queue that existed at increment 3 resumes from its checkpoints. Two queues registered since declare no resume and keep the 30-minute wait: the Reading queue (`readingJobs.ts:274`, PR #1041), filed as a bug in Issue #1129, and the operations drill (`operationsDrill.ts`, PR #1046), which by design stands in for a wedged job. The text below is the original entry, kept for its history.
   - **Being closed by Issue #1000 (plan `docs/plans/PLAN_JOB_RESUME.md`, approved by David 2026-11-17).** Increment 1 (Issue #1007) built the lease, its renewal, the fenced finish, fenced handler effects, an ownership check before each paid call and a per-queue execution limit; every queue keeps the 30-minute reclaim until its resume is built. Increment 2 (Issue #1015) switched fast reclaim on for the two render queues, which now collect a submitted picture instead of paying again; it also closed Issue #1010 (an ownership check at the shared AI dispatch point). Increment 3 (email's idempotency key, enrichment and the rest) switches it on for each remaining queue. The entry closes when increment 3 lands.
   - **Launch plan placement (David, 2026-10-12; fix corrected 2026-10-13): blocking, Phase 11 (spend controls), before Seed.** Still true at `92024f3`: finalize is by row id (`asyncJobs.ts:424-432`), there is no handler time limit, and there is no email idempotency key. A fencing token checked only at finalize is **not** enough. The handler's effect happens before the finalize (`asyncJobs.ts:408` runs `handler.run()`; `email.ts:289` sends inside it), so both holders have already sent or spent by the time either finalizes (Codex, #661). The fix is three parts: the running job renews its claim so a live job is never reclaimed; it checks ownership before the costly step; email sends and generation calls carry an idempotency key. Plus a handler time limit under the reclaim cutoff.
   - **What.** `processClaimedJob` finalizes a job by row id alone. Stuck-row
@@ -568,11 +565,11 @@ re-gather it when the work is scheduled.
   - **What.** `processClaimedJob` commits a job's `failed` status, then calls the handler's `onAbandon`; a throw there is only logged, and stuck-row recovery reclaims only `processing` rows. Three hooks write a domain status this way: the image worker's render attempt (`imagePromptJobs.ts`, new in PR #994, which writes a retryable failure only when the queue gives up), `facts.visualConceptStatus` (`visualConceptJobs.ts`) and the enrichment cycle's `prep_failed` (`enrichmentJobs.ts`). A crash or a database error between the two steps leaves the domain row reading "in progress" for good; for a render, the moderation tile shows "Drawing…" with no "Draw again".
   - **Why deferred now.** The fix belongs in `processClaimedJob`, serving all three hooks, beside the finalize hardening above. A handler-only fix is ruled out by PR #994's plan ("never by re-deriving the retry ceiling in the handler"), and putting the write inside the terminal commit widens the reclaim-and-rerun path, which re-submits a paid vendor call each pass (Fable assessor, PR #994 round 1; Astra recommended fixing it in that PR, and the tie-break was the Fable assessor's).
   - **Cost of waiting.** A rare stuck moderation tile: no data lost, no charge on this path today, and a redraw request or a one-row correction clears it. The queue row keeps the failure in `last_error`.
-  - **Trigger fired, re-parked (2026-11-20 `/maintenance`).** The queue-finalize hardening above landed (PRs #1009, #1017, #1026) without folding this in: `asyncJobs.ts` still commits the terminal row and then calls `onAbandon`, logging a throw (`asyncJobs.ts:741-750` at `0e91c14`). The cost of waiting is lower than when it was filed: since PR #1046 an abandoned job raises a `job_failed` operational alert before `onAbandon` runs, so a stuck domain row now arrives beside an alert rather than silently. Re-parked on the three remaining conditions.
+  - **Trigger fired, re-parked (2026-11-20 `/maintenance`).** The queue-finalize hardening above landed (PRs #1009, #1017, #1026) without folding this in: `asyncJobs.ts` still commits the terminal row and then calls `onAbandon`, logging a throw (`asyncJobs.ts:741-750` at `0e91c14`). The cost of waiting is a little lower than when it was filed. Since PR #1046, an abandoned job raises a `job_failed` operational alert after the terminal commit and before `onAbandon` runs, so a hook that throws now leaves its stuck domain row beside an alert. A process that stops between the commit and the alert still leaves the row stale with no alert. One consumer has also changed: enrichment's hook now writes `facts.enrichmentStatus = "failed"` (`enrichmentJobs.ts:284-290`), not the former cycle's `prep_failed`. Re-parked on the three remaining conditions.
   - **Revisit trigger.** Whichever comes first: the plan for paid member pictures on this worker; one observed stuck render; or one logged `onAbandon hook threw`. Done when a test fails the domain write at exhaustion and no terminal queue row is left beside an in-flight domain row.
 
 - **~~`TODO(PR3-signature)` — `artifacts/api-server/src/lib/sendBackToReview.ts:151`.~~ — CLOSED (2026-11-20 `/maintenance`).**
-  - **Closed.** PR #1027 (Fact lifecycle rebuild, increment 1.2a) removed refresh reviews and deleted `sendBackToReview.ts`, and the stale comment with it; `git grep "TODO(PR3-signature)"` finds nothing at `0e91c14`.
+  - **Closed.** PR #1027 (Fact lifecycle rebuild, increment 1.2a) removed refresh reviews and deleted `sendBackToReview.ts`, and the stale comment with it; `git grep "TODO(PR3-signature)" -- artifacts lib scripts` finds nothing at `0e91c14`.
   - **RESOLVED — already built (Astra, #661).** Classify time already stamps the signature: `enrichmentJobs.ts` captures `currentProcessingSignatureFromConfig()` before the LLM call and writes it into the candidate, and `enrichmentVersioning.refresh.test.ts` covers a revision changing during classification. The `null` at send-back is correct, since nothing has been classified yet. Only the comment is stale (now `sendBackToReview.ts:137`); it is removed by the next PR that touches that file.
   - **What.** Rows are re-queued with `signature: null` because per-row
     processing signatures aren't stamped at send-back time; the comment defers
