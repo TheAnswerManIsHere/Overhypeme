@@ -209,6 +209,11 @@ jobs:
       - name: Check test-DB setup on a fresh container
         run: bash scripts/__tests__/setup-test-db.test.sh
 
+      # The dev API's start script must turn "the server died under tsx watch"
+      # into an exit the supervisor restarts (Issue #1083).
+      - name: Check the dev watch guard
+        run: bash scripts/__tests__/dev-watch-guard.test.sh
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 

@@ -23,4 +23,10 @@ export ENABLE_DEV_ADMIN_LOGIN="${ENABLE_DEV_ADMIN_LOGIN:-true}"
 ARTIFACT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ARTIFACT_DIR}"
 
-exec pnpm exec tsx watch src/index.ts
+# tsx watch keeps running when the server it started exits on its own, and
+# waits for a file change, so the supervisor would never see a crash and the
+# API would stay down (Issue #1083). The guard notices "tsx alive, no server"
+# and exits non-zero so the supervisor restarts it. tsx is run from its bin
+# directly, not through `pnpm exec`: the guard watches its direct child's
+# children, and pnpm would always have one.
+exec bash "${ARTIFACT_DIR}/../../scripts/dev-watch-guard.sh" ./node_modules/.bin/tsx watch src/index.ts
