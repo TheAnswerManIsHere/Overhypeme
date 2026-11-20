@@ -337,6 +337,9 @@ Both halves are load-bearing, and neither is sufficient alone:
 Check only one and the other becomes the hole. Check the branch name alone
 and both are.
 
+What to check after a publish, and the ways back from a bad one, are
+[`deploy-and-rollback.md`](../engineering/deploy-and-rollback.md).
+
 ### One-off: the first publish that carries migration 0142
 
 *Delete this subsection once that publish has happened* (plan

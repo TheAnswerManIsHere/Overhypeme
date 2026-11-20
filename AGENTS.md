@@ -102,6 +102,9 @@ Engineering practice: [`docs/engineering/`](docs/engineering/) —
 (and its worked example,
 [ncmec-audit-ledger-hardening](docs/engineering/ncmec-audit-ledger-hardening.md),
 for a migration that cannot enforce its own privilege boundary),
+[deploy-and-rollback](docs/engineering/deploy-and-rollback.md) (the order of
+a release, what to check after a publish, the ways back, when read-only mode
+is the right tool, and why the API server restarts),
 [code-review](docs/engineering/code-review.md),
 [test-run-contract](docs/tests/test-run-contract.md) (what a PR's
 *Post-merge verification* section must contain — Replit executes it
