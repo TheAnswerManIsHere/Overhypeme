@@ -390,7 +390,7 @@ export default function Login() {
               </div>
             )}
 
-            <PausedWhenReadOnly className="w-full" forcePaused={mode === "login" ? false : undefined}>
+            <PausedWhenReadOnly className="w-full" active={mode !== "login"}>
             <Button
               type="submit"
               variant="primary"

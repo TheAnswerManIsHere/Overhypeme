@@ -16,7 +16,8 @@ import { inferPronounsFromName } from "@/lib/infer-pronouns";
 import { usePersonName } from "@/hooks/use-person-name";
 import { NameFieldHint, useNameField } from "@/hooks/use-name-field";
 import { track, trackPersonaliseOnce } from "@/lib/analytics";
-import { PausedWhenReadOnly, useReadOnly } from "@/components/PausedWhenReadOnly";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
+import { useReadOnly } from "@/hooks/use-read-only";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 

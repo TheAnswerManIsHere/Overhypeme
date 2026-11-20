@@ -10,9 +10,10 @@ import { Button } from "@/components/ui/Button";
 import { returnToFromSearch } from "@/lib/safe-return-to";
 import { useSignOut } from "@/hooks/use-sign-out";
 import { LegalLinks } from "@/components/legal/LegalLinks";
-import { PausedWhenReadOnly, useReadOnly } from "@/components/PausedWhenReadOnly";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
+import { useReadOnly } from "@/hooks/use-read-only";
+import { resendVerification } from "@/lib/resendVerification";
 
-const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
 export default function CheckEmail() {
   const [, setLocation] = useLocation();
@@ -43,22 +44,10 @@ export default function CheckEmail() {
     if (!unverified || linkRequested.current || readOnly) return;
     linkRequested.current = true;
     void (async () => {
-      try {
-        const res = await fetch(`${BASE_URL}api/auth/resend-verification`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ifNoneOut: true }),
-        });
-        if (!res.ok) {
-          const data = (await res.json().catch(() => ({}))) as { error?: string };
-          setLinkError(data.error ?? "We couldn't send the link. Try again in a minute.");
-          setLinkState("error");
-          return;
-        }
-        setLinkState("out");
-      } catch {
-        setLinkError("Network error. Try again.");
+      const result = await resendVerification({ ifNoneOut: true });
+      if (result.sent) setLinkState("out");
+      else {
+        setLinkError(result.message);
         setLinkState("error");
       }
     })();
@@ -67,21 +56,16 @@ export default function CheckEmail() {
   async function resend() {
     setResendState("sending");
     setResendError("");
-    try {
-      const res = await fetch(`${BASE_URL}api/auth/resend-verification`, { method: "POST", credentials: "include" });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        setResendError(data.error ?? "We couldn't send it. Try again in a minute.");
-        setResendState("error");
-        return;
-      }
-      setResendState("sent");
-      setLinkState("out");
-    } catch {
-      setResendError("Network error. Try again.");
+    const result = await resendVerification();
+    if (!result.sent) {
+      setResendError(result.message);
       setResendState("error");
+      return;
     }
+    setResendState("sent");
+    setLinkState("out");
   }
+
 
   async function checkAgain() {
     setChecking(true);

@@ -3,7 +3,8 @@ import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import { useUploadModeration } from "../hooks/useUploadModeration";
 import { UPLOAD_ERROR_COPY } from "../copy";
-import { PausedWhenReadOnly, useReadOnly } from "@/components/PausedWhenReadOnly";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
+import { useReadOnly } from "@/hooks/use-read-only";
 
 interface Props {
   onUploaded: (objectPath: string) => void;

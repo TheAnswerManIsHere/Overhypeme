@@ -4,18 +4,9 @@
  */
 import { cloneElement, isValidElement, useEffect, useId, useState, type ReactElement, type ReactNode } from "react";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
-import { isReadOnlyNow, onReadOnlyChange, READ_ONLY_EXPLANATION } from "@/lib/readOnlyNotice";
+import { READ_ONLY_EXPLANATION } from "@/lib/readOnlyNotice";
+import { useReadOnly } from "@/hooks/use-read-only";
 import { cn } from "@/lib/utils";
-
-/** Whether this page knows the site is paused; re-renders when that changes. */
-export function useReadOnly(): boolean {
-  const [on, setOn] = useState(isReadOnlyNow());
-  useEffect(() => {
-    setOn(isReadOnlyNow());
-    return onReadOnlyChange(setOn);
-  }, []);
-  return on;
-}
 
 /** How long a tap's explanation stays up on a touch screen. */
 const TAP_EXPLANATION_MS = 5000;
@@ -25,26 +16,29 @@ interface Props {
   children: ReactNode;
   /** Layout classes for the wrapper while paused, e.g. "w-full" for a full-width button. */
   className?: string;
-  /** Pause regardless of the site's state (tests and stories only). */
+  /** Pause regardless of the site's state (tests only). */
   forcePaused?: boolean;
+  /** Whether this control saves at all right now (e.g. a form that both signs in and signs up); default true. */
+  active?: boolean;
 }
 
-export function PausedWhenReadOnly({ children, className, forcePaused }: Props) {
+export function PausedWhenReadOnly({ children, className, forcePaused, active = true }: Props) {
+  // The common case, the site open, costs one subscription and renders the control untouched.
   const siteReadOnly = useReadOnly();
-  const paused = forcePaused ?? siteReadOnly;
+  if (!active || !(forcePaused ?? siteReadOnly)) return <>{children}</>;
+  return <PausedControl className={className}>{children}</PausedControl>;
+}
+
+/** The grayed-out control; mounted only while paused, so its state resets when the pause ends. */
+function PausedControl({ children, className }: { children: ReactNode; className?: string }) {
   const [open, setOpen] = useState(false);
   const explanationId = useId();
 
-  useEffect(() => {
-    if (!paused) setOpen(false);
-  }, [paused]);
   useEffect(() => {
     if (!open) return;
     const t = window.setTimeout(() => setOpen(false), TAP_EXPLANATION_MS);
     return () => window.clearTimeout(t);
   }, [open]);
-
-  if (!paused) return <>{children}</>;
 
   const control = isValidElement(children)
     ? cloneElement(children as ReactElement<Record<string, unknown>>, {

@@ -22,11 +22,13 @@ import { shouldAskForRealPhoto } from "@/lib/profile-photo";
 import { STRIPE_UNVERIFIED_CODE, STRIPE_UNVERIFIED_CONFIRM_MESSAGE } from "@workspace/api-zod";
 import { confirmNotReadOnly, isReadOnlyNow, isReadOnlyRefusal, READ_ONLY_REFUSED_FULL } from "@/lib/readOnlyNotice";
 
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
+import { resendVerification as requestVerificationEmail } from "@/lib/resendVerification";
+
 /** The profile fields the server lets through while the site is read-only (api-server readOnlyGate, READ_ONLY_PROFILE_FIELDS). */
 const READ_ONLY_SAVABLE_FIELDS = ["displayName", "pronouns"];
 const PROFILE_HELD_BACK_MESSAGE =
   "Your other changes aren't saved yet: they stay here, and you can save them once Overhype.me's maintenance is over.";
-import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
@@ -738,17 +740,9 @@ export default function Profile() {
 
   async function resendVerification() {
     setResendStatus("");
-    try {
-      const res = await fetch(`${BASE_URL}api/auth/resend-verification`, {
-        method: "POST",
-        credentials: "include",
-      });
-      const data = await res.json() as { message?: string; error?: string };
-      setResendStatus(data.message ?? data.error ?? "Sent.");
-    } catch {
-      setResendStatus("Failed to resend. Please try again.");
-    }
+    setResendStatus((await requestVerificationEmail()).message);
   }
+
 
   if (authLoading) {
     return (

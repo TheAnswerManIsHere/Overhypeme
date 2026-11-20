@@ -100,21 +100,23 @@ export function isReadOnlyRefusal(failure: unknown, body?: unknown): boolean {
  * tell, it answers true and the server stays the guarantee.
  */
 export async function confirmNotReadOnly(): Promise<boolean> {
-  if (on) {
+  if (on || (await fetchReadOnlyFlag()) === true) {
     noteReadOnlyRefusal();
     return false;
   }
+  return true; // open, or cannot tell: the server stays the guarantee
+}
+
+/** The switch as the public config reports it now; null when it cannot be read. */
+export async function fetchReadOnlyFlag(): Promise<boolean | null> {
   try {
     const res = await fetch("/api/config", { credentials: "include" });
-    const body = res.ok ? ((await res.json()) as { readOnlyMode?: unknown }) : null;
-    if (body?.readOnlyMode === true) {
-      noteReadOnlyRefusal();
-      return false;
-    }
+    if (!res.ok) return null;
+    const body = (await res.json()) as { readOnlyMode?: unknown };
+    return typeof body.readOnlyMode === "boolean" ? body.readOnlyMode : null;
   } catch {
-    /* cannot tell: let the navigation go */
+    return null;
   }
-  return true;
 }
 
 /** Test seam. */

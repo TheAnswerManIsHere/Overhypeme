@@ -13,9 +13,14 @@ export interface ResendResult {
 export const RESEND_SENT_MESSAGE = "A new verification email has been sent. Please check your inbox.";
 const RESEND_FAILED_MESSAGE = "We couldn't send the email. Please try again in a moment.";
 
-export async function resendVerification(): Promise<ResendResult> {
+/** `ifNoneOut`: send only when no unexpired link is already out (the check-email page's arrival send). */
+export async function resendVerification(options: { ifNoneOut?: boolean } = {}): Promise<ResendResult> {
   try {
-    const res = await fetch("/api/auth/resend-verification", { method: "POST", credentials: "include" });
+    const res = await fetch(`${import.meta.env.BASE_URL ?? "/"}api/auth/resend-verification`, {
+      method: "POST",
+      credentials: "include",
+      ...(options.ifNoneOut ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ifNoneOut: true }) } : {}),
+    });
     if (res.ok) return { sent: true, message: RESEND_SENT_MESSAGE };
     const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
     if (isReadOnlyRefusal(res, body)) return { sent: false, message: READ_ONLY_REFUSED_FULL };

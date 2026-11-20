@@ -2,19 +2,19 @@
  * @purpose The site-wide notice while read-only mode is on (launch Phase 16, increment 4): learned from the public config, re-read every minute and when the tab returns, and from any refused request; a refused action also shows the short message as a toast, and the form that sent it keeps what was typed.
  * @subsystem operations
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { toast } from "@/hooks/use-toast";
 import {
-  isReadOnlyNow,
   READ_ONLY_ADMIN_WARNING,
   READ_ONLY_EXPLANATION,
-  onReadOnlyChange,
   onReadOnlyRefusal,
   READ_ONLY_REFUSED_MESSAGE,
   READ_ONLY_REFUSED_TITLE,
+  fetchReadOnlyFlag,
   setReadOnlyNow,
 } from "@/lib/readOnlyNotice";
+import { useReadOnly } from "@/hooks/use-read-only";
 
 const POLL_MS = 60_000;
 
@@ -28,21 +28,14 @@ const POLL_MS = 60_000;
 export const NOTICE_HEIGHT_VAR = "--read-only-notice-h";
 
 async function readSwitch(): Promise<void> {
-  try {
-    const res = await fetch("/api/config", { credentials: "include" });
-    if (!res.ok) return;
-    const body = (await res.json()) as { readOnlyMode?: unknown };
-    if (typeof body.readOnlyMode === "boolean") setReadOnlyNow(body.readOnlyMode);
-  } catch {
-    /* keep what is known */
-  }
+  const flag = await fetchReadOnlyFlag();
+  if (flag !== null) setReadOnlyNow(flag); // a failed read keeps what is known
 }
 
 export function ReadOnlyNotice() {
-  const [on, setOn] = useState(isReadOnlyNow());
+  const on = useReadOnly();
 
   useEffect(() => {
-    const offChange = onReadOnlyChange(setOn);
     const offRefusal = onReadOnlyRefusal(() => {
       toast({ title: READ_ONLY_REFUSED_TITLE, description: READ_ONLY_REFUSED_MESSAGE });
     });
@@ -51,7 +44,6 @@ export function ReadOnlyNotice() {
     const onVisible = () => { if (document.visibilityState === "visible") void readSwitch(); };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
-      offChange();
       offRefusal();
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);

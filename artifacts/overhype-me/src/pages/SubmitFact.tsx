@@ -27,7 +27,8 @@ import {
   ChevronDown, ChevronUp, GitBranch, Trash2,
 } from "lucide-react";
 import { track } from "@/lib/analytics";
-import { PausedWhenReadOnly, useReadOnly } from "@/components/PausedWhenReadOnly";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
+import { useReadOnly } from "@/hooks/use-read-only";
 import { isReadOnlyNow } from "@/lib/readOnlyNotice";
 
 type Step = "write" | "preview";
