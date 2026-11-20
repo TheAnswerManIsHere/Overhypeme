@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
+import { setReadOnlyNow } from "@/lib/readOnlyNotice";
 import { AlertTriangle, BellRing, CheckCircle2, ExternalLink, Loader2, RefreshCw, Timer, XCircle } from "lucide-react";
 
 const POLL_INTERVAL_MS = 15_000;
@@ -100,6 +101,9 @@ function ReadOnlyPanel({ state, onChanged }: { state: ReadOnlyState | undefined;
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const body = (await res.json()) as { readOnly: ReadOnlyState };
       onChanged(body.readOnly);
+      // The banner in this tab follows the switch at once rather than on its
+      // next minute's read (Issue #1111); other tabs keep that pickup.
+      setReadOnlyNow(next);
     } catch (err) {
       setError(`The switch could not be saved (${err instanceof Error ? err.message : String(err)}). Nothing changed.`);
     } finally {
