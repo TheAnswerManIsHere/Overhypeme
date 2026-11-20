@@ -291,6 +291,7 @@ export const TIMER_SITES: readonly TimerSite[] = [
   { file: "lib/moderation/nsfwClassifier.ts", calls: 2, kind: "not-recurring", note: "Request timeouts." },
   { file: "lib/renderRequestRecovery.ts", calls: 1, kind: "not-recurring", note: "An abortable sleep." },
   { file: "routes/admin.ts", calls: 1, kind: "not-recurring", note: "A retry backoff inside one request." },
+  { file: "routes/adminOperations.ts", calls: 1, kind: "not-recurring", note: "The crash drill's half-second delay before it ends the process, once per confirmed request." },
   { file: "shutdown.ts", calls: 1, kind: "not-recurring", note: "The forced-exit timer at shutdown." },
   { file: "testing/acceptance/driver.ts", calls: 1, kind: "not-recurring", note: "Test tooling." },
   { file: "testing/acceptance/inner.ts", calls: 1, kind: "not-recurring", note: "Test tooling." },
