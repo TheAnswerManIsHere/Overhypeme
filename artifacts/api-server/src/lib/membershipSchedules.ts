@@ -24,7 +24,7 @@
 import { loadMembershipConfig } from "./membershipTiming.js";
 import { sweepExpiredGrace } from "./membershipGraceSweep.js";
 import { logger } from "./logger.js";
-import { nextRunDelayMs, recordTaskCompleted, taskFirstRunMs } from "./recurringTasks.js";
+import { scheduleRecurringTask } from "./taskScheduler.js";
 
 /**
  * Null until a sweep has actually succeeded.
@@ -112,7 +112,6 @@ export async function runGraceSweepOnce(opts: { asOf?: Date } = {}): Promise<boo
   try {
     const result = await sweepExpiredGrace(opts);
     lastSuccessfulSweepAt = (opts.asOf ?? new Date()).getTime();
-    void recordTaskCompleted("grace_sweep");
     lastConverged = result.converged;
     lastError = null;
     consecutiveFailures = 0;
@@ -162,36 +161,26 @@ export async function runGraceSweepOnce(opts: { asOf?: Date } = {}): Promise<boo
 export async function scheduleMembershipJobs(): Promise<void> {
   const config = await loadMembershipConfig();
 
-  const intervalMs = config.grace_sweep_interval_seconds * 1000;
-  // Each run arms the next when it finishes, so runs never overlap: the
-  // interval is operator-tunable down to a second while a run performs up to
-  // 500 sequential recompute transactions, and overlapping runs would mean
-  // concurrent recomputes of the same users and racing writes to the shared
-  // health counters. A failed run tries again in minutes rather than a full
-  // interval, so one database blip never reads as a stopped task on the health
-  // check (recurringTasks.ts, RETRY_AFTER_FAILURE_MS).
-  const schedule = (delayMs: number) => {
-    setTimeout(() => {
-      // An explicit catch at the scheduling boundary, not just a `finally`.
-      // `runGraceSweepOnce` guards its own body, but a detached promise with no
-      // rejection handler turns any escape into an unhandled rejection — which
-      // Node terminates the process for by default. A projection-convergence job
-      // must not be able to take the API down.
-      void runGraceSweepOnce()
-        .catch((err) => {
-          logger.error({ err }, "grace sweep tick failed outside its own error handling");
-          return false;
-        })
-        .then((ok) => {
-          schedule(nextRunDelayMs(ok, intervalMs));
-        });
-    }, delayMs).unref();
-  };
-  // The first run comes minutes after a start, not a full interval later: the
-  // health check's deadline counts from the last completion, whichever process
-  // made it, so waiting an interval after every restart made any restart page
-  // as a stopped sweep (2026-11-19, 23:54 UTC).
-  schedule(Math.min(taskFirstRunMs("grace_sweep"), intervalMs));
+  // On the shared scheduler (taskScheduler.ts): the first run minutes after a
+  // start, a retry in minutes after a failed run or an unrecorded completion,
+  // otherwise one interval. Each run arms the next when it finishes, so runs
+  // never overlap: the interval is operator-tunable down to a second while a
+  // run performs up to 500 sequential recompute transactions, and overlapping
+  // runs would mean concurrent recomputes of the same users and racing writes
+  // to the shared health counters.
+  scheduleRecurringTask({
+    cadenceMs: config.grace_sweep_interval_seconds * 1000,
+    steps: [
+      {
+        id: "grace_sweep",
+        // runGraceSweepOnce reports its own failures (with the alert
+        // threshold), so the step only turns its verdict into a throw.
+        run: async () => {
+          if (!(await runGraceSweepOnce())) throw new Error("grace sweep failed");
+        },
+      },
+    ],
+  });
 
   logger.info(
     {

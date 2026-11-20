@@ -50,7 +50,7 @@ export interface RecurringTask {
   id: string;
   /** What David reads on the Operations page. */
   label: string;
-  /** The file that schedules it. */
+  /** The file that schedules it: its own timer there, or a `scheduleRecurringTask` call there (lib/taskScheduler.ts). */
   site: string;
   /** The interval between runs, from the same configuration the scheduler reads. */
   cadenceMs: () => Promise<number> | number;
@@ -113,20 +113,22 @@ export const RECURRING_TASKS = [
   },
   {
     id: "transient_render_purge",
-    alignedToClock: "Runs at the top of every hour, whenever the process started.",
     label: "Transient render log purge",
     site: "index.ts",
     cadenceMs: () => HOUR,
-    firstRunMs: HOUR,
+    // Once a couple of minutes after a start (a restart straddling the top of
+    // the hour never skips a run), then at the top of every hour.
+    firstRunMs: 2 * MINUTE,
     graceMs: 30 * MINUTE,
   },
   {
     id: "provenance_retention_purge",
-    alignedToClock: "Rides the transient-render purge's top-of-the-hour run.",
     label: "Image provenance retention purge",
     site: "index.ts",
     cadenceMs: () => HOUR,
-    firstRunMs: HOUR,
+    // Once a couple of minutes after a start (a restart straddling the top of
+    // the hour never skips a run), then at the top of every hour.
+    firstRunMs: 2 * MINUTE,
     graceMs: 30 * MINUTE,
   },
   {
@@ -259,13 +261,19 @@ export type TimerSite =
 export const TIMER_SITES: readonly TimerSite[] = [
   {
     file: "index.ts",
-    calls: 10,
+    calls: 3,
     kind: "tasks",
     note:
-      "Eight recurring schedulers (the transient-render timer also runs the provenance purge; the session timer also runs the retention windows). Not recurring: the meme-bake backfill (once per boot) and the fatal-exit safety timer.",
+      "Fact of the Day's daily timer (kept off the shared scheduler: it is never retried early). Every other task scheduled here runs on lib/taskScheduler.ts. Not recurring: the meme-bake backfill (once per boot) and the fatal-exit safety timer.",
+  },
+  {
+    file: "lib/taskScheduler.ts",
+    calls: 1,
+    kind: "tasks",
+    note:
+      "The shared scheduler: one timer per scheduled task, armed by a scheduleRecurringTask call in the task's own site (index.ts, lib/membershipSchedules.ts).",
   },
   { file: "routes/auth.ts", calls: 1, kind: "tasks", note: "Expired sign-in states, every 5 minutes." },
-  { file: "lib/membershipSchedules.ts", calls: 1, kind: "tasks", note: "The grace sweep." },
   {
     file: "lib/asyncJobs.ts",
     calls: 2,
@@ -320,13 +328,17 @@ const RECORD_MIN_INTERVAL_MS = MINUTE;
 const lastRecordedAt = new Map<string, number>();
 
 /**
- * Record that one run of a task completed. Best-effort, never throws, and
- * called only once the run's work is done.
+ * Record that one run of a task completed. Never throws, and called only once
+ * the run's work is done. Resolves false when the record could not be saved:
+ * the health check then cannot see the run, so a scheduler treats it like a
+ * failed run and tries again soon (taskScheduler.ts), rather than waiting a
+ * cadence and reading as overdue (Issue #1076). True when it was saved, or
+ * skipped by the write throttle because a save within the last minute stands.
  */
-export async function recordTaskCompleted(id: RecurringTaskId, dbInstance: TaskDb = defaultDb): Promise<void> {
+export async function recordTaskCompleted(id: RecurringTaskId, dbInstance: TaskDb = defaultDb): Promise<boolean> {
   const now = Date.now();
   const last = lastRecordedAt.get(id);
-  if (last !== undefined && now - last < RECORD_MIN_INTERVAL_MS) return;
+  if (last !== undefined && now - last < RECORD_MIN_INTERVAL_MS) return true;
   lastRecordedAt.set(id, now);
   const at = new Date(now);
   try {
@@ -348,9 +360,11 @@ export async function recordTaskCompleted(id: RecurringTaskId, dbInstance: TaskD
           updatedAt: at,
         },
       });
+    return true;
   } catch (err) {
     lastRecordedAt.delete(id);
     logger.warn({ err, task: id }, "[recurringTasks] could not record a completed run");
+    return false;
   }
 }
 
