@@ -1,14 +1,15 @@
 import { BRAND_ORANGE } from "@workspace/api-zod";
-import { db, pool } from "@workspace/db";
+import { db } from "@workspace/db";
 import { factsTable } from "@workspace/db/schema";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { stripeStorage } from "../lib/stripeStorage";
 import { logger } from "../lib/logger";
 import { sendEmail, buildEmailShell, ctaButton, divider } from "../lib/email";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { renderPersonalized } from "../lib/renderCanonical";
 import { ADVISORY_LOCK_KEYS } from "../lib/advisoryLockKeys";
-import { lastTaskCompletion, recordTaskCompleted } from "../lib/recurringTasks";
+import { lastTaskCompletion, RETRY_AFTER_FAILURE_MS, writeTaskCompletion } from "../lib/recurringTasks";
+import type { TaskStep } from "../lib/taskScheduler";
 
 export function buildFactOfTheDayEmail(
   factText: string,
@@ -53,57 +54,46 @@ ${divider()}
   return { subject, text, html };
 }
 
-export async function runFactOfTheDayJob(): Promise<{ sent: number; skipped: number }> {
-  const [topFact] = await db
+type Recipient = { id: string; email: string; displayName: string | null; pronouns: string | null };
+type Fact = { id: number; text: string };
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+async function pickFact(): Promise<Fact | null> {
+  const rows = await db
     .select({ id: factsTable.id, text: factsTable.text })
     .from(factsTable)
     .where(eq(factsTable.isActive, true))
     .orderBy(desc(factsTable.score))
-    .limit(100)
-    .then(rows => {
-      const shuffled = rows.sort(() => Math.random() - 0.5);
-      return shuffled.slice(0, 1);
-    });
+    .limit(100);
+  const shuffled = rows.sort(() => Math.random() - 0.5);
+  return (shuffled[0] as Fact | undefined) ?? null;
+}
 
-  if (!topFact) {
-    logger.warn("No facts found for Fact of the Day");
-    return { sent: 0, skipped: 0 };
-  }
-
-  let legendaryUsers: Array<{ id: string; email: string; displayName: string | null; pronouns: string | null }> = [];
-  try {
-    legendaryUsers = await stripeStorage.getActiveLegendarySubscribers();
-  } catch (err) {
-    // A failed run, not an empty one: nothing was sent, so the daily wrapper
-    // tries again in minutes rather than recording the day as done.
-    logger.error({ err }, "Failed to fetch legendary subscribers");
-    throw err;
-  }
-
-  logger.info({ count: legendaryUsers.length, factId: topFact.id }, "Sending Fact of the Day");
-
+/**
+ * Queue one Fact of the Day email per recipient inside `tx`. Any insert that
+ * fails throws, so the caller's transaction rolls back whole: a committed
+ * batch is always complete, never missing a member who could then only be
+ * reached by sending everyone again.
+ */
+async function queueFactOfTheDay(
+  tx: Tx,
+  fact: Fact,
+  recipients: Recipient[],
+  opts: { insertUnderTestKey?: boolean },
+): Promise<{ sent: number; skipped: number }> {
+  logger.info({ count: recipients.length, factId: fact.id }, "Queueing Fact of the Day");
   let sent = 0;
   let skipped = 0;
-
-  for (const user of legendaryUsers) {
+  const manageUrl = `${getSiteBaseUrl()}/profile#membership`;
+  for (const user of recipients) {
     if (!user.email) { skipped++; continue; }
-
-    const manageUrl = `${getSiteBaseUrl()}/profile#membership`;
     const renderedText = user.displayName
-      ? renderPersonalized(topFact.text, user.displayName, user.pronouns ?? null)
-      : topFact.text;
-    const { subject, text, html } = buildFactOfTheDayEmail(renderedText, topFact.id, manageUrl);
-    try {
-      await sendEmail({ to: user.email, subject, text, html });
-      sent++;
-    } catch {
-      skipped++;
-    }
-
-    await new Promise(r => setTimeout(r, 50));
+      ? renderPersonalized(fact.text, user.displayName, user.pronouns ?? null)
+      : fact.text;
+    const { subject, text, html } = buildFactOfTheDayEmail(renderedText, fact.id, manageUrl);
+    await sendEmail({ to: user.email, subject, text, html }, tx, { insertUnderTestKey: opts.insertUnderTestKey ?? false });
+    sent++;
   }
-
-  logger.info({ sent, skipped }, "Fact of the Day job complete");
   return { sent, skipped };
 }
 
@@ -124,80 +114,85 @@ export function msUntilNextSend(now = new Date()): number {
   return next.getTime() - now.getTime();
 }
 
-export type DailySendOutcome = "sent" | "already-sent" | "another-instance-is-sending";
-
-/**
- * A send whose emails went out but whose completion could not be recorded, by
- * send period: the retry then only records it, and never emails again.
- */
-let sentButUnrecordedFor: number | null = null;
+export type DailySendOutcome =
+  | { outcome: "sent"; sent: number; skipped: number }
+  | { outcome: "already-sent" }
+  | { outcome: "another-instance-is-sending" };
 
 export interface DailySendDeps {
   now?: Date;
-  /** Take the fleet-wide send lock; resolves a release function, or null when another instance holds it. */
-  lock?: () => Promise<(() => Promise<void>) | null>;
-  lastCompleted?: () => Promise<Date | null>;
-  send?: () => Promise<{ sent: number; skipped: number }>;
-  record?: () => Promise<boolean>;
-}
-
-async function takeSendLock(): Promise<(() => Promise<void>) | null> {
-  const client = await pool.connect();
-  try {
-    const got = (await client.query<{ ok: boolean }>("SELECT pg_try_advisory_lock($1) AS ok", [ADVISORY_LOCK_KEYS.factOfTheDay])).rows[0]?.ok;
-    if (!got) {
-      client.release();
-      return null;
-    }
-  } catch (err) {
-    client.release();
-    throw err;
-  }
-  return async () => {
-    try {
-      await client.query("SELECT pg_advisory_unlock($1)", [ADVISORY_LOCK_KEYS.factOfTheDay]);
-    } finally {
-      client.release();
-    }
-  };
+  fact?: () => Promise<Fact | null>;
+  recipients?: () => Promise<Recipient[]>;
+  /** Tests only: write queue rows under the test key so they can be counted. */
+  insertUnderTestKey?: boolean;
+  /** Tests only: called inside the transaction after the emails are queued, before the mark. */
+  beforeMark?: () => Promise<void>;
 }
 
 /**
- * Send Fact of the Day at most once per send period (09:00 UTC to the next),
- * whichever server instance gets there first and however often it is called
- * (Issue #1092). The period counts as sent once its completion is recorded,
- * so it is safe to call again after a failure, and at every start: a start
- * after 09:00 whose period has no completion sends at once, so a restart at
- * 09:00 no longer skips the day. Throws when it did not finish: nothing sent
- * (try again soon), or sent but not recorded (try again soon; the retry only
- * records).
+ * Fact of the Day, at most once per send period (09:00 UTC to the next), for
+ * every instance, every entry point and every retry (Issue #1092).
+ *
+ * One transaction holds the whole decision: a transaction-scoped advisory
+ * lock (one sender at a time across the fleet), the period's mark read, every
+ * email queued, and the mark written. Either all of it commits or none of it
+ * does, so a period with any email queued can never read as unsent, and a
+ * period that failed part-way has queued nothing and is safe to try again —
+ * whether that is the scheduler's retry, the catch-up after a start, or the
+ * jobs route. The mark is the task's completion row, written exactly (it
+ * throws, and skips the recorder's throttle), so the health check sees the
+ * send in the same commit.
+ *
+ * Throws when it did not finish; nothing was queued, and the caller tries
+ * again soon. "another-instance-is-sending" is not done either: the caller
+ * looks again shortly, until it reads the mark itself.
  */
 export async function runDailyFactOfTheDay(deps: DailySendDeps = {}): Promise<DailySendOutcome> {
-  const mark = currentSendMark(deps.now ?? new Date()).getTime();
-  const record = deps.record ?? (() => recordTaskCompleted("fact_of_the_day"));
-  if (sentButUnrecordedFor === mark) {
-    if (!(await record())) throw new Error("Fact of the Day was sent but its completion still cannot be recorded");
-    sentButUnrecordedFor = null;
-    return "sent";
-  }
-  const release = await (deps.lock ?? takeSendLock)();
-  if (!release) return "another-instance-is-sending";
-  try {
-    const last = await (deps.lastCompleted ?? (() => lastTaskCompletion("fact_of_the_day")))();
-    if (last && last.getTime() >= mark) return "already-sent";
-    const result = await (deps.send ?? runFactOfTheDayJob)();
-    logger.info(result, "Fact of the Day sent");
-    if (!(await record())) {
-      sentButUnrecordedFor = mark;
-      throw new Error("Fact of the Day was sent but its completion could not be recorded");
+  const now = deps.now ?? new Date();
+  const mark = currentSendMark(now).getTime();
+  return db.transaction(async (tx) => {
+    const got = await tx.execute(sql`SELECT pg_try_advisory_xact_lock(${ADVISORY_LOCK_KEYS.factOfTheDay}) AS ok`);
+    if (!(got.rows[0] as { ok?: boolean } | undefined)?.ok) return { outcome: "another-instance-is-sending" } as const;
+    const last = await lastTaskCompletion("fact_of_the_day", tx);
+    if (last && last.getTime() >= mark) return { outcome: "already-sent" } as const;
+
+    const fact = await (deps.fact ?? pickFact)();
+    let result = { sent: 0, skipped: 0 };
+    if (!fact) {
+      logger.warn("No facts found for Fact of the Day");
+    } else {
+      let recipients: Recipient[];
+      try {
+        recipients = await (deps.recipients ?? (() => stripeStorage.getActiveLegendarySubscribers()))();
+      } catch (err) {
+        // A failed run, not an empty one: nothing is queued, and it is tried again soon.
+        logger.error({ err }, "Failed to fetch legendary subscribers");
+        throw err;
+      }
+      result = await queueFactOfTheDay(tx, fact, recipients, { insertUnderTestKey: deps.insertUnderTestKey });
     }
-    return "sent";
-  } finally {
-    await release();
-  }
+    await deps.beforeMark?.();
+    await writeTaskCompletion("fact_of_the_day", now, tx);
+    logger.info(result, "Fact of the Day queued");
+    return { outcome: "sent", ...result } as const;
+  });
 }
 
-/** Test seam. */
-export function __resetDailySendForTest(): void {
-  sentButUnrecordedFor = null;
+/**
+ * The scheduler's step (index.ts). It records nothing itself beyond what the
+ * transaction does; a busy lock is not done, so it asks to look again shortly
+ * until this instance reads the day's mark itself.
+ */
+export function factOfTheDayStep(deps: DailySendDeps = {}): TaskStep {
+  return {
+    id: "fact_of_the_day",
+    recordsItself: true,
+    run: async () => {
+      const result = await runDailyFactOfTheDay(deps);
+      if (result.outcome === "another-instance-is-sending") return { followUpMs: RETRY_AFTER_FAILURE_MS };
+      if (result.outcome === "already-sent") logger.info(result, "Fact of the Day already sent this period");
+      return undefined;
+    },
+    failureMessage: "Fact of the Day job failed",
+  };
 }

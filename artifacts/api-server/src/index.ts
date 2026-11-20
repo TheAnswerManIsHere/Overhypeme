@@ -20,7 +20,7 @@ import { refreshPricingCache } from "./lib/falPricing";
 import { getConfigString, getConfigInt } from "./lib/adminConfig";
 import { beginTaskMonitoring } from "./lib/recurringTasks";
 import { msUntilNextTopOfHour, scheduleRecurringTask } from "./lib/taskScheduler";
-import { msUntilNextSend, runDailyFactOfTheDay } from "./jobs/factOfTheDay";
+import { factOfTheDayStep, msUntilNextSend } from "./jobs/factOfTheDay";
 import { attachShutdownHandlers } from "./shutdown";
 import { registerEmailHandler } from "./lib/email.js";
 import { registerEnrichmentJobHandlers } from "./lib/enrichmentJobs.js";
@@ -328,24 +328,14 @@ function scheduleMediaBackup() {
 }
 
 // Daily at 09:00 UTC, and a few minutes after a start: Fact of the Day.
-// runDailyFactOfTheDay sends at most once per day across every instance and
-// records it, so the scheduler's retry after a failure, and its catch-up run
-// after a start, never email anyone twice (Issue #1092).
+// runDailyFactOfTheDay queues the day's emails and writes the day's mark in one
+// transaction, so the scheduler's retry after a failure, its catch-up after a
+// start and the jobs route never email anyone twice (Issue #1092).
 function scheduleDailyFactJob() {
   scheduleRecurringTask({
     cadenceMs: 24 * HOURLY_MS,
     nextMarkMs: () => msUntilNextSend(),
-    steps: [
-      {
-        id: "fact_of_the_day",
-        recordsItself: true,
-        run: async () => {
-          const outcome = await runDailyFactOfTheDay();
-          if (outcome !== "sent") logger.info({ outcome }, "Fact of the Day not sent by this instance");
-        },
-        failureMessage: "Fact of the Day job failed",
-      },
-    ],
+    steps: [factOfTheDayStep()],
   });
 }
 

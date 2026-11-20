@@ -281,7 +281,6 @@ export const TIMER_SITES: readonly TimerSite[] = [
     note: "In-memory expiry of the request limiter's keys: no database, no work that can quietly stop mattering.",
   },
   { file: "lib/operationsDrill.ts", calls: 1, kind: "not-recurring", note: "The drill job's wait, inside one run." },
-  { file: "jobs/factOfTheDay.ts", calls: 1, kind: "not-recurring", note: "A pause between sends." },
   { file: "lib/bookkeepingTimeout.ts", calls: 1, kind: "not-recurring", note: "A per-call timeout." },
   { file: "lib/cliJobPoller.ts", calls: 1, kind: "not-recurring", note: "A sleep between polls of one job." },
   { file: "lib/comparison/transport.ts", calls: 1, kind: "not-recurring", note: "A retry backoff." },
@@ -326,32 +325,41 @@ export async function recordTaskCompleted(id: RecurringTaskId, dbInstance: TaskD
   const last = lastRecordedAt.get(id);
   if (last !== undefined && now - last < RECORD_MIN_INTERVAL_MS) return true;
   lastRecordedAt.set(id, now);
-  const at = new Date(now);
   try {
-    await dbInstance
-      .insert(workerLaneHeartbeatsTable)
-      .values({
-        instanceId: TASK_INSTANCE_ID,
-        lane: taskLane(id),
-        // 0: not a job worker; no protocol is claimed for this row.
-        workerProtocolVersion: 0,
-        lastScheduledAt: at,
-        lastTickCompletedAt: at,
-      })
-      .onConflictDoUpdate({
-        target: [workerLaneHeartbeatsTable.instanceId, workerLaneHeartbeatsTable.lane],
-        // `last_scheduled_at` keeps when monitoring began; only the completion advances.
-        set: {
-          lastTickCompletedAt: sql`GREATEST(${workerLaneHeartbeatsTable.lastTickCompletedAt}, ${at})`,
-          updatedAt: at,
-        },
-      });
+    await writeTaskCompletion(id, new Date(now), dbInstance);
     return true;
   } catch (err) {
     lastRecordedAt.delete(id);
     logger.warn({ err, task: id }, "[recurringTasks] could not record a completed run");
     return false;
   }
+}
+
+/**
+ * Write one task's completion, exactly: no throttle, and it throws when it
+ * fails. For a caller whose completion is part of a transaction (Fact of the
+ * Day's mark commits with its queued emails); recordTaskCompleted is the
+ * best-effort form every other task uses.
+ */
+export async function writeTaskCompletion(id: RecurringTaskId, at: Date, dbInstance: Pick<typeof defaultDb, "insert">): Promise<void> {
+  await dbInstance
+    .insert(workerLaneHeartbeatsTable)
+    .values({
+      instanceId: TASK_INSTANCE_ID,
+      lane: taskLane(id),
+      // 0: not a job worker; no protocol is claimed for this row.
+      workerProtocolVersion: 0,
+      lastScheduledAt: at,
+      lastTickCompletedAt: at,
+    })
+    .onConflictDoUpdate({
+      target: [workerLaneHeartbeatsTable.instanceId, workerLaneHeartbeatsTable.lane],
+      // `last_scheduled_at` keeps when monitoring began; only the completion advances.
+      set: {
+        lastTickCompletedAt: sql`GREATEST(${workerLaneHeartbeatsTable.lastTickCompletedAt}, ${at})`,
+        updatedAt: at,
+      },
+    });
 }
 
 /**

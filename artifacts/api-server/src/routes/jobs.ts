@@ -1,6 +1,6 @@
 import { isRealAdminRequest } from "../lib/adminIdentity";
 import { Router, type IRouter, type Request, type Response } from "express";
-import { runFactOfTheDayJob } from "../jobs/factOfTheDay";
+import { runDailyFactOfTheDay } from "../jobs/factOfTheDay";
 import { logger } from "../lib/logger";
 import { runRetentionWindowJobs } from "../lib/dataLifecycle";
 import { runDailyMaintenance } from "../lib/maintenance";
@@ -28,7 +28,9 @@ function isCronAuthorized(req: Request): boolean {
   return given.length === expected.length && timingSafeEqual(given, expected);
 }
 
-// POST /jobs/fact-of-the-day — run manually (cron or admin-triggered)
+// POST /jobs/fact-of-the-day — run manually (cron or admin-triggered). Goes
+// through the same once-per-day guard as the scheduler (Issue #1092): it sends
+// today's batch only if no instance has, and answers what happened.
 router.post("/jobs/fact-of-the-day", async (req: Request, res: Response) => {
   // Operational privilege: the REAL admin flag, over all three grant
   // mechanisms, and never the toggle-aware one.
@@ -38,7 +40,7 @@ router.post("/jobs/fact-of-the-day", async (req: Request, res: Response) => {
     return;
   }
   try {
-    const result = await runFactOfTheDayJob();
+    const result = await runDailyFactOfTheDay();
     res.json({ ok: true, ...result });
   } catch (err) {
     logger.error({ err }, "Fact of the Day job error");

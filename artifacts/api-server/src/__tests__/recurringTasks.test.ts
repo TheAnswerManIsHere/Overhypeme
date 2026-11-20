@@ -86,7 +86,8 @@ describe("the recurring-task inventory", () => {
     const all = sourceFiles(SRC).filter((f) => !f.endsWith("recurringTasks.ts")).map((f) => readFileSync(f, "utf8")).join("\n");
     for (const task of RECURRING_TASKS) {
       const site = readFileSync(join(SRC, task.site), "utf8");
-      const direct = all.includes(`recordTaskCompleted("${task.id}")`);
+      // Directly, best-effort, or exactly inside a transaction (Fact of the Day's mark commits with its emails).
+      const direct = all.includes(`recordTaskCompleted("${task.id}")`) || all.includes(`writeTaskCompletion("${task.id}"`);
       const asStep = site.includes("scheduleRecurringTask({") && site.includes(`id: "${task.id}"`);
       assert.ok(direct || asStep, `${task.id} never records a completed run`);
     }
