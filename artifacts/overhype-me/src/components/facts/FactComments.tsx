@@ -19,6 +19,7 @@ import { Textarea } from "@/components/ui/Input";
 import { AccessGate } from "@/components/AccessGate";
 import { Turnstile, type TurnstileHandle } from "@/components/ui/Turnstile";
 import { useAskBefore, useAskBeforeSignedIn } from "@/hooks/use-identity-gate";
+import { isReadOnlyRefusal } from "@/lib/readOnlyNotice";
 
 type FormState = "idle" | "submitting" | "error";
 
@@ -187,12 +188,13 @@ export function FactComments({
             setSubmitted(true);
             resetCaptcha();
           },
-          onError: () => {
+          onError: (err: unknown) => {
             setOptimisticComments((prev) => prev.filter((c) => c.id !== optimisticId));
             setText(trimmedText);
             resetCaptcha();
             onCommentError?.();
-            toast({ title: "Failed to post comment", description: "Please try again.", variant: "destructive", duration: 4000 });
+            // A read-only refusal already shows its own toast saying why (Issue #1107).
+            if (!isReadOnlyRefusal(err)) toast({ title: "Failed to post comment", description: "Please try again.", variant: "destructive", duration: 4000 });
             setFormState("error");
           },
         },
@@ -213,9 +215,10 @@ export function FactComments({
           setSubmitted(true);
           resetCaptcha();
         },
-        onError: () => {
+        onError: (err: unknown) => {
           resetCaptcha();
-          toast({ title: "Failed to post comment", description: "Please try again.", variant: "destructive", duration: 4000 });
+          // A read-only refusal already shows its own toast saying why (Issue #1107).
+          if (!isReadOnlyRefusal(err)) toast({ title: "Failed to post comment", description: "Please try again.", variant: "destructive", duration: 4000 });
           setFormState("error");
         },
       },

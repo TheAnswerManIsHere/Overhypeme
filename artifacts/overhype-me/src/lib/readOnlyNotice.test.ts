@@ -11,9 +11,7 @@ import {
   onReadOnlyChange,
   noteReadOnlyRefusal,
   onReadOnlyRefusal,
-  READ_ONLY_REFUSED_TITLE,
-  REFUSAL_QUIET_MS,
-  shouldSuppressToast,
+  isReadOnlyRefusal,
 } from "./readOnlyNotice";
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -46,18 +44,19 @@ describe("a refused request", () => {
   });
 });
 
-describe("toasts right after a refusal (Issue #1107)", () => {
-  it("keeps the refusal's reason: the caller's own failure toast is dropped for a moment", () => {
-    vi.useFakeTimers();
-    try {
-      expect(shouldSuppressToast("Failed to post comment")).toBe(false);
-      noteReadOnlyRefusal();
-      expect(shouldSuppressToast("Failed to post comment")).toBe(true);
-      expect(shouldSuppressToast(READ_ONLY_REFUSED_TITLE)).toBe(false);
-      vi.advanceTimersByTime(REFUSAL_QUIET_MS);
-      expect(shouldSuppressToast("Failed to post comment")).toBe(false);
-    } finally {
-      vi.useRealTimers();
-    }
+describe("isReadOnlyRefusal (Issue #1107)", () => {
+  it("is true only for this request's own 503 carrying the read-only code", () => {
+    expect(isReadOnlyRefusal({ status: 503, data: { code: "READ_ONLY_MODE" } })).toBe(true);
+    expect(isReadOnlyRefusal({ status: 503 }, { code: "READ_ONLY_MODE" })).toBe(true);
+    expect(isReadOnlyRefusal({ status: 503, data: { code: "OTHER" } })).toBe(false);
+    expect(isReadOnlyRefusal({ status: 500, data: { code: "READ_ONLY_MODE" } })).toBe(false);
+    expect(isReadOnlyRefusal(new TypeError("Failed to fetch"))).toBe(false);
+    expect(isReadOnlyRefusal(undefined)).toBe(false);
+  });
+
+  it("does not follow the site's read-only state: another failure while paused is not a refusal", () => {
+    noteReadOnlyRefusal();
+    expect(isReadOnlyNow()).toBe(true);
+    expect(isReadOnlyRefusal({ status: 401, data: { error: "Sign in" } })).toBe(false);
   });
 });

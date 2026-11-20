@@ -14,16 +14,7 @@ export const READ_ONLY_REFUSED_MESSAGE = "Changes are paused for a little while.
 
 type Listener = (on: boolean) => void;
 
-/**
- * How long after a refusal the app's own failure toasts stay quiet. The
- * refused action's caller usually raises its generic "failed, please try
- * again" toast too, and only one toast shows at a time, so without this the
- * generic one could replace the refusal's reason (Issue #1107).
- */
-export const REFUSAL_QUIET_MS = 4000;
-
 let on = false;
-let lastRefusalAt = Number.NEGATIVE_INFINITY;
 const listeners = new Set<Listener>();
 const refusalListeners = new Set<() => void>();
 
@@ -49,7 +40,6 @@ export function onReadOnlyRefusal(l: () => void): () => void {
 
 /** A request was refused because the site is paused. */
 export function noteReadOnlyRefusal(): void {
-  lastRefusalAt = Date.now();
   setReadOnlyNow(true);
   for (const l of refusalListeners) l();
 }
@@ -70,19 +60,25 @@ export async function inspectForReadOnly(response: Response): Promise<void> {
 }
 
 /**
- * Whether a toast should be dropped: any toast other than the refusal's own,
- * raised within REFUSAL_QUIET_MS of a refusal, is the refused action's caller
- * reporting the same failure without the reason.
+ * Whether a failed request was refused because the site is read-only: its own
+ * response is a 503 carrying READ_ONLY_CODE. Accepts the API client's error
+ * (status + parsed data) or a response's status and parsed body. A caller uses
+ * it to skip its own generic failure toast, since the refusal already raised
+ * one that says why and only one toast shows at a time (Issue #1107). Decided
+ * from this request alone, never from whether the site is known to be paused:
+ * a request can fail for another reason while it is.
  */
-export function shouldSuppressToast(title: unknown): boolean {
-  if (title === READ_ONLY_REFUSED_TITLE) return false;
-  return Date.now() - lastRefusalAt < REFUSAL_QUIET_MS;
+export function isReadOnlyRefusal(failure: unknown, body?: unknown): boolean {
+  if (!failure || typeof failure !== "object") return false;
+  const f = failure as { status?: unknown; data?: unknown };
+  if (f.status !== 503) return false;
+  const payload = body !== undefined ? body : f.data;
+  return !!payload && typeof payload === "object" && (payload as { code?: unknown }).code === READ_ONLY_CODE;
 }
 
 /** Test seam. */
 export function __resetReadOnlyNoticeForTests(): void {
   on = false;
-  lastRefusalAt = Number.NEGATIVE_INFINITY;
   listeners.clear();
   refusalListeners.clear();
 }
