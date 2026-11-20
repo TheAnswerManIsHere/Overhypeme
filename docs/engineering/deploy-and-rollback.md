@@ -163,8 +163,9 @@ so the failing one leaves its own changes unapplied, and the migrations after
 it never run. Adding a later migration therefore does not help: the runner
 never reaches it. Reverting the application code alone does not help
 either, because the structure the old code cannot read is already in place;
-getting a release to boot is the way back (the third route below reverts the
-failed migration itself, which is different).
+getting a release to boot is the way back (the bullet *The migration itself
+is wrong*, below, reverts the failed migration itself, which is different; it
+is not route 3, the database restore).
 
 **The rule this meets.** A merged migration file is never edited
 ([`migrations-and-backfills.md`, *Migration principles*](./migrations-and-backfills.md#migration-principles):
@@ -177,11 +178,15 @@ each route goes through a pull request like any other fix.
 
 - **The migration can be edited to run on both histories.** The bar is
   a showing, not a reading: the edited file replayed by the real runner on a
-  copy of a database that already ran it **and holds rows the migration can
-  act on**, changing no row, with that output in the pull request. A run on
-  a database with no such rows shows nothing, and a replay that changes any
-  row fails the bar. Without that showing the file is not edited, and one of
-  the routes below is taken instead.
+  **copy of the development database as it stands now**: the database that
+  already ran the original file, and the one the edit will make run it
+  again (production never ran it; it failed there). The replay changes no
+  row and no structure, and that output is in the pull request. A copy of
+  the test database, or any database that never ran the original, shows
+  nothing, and a replay that changes any row or structure fails the bar.
+  Whether the edit now succeeds on production is shown only by the next
+  publish. Without that showing the file is not edited, and one of the
+  routes below is taken instead.
   **The one precedent did not meet this bar**, and is recorded so it is not
   mistaken for one: on 2026-11-18, 0152 was edited to accept the old stage
   name or its successor (PR #1053). 0152 fills approvals that are missing
