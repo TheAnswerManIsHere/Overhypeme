@@ -57,6 +57,9 @@ test("read-only mode: on from Operations, browsing and a name save carry on, a w
     const visitor = await visitorContext.newPage();
     await visitor.goto("/top-facts");
     await expect(visitor.getByTestId("read-only-notice")).toBeVisible();
+    await expect(visitor.getByTestId("read-only-notice")).toHaveText(
+      "Overhype.me is undergoing maintenance. Real men get pedicures. Keep browsing but the site is read-only until we're done waiting for our toes to dry.",
+    );
     await expect(visitor.getByRole("heading").first()).toBeVisible();
     await visitorContext.close();
 

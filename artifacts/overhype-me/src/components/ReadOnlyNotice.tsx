@@ -52,7 +52,7 @@ export function ReadOnlyNotice() {
       data-testid="read-only-notice"
       className="relative z-[60] w-full bg-primary text-primary-foreground text-center text-sm font-medium px-4 py-1.5 shadow"
     >
-      Changes are paused for a little while. You can keep browsing and using your name.
+      Overhype.me is undergoing maintenance. Real men get pedicures. Keep browsing but the site is read-only until we're done waiting for our toes to dry.
     </div>
   );
 }
