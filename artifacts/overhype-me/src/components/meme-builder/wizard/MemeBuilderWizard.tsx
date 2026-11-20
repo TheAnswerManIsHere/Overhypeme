@@ -52,7 +52,7 @@ export function MemeBuilderWizard(props: MemeBuilderWizardProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-[#111] text-white"
+      className="fixed inset-x-0 bottom-0 top-[var(--read-only-notice-h,0px)] z-50 bg-[#111] text-white"
       role="dialog"
       aria-modal="true"
       aria-label="Meme builder"

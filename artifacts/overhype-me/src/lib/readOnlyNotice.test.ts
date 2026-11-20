@@ -9,7 +9,9 @@ import {
   inspectForReadOnly,
   isReadOnlyNow,
   onReadOnlyChange,
+  noteReadOnlyRefusal,
   onReadOnlyRefusal,
+  isReadOnlyRefusal,
 } from "./readOnlyNotice";
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -39,5 +41,22 @@ describe("a refused request", () => {
     await inspectForReadOnly(json(200, { ok: true }));
     expect(refused).not.toHaveBeenCalled();
     expect(isReadOnlyNow()).toBe(false);
+  });
+});
+
+describe("isReadOnlyRefusal (Issue #1107)", () => {
+  it("is true only for this request's own 503 carrying the read-only code", () => {
+    expect(isReadOnlyRefusal({ status: 503, data: { code: "READ_ONLY_MODE" } })).toBe(true);
+    expect(isReadOnlyRefusal({ status: 503 }, { code: "READ_ONLY_MODE" })).toBe(true);
+    expect(isReadOnlyRefusal({ status: 503, data: { code: "OTHER" } })).toBe(false);
+    expect(isReadOnlyRefusal({ status: 500, data: { code: "READ_ONLY_MODE" } })).toBe(false);
+    expect(isReadOnlyRefusal(new TypeError("Failed to fetch"))).toBe(false);
+    expect(isReadOnlyRefusal(undefined)).toBe(false);
+  });
+
+  it("does not follow the site's read-only state: another failure while paused is not a refusal", () => {
+    noteReadOnlyRefusal();
+    expect(isReadOnlyNow()).toBe(true);
+    expect(isReadOnlyRefusal({ status: 401, data: { error: "Sign in" } })).toBe(false);
   });
 });

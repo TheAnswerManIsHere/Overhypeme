@@ -177,7 +177,11 @@ export default function FactDetail() {
 
   async function handleDeleteMeme(slug: string) {
     const res = await fetch(`/api/memes/${slug}`, { method: "DELETE", credentials: "include" });
-    if (!res.ok) throw new Error("Failed to delete meme");
+    if (!res.ok) {
+      // The server's own explanation (a read-only refusal says the site is paused) is what the toast shows.
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(body?.error ?? "Failed to delete meme");
+    }
     await queryClient.invalidateQueries({ queryKey: ["listFactMemes", factId] });
   }
 

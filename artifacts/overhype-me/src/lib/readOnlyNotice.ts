@@ -6,6 +6,9 @@
 /** The code the server's read-only gate answers with (api-server `lib/readOnlyMode.ts`). */
 export const READ_ONLY_CODE = "READ_ONLY_MODE";
 
+/** The title of the toast shown when an action is refused. */
+export const READ_ONLY_REFUSED_TITLE = "Paused for a moment";
+
 /** The short message shown when an action is refused. */
 export const READ_ONLY_REFUSED_MESSAGE = "Changes are paused for a little while. Nothing you typed is lost; please try again shortly.";
 
@@ -54,6 +57,23 @@ export async function inspectForReadOnly(response: Response): Promise<void> {
   } catch {
     /* not JSON: not ours */
   }
+}
+
+/**
+ * Whether a failed request was refused because the site is read-only: its own
+ * response is a 503 carrying READ_ONLY_CODE. Accepts the API client's error
+ * (status + parsed data) or a response's status and parsed body. A caller uses
+ * it to skip its own generic failure toast, since the refusal already raised
+ * one that says why and only one toast shows at a time (Issue #1107). Decided
+ * from this request alone, never from whether the site is known to be paused:
+ * a request can fail for another reason while it is.
+ */
+export function isReadOnlyRefusal(failure: unknown, body?: unknown): boolean {
+  if (!failure || typeof failure !== "object") return false;
+  const f = failure as { status?: unknown; data?: unknown };
+  if (f.status !== 503) return false;
+  const payload = body !== undefined ? body : f.data;
+  return !!payload && typeof payload === "object" && (payload as { code?: unknown }).code === READ_ONLY_CODE;
 }
 
 /** Test seam. */
