@@ -1,6 +1,6 @@
 ---
 title: Privacy Policy
-version: 2026-11-18.3
+version: 2026-11-19.2
 summary: What we collect, why, who receives it, how long we keep it, and your choices.
 ---
 
@@ -46,7 +46,7 @@ We share personal information only with the providers that run parts of the Serv
 |---|---|---|
 | Replit (with Google Cloud) | Hosts the site, database and stored files | Everything the Service stores |
 | Cloudflare | Network, security, bot checks | Your IP address and requests |
-| fal.ai and the image models it runs, which come from several AI companies | Makes AI pictures | Your photo and the prompt for that picture |
+| fal.ai and the image models it runs, which come from several AI companies | Checks uploaded photos for safety; makes AI pictures | Your photo, for the safety check at upload; the prompt for each picture it makes |
 | OpenAI | Writing aids and content checks | Fact and comment text, a first name when suggesting pronouns, and in some checks a photo |
 | Project Arachnid (Canadian Centre for Child Protection) | Detects known child sexual abuse material | Uploaded images |
 | Stripe | Payments | Your email, account reference and purchases |
@@ -62,18 +62,9 @@ We also disclose information when the law requires it, to protect people from ha
 
 ## How long we keep it
 
-| Information | How long |
-|---|---|
-| Your account | Until you delete it. Deletion takes effect 14 days after you ask, so you can change your mind; an open payment dispute delays it until the dispute is settled |
-| An account that never finished signing up | Once it is 30 days old it is scheduled for deletion and we email you; it is deleted 14 days later unless you choose to keep it. An account you choose to keep is then kept like any other |
-| Photos, memes and pictures you delete | Removed 30 days after you delete them; a backup copy is kept 7 more days |
-| Your photos, memes and pictures when your account is deleted | Removed when the deletion takes effect, with the same 7-day backup |
-| Facts you submitted | Kept in the catalogue after you leave, credited to "a former member" |
-| Comments, votes and reactions | Kept without your name after you leave; deleted if we remove your account for abuse |
-| Sign-in sessions | Valid for 7 days; removed when your account is deleted |
-| Records of how each picture was made | Kept indefinitely, including the account and email address that made it, so a picture can be traced if it is misused |
-| Copies held by fal.ai | Request data for up to 90 days under fal.ai's default settings |
-| Child-safety evidence and reports | As long as the law requires, and longer if we must preserve it |
+{{retention-table}}
+
+Where a provider's period depends on its plan or our settings, we give the longest it allows.
 
 ## Your choices and rights
 

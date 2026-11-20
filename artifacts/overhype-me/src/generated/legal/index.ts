@@ -16,7 +16,7 @@ export const LEGAL_DOCS: LegalDocMeta[] = [
   {
     "slug": "privacy",
     "title": "Privacy Policy",
-    "version": "2026-11-18.3",
+    "version": "2026-11-19.2",
     "summary": "What we collect, why, who receives it, how long we keep it, and your choices."
   },
   {
@@ -36,7 +36,7 @@ export const LEGAL_DOCS: LegalDocMeta[] = [
 /** The current version of each document, which an acceptance record stores. */
 export const LEGAL_VERSIONS: Record<string, string> = {
   "terms": "2026-11-18",
-  "privacy": "2026-11-18.3",
+  "privacy": "2026-11-19.2",
   "copyright": "2026-11-18",
   "guidelines": "2026-11-17"
 };

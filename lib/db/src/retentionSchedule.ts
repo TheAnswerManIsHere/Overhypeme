@@ -265,11 +265,14 @@ export const RETENTION_SCHEDULE: Readonly<Record<string, RetentionEntry>> = {
   // ── Background work and runtime ──────────────────────────────────────────
   async_jobs: {
     personal: "what a job was given (an email job carries its recipient)",
-    rules: [{ kind: "job", job: "finished-jobs", window: "finished rows, each queue's retention setting (30 days)" }],
+    rules: [
+      { kind: "job", job: "finished-jobs", window: "finished rows, by when they were queued, each queue's retention setting (30 days)" },
+      { kind: "kept", reason: "an admin alert that an email could not be delivered (admin_abandoned_email_alert), which repeats the recipient and subject, is exempt from the purge (email.ts retainDuringPurge) and disclosed on the Privacy page" },
+    ],
   },
   rate_limit_counters: {
-    personal: "the IP address, session or email a limit counts",
-    rules: [{ kind: "job", job: "rate-limit-counters", window: "until the counter expires, plus 5 minutes" }],
+    personal: "the IP address, account, session or email a limit counts",
+    rules: [{ kind: "job", job: "rate-limit-counters", window: "removed by the cleanup once the counter has expired (windows up to 24 hours, the daily upload limit); hourly while the app runs, daily from outside" }],
   },
   worker_lane_heartbeats: systemKept("worker liveness, pruned by the worker itself"),
   fact_gag_fold_archive: systemKept("the reversal record of the gag fold (migration 0147)"),
