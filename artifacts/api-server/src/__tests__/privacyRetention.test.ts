@@ -50,7 +50,7 @@ describe("the Privacy page's retention table", () => {
       assert.doesNotMatch(row(r), /after they were made/, "backup retention is measured from removal, not from the copy");
     }
     assert.match(row("Photos, memes and pictures you delete"), /latest complete backup is kept until a newer one replaces it/);
-    assert.match(row("Pictures made by AI, at fal.ai"), new RegExp(`each picture ${GENERATED_OUTPUT_EXPIRY_SECONDS / 86400} days`));
+    assert.match(row("Pictures made by AI, at fal.ai"), new RegExp(`asked to delete each picture after ${GENERATED_OUTPUT_EXPIRY_SECONDS / 86400} days`));
     assert.equal(CLASSIFIER_UPLOAD_LIFECYCLE.expiresIn, "1h");
     assert.match(row("Your photo, when we check it for safety at upload"), /within an hour/);
   });

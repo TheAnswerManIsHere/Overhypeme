@@ -57,7 +57,7 @@ export const OFF_DATABASE_STORES: Readonly<Record<string, OffDatabaseStore>> = {
   },
   posthog: {
     holds: "visits and steps, with a random identifier",
-    period: "1 year (Free) or 2 years (paid)",
+    period: "1 year on the Free plan this project is on (billing overview, 2026-11-20); 2 years on pay-as-you-go",
     mechanism: "provider default",
   },
   "fal-classifier-photo": {
@@ -91,8 +91,13 @@ export const OFF_DATABASE_STORES: Readonly<Record<string, OffDatabaseStore>> = {
     mechanism: "provider terms",
   },
   cloudflare: {
-    holds: "IP addresses and requests, bot-check results, forwarded email",
+    holds: "IP addresses and requests, bot-check results, and the routing of email sent to our addresses",
     period: "under Cloudflare's own terms",
+    mechanism: "provider terms",
+  },
+  "support-mailbox": {
+    holds: "emails people send to legal@, privacy@, copyright@ and support@overhype.me, forwarded to the site's Gmail mailbox",
+    period: "kept in the mailbox until deleted; no automatic deletion",
     mechanism: "provider terms",
   },
   "sign-in-providers": {
@@ -199,8 +204,18 @@ export const PRIVACY_RETENTION_ROWS: readonly PrivacyRetentionRow[] = [
   },
   {
     information: "Server and edge logs",
-    howLong: "Up to 30 days in our hosting provider's logs, and up to 7 days in Cloudflare's",
-    covers: ["server-logs", "worker-logs", "cloudflare"],
+    howLong: "Up to 30 days in our hosting provider's logs, and up to 7 days in our Cloudflare Worker's logs",
+    covers: ["server-logs", "worker-logs"],
+  },
+  {
+    information: "Network and security records at Cloudflare (your IP address, requests, bot checks, and the routing of email you send us)",
+    howLong: "Under Cloudflare's own terms",
+    covers: ["cloudflare"],
+  },
+  {
+    information: "Emails you send to our addresses (legal@, privacy@, copyright@, support@)",
+    howLong: "Kept in our mailbox until we delete them",
+    covers: ["support-mailbox"],
   },
   {
     information: "Error reports (Sentry)",
@@ -219,7 +234,7 @@ export const PRIVACY_RETENTION_ROWS: readonly PrivacyRetentionRow[] = [
   },
   {
     information: "Pictures made by AI, at fal.ai",
-    howLong: "fal.ai keeps each picture 30 days and its request for up to 90 days; we keep our own copy as described above",
+    howLong: "fal.ai is asked to delete each picture after 30 days and keeps its request for up to 90 days. Pictures made before we put this in place follow fal.ai's account settings. We keep our own copy as described above",
     covers: ["fal-generated"],
   },
   {

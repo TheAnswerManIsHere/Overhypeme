@@ -1,6 +1,6 @@
 ---
 title: Privacy Policy
-version: 2026-11-19.2
+version: 2026-11-20
 summary: What we collect, why, who receives it, how long we keep it, and your choices.
 ---
 
@@ -55,6 +55,7 @@ We share personal information only with the providers that run parts of the Serv
 | Google Analytics | Counts visits and the steps visitors take | Your IP address, pages visited, steps taken and device information, with a random identifier and, for signed-in members, your account ID |
 | PostHog | Shows how visitors move through the site | Your IP address, pages visited, steps taken and device information, with a random identifier and, for signed-in members, your account ID |
 | Google and Apple | Sign-in, if you choose them | What you approve in their sign-in screen |
+| Google (Gmail) | Holds the mailbox our published email addresses forward to | What you write to those addresses |
 
 We also disclose information when the law requires it, to protect people from harm, in connection with a sale or reorganisation of the business, or with your permission.
 
