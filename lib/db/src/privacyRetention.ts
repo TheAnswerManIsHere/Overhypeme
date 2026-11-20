@@ -241,7 +241,7 @@ export const PRIVACY_RETENTION_ROWS: readonly PrivacyRetentionRow[] = [
 
 /** Escapes a cell for a Markdown table. */
 function cell(s: string): string {
-  return s.replace(/\|/g, "\\|").replace(/\n/g, " ");
+  return s.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 }
 
 /** The table as Markdown, for the Privacy page's `{{retention-table}}` line. */

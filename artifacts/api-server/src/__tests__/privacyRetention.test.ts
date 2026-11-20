@@ -57,3 +57,10 @@ describe("the Privacy page's retention table", () => {
     assert.ok(renderPrivacyRetentionTable().startsWith("| Information | How long |"));
   });
 });
+
+describe("the table's cell escaping", () => {
+  it("escapes a backslash before a pipe, and folds line breaks", () => {
+    const md = renderPrivacyRetentionTable([{ information: "a\\|b", howLong: "x|y\r\nz", covers: [] }]);
+    assert.equal(md.split("\n")[2], "| a\\\\\\|b | x\\|y z |");
+  });
+});
