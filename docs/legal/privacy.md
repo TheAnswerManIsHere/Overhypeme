@@ -1,6 +1,6 @@
 ---
 title: Privacy Policy
-version: 2026-11-20
+version: 2026-11-20.2
 summary: What we collect, why, who receives it, how long we keep it, and your choices.
 ---
 
@@ -45,7 +45,7 @@ We share personal information only with the providers that run parts of the Serv
 | Provider | What it does | What it receives |
 |---|---|---|
 | Replit (with Google Cloud) | Hosts the site, database and stored files | Everything the Service stores |
-| Cloudflare | Network, security, bot checks | Your IP address and requests |
+| Cloudflare | Network, security, bot checks, and forwarding email sent to our addresses | Your IP address and requests, and the email you send us |
 | fal.ai and the image models it runs, which come from several AI companies | Checks uploaded photos for safety; makes AI pictures | Your photo, for the safety check at upload; the prompt for each picture it makes |
 | OpenAI | Writing aids and content checks | Fact and comment text, a first name when suggesting pronouns, and in some checks a photo |
 | Project Arachnid (Canadian Centre for Child Protection) | Detects known child sexual abuse material | Uploaded images |

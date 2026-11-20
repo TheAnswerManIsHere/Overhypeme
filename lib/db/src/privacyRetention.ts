@@ -96,8 +96,8 @@ export const OFF_DATABASE_STORES: Readonly<Record<string, OffDatabaseStore>> = {
     mechanism: "provider terms",
   },
   "support-mailbox": {
-    holds: "emails people send to legal@, privacy@, copyright@ and support@overhype.me, forwarded to the site's Gmail mailbox",
-    period: "kept in the mailbox until deleted; no automatic deletion",
+    holds: "emails people send to legal@, privacy@, copyright@ and support@overhype.me, and a copy of every contact-page message (sent to support@), forwarded to the site's Gmail mailbox",
+    period: "kept in the mailbox until deleted by hand; no automatic deletion and no rule",
     mechanism: "provider terms",
   },
   "sign-in-providers": {
@@ -169,8 +169,8 @@ export const PRIVACY_RETENTION_ROWS: readonly PrivacyRetentionRow[] = [
   },
   {
     information: "Messages you send to support",
-    howLong: "Until your account is deleted, or kept to answer a request you made without an account",
-    covers: ["support_requests"],
+    howLong: "Our record is kept until your account is deleted, or kept to answer a request you made without an account. Each message also arrives in our mailbox as an email, and that copy is kept until we delete it, as are emails you send to our addresses",
+    covers: ["support_requests", "support-mailbox"],
   },
   {
     information: "Records of how each picture was made",
