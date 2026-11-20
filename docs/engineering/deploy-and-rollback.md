@@ -78,7 +78,11 @@ David's phone (the plan's Q6: 1).
 
 All of it is readable without a log. In order:
 
-1. **The site answers**: `https://overhype.me/api/healthz` is 200.
+1. **The site answers, core pages included**: `https://overhype.me/api/healthz`
+   is 200, **and** `https://overhype.me/api/facts` answers 200 with facts.
+   The first alone can be green while fact pages fail: on 2026-11-18 they
+   answered 500 for about 25 minutes behind a green home page (*Ways back*,
+   route 2).
 2. **Nothing is silently failing**: `https://overhype.me/api/health/alerts` is
    200. This is the address the uptime check calls; a 503 means a job lane, a
    recurring task, a stuck job or the Stripe comparison is unhealthy, or could
@@ -157,9 +161,10 @@ listening` for the new deployment in the publish log (after-publish step 4).
 Each pending migration runs in its own transaction (`lib/db/src/migrate.ts`),
 so the failing one leaves its own changes unapplied, and the migrations after
 it never run. Adding a later migration therefore does not help: the runner
-never reaches it. Reverting code does not help either, because the structure
-the old code cannot read is already in place; getting a release to boot is
-the way back.
+never reaches it. Reverting the application code alone does not help
+either, because the structure the old code cannot read is already in place;
+getting a release to boot is the way back (the third route below reverts the
+failed migration itself, which is different).
 
 **The rule this meets.** A merged migration file is never edited
 ([`migrations-and-backfills.md`, *Migration principles*](./migrations-and-backfills.md#migration-principles):
@@ -170,21 +175,21 @@ again. Which way past is right depends on why it failed, read from the
 failing statement in the publish log. The agent diagnoses and proposes;
 each route goes through a pull request like any other fix.
 
-- **The migration can be made to run on both histories, and its replay
-  changes nothing on a database that already ran it.** This is the repair
-  that worked on 2026-11-18: 0152 was edited to accept the old stage name or
-  its successor (PR #1053). 0152 fills approvals that are missing and leaves
-  recorded ones alone, so a replay changes only rows still missing one. The
-  measurement before merge replayed it on a copy of the fully migrated
-  **test** database, which held nothing for 0152 to act on (its output began
-  `already recorded 0`), so it showed the runner completes, not that a
-  populated database is unchanged; that part rested on reading the SQL. The
-  rule's danger is a replay that changes something, so the condition for
-  another such edit is a showing: the edited file replayed by the real
-  runner on a copy of a database that already ran it **and holds rows the
-  migration can act on**, with that output in the pull request. A run on a
-  database with no such rows shows nothing. A migration whose replay could
-  change a row on a database that already ran it is never edited.
+- **The migration can be edited to run on both histories.** The bar is
+  a showing, not a reading: the edited file replayed by the real runner on a
+  copy of a database that already ran it **and holds rows the migration can
+  act on**, changing no row, with that output in the pull request. A run on
+  a database with no such rows shows nothing, and a replay that changes any
+  row fails the bar. Without that showing the file is not edited, and one of
+  the routes below is taken instead.
+  **The one precedent did not meet this bar**, and is recorded so it is not
+  mistaken for one: on 2026-11-18, 0152 was edited to accept the old stage
+  name or its successor (PR #1053). 0152 fills approvals that are missing
+  and leaves recorded ones alone, so its replay can change rows still
+  missing one. The measurement before merge replayed it on a copy of the
+  fully migrated **test** database, which held nothing for 0152 to act on
+  (its output began `already recorded 0`); that showed the runner completes,
+  and the rest was accepted on reading the SQL during the incident.
   The rule's three homes state it without this exception
   (`migrations-and-backfills.md`, `known-failure-patterns.md` and
   `.agents/memory/migration-file-immutable-once-merged.md`); reconciling
