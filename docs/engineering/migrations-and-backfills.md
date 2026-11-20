@@ -353,6 +353,9 @@ not an in-memory assumption.
 
 ## Rollback and recovery
 
+- The order of a release and the ways back from a bad one, a production
+  restore included, are the runbook
+  [`deploy-and-rollback.md`](./deploy-and-rollback.md).
 - Avoid destructive operations (drops, irreversible rewrites) unless the plan
   **explicitly** includes recovery/rollback.
 - Deleting a person's data goes through its owner's lifecycle, never a raw
