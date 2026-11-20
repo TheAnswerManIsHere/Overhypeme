@@ -55,33 +55,17 @@ export interface RecurringTask {
   /** The interval between runs, from the same configuration the scheduler reads. */
   cadenceMs: () => Promise<number> | number;
   /**
-   * The longest wait from a process start to its first run. Unless the task
-   * runs on the wall clock (`alignedToClock`), it must be shorter than
-   * `graceMs`: the deadline counts from the last completion, whichever
+   * The longest wait from a process start to its first run. It must be
+   * shorter than `graceMs`: the deadline counts from the last completion, whichever
    * process made it, so a restart just before a run is due pushes the next
    * run to the restart plus this, and a first run later than the grace makes
    * every such restart page as a stopped task (the grace sweep, 2026-11-19).
    */
   firstRunMs: number;
-  /**
-   * Set, with the reason, on a task whose runs are pinned to the wall clock
-   * (the top of the hour, 09:00 UTC), so a restart never moves its next run
-   * later than the last completion plus its cadence.
-   */
-  alignedToClock?: string;
   /** How far past its expected run a missing completion may go before it is an alert. */
   graceMs: number;
   /** False where the task deliberately does not run (the media backup outside the published deployment). */
   runsHere?: () => boolean;
-  /**
-   * Set, with the reason, only on a task whose scheduler does NOT try again
-   * soon after a failed run. Every other task's scheduler waits
-   * `nextRunDelayMs(false, cadence)` after a failure, so one transient failure
-   * (a database that times out once) is retried well inside the grace and
-   * never reads as overdue; a task that keeps failing still does, at the same
-   * deadline as before.
-   */
-  noRetryAfterFailure?: string;
 }
 
 /**
@@ -182,14 +166,16 @@ export const RECURRING_TASKS = [
   },
   {
     id: "fact_of_the_day",
-    alignedToClock: "Runs at 09:00 UTC every day, whenever the process started.",
     label: "Fact of the Day",
     site: "index.ts",
     cadenceMs: () => 24 * HOUR,
-    firstRunMs: 24 * HOUR,
+    // At 09:00 UTC, and a few minutes after any start: a start whose send
+    // period has no recorded send catches up at once, so a restart at 09:00
+    // never skips the day. Sending at most once a period, across every
+    // instance, is jobs/factOfTheDay.ts's (runDailyFactOfTheDay), which is
+    // what makes a retry after a failure safe too.
+    firstRunMs: 5 * MINUTE,
     graceMs: 3 * HOUR,
-    noRetryAfterFailure:
-      "It emails subscribers: a run that failed part-way may already have sent some, so trying again could send twice. A failed send is worth an alert.",
   },
   {
     id: "oauth_state_sweep",
@@ -261,10 +247,10 @@ export type TimerSite =
 export const TIMER_SITES: readonly TimerSite[] = [
   {
     file: "index.ts",
-    calls: 3,
-    kind: "tasks",
+    calls: 2,
+    kind: "not-recurring",
     note:
-      "Fact of the Day's daily timer (kept off the shared scheduler: it is never retried early). Every other task scheduled here runs on lib/taskScheduler.ts. Not recurring: the meme-bake backfill (once per boot) and the fatal-exit safety timer.",
+      "The meme-bake backfill (once per boot) and the fatal-exit safety timer. Every recurring task scheduled here runs on lib/taskScheduler.ts.",
   },
   {
     file: "lib/taskScheduler.ts",
@@ -453,6 +439,21 @@ export async function taskHealth(
     });
   }
   return out;
+}
+
+/** When a task's last run completed, fleet-wide; null when none has. Throws when it cannot read. */
+export async function lastTaskCompletion(
+  id: RecurringTaskId,
+  dbInstance: Pick<typeof defaultDb, "select"> = defaultDb,
+): Promise<Date | null> {
+  const [row] = await dbInstance
+    .select({ at: workerLaneHeartbeatsTable.lastTickCompletedAt })
+    .from(workerLaneHeartbeatsTable)
+    .where(and(
+      sql`${workerLaneHeartbeatsTable.instanceId} = ${TASK_INSTANCE_ID}`,
+      sql`${workerLaneHeartbeatsTable.lane} = ${taskLane(id)}`,
+    ));
+  return row?.at ? new Date(row.at) : null;
 }
 
 /** Test seam: forget the per-process write throttle, and optionally move this process's start. */

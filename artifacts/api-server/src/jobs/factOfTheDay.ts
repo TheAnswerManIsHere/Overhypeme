@@ -1,5 +1,5 @@
 import { BRAND_ORANGE } from "@workspace/api-zod";
-import { db } from "@workspace/db";
+import { db, pool } from "@workspace/db";
 import { factsTable } from "@workspace/db/schema";
 import { desc, eq } from "drizzle-orm";
 import { stripeStorage } from "../lib/stripeStorage";
@@ -7,6 +7,8 @@ import { logger } from "../lib/logger";
 import { sendEmail, buildEmailShell, ctaButton, divider } from "../lib/email";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { renderPersonalized } from "../lib/renderCanonical";
+import { ADVISORY_LOCK_KEYS } from "../lib/advisoryLockKeys";
+import { lastTaskCompletion, recordTaskCompleted } from "../lib/recurringTasks";
 
 export function buildFactOfTheDayEmail(
   factText: string,
@@ -72,8 +74,10 @@ export async function runFactOfTheDayJob(): Promise<{ sent: number; skipped: num
   try {
     legendaryUsers = await stripeStorage.getActiveLegendarySubscribers();
   } catch (err) {
-    logger.error({ err }, "Failed to fetch legendary subscribers — Stripe schema may not be ready");
-    return { sent: 0, skipped: 0 };
+    // A failed run, not an empty one: nothing was sent, so the daily wrapper
+    // tries again in minutes rather than recording the day as done.
+    logger.error({ err }, "Failed to fetch legendary subscribers");
+    throw err;
   }
 
   logger.info({ count: legendaryUsers.length, factId: topFact.id }, "Sending Fact of the Day");
@@ -101,4 +105,99 @@ export async function runFactOfTheDayJob(): Promise<{ sent: number; skipped: num
 
   logger.info({ sent, skipped }, "Fact of the Day job complete");
   return { sent, skipped };
+}
+
+/** The send hour, UTC. */
+export const FACT_OF_THE_DAY_HOUR_UTC = 9;
+
+/** The most recent 09:00 UTC at or before `now`: the start of the send period `now` falls in. */
+export function currentSendMark(now: Date): Date {
+  const mark = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), FACT_OF_THE_DAY_HOUR_UTC));
+  if (mark.getTime() > now.getTime()) mark.setUTCDate(mark.getUTCDate() - 1);
+  return mark;
+}
+
+/** Milliseconds from `now` to the next 09:00 UTC. */
+export function msUntilNextSend(now = new Date()): number {
+  const next = currentSendMark(now);
+  next.setUTCDate(next.getUTCDate() + 1);
+  return next.getTime() - now.getTime();
+}
+
+export type DailySendOutcome = "sent" | "already-sent" | "another-instance-is-sending";
+
+/**
+ * A send whose emails went out but whose completion could not be recorded, by
+ * send period: the retry then only records it, and never emails again.
+ */
+let sentButUnrecordedFor: number | null = null;
+
+export interface DailySendDeps {
+  now?: Date;
+  /** Take the fleet-wide send lock; resolves a release function, or null when another instance holds it. */
+  lock?: () => Promise<(() => Promise<void>) | null>;
+  lastCompleted?: () => Promise<Date | null>;
+  send?: () => Promise<{ sent: number; skipped: number }>;
+  record?: () => Promise<boolean>;
+}
+
+async function takeSendLock(): Promise<(() => Promise<void>) | null> {
+  const client = await pool.connect();
+  try {
+    const got = (await client.query<{ ok: boolean }>("SELECT pg_try_advisory_lock($1) AS ok", [ADVISORY_LOCK_KEYS.factOfTheDay])).rows[0]?.ok;
+    if (!got) {
+      client.release();
+      return null;
+    }
+  } catch (err) {
+    client.release();
+    throw err;
+  }
+  return async () => {
+    try {
+      await client.query("SELECT pg_advisory_unlock($1)", [ADVISORY_LOCK_KEYS.factOfTheDay]);
+    } finally {
+      client.release();
+    }
+  };
+}
+
+/**
+ * Send Fact of the Day at most once per send period (09:00 UTC to the next),
+ * whichever server instance gets there first and however often it is called
+ * (Issue #1092). The period counts as sent once its completion is recorded,
+ * so it is safe to call again after a failure, and at every start: a start
+ * after 09:00 whose period has no completion sends at once, so a restart at
+ * 09:00 no longer skips the day. Throws when it did not finish: nothing sent
+ * (try again soon), or sent but not recorded (try again soon; the retry only
+ * records).
+ */
+export async function runDailyFactOfTheDay(deps: DailySendDeps = {}): Promise<DailySendOutcome> {
+  const mark = currentSendMark(deps.now ?? new Date()).getTime();
+  const record = deps.record ?? (() => recordTaskCompleted("fact_of_the_day"));
+  if (sentButUnrecordedFor === mark) {
+    if (!(await record())) throw new Error("Fact of the Day was sent but its completion still cannot be recorded");
+    sentButUnrecordedFor = null;
+    return "sent";
+  }
+  const release = await (deps.lock ?? takeSendLock)();
+  if (!release) return "another-instance-is-sending";
+  try {
+    const last = await (deps.lastCompleted ?? (() => lastTaskCompletion("fact_of_the_day")))();
+    if (last && last.getTime() >= mark) return "already-sent";
+    const result = await (deps.send ?? runFactOfTheDayJob)();
+    logger.info(result, "Fact of the Day sent");
+    if (!(await record())) {
+      sentButUnrecordedFor = mark;
+      throw new Error("Fact of the Day was sent but its completion could not be recorded");
+    }
+    return "sent";
+  } finally {
+    await release();
+  }
+}
+
+/** Test seam. */
+export function __resetDailySendForTest(): void {
+  sentButUnrecordedFor = null;
 }
