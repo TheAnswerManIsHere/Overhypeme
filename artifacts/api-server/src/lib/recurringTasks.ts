@@ -54,8 +54,21 @@ export interface RecurringTask {
   site: string;
   /** The interval between runs, from the same configuration the scheduler reads. */
   cadenceMs: () => Promise<number> | number;
-  /** The longest wait from a process start to its first run. */
+  /**
+   * The longest wait from a process start to its first run. Unless the task
+   * runs on the wall clock (`alignedToClock`), it must be shorter than
+   * `graceMs`: the deadline counts from the last completion, whichever
+   * process made it, so a restart just before a run is due pushes the next
+   * run to the restart plus this, and a first run later than the grace makes
+   * every such restart page as a stopped task (the grace sweep, 2026-11-19).
+   */
   firstRunMs: number;
+  /**
+   * Set, with the reason, on a task whose runs are pinned to the wall clock
+   * (the top of the hour, 09:00 UTC), so a restart never moves its next run
+   * later than the last completion plus its cadence.
+   */
+  alignedToClock?: string;
   /** How far past its expected run a missing completion may go before it is an alert. */
   graceMs: number;
   /** False where the task deliberately does not run (the media backup outside the published deployment). */
@@ -79,6 +92,11 @@ export interface RecurringTask {
  */
 export const RETRY_AFTER_FAILURE_MS = 5 * MINUTE;
 
+/** A task's first run after a process start, as the inventory declares it: the scheduler reads it from here so the two cannot drift. */
+export function taskFirstRunMs(id: RecurringTaskId): number {
+  return RECURRING_TASKS.find((t) => t.id === id)!.firstRunMs;
+}
+
 /** The wait before a task's next run: its cadence after a success, the retry delay (never longer than the cadence) after a failure. */
 export function nextRunDelayMs(succeeded: boolean, cadenceMs: number): number {
   return succeeded ? cadenceMs : Math.min(RETRY_AFTER_FAILURE_MS, cadenceMs);
@@ -95,6 +113,7 @@ export const RECURRING_TASKS = [
   },
   {
     id: "transient_render_purge",
+    alignedToClock: "Runs at the top of every hour, whenever the process started.",
     label: "Transient render log purge",
     site: "index.ts",
     cadenceMs: () => HOUR,
@@ -103,6 +122,7 @@ export const RECURRING_TASKS = [
   },
   {
     id: "provenance_retention_purge",
+    alignedToClock: "Rides the transient-render purge's top-of-the-hour run.",
     label: "Image provenance retention purge",
     site: "index.ts",
     cadenceMs: () => HOUR,
@@ -160,6 +180,7 @@ export const RECURRING_TASKS = [
   },
   {
     id: "fact_of_the_day",
+    alignedToClock: "Runs at 09:00 UTC every day, whenever the process started.",
     label: "Fact of the Day",
     site: "index.ts",
     cadenceMs: () => 24 * HOUR,
@@ -184,7 +205,10 @@ export const RECURRING_TASKS = [
       const { loadMembershipConfig } = await import("./membershipTiming");
       return (await loadMembershipConfig()).grace_sweep_interval_seconds * SECOND;
     },
-    firstRunMs: 0,
+    // Soon after a start, not a full interval later, so a restart never
+    // pushes it past its deadline. Not at the first instant: a run is up to
+    // 500 recompute transactions, and the boot is the busiest minute there is.
+    firstRunMs: 3 * MINUTE,
     graceMs: 30 * MINUTE,
   },
   {

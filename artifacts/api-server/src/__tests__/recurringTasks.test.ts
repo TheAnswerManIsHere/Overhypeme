@@ -125,6 +125,31 @@ describe("one failed run never makes a task overdue", () => {
   });
 });
 
+// The phone alert of 2026-11-19, 23:54 UTC: production restarted at 23:11;
+// every task ran again within minutes except the grace sweep, which waited a
+// full interval after a start, so the deadline counted from its last
+// completion (22:21) passed at 23:51 with no run. A restart must never page.
+describe("a restart never makes a task overdue", () => {
+  it("every task not pinned to the wall clock first runs inside its grace", () => {
+    for (const task of RECURRING_TASKS) {
+      if ("alignedToClock" in task) {
+        assert.ok(task.alignedToClock.length > 20, `${task.id} must say how it is pinned to the clock`);
+        continue;
+      }
+      assert.ok(
+        task.firstRunMs < task.graceMs,
+        `${task.id}: its first run after a start (${task.firstRunMs} ms) must land inside its grace (${task.graceMs} ms)`,
+      );
+    }
+  });
+
+  it("the grace sweep's first run reads the inventory, not the interval", () => {
+    const membership = readFileSync(join(SRC, "lib/membershipSchedules.ts"), "utf8");
+    assert.ok(membership.includes('schedule(Math.min(taskFirstRunMs("grace_sweep"), intervalMs));'));
+    assert.ok(!membership.includes("schedule(intervalMs);"), "the grace sweep waits a full interval after a start");
+  });
+});
+
 describe("the completion record", () => {
   beforeEach(async () => {
     await db.delete(workerLaneHeartbeatsTable).where(like(workerLaneHeartbeatsTable.lane, `${TASK_LANE_PREFIX}%`));

@@ -24,7 +24,7 @@
 import { loadMembershipConfig } from "./membershipTiming.js";
 import { sweepExpiredGrace } from "./membershipGraceSweep.js";
 import { logger } from "./logger.js";
-import { nextRunDelayMs, recordTaskCompleted } from "./recurringTasks.js";
+import { nextRunDelayMs, recordTaskCompleted, taskFirstRunMs } from "./recurringTasks.js";
 
 /**
  * Null until a sweep has actually succeeded.
@@ -187,7 +187,11 @@ export async function scheduleMembershipJobs(): Promise<void> {
         });
     }, delayMs).unref();
   };
-  schedule(intervalMs);
+  // The first run comes minutes after a start, not a full interval later: the
+  // health check's deadline counts from the last completion, whichever process
+  // made it, so waiting an interval after every restart made any restart page
+  // as a stopped sweep (2026-11-19, 23:54 UTC).
+  schedule(Math.min(taskFirstRunMs("grace_sweep"), intervalMs));
 
   logger.info(
     {
