@@ -1,10 +1,11 @@
 /**
- * The joke read and the humor note on the moderation screen, driven in a real
+ * The humor note on the moderation screen's Gags step, driven in a real
  * browser (plan `docs/plans/PLAN_GAG_GENERATOR.md`, *Testing*: "one browser test
  * of the moderation journey"; PR #936's build report found it missing).
  *
- * What it owns is the screen and its hand-off with the server: the AI's read
- * shows above the gags; a correction being typed survives Regenerate, through
+ * What it owns is the screen and its hand-off with the server: no read of the
+ * joke from the gag writer shows (it writes none since increment 1.2d, plan
+ * PLAN_FACT_LIFECYCLE_REBUILD.md 1C); a note being typed survives Regenerate, through
  * "drafting" and back (the defect Codex found in PR #936 round 2, which the
  * component tests had missed because they never passed through pending); Save
  * note sends the typed text and the note then shows as approved.
@@ -49,7 +50,6 @@ async function stubGagServer(page: Page): Promise<{ notesSaved: () => string[]; 
       status: "ok",
       current: true,
       generatedAt: new Date().toISOString(),
-      jokeRead: second ? "A second reading of the slammed door." : "A revolving door cannot be slammed; Alex slams one anyway.",
       humorNote: note,
       candidates: second ? [gag("Spins it shut"), gag("Brakes it"), gag("Glares it closed")] : [gag("Slams it"), gag("Stops it"), gag("Shuts it")],
     };
@@ -82,24 +82,24 @@ async function stubGagServer(page: Page): Promise<{ notesSaved: () => string[]; 
   return { notesSaved: () => saved, regenerated: () => regenerations };
 }
 
-test.describe("Admin · moderation · the joke read and the humor note", () => {
+test.describe("Admin · moderation · the humor note on the Gags step", () => {
   test.beforeEach(async ({ context, page }) => {
     const login = await context.request.post("/api/auth/dev-admin-login");
     expect(login.ok(), `dev-admin-login should be 200, got ${login.status()}`).toBe(true);
     await page.setViewportSize(DESKTOP);
   });
 
-  test("a correction typed before saving survives Regenerate, then saves as the approved note", async ({ page }) => {
+  test("a note typed before saving survives Regenerate, then saves as the approved note", async ({ page }) => {
     await stubConceptReview(page, { id: REVIEW_ID, submittedText: TEXT, stagingFactId: FACT_ID, enrichment: enrichmentWithConcept("{NAME} slams a revolving door.") });
     const server = await stubGagServer(page);
 
     await page.goto("/admin/moderation");
     await page.getByText(`"${TEXT}"`, { exact: true }).first().click();
 
-    const read = page.getByTestId("joke-read-text");
-    await expect(read, "the AI's read shows above the gags").toContainText("cannot be slammed");
+    await expect(page.getByTestId("candidate-title").first(), "the ideas have loaded").toBeVisible();
+    await expect(page.getByText(/The AI's read of the joke/), "the gag writer's own read is gone").toHaveCount(0);
 
-    await page.getByTestId("joke-read-edit").click();
+    await page.getByTestId("humor-note-write").click();
     const input = page.getByTestId("humor-note-input");
     await input.fill("The door is the victim; Alex is merely punctual.");
 
@@ -108,7 +108,7 @@ test.describe("Admin · moderation · the joke read and the humor note", () => {
     await expect(page.getByText(/Drafting three ideas/i), "and the new generation lands").toBeHidden({ timeout: 15_000 });
     expect(server.regenerated()).toBe(1);
 
-    await expect(input, "the typed correction survived Regenerate").toHaveValue("The door is the victim; Alex is merely punctual.");
+    await expect(input, "the typed note survived Regenerate").toHaveValue("The door is the victim; Alex is merely punctual.");
     expect(server.notesSaved(), "nothing was saved without Save note").toEqual([]);
 
     await page.getByTestId("humor-note-save").click();

@@ -58,7 +58,6 @@ function stub(label: string, seen?: (input: GenerateInput) => void): VisualConce
   return async (input) => {
     seen?.(input);
     return {
-      jokeRead: `Read ${label}.`,
       candidates: [1, 2, 3].map((n) => ({ title: `${label} ${n}`, whyItWorks: "It lands.", sceneDescription: `{NAME} ${label} ${n}.`, tokenValid: true, bubbles: [] })),
       provenance: PROVENANCE,
     };

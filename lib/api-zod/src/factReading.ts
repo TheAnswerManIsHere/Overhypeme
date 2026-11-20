@@ -8,6 +8,16 @@
 import { z } from "zod";
 import { HUMOR_NOTE_MAX_CHARS } from "./visualConcepts";
 
+/**
+ * Whether a source link is an ordinary web address (http or https). The links
+ * come from the AI, which reads text a stranger submitted, so anything else
+ * (javascript:, data:, a bare word) is never made clickable.
+ */
+export function isWebUrl(url: string): boolean {
+  // A scheme of http or https, then a host with no whitespace in the address.
+  return /^https?:\/\/[^\s/?#]+(?:[/?#]\S*)?$/i.test(url);
+}
+
 /** One reference the fact makes, as the research found it. */
 export const factReadingReferenceSchema = z.object({
   /** The words in the fact that make the reference. */
@@ -16,8 +26,15 @@ export const factReadingReferenceSchema = z.object({
   meaning: z.string().trim().min(1).max(1200),
   /** What it implies for a picture: what to show, and the misreading to avoid. */
   pictureImplication: z.string().trim().max(1200),
-  /** Pages the web lookup found that confirm the meaning; empty when none helped. */
-  sources: z.array(z.object({ title: z.string().trim().max(300), url: z.string().trim().max(2000) })).max(8),
+  /**
+   * Pages the web lookup found that confirm the meaning; empty when none
+   * helped. A source whose address is not http or https is dropped, not
+   * failed: one bad link must not cost the whole paid reading.
+   */
+  sources: z
+    .array(z.object({ title: z.string().trim().max(300), url: z.string().trim().max(2000) }))
+    .max(8)
+    .transform((list) => list.filter((s) => isWebUrl(s.url))),
 });
 export type FactReadingReference = z.infer<typeof factReadingReferenceSchema>;
 

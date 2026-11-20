@@ -68,9 +68,8 @@ const PROVENANCE: VisualConceptProvenance = {
   fallbackReason: null,
 };
 
-function stubGenerate(sceneSuffix = "", jokeRead = "The joke read."): VisualConceptsJobDeps["generate"] {
+function stubGenerate(sceneSuffix = ""): VisualConceptsJobDeps["generate"] {
   return async () => ({
-    jokeRead,
     candidates: [1, 2, 3].map((n) => ({
       title: `Concept ${n}`,
       whyItWorks: "It lands.",
@@ -430,49 +429,54 @@ describe("the gag writer: humor note, joke read and freshness", () => {
     const got = seen as unknown as Parameters<VisualConceptsJobDeps["generate"]>[0];
     assert.deepEqual(got.existingGags.map((g) => g.scene), ["{NAME} pending change B."]);
     assert.equal(got.draft?.scene, "{NAME} draft C.");
-    assert.equal(got.enrichment, null, "the taxonomy is not sent (Issue #1018, increment 1.2c-ii)");
-    assert.equal(got.classification, "omit");
+    assert.ok(!("enrichment" in got) && !("classification" in got), "the taxonomy is not sent (Issue #1018, increments 1.2c-ii and 1.2d)");
   });
 
-  it("stores the joke read, and the response carries it with no saved note", async () => {
+  it("stores no joke read: the response carries ideas and the note only (plan 1C, increment 1.2d)", async () => {
     const { reviewId, factId } = await seedReview(adminId, "gags");
-    await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate("", "Revolving doors cannot slam.") });
+    await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate() });
+    const [row] = await db.select({ blob: factsTable.visualConceptCandidates }).from(factsTable).where(eq(factsTable.id, factId));
+    assert.equal((row!.blob as { jokeRead?: string }).jokeRead, undefined, "the stored idea set has no read");
     const r = await response(reviewId, factId);
-    assert.equal(r.jokeRead, "Revolving doors cannot slam.");
+    assert.ok(!("jokeRead" in r));
     assert.equal(r.humorNote, null);
     assert.equal(r.current, true);
   });
 
-  it("confirming the read keeps the gags current; a correction marks them out of date; regenerating under it makes them current", async () => {
+  it("ideas written under the saved note stay current; a different note marks them out of date; regenerating under it makes them current", async () => {
     const { reviewId, factId } = await seedReview(adminId, "gags");
-    await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate("", "Read one.") });
-    const confirm = await request(app).put(`/admin/reviews/${reviewId}/humor-note`).set("authorization", `Bearer ${adminSid}`).send({ text: "Read one." });
-    assert.equal(confirm.status, 200, JSON.stringify(confirm.body));
-    const n = await note(factId);
-    assert.equal(n.text, "Read one.");
-    assert.equal(n.by, adminId);
-    assert.ok(n.at);
-    assert.equal((await response(reviewId, factId)).current, true, "confirming leaves the gags usable");
+    await db.update(factsTable).set({ humorNote: "Read one." }).where(eq(factsTable.id, factId));
+    await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate() });
+    assert.equal((await response(reviewId, factId)).current, true, "written under the saved note");
 
     await request(app).put(`/admin/reviews/${reviewId}/humor-note`).set("authorization", `Bearer ${adminSid}`).send({ text: "A corrected reading." });
+    const n = await note(factId);
+    assert.equal(n.text, "A corrected reading.");
+    assert.equal(n.by, adminId);
     const stale = await response(reviewId, factId);
     assert.equal(stale.current, false);
     assert.equal(stale.staleReason, "humor_note_changed");
-    assert.equal(stale.humorNote?.text, "A corrected reading.");
 
     let sentNote: string | null = null;
-    await runVisualConceptsJob({ reviewId, factId }, { generate: async (input) => { sentNote = input.humorNote; return stubGenerate("", "Restated.")(input); } });
+    await runVisualConceptsJob({ reviewId, factId }, { generate: async (input) => { sentNote = input.humorNote; return stubGenerate()(input); } });
     assert.equal(sentNote, "A corrected reading.");
-    const fresh = await response(reviewId, factId);
-    assert.equal(fresh.current, true);
-    assert.equal(fresh.jokeRead, "Restated.", "the latest read still shows under an approved note");
+    assert.equal((await response(reviewId, factId)).current, true);
     assert.equal((await note(factId)).text, "A corrected reading.", "a generation never writes the note");
+  });
+
+  it("ideas written with no note go out of date once a note is saved: they were not written for it", async () => {
+    const { reviewId, factId } = await seedReview(adminId, "gags");
+    await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate() });
+    await request(app).put(`/admin/reviews/${reviewId}/humor-note`).set("authorization", `Bearer ${adminSid}`).send({ text: "Written later." });
+    const r = await response(reviewId, factId);
+    assert.equal(r.current, false);
+    assert.equal(r.staleReason, "humor_note_changed");
   });
 
   it("a changed gag still marks the ideas out of date whatever the note says", async () => {
     // A fact's wording never changes (migration 0141); its gags do.
     const { reviewId, factId } = await seedReview(adminId, "gags");
-    await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate("", "Read.") });
+    await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate() });
     await db.update(factsTable).set({ humorNote: "Read." }).where(eq(factsTable.id, factId));
     await db.insert(factGagsTable).values({ factId, slot: 1, pendingContent: { version: 1, coreSceneOverride: "{NAME} a gag saved after the ideas." } as never });
     const r = await response(reviewId, factId);
@@ -499,7 +503,6 @@ describe("the gag writer: humor note, joke read and freshness", () => {
     const r = await response(reviewId, factId);
     assert.equal(r.candidates.length, 3);
     assert.equal(r.current, false);
-    assert.equal(r.jokeRead, undefined);
   });
 });
 
@@ -539,7 +542,7 @@ describe("the gag writer has no fallback model", () => {
       // The job Regenerate queued, run from its own payload: it carries the new generation.
       const [queued] = await db.select({ payload: asyncJobsTable.payload }).from(asyncJobsTable)
         .where(and(eq(asyncJobsTable.queue, "fact_visual_concepts"), like(asyncJobsTable.dedupeKey, `fact_visual_concepts:review:${reviewId}:%`), eq(asyncJobsTable.status, "pending")));
-      const again = await runVisualConceptsJob(queued!.payload as Parameters<typeof runVisualConceptsJob>[0], { generate: stubGenerate("", "After repair.") });
+      const again = await runVisualConceptsJob(queued!.payload as Parameters<typeof runVisualConceptsJob>[0], { generate: stubGenerate() });
       assert.equal(again.ok, true);
       const [after] = await db.select({ status: factsTable.visualConceptStatus, note: factsTable.humorNote }).from(factsTable).where(eq(factsTable.id, factId));
       assert.equal(after!.status, "ok");

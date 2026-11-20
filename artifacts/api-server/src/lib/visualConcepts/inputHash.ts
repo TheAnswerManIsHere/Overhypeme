@@ -18,7 +18,9 @@
  * bubble plan §E6). Since migration 0139 a fact's gags live in fact_gags, so
  * the hash carries them itself: every gag the request lists (prompt v4). The
  * humor note is kept out of this hash on purpose (visualConceptJobs.ts,
- * buildVisualConceptsResponse).
+ * buildVisualConceptsResponse). The refresh-review key went with the
+ * gag-writer relock (increment 1.2d), which stales every stored idea set
+ * once, as the new prompt version does.
  */
 
 import { createHash } from "node:crypto";
@@ -64,9 +66,6 @@ export function buildVisualConceptInputHash(inputs: VisualConceptHashInputs): st
     conceptPromptVersion: VISUAL_CONCEPTS_PROMPT_VERSION,
     archetypeStrategyVersion: VISUAL_STRATEGY_VERSION,
     reviewId: inputs.reviewId,
-    // Refresh reviews are gone; the key stays null so every stored idea set
-    // keeps its hash. It leaves with the gag-writer relock's hash rework.
-    candidateVersionId: null,
     source: inputs.source,
     factText: inputs.factText,
     systemPromptHash: inputs.systemPromptHash,

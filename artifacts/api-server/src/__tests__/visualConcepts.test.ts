@@ -1,6 +1,6 @@
 /**
  * Unit tests (pure, no DB / no LLM) for candidate Visual-concept generation:
- *   - api-zod schema/sanitize: exactly-3 validation (with a jokeRead), the
+ *   - api-zod schema/sanitize: exactly-3 validation, the
  *     scene cap, {NAME} canonicalization, unknown-token → tokenValid:false.
  *   - the gag-writer request (PLAN_GAG_GENERATOR.md C): the caption with the
  *     stand-in name, meanings, mechanism, limits, note, saved gag and draft.
@@ -21,67 +21,23 @@ import {
   storedCandidateConceptSchema,
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
   CANDIDATE_SCENE_MAX_CHARS,
-  HUMOR_NOTE_MAX_CHARS,
-  humorNoteSaveSchema,
-  type FactEnrichment,
   type StoredCandidateConcept,
 } from "@workspace/api-zod";
 import {
   buildVisualConceptsUserMessage,
-  CONVERSION_FAILED_MARKER,
   generateVisualConceptsWithModel,
   validateAndSanitizeCandidateConcepts,
   makeOpenAIConceptsCaller,
-  referenceMeaningLines,
   type GenerateVisualConceptsInput,
 } from "../lib/visualConcepts/generator.js";
 import { VIOLENCE_RULE } from "../lib/imagePrompt/violenceRule.js";
 import { __setUtilityLLMClientForTest } from "../lib/utilityLLM.js";
-import { armInputs, ideaLines, noteWithMeanings, standInTokenize, writerIdeas } from "../lib/visualConcepts/blindCheck.js";
-
-const ENRICHMENT: FactEnrichment = {
-  primaryArchetype: "superhuman_physical_feat",
-  subtype: "force_scaled_action",
-  modifiers: [],
-  visualLiteralness: "literal_dramatization",
-  visualComplexity: "medium",
-  overhypeFit: "strong",
-  adultSuitability: "safe",
-  adultSuitabilityNotes: "",
-  suggestedHashtags: [],
-  taxonomyConfidence: 0.95,
-  adminReviewNotes: "",
-  culturalReferences: [
-    {
-      sourcePhrase: "Shark Week",
-      referenceType: "tv",
-      canonicalReference: "Discovery's Shark Week",
-      explanation: "annual shark programming",
-      visualImplication: "sharks on a TV",
-      confidence: 0.95,
-      requiresAdminReview: false,
-    },
-  ],
-  semanticEntities: [
-    {
-      surfaceText: "Earth",
-      normalizedText: "earth",
-      entityKind: "celestial_body",
-      visualReferent: "the planet Earth",
-      capitalizationSignal: "capitalized_named_entity",
-      materiallyAffectsVisualPrompt: true,
-      requiresAdminReview: false,
-      confidence: 0.95,
-      notes: "",
-    },
-  ],
-} as unknown as FactEnrichment;
 
 const keepTokens = async (t: string) => ({ template: t });
 
 const POLICY = { supportingText: { mode: "allow" }, violence: { mode: "allow", intensity: "strong" } } as const;
 function input(over: Partial<GenerateVisualConceptsInput> = {}): GenerateVisualConceptsInput {
-  return { factText: "{NAME} bench-presses the Earth.", enrichment: ENRICHMENT, renderPolicy: POLICY as never, humorNote: null, existingGags: [], draft: null, ...over };
+  return { factText: "{NAME} bench-presses the Earth.", renderPolicy: POLICY as never, humorNote: null, existingGags: [], draft: null, ...over };
 }
 
 function conceptWire(
@@ -97,18 +53,18 @@ function conceptWire(
 
 describe("validateCandidateConcepts", () => {
   it("accepts exactly three non-empty concepts", () => {
-    const res = validateCandidateConcepts({ jokeRead: "R", concepts: [conceptWire(), conceptWire(), conceptWire()] });
+    const res = validateCandidateConcepts({ concepts: [conceptWire(), conceptWire(), conceptWire()] });
     assert.equal(res.ok, true);
   });
 
   it("rejects a count other than three", () => {
-    assert.equal(validateCandidateConcepts({ jokeRead: "R", concepts: [conceptWire(), conceptWire()] }).ok, false);
-    assert.equal(validateCandidateConcepts({ jokeRead: "R", concepts: [conceptWire(), conceptWire(), conceptWire(), conceptWire()] }).ok, false);
+    assert.equal(validateCandidateConcepts({ concepts: [conceptWire(), conceptWire()] }).ok, false);
+    assert.equal(validateCandidateConcepts({ concepts: [conceptWire(), conceptWire(), conceptWire(), conceptWire()] }).ok, false);
   });
 
   it("rejects an empty title or sceneDescription", () => {
-    assert.equal(validateCandidateConcepts({ jokeRead: "R", concepts: [conceptWire({ title: "  " }), conceptWire(), conceptWire()] }).ok, false);
-    assert.equal(validateCandidateConcepts({ jokeRead: "R", concepts: [conceptWire(), conceptWire({ sceneDescription: "" }), conceptWire()] }).ok, false);
+    assert.equal(validateCandidateConcepts({ concepts: [conceptWire({ title: "  " }), conceptWire(), conceptWire()] }).ok, false);
+    assert.equal(validateCandidateConcepts({ concepts: [conceptWire(), conceptWire({ sceneDescription: "" }), conceptWire()] }).ok, false);
   });
 });
 
@@ -146,12 +102,8 @@ describe("buildVisualConceptsUserMessage — the gag-writer request (PLAN_GAG_GE
     assert.ok(!/\{[A-Za-z_|]+\}/.test(msg), "no token reaches the gag writer");
   });
 
-  it("carries meanings, the mechanism and the limits; never a strategy example or a taxonomy score", () => {
+  it("carries the limits; never a strategy example or a taxonomy score", () => {
     const msg = buildVisualConceptsUserMessage(input());
-    assert.match(msg, /WHAT THE REFERENCES MEAN:/);
-    assert.match(msg, /"Shark Week" refers to Discovery's Shark Week: annual shark programming/);
-    assert.match(msg, /"Earth" means the planet Earth\./);
-    assert.match(msg, /JOKE MECHANISM:\nsuperhuman physical feat, force scaled action/);
     assert.ok(msg.includes(`LIMITS:\nViolence: ${VIOLENCE_RULE}`), "the one violence rule, word for word (PLAN_GAG_DIRECT_RENDER.md, B)");
     for (const banned of ["visualizationExamples", "Visualization examples", "taxonomyConfidence", "overhypeFit", "i2i default", "t2i fallback", "OUTPUT CONTRACT"]) {
       assert.ok(!msg.includes(banned), `no ${banned}`);
@@ -191,56 +143,21 @@ describe("buildVisualConceptsUserMessage — the gag-writer request (PLAN_GAG_GE
   });
 });
 
-describe("the blind check's two requests (PLAN_FACT_LIFECYCLE_REBUILD.md 1A)", () => {
-  it("\"omit\" leaves out the meanings and the mechanism and keeps everything else", () => {
-    const today = buildVisualConceptsUserMessage(input({ humorNote: "He out-lifts the planet." }));
-    const omit = buildVisualConceptsUserMessage(input({ humorNote: "He out-lifts the planet.", classification: "omit" }));
-    assert.match(today, /WHAT THE REFERENCES MEAN:/);
-    assert.match(today, /JOKE MECHANISM:/);
-    assert.ok(!omit.includes("WHAT THE REFERENCES MEAN:"), "no meanings block");
-    assert.ok(!omit.includes("JOKE MECHANISM:"), "no mechanism block");
+describe("the request carries no classification (PLAN_FACT_LIFECYCLE_REBUILD.md 1A, 1C)", () => {
+  it("sends the fact, the note and the limits, and never the references' meanings or a joke mechanism", () => {
+    const msg = buildVisualConceptsUserMessage(input({ humorNote: "He out-lifts the planet." }));
     for (const kept of ["FACT (the caption):", "APPROVED HUMOR NOTE", "He out-lifts the planet.", "LIMITS:"]) {
-      assert.ok(omit.includes(kept), `keeps ${kept}`);
+      assert.ok(msg.includes(kept), `keeps ${kept}`);
     }
+    assert.ok(!msg.includes("WHAT THE REFERENCES MEAN"), "no meanings block");
+    assert.ok(!msg.includes("JOKE MECHANISM"), "no mechanism block");
   });
 
-  it("the default is today's request", () => {
-    assert.equal(buildVisualConceptsUserMessage(input()), buildVisualConceptsUserMessage(input({ classification: "include" })));
+  it("a fact with no note sends no empty note block", () => {
+    assert.ok(!buildVisualConceptsUserMessage(input()).includes("APPROVED HUMOR NOTE"));
   });
 
-  it("the reduced arm carries every meaning in the note, and only the classification blocks differ", () => {
-    const arms = armInputs("{NAME} bench-presses the Earth.", ENRICHMENT, "He out-lifts the planet.");
-    assert.equal(arms.today.humorNote, "He out-lifts the planet.");
-    assert.equal(arms.reduced.classification, "omit");
-    for (const line of referenceMeaningLines(ENRICHMENT)) assert.ok(arms.reduced.humorNote!.includes(line), `note carries ${line}`);
-    assert.deepEqual({ ...arms.today, humorNote: null, classification: null }, { ...arms.reduced, humorNote: null, classification: null });
-  });
-
-  it("a fact with no meanings gets its note unchanged", () => {
-    const bare = { ...ENRICHMENT, culturalReferences: [], semanticEntities: [] } as FactEnrichment;
-    assert.equal(noteWithMeanings("  Just the note. ", bare), "Just the note.");
-  });
-
-  it("the sheet shows every idea in the writer's own words, with no second model and no placeholder", async () => {
-    const idea = (scene: string, bubbles: unknown[] = []) => ({ title: "T", whyItWorks: "W", sceneDescription: scene, bubbles });
-    const reply = JSON.stringify({ jokeRead: "R", concepts: [
-      idea("Alex's push-up presses the Earth down; the Earth winces.", [{ type: "speech", entity: "Earth", text: "Easy, Alex!" }]),
-      idea("Alex does a push-up on a mountain top."),
-      idea("A crowd watches the planet dip."), // the writer's own miss: no subject named
-    ] });
-    let calls = 0;
-    const out = await generateVisualConceptsWithModel(input(), async () => { calls++; return reply; }, standInTokenize);
-    assert.equal(calls, 1, "no corrective call: the plain swap cannot fail a named scene");
-    assert.equal(out.candidates.filter(isCandidateConceptPickable).length, 2, "the product's own validation still runs");
-    const ideas = writerIdeas(reply)!;
-    const lines = ideas.flatMap((x, i) => ideaLines(x, i + 1)).join("\n");
-    assert.match(lines, /\*\*Idea 1\.\*\* Alex's push-up presses the Earth down; the Earth winces\./);
-    assert.match(lines, /- speech bubble, Earth: "Easy, Alex!"/);
-    assert.match(lines, /\*\*Idea 3\.\*\* A crowd watches the planet dip\./);
-    assert.ok(!lines.includes(CONVERSION_FAILED_MARKER) && !/\{[A-Z_]+\}/.test(lines), "no token reaches the judge");
-  });
-
-  it("a candidate prompt replaces the locked one for that caller only, and its usage is reported", async () => {
+  it("a candidate prompt (the preview script) replaces the locked one for that caller only, and its usage is reported", async () => {
     const seen: string[] = [];
     __setUtilityLLMClientForTest({
       chat: { completions: { create: async (req: { messages: Array<{ role: string; content: string }> }) => {
@@ -260,29 +177,13 @@ describe("the blind check's two requests (PLAN_FACT_LIFECYCLE_REBUILD.md 1A)", (
       __setUtilityLLMClientForTest(null);
     }
   });
-
-  it("a reply that cannot be read back gives no ideas, never a guess", () => {
-    assert.equal(writerIdeas(null), null);
-    assert.equal(writerIdeas("not json"), null);
-    assert.equal(writerIdeas(JSON.stringify({ concepts: "nope" })), null);
-  });
-
-  it("a fact with no note: today sends none, the reduced arm sends the meanings alone", () => {
-    const arms = armInputs("{NAME} bench-presses the Earth.", ENRICHMENT, "   ");
-    assert.equal(arms.today.humorNote, null);
-    assert.match(arms.reduced.humorNote!, /^What the references mean:\n- "Shark Week"/);
-    const bare = { ...ENRICHMENT, culturalReferences: [], semanticEntities: [] } as FactEnrichment;
-    assert.equal(armInputs("{NAME} lifts.", bare, "").reduced.humorNote, null);
-    assert.ok(!buildVisualConceptsUserMessage(arms.today).includes("APPROVED HUMOR NOTE"), "no empty note block");
-  });
 });
 
 describe("generateVisualConceptsWithModel", () => {
   it("returns 3 sanitized candidates from a valid model response", async () => {
-    const model = async () => JSON.stringify({ jokeRead: "R", concepts: [conceptWire(), conceptWire(), conceptWire()] });
+    const model = async () => JSON.stringify({ concepts: [conceptWire(), conceptWire(), conceptWire()] });
     const out = await generateVisualConceptsWithModel(input(), model, keepTokens);
     assert.equal(out.candidates.length, 3);
-    assert.equal(out.jokeRead, "R");
     assert.equal(out.candidates[0]!.tokenValid, true);
   });
 
@@ -291,8 +192,8 @@ describe("generateVisualConceptsWithModel", () => {
     const model = async () => {
       call += 1;
       return call === 1
-        ? JSON.stringify({ jokeRead: "R", concepts: [conceptWire()] })
-        : JSON.stringify({ jokeRead: "R", concepts: [conceptWire(), conceptWire(), conceptWire()] });
+        ? JSON.stringify({ concepts: [conceptWire()] })
+        : JSON.stringify({ concepts: [conceptWire(), conceptWire(), conceptWire()] });
     };
     const out = await generateVisualConceptsWithModel(input(), model, keepTokens);
     assert.equal(call, 2);
@@ -300,7 +201,7 @@ describe("generateVisualConceptsWithModel", () => {
   });
 
   it("throws after a second invalid response", async () => {
-    const model = async () => JSON.stringify({ jokeRead: "R", concepts: [conceptWire()] });
+    const model = async () => JSON.stringify({ concepts: [conceptWire()] });
     await assert.rejects(() => generateVisualConceptsWithModel(input(), model, keepTokens), /concepts/);
   });
 });
@@ -313,13 +214,12 @@ describe("candidate bubbles — wire + business validation (retryable contract e
   });
 
   it("a response missing the required bubbles array fails validation (→ corrective retry)", () => {
-    const noBubbles = { jokeRead: "R", concepts: [conceptWire(), conceptWire(), { title: "T", whyItWorks: "W", sceneDescription: "{NAME} waves." }] };
+    const noBubbles = { concepts: [conceptWire(), conceptWire(), { title: "T", whyItWorks: "W", sceneDescription: "{NAME} waves." }] };
     assert.equal(validateCandidateConcepts(noBubbles).ok, false);
   });
 
   it("bubbles: [] is the normal valid case; a valid quote proposal passes", () => {
     const ok = validateCandidateConcepts({
-      jokeRead: "R",
       concepts: [conceptWire({ bubbles: [bubble()] }), conceptWire(), conceptWire()],
     });
     assert.equal(ok.ok, true);
@@ -327,11 +227,11 @@ describe("candidate bubbles — wire + business validation (retryable contract e
 
   it("rejects >4 bubbles, empty entity/text, over-cap entity/text (never truncates)", () => {
     const five = conceptWire({ bubbles: [bubble(), bubble(), bubble(), bubble(), bubble()] });
-    assert.equal(validateCandidateConcepts({ jokeRead: "R", concepts: [five, conceptWire(), conceptWire()] }).ok, false);
+    assert.equal(validateCandidateConcepts({ concepts: [five, conceptWire(), conceptWire()] }).ok, false);
     const emptyEntity = conceptWire({ bubbles: [bubble({ entity: " " })] });
-    assert.equal(validateCandidateConcepts({ jokeRead: "R", concepts: [emptyEntity, conceptWire(), conceptWire()] }).ok, false);
+    assert.equal(validateCandidateConcepts({ concepts: [emptyEntity, conceptWire(), conceptWire()] }).ok, false);
     const overText = conceptWire({ bubbles: [bubble({ text: "x".repeat(81) })] });
-    const overRes = validateCandidateConcepts({ jokeRead: "R", concepts: [overText, conceptWire(), conceptWire()] });
+    const overRes = validateCandidateConcepts({ concepts: [overText, conceptWire(), conceptWire()] });
     assert.equal(overRes.ok, false);
     if (!overRes.ok) assert.match(overRes.error, /exceeds 80 characters.*exact/i);
   });
@@ -341,18 +241,18 @@ describe("candidate bubbles — wire + business validation (retryable contract e
       sceneDescription: '{NAME} hugs his father; a speech bubble reading "goodbye" floats above.',
       bubbles: [bubble()],
     });
-    assert.equal(validateCandidateConcepts({ jokeRead: "R", concepts: [balloonScene, conceptWire(), conceptWire()] }).ok, false);
+    assert.equal(validateCandidateConcepts({ concepts: [balloonScene, conceptWire(), conceptWire()] }).ok, false);
     const restatedScene = conceptWire({
       sceneDescription: "{NAME} says You're the man of the house now. while hugging his father.",
       bubbles: [bubble()],
     });
-    assert.equal(validateCandidateConcepts({ jokeRead: "R", concepts: [restatedScene, conceptWire(), conceptWire()] }).ok, false);
+    assert.equal(validateCandidateConcepts({ concepts: [restatedScene, conceptWire(), conceptWire()] }).ok, false);
     // Ordinary dialogue-context staging language stays legal.
     const stagingScene = conceptWire({
       sceneDescription: "{NAME} hugs his father in a doorway; the father looks moved by what {NAME} just said, clear space above their heads.",
       bubbles: [bubble()],
     });
-    assert.equal(validateCandidateConcepts({ jokeRead: "R", concepts: [stagingScene, conceptWire(), conceptWire()] }).ok, true);
+    assert.equal(validateCandidateConcepts({ concepts: [stagingScene, conceptWire(), conceptWire()] }).ok, true);
   });
 });
 
@@ -426,7 +326,6 @@ describe("candidate bubbles — sanitize + pickability + pick helper", () => {
 describe("validateAndSanitizeCandidateConcepts — deterministic matrix", () => {
   it("a valid response with a quote bubble passes and keeps the quote ONLY in bubbles[].text", () => {
     const res = validateAndSanitizeCandidateConcepts({
-      jokeRead: "R",
       concepts: [
         conceptWire({
           sceneDescription: "{NAME} hugs his father in a doorway, both smiling, clear space overhead.",
@@ -447,7 +346,6 @@ describe("validateAndSanitizeCandidateConcepts — deterministic matrix", () => 
   it("an all-unpickable response is a retryable failure, never stored as ok", () => {
     const bad = conceptWire({ bubbles: [{ type: "speech", entity: "{NAME}", text: "Hi." }] });
     const res = validateAndSanitizeCandidateConcepts({
-      jokeRead: "R",
       concepts: [bad, { ...conceptWire(), sceneDescription: "{BOGUS} waves." }, { ...conceptWire(), sceneDescription: "{ALSO_BOGUS} waves." }],
     });
     assert.equal(res.ok, false);
@@ -456,7 +354,6 @@ describe("validateAndSanitizeCandidateConcepts — deterministic matrix", () => 
 
   it("a partially-unpickable response stores ok with the invalid concept flagged", () => {
     const res = validateAndSanitizeCandidateConcepts({
-      jokeRead: "R",
       concepts: [
         conceptWire({ bubbles: [{ type: "speech", entity: "{NAME}", text: "Hi." }] }),
         conceptWire(), conceptWire(),
@@ -474,8 +371,8 @@ describe("validateAndSanitizeCandidateConcepts — deterministic matrix", () => 
     const model = async () => {
       call++;
       return call === 1
-        ? JSON.stringify({ jokeRead: "R", concepts: [{ title: "T", whyItWorks: "W", sceneDescription: "{NAME} waves." }, conceptWire(), conceptWire()] })
-        : JSON.stringify({ jokeRead: "R", concepts: [conceptWire(), conceptWire(), conceptWire()] });
+        ? JSON.stringify({ concepts: [{ title: "T", whyItWorks: "W", sceneDescription: "{NAME} waves." }, conceptWire(), conceptWire()] })
+        : JSON.stringify({ concepts: [conceptWire(), conceptWire(), conceptWire()] });
     };
     const out = await generateVisualConceptsWithModel(input({ factText: "{NAME} waves." }), model, keepTokens);
     assert.equal(call, 2);
@@ -490,7 +387,7 @@ describe("the stand-in name is converted by the tokenizer (PLAN_GAG_GENERATOR.md
     const tokenize = async (t: string) => ({
       template: t.replace(/\bAlex's\b/g, "{NAME_POSSESSIVE}").replace(/\bAlex\b/g, "{NAME}"),
     });
-    const model = async () => JSON.stringify({ jokeRead: "R", concepts: [
+    const model = async () => JSON.stringify({ concepts: [
       alex("Alex hands Dad the car keys. Dad nods; he takes it seriously.", [{ type: "speech", entity: "subject", text: "You're the man of the house now." }]),
       alex("Alex's suitcase sits by the door."), alex("Alex waves from the car."),
     ] });
@@ -504,7 +401,7 @@ describe("the stand-in name is converted by the tokenizer (PLAN_GAG_GENERATOR.md
   it("a tokenizer that returns its input unchanged yields an unpickable gag, never a stored \"Alex\"", async () => {
     let tokenizerCalls = 0;
     const tokenize = async (t: string) => { tokenizerCalls++; return { template: t.includes("Alex waves") ? t : t.replace(/\bAlex\b/g, "{NAME}") }; };
-    const model = async () => JSON.stringify({ jokeRead: "R", concepts: [alex("Alex waves."), alex("Alex lifts a bus."), alex("Alex reads.")] });
+    const model = async () => JSON.stringify({ concepts: [alex("Alex waves."), alex("Alex lifts a bus."), alex("Alex reads.")] });
     const out = await generateVisualConceptsWithModel(input(), model, tokenize);
     assert.ok(tokenizerCalls >= 3);
     const failed = out.candidates[0]!;
@@ -526,21 +423,13 @@ describe("the stand-in name is converted by the tokenizer (PLAN_GAG_GENERATOR.md
     for (const fail of kinds) {
       const tokenize = async (t: string) => (t === long ? fail(t) : { template: t.replace(/\bAlex\b/g, "{NAME}") });
       const withBubble = { ...alex("Alex waves."), bubbles: [{ type: "speech", entity: "a bystander", text: long }] };
-      const model = async () => JSON.stringify({ jokeRead: "R", concepts: [withBubble, alex("Alex lifts a bus."), alex("Alex reads.")] });
+      const model = async () => JSON.stringify({ concepts: [withBubble, alex("Alex lifts a bus."), alex("Alex reads.")] });
       const out = await generateVisualConceptsWithModel(input(), model, tokenize);
       assert.equal(out.candidates.length, 3);
       assert.equal(isCandidateConceptPickable(out.candidates[0]!), false);
       assert.equal(out.candidates[0]!.bubbles[0]!.text.includes("Alex"), false, "never stored naming Alex");
       assert.ok(out.candidates.slice(1).every(isCandidateConceptPickable));
     }
-  });
-
-  it("a joke read longer than the note's limit is capped, so That's right can always save it (build report, PR #936)", async () => {
-    const tokenize = async (t: string) => ({ template: t.replace(/\bAlex\b/g, "{NAME}") });
-    const model = async () => JSON.stringify({ jokeRead: "R".repeat(HUMOR_NOTE_MAX_CHARS + 400), concepts: [alex("Alex waves."), alex("Alex lifts a bus."), alex("Alex reads.")] });
-    const out = await generateVisualConceptsWithModel(input(), model, tokenize);
-    assert.equal(out.jokeRead.length, HUMOR_NOTE_MAX_CHARS);
-    assert.equal(humorNoteSaveSchema.safeParse({ text: out.jokeRead }).success, true);
   });
 
   it("a conversion that fails once is tried again, so one bad tokenizer response never costs a gag (Review #6897)", async () => {
@@ -559,7 +448,7 @@ describe("the stand-in name is converted by the tokenizer (PLAN_GAG_GENERATOR.md
         if (t === flaky && ++flakyCalls === 1) return failOnce(t);
         return { template: t.replace(/\bAlex\b/g, "{NAME}") };
       };
-      const model = async () => JSON.stringify({ jokeRead: "R", concepts: [alex(flaky), alex("Alex lifts a bus."), alex("Alex reads.")] });
+      const model = async () => JSON.stringify({ concepts: [alex(flaky), alex("Alex lifts a bus."), alex("Alex reads.")] });
       const out = await generateVisualConceptsWithModel(input(), model, tokenize);
       assert.equal(flakyCalls, 2);
       assert.equal(out.candidates[0]!.sceneDescription, "The television is muted, yet the signing reaches {NAME} as sound.");
@@ -573,7 +462,7 @@ describe("the stand-in name is converted by the tokenizer (PLAN_GAG_GENERATOR.md
       if (t === "Alex waves.") { calls++; return { template: t }; }
       return { template: t.replace(/\bAlex\b/g, "{NAME}") };
     };
-    const model = async () => JSON.stringify({ jokeRead: "R", concepts: [alex("Alex waves."), alex("Alex lifts a bus."), alex("Alex reads.")] });
+    const model = async () => JSON.stringify({ concepts: [alex("Alex waves."), alex("Alex lifts a bus."), alex("Alex reads.")] });
     const out = await generateVisualConceptsWithModel(input(), model, tokenize);
     assert.equal(calls, 2);
     assert.equal(isCandidateConceptPickable(out.candidates[0]!), false);
@@ -582,7 +471,7 @@ describe("the stand-in name is converted by the tokenizer (PLAN_GAG_GENERATOR.md
 
   it("a scene that never names the subject is not pickable", async () => {
     const tokenize = async (t: string) => ({ template: t });
-    const model = async () => JSON.stringify({ jokeRead: "R", concepts: [alex("A bus floats."), alex("Alex lifts a bus."), alex("Alex reads.")] });
+    const model = async () => JSON.stringify({ concepts: [alex("A bus floats."), alex("Alex lifts a bus."), alex("Alex reads.")] });
     const out = await generateVisualConceptsWithModel(input(), model, async (t) => (t.includes("Alex") ? { template: t.replace(/\bAlex\b/g, "{NAME}") } : tokenize(t)));
     assert.equal(isCandidateConceptPickable(out.candidates[0]!), false);
   });
@@ -597,7 +486,7 @@ describe("bubble lines convert when they refer to the subject (PR #936 round 1)"
       calls.push(t);
       return { template: t.replace(/\bAlex\b/g, "{NAME}").replace(/^Their\b/, "{Poss}") };
     };
-    const model = async () => JSON.stringify({ jokeRead: "R", concepts: [
+    const model = async () => JSON.stringify({ concepts: [
       scene([{ type: "speech", entity: "the coach", text: "Their strength is impossible!" }]),
       scene([{ type: "speech", entity: "the coach", text: "Nobody lifts a bus." }]),
       scene([{ type: "speech", entity: "subject", text: "I heard that, and yes, they're real." }]),
