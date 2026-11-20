@@ -47,11 +47,22 @@ export const OPENAI_PRICES: Record<string, { input: number; output: number }> = 
   "gpt-6-astra": { input: 10, output: 50 },
   "gpt-6-luna": { input: 0.1, output: 0.5 },
   "gpt-5.4-mini": { input: 0.75, output: 4.5 },
+  // The reading and reference research (Responses API, web search). Read
+  // 2026-11-20 from developers.openai.com/api/docs/models/gpt-6.1-sol.
+  "gpt-6.1-sol": { input: 2, output: 10 },
   "text-embedding-3-small": { input: 0.02, output: 0 },
 };
 
 /** fal's own `queue.submit` retries (see the module comment). */
 export const FAL_SUBMISSION_ATTEMPTS = 4;
+
+/**
+ * A Responses API call with the web_search tool also pays per search, which
+ * its token usage does not report. Not read from a price page: a deliberate
+ * over-estimate of a few searches per call, counted in both the reservation
+ * and the settled cost so a run's ledger never under-states what it spent.
+ */
+export const WEB_SEARCH_ALLOWANCE_USD = 0.1;
 
 export class RecorderBudgetError extends Error {
   constructor(message: string) {
@@ -169,6 +180,21 @@ function chatReservationUsd(params: Record<string, any>): number | null {
   // Two characters per token over-counts English and JSON (about four), so the input side is conservative.
   const inputTokens = Math.ceil(JSON.stringify({ m: params.messages, f: params.response_format ?? null }).length / 2);
   return (inputTokens * price.input + outputCap * price.output) / 1e6;
+}
+
+/** Worst case for a Responses API call: its input, its whole output cap (reasoning included), and the search allowance. */
+export function responsesReservationUsd(params: Record<string, any>): number | null {
+  const price = OPENAI_PRICES[params.model];
+  if (!price || typeof params.max_output_tokens !== "number") return null;
+  const inputTokens = Math.ceil(JSON.stringify({ i: params.input ?? null, s: params.instructions ?? null, t: params.text ?? null }).length / 2);
+  return (inputTokens * price.input + params.max_output_tokens * price.output) / 1e6 + (params.tools?.length ? WEB_SEARCH_ALLOWANCE_USD : 0);
+}
+
+export function responsesActualUsd(params: Record<string, any>, response: any): number | null {
+  const price = OPENAI_PRICES[params.model];
+  const u = response?.usage;
+  if (!price || typeof u?.input_tokens !== "number" || typeof u?.output_tokens !== "number") return null;
+  return (u.input_tokens * price.input + u.output_tokens * price.output) / 1e6 + (params.tools?.length ? WEB_SEARCH_ALLOWANCE_USD : 0);
 }
 
 function chatActualUsd(params: Record<string, any>, response: any): number | null {
@@ -391,11 +417,8 @@ export function recordingOpenAI<T extends Record<string, any>>(real: T, allowanc
   return {
     chat: { completions: { create: wrap("openai.chat", (p, o) => real.chat.completions.create(p, o), chatReservationUsd, chatActualUsd) } },
     embeddings: { create: wrap("openai.embeddings", (p, o) => real.embeddings.create(p, o), embedReserve, embedActual) },
-    responses: {
-      create: async () => {
-        throw new RecorderBudgetError("responses.create is outside the recorded baseline");
-      },
-    },
+    // The Reading step and reference research (readingJobs.ts, referenceResearch/openaiResponses.ts).
+    responses: { create: wrap("openai.responses", (p, o) => real.responses.create(p, o), responsesReservationUsd, responsesActualUsd) },
   } as unknown as T;
 }
 
