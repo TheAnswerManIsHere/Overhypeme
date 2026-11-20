@@ -18,7 +18,8 @@ import { runMigrations } from "@workspace/db";
 import { backfillEmbeddings } from "./lib/embeddings";
 import { refreshPricingCache } from "./lib/falPricing";
 import { getConfigString, getConfigInt } from "./lib/adminConfig";
-import { beginTaskMonitoring, nextRunDelayMs, recordTaskCompleted } from "./lib/recurringTasks";
+import { beginTaskMonitoring, recordTaskCompleted } from "./lib/recurringTasks";
+import { msUntilNextTopOfHour, scheduleRecurringTask } from "./lib/taskScheduler";
 import { attachShutdownHandlers } from "./shutdown";
 import { registerEmailHandler } from "./lib/email.js";
 import { registerEnrichmentJobHandlers } from "./lib/enrichmentJobs.js";
@@ -125,212 +126,156 @@ async function resolveActiveEndpoints(): Promise<string[]> {
   return Array.from(new Set([...overrideIds, ...engineIds, ...baseline]));
 }
 
-async function initPricingCache(): Promise<void> {
-  try {
-    const endpointIds = await resolveActiveEndpoints();
-    logger.info({ count: endpointIds.length }, "Refreshing fal.ai pricing cache");
-    await refreshPricingCache(endpointIds);
-    logger.info("fal.ai pricing cache warmed");
-    void recordTaskCompleted("pricing_refresh");
-  } catch (err) {
-    logger.warn({ err }, "fal.ai pricing cache init failed — continuing without pre-warmed cache");
-  }
+// Every recurring task below runs on the shared scheduler (lib/taskScheduler.ts):
+// its first run comes when the inventory says (recurringTasks.ts, firstRunMs),
+// a failed run or an unrecorded completion is tried again in minutes, and
+// otherwise it waits its cadence. Each task here is safe to run again soon.
+const HOURLY_MS = 60 * 60 * 1000;
 
-  // Schedule hourly refresh from config (default 1h = 3600000ms). Armed whether
-  // or not the first warm succeeded (launch Phase 16): it used to sit inside
-  // the try above, so one failed warm at boot left the cache unrefreshed until
-  // the next restart, a stop nothing reported.
+// The fal.ai pricing cache: warmed at boot (the first run, at once), then
+// refreshed on the configured interval (default one hour).
+async function initPricingCache(): Promise<void> {
   let intervalMs = 3_600_000;
   try {
     intervalMs = await getConfigInt("pricing_refresh_interval_ms", 3_600_000);
   } catch (err) {
     logger.warn({ err }, "fal.ai pricing refresh interval unreadable — using one hour");
   }
-  // A failed refresh tries again in minutes rather than waiting the full
-  // interval, so one provider or database blip never reads as a stopped task
-  // on the health check (recurringTasks.ts, RETRY_AFTER_FAILURE_MS).
-  const schedule = (delayMs: number) => {
-    setTimeout(async () => {
-      let ok = false;
-      try {
-        const ids = await resolveActiveEndpoints();
-        await refreshPricingCache(ids);
-        logger.info({ count: ids.length }, "fal.ai pricing cache refreshed");
-        void recordTaskCompleted("pricing_refresh");
-        ok = true;
-      } catch (err) {
-        logger.warn({ err }, "fal.ai pricing cache refresh failed");
-      }
-      schedule(nextRunDelayMs(ok, intervalMs));
-    }, delayMs).unref();
-  };
-  schedule(intervalMs);
+  scheduleRecurringTask({
+    cadenceMs: intervalMs,
+    steps: [
+      {
+        id: "pricing_refresh",
+        run: async () => {
+          const ids = await resolveActiveEndpoints();
+          await refreshPricingCache(ids);
+          logger.info({ count: ids.length }, "fal.ai pricing cache refreshed");
+        },
+        failureMessage: "fal.ai pricing cache refresh failed — continuing on the cache it has",
+      },
+    ],
+  });
 }
 
-// Hourly: purge transient_renders rows older than the configured TTL.
-// The job sleeps until the next top-of-hour, runs the purger, then reschedules
-// itself. Failures are logged but never crash the server — the audit table
-// growing slightly larger for one hour is preferable to a deploy bouncing on
-// a transient DB hiccup.
+// Hourly at the top of the hour: purge transient_renders rows older than the
+// configured TTL, and image provenance past its retention (a no-op while that
+// setting is 0). Also once a couple of minutes after a start, so a restart
+// that straddles the top of the hour never skips an hour's run.
 function scheduleTransientRenderPurger() {
-  // `retry`: the previous run failed, so try again in minutes rather than at
-  // the next top of the hour (recurringTasks.ts, RETRY_AFTER_FAILURE_MS).
-  const schedule = (retry = false) => {
-    const now = new Date();
-    const nextHour = new Date(now.getTime());
-    nextHour.setUTCMinutes(0, 0, 0);
-    nextHour.setUTCHours(nextHour.getUTCHours() + 1);
-    const untilTopOfHour = nextHour.getTime() - now.getTime();
-    const msUntilNext = retry ? Math.min(nextRunDelayMs(false, 60 * 60 * 1000), untilTopOfHour) : untilTopOfHour;
-    logger.info({ nextRunAt: new Date(now.getTime() + msUntilNext).toISOString(), msUntilNext, retry }, "transient_renders purger scheduled");
-    setTimeout(async () => {
-      let ok = true;
-      try {
-        const { runTransientRenderPurger } = await import("./jobs/transientRenderPurger");
-        const result = await runTransientRenderPurger();
-        if (result.deleted > 0) logger.info(result, "transient_renders purger run");
-        void recordTaskCompleted("transient_render_purge");
-      } catch (err) {
-        ok = false;
-        logger.error({ err }, "transient_renders purger failed");
-      }
-      try {
-        // Image provenance retention rides the same hour; a no-op while the
-        // setting is 0 (kept indefinitely).
-        const { runProvenanceRetentionPurge } = await import("./jobs/provenanceRetentionPurger");
-        await runProvenanceRetentionPurge();
-        void recordTaskCompleted("provenance_retention_purge");
-      } catch (err) {
-        ok = false;
-        logger.error({ err }, "image provenance retention purge failed");
-      }
-      schedule(!ok);
-    }, msUntilNext).unref();
-  };
-  schedule();
+  scheduleRecurringTask({
+    cadenceMs: HOURLY_MS,
+    nextMarkMs: () => msUntilNextTopOfHour(),
+    steps: [
+      {
+        id: "transient_render_purge",
+        run: async () => {
+          const { runTransientRenderPurger } = await import("./jobs/transientRenderPurger");
+          const result = await runTransientRenderPurger();
+          if (result.deleted > 0) logger.info(result, "transient_renders purger run");
+        },
+        failureMessage: "transient_renders purger failed",
+      },
+      {
+        id: "provenance_retention_purge",
+        run: async () => {
+          const { runProvenanceRetentionPurge } = await import("./jobs/provenanceRetentionPurger");
+          await runProvenanceRetentionPurge();
+        },
+        failureMessage: "image provenance retention purge failed",
+      },
+    ],
+  });
 }
 
-// Hourly: delete expired `rate_limit_counters` rows in bounded batches.
-//
-// That table had no production cleanup at all, so the first run after this
-// deploys faces the entire accumulated backlog — which is why the purger works
-// in batches under a budget rather than one statement. When a run stops on that
-// budget with rows still eligible it comes back in a minute instead of an hour,
-// so the one-time backlog drains promptly; steady state is one cheap hourly
-// pass. Every instance on autoscale runs this, which is safe: batches take
-// their rows FOR UPDATE SKIP LOCKED, so concurrent runs divide the work instead
-// of serializing on it.
+// Hourly: delete expired `rate_limit_counters` rows in bounded batches. A run
+// that stops on its budget with rows still eligible comes back in a minute,
+// so a backlog drains promptly. Safe on several instances at once: batches
+// take their rows FOR UPDATE SKIP LOCKED.
 function scheduleRateLimitCounterPurger() {
-  const HOURLY_MS = 60 * 60 * 1000;
-  const BACKLOG_FOLLOW_UP_MS = 60 * 1000;
-  const schedule = (delayMs: number) => {
-    setTimeout(async () => {
-      let nextDelayMs = nextRunDelayMs(false, HOURLY_MS);
-      try {
-        const { runRateLimitCounterPurger } = await import("./jobs/rateLimitCounterPurger");
-        // The purger logs its own counts; a second log line here would double
-        // every run in the output.
-        const result = await runRateLimitCounterPurger();
-        nextDelayMs = result.budgetExhausted ? BACKLOG_FOLLOW_UP_MS : HOURLY_MS;
-        void recordTaskCompleted("rate_limit_counter_purge");
-      } catch (err) {
-        logger.error({ err }, "rate_limit_counters purge failed");
-      }
-      schedule(nextDelayMs);
-    }, delayMs).unref();
-  };
-  // Deliberately not at boot — the first minute is the busiest this process
-  // ever is, and nothing about this job is urgent to that degree.
-  schedule(BACKLOG_FOLLOW_UP_MS);
+  scheduleRecurringTask({
+    cadenceMs: HOURLY_MS,
+    steps: [
+      {
+        id: "rate_limit_counter_purge",
+        run: async () => {
+          const { runRateLimitCounterPurger } = await import("./jobs/rateLimitCounterPurger");
+          // The purger logs its own counts.
+          const result = await runRateLimitCounterPurger();
+          return result.budgetExhausted ? { followUpMs: 60 * 1000 } : undefined;
+        },
+        failureMessage: "rate_limit_counters purge failed",
+      },
+    ],
+  });
 }
 
-// Hourly: remove from Overhype.me the photos, generated images and memes their
-// owners deleted more than the restore window ago (launch Phase 5;
-// jobs/contentPurger.ts). Safe on several instances at once: each row is
-// claimed under its owner's lock and re-read, and an object already gone
-// counts as deleted. A row it cannot finish stays for the next run.
+// Hourly: remove the photos, generated images and memes their owners deleted
+// more than the restore window ago (jobs/contentPurger.ts). Safe on several
+// instances at once: each row is claimed under its owner's lock and re-read.
 function scheduleContentPurger() {
-  const HOURLY_MS = 60 * 60 * 1000;
-  const schedule = (delayMs: number) => {
-    setTimeout(async () => {
-      let ok = false;
-      try {
-        const { runContentPurger } = await import("./jobs/contentPurger");
-        await runContentPurger();
-        void recordTaskCompleted("content_purge");
-        ok = true;
-      } catch (err) {
-        logger.error({ err }, "[content-purger] run failed");
-      }
-      schedule(nextRunDelayMs(ok, HOURLY_MS));
-    }, delayMs).unref();
-  };
-  // Not at boot: nothing about it is urgent to the minute.
-  schedule(5 * 60 * 1000);
+  scheduleRecurringTask({
+    cadenceMs: HOURLY_MS,
+    steps: [
+      {
+        id: "content_purge",
+        run: async () => {
+          const { runContentPurger } = await import("./jobs/contentPurger");
+          await runContentPurger();
+        },
+        failureMessage: "[content-purger] run failed",
+      },
+    ],
+  });
 }
 
-// Hourly: advance every pending account deletion (launch Phase 5;
-// lib/accountDeletion.ts). Recovery for a stage the acceptance's kick did not
-// finish, and the only path to the purge once a request's 14 days are up.
+// Hourly: advance every pending account deletion (lib/accountDeletion.ts).
 // Safe on several instances at once: every stage is a compare-and-set, and the
 // purge runs under the owner's lock.
 function scheduleAccountDeletionWorker() {
-  const HOURLY_MS = 60 * 60 * 1000;
-  const schedule = (delayMs: number) => {
-    setTimeout(async () => {
-      let ok = false;
-      try {
-        const { runAccountDeletionWorker } = await import("./lib/accountDeletion");
-        await runAccountDeletionWorker();
-        void recordTaskCompleted("account_deletion");
-        ok = true;
-      } catch (err) {
-        logger.error({ err }, "[account-deletion] worker run failed");
-      }
-      schedule(nextRunDelayMs(ok, HOURLY_MS));
-    }, delayMs).unref();
-  };
-  schedule(7 * 60 * 1000);
+  scheduleRecurringTask({
+    cadenceMs: HOURLY_MS,
+    steps: [
+      {
+        id: "account_deletion",
+        run: async () => {
+          const { runAccountDeletionWorker } = await import("./lib/accountDeletion");
+          await runAccountDeletionWorker();
+        },
+        failureMessage: "[account-deletion] worker run failed",
+      },
+    ],
+  });
 }
 
-// Hourly: delete expired sign-in sessions (lib/sessionSweep.ts), and expired
-// email and password tokens, searches over 90 days old, picture costs over 13
-// months old and Stripe webhook audit rows and processed-event ids over 90 days old
-// (lib/dataLifecycle.ts), launch Phase 14, increment 6. The daily maintenance
-// call runs both too; this keeps an awake site tidy between calls, as the
-// other cleanups' timers do. Safe on several instances at once: the session
-// sweep takes its rows SKIP LOCKED, and the windows job's deletes are
+// Hourly: delete expired sign-in sessions (lib/sessionSweep.ts), and the
+// retention windows' expired rows (lib/dataLifecycle.ts). The daily
+// maintenance call runs both too. Safe on several instances at once: the
+// session sweep takes its rows SKIP LOCKED, and the windows' deletes are
 // idempotent. One failing does not stop the other.
 function scheduleSessionAndRetentionWindowJobs() {
-  const HOURLY_MS = 60 * 60 * 1000;
-  const schedule = (delayMs: number) => {
-    setTimeout(async () => {
-      let ok = true;
-      try {
-        const { sweepExpiredSessions } = await import("./lib/sessionSweep");
-        const result = await sweepExpiredSessions();
-        if (result.deleted > 0) logger.info(result, "[session-sweep] run");
-        void recordTaskCompleted("session_sweep");
-      } catch (err) {
-        ok = false;
-        logger.error({ err }, "[session-sweep] run failed");
-      }
-      try {
-        const { runRetentionWindowJobs } = await import("./lib/dataLifecycle");
-        const result = await runRetentionWindowJobs();
-        if (Object.values(result).some((n) => n > 0)) logger.info(result, "[retention-windows] run");
-        void recordTaskCompleted("retention_windows");
-      } catch (err) {
-        ok = false;
-        logger.error({ err }, "[retention-windows] run failed");
-      }
-      // Either failing retries both soon: each is idempotent, and the one that
-      // succeeded costs a near-empty pass.
-      schedule(nextRunDelayMs(ok, HOURLY_MS));
-    }, delayMs).unref();
-  };
-  // Not at boot: nothing about it is urgent to the minute.
-  schedule(9 * 60 * 1000);
+  scheduleRecurringTask({
+    cadenceMs: HOURLY_MS,
+    steps: [
+      {
+        id: "session_sweep",
+        run: async () => {
+          const { sweepExpiredSessions } = await import("./lib/sessionSweep");
+          const result = await sweepExpiredSessions();
+          if (result.deleted > 0) logger.info(result, "[session-sweep] run");
+        },
+        failureMessage: "[session-sweep] run failed",
+      },
+      {
+        id: "retention_windows",
+        run: async () => {
+          const { runRetentionWindowJobs } = await import("./lib/dataLifecycle");
+          const result = await runRetentionWindowJobs();
+          if (Object.values(result).some((n) => n > 0)) logger.info(result, "[retention-windows] run");
+        },
+        failureMessage: "[retention-windows] run failed",
+      },
+    ],
+  });
 }
 
 // Once per boot, a couple of minutes in: bake every recipe meme saved before
@@ -349,11 +294,10 @@ function scheduleMemeBakeBackfill() {
   }, 2 * 60 * 1000).unref();
 }
 
-// Daily cron: send Fact of the Day at 9:00 UTC
 // Hourly, in the published deployment only: one media-backup pair (the
 // database point and the media states it needs), and once a day the backup's
-// expiry (Launch Phase 3, increment 5; jobs/mediaBackupJob.ts). The first run
-// waits a few minutes so a boot is never slowed by it.
+// expiry (jobs/mediaBackupJob.ts). A retry is safe: the capture takes an
+// advisory lock and skips when a recent pair exists.
 function scheduleMediaBackup() {
   // Said once at boot, loudly when a published deployment has no backup: every
   // photo delete and ACL change is then refused (lib/mediaBackup/config.ts).
@@ -365,27 +309,26 @@ function scheduleMediaBackup() {
     })
     .catch((err: unknown) => logger.error({ err }, "[media-backup] misconfigured: photo deletes and access changes will fail"));
   if (process.env.REPLIT_DEPLOYMENT !== "1") return;
-  const schedule = (delayMs: number) => {
-    setTimeout(async () => {
-      let ok = false;
-      try {
-        const { runScheduledMediaBackup } = await import("./jobs/mediaBackupJob");
-        const outcome = await runScheduledMediaBackup();
-        if (outcome.startsWith("skipped")) logger.info({ outcome }, "[media-backup] capture");
-        // A skip is a completed run that had nothing to do.
-        void recordTaskCompleted("media_backup");
-        ok = true;
-      } catch (err) {
-        logger.error({ err }, "[media-backup] capture failed");
-      }
-      // A retry is safe: the capture takes an advisory lock and skips when a
-      // recent pair exists.
-      schedule(nextRunDelayMs(ok, 60 * 60 * 1000));
-    }, delayMs).unref();
-  };
-  schedule(5 * 60 * 1000);
+  scheduleRecurringTask({
+    cadenceMs: HOURLY_MS,
+    steps: [
+      {
+        id: "media_backup",
+        run: async () => {
+          const { runScheduledMediaBackup } = await import("./jobs/mediaBackupJob");
+          const outcome = await runScheduledMediaBackup();
+          // A skip is a completed run that had nothing to do.
+          if (outcome.startsWith("skipped")) logger.info({ outcome }, "[media-backup] capture");
+        },
+        failureMessage: "[media-backup] capture failed",
+      },
+    ],
+  });
 }
 
+// Daily at 09:00 UTC: Fact of the Day. Not on the shared scheduler: it emails
+// subscribers, and a run that failed part-way may already have sent some, so
+// it is never retried early (recurringTasks.ts, noRetryAfterFailure).
 function scheduleDailyFactJob() {
   const schedule = () => {
     const now = new Date();

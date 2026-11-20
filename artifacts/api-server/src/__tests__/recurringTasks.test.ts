@@ -27,7 +27,9 @@ import {
   nextRunDelayMs,
   RETRY_AFTER_FAILURE_MS,
   __resetTaskRecordThrottleForTest,
+  type RecurringTaskId,
 } from "../lib/recurringTasks.js";
+import { scheduleRecurringTask, msUntilNextTopOfHour } from "../lib/taskScheduler.js";
 import { laneHealth } from "../lib/queueHealth.js";
 import { pruneDepartedInstances } from "../lib/workerHeartbeats.js";
 import { DRILL_HOLD_MS } from "../lib/operationsDrill.js";
@@ -64,16 +66,29 @@ describe("the recurring-task inventory", () => {
     );
   });
 
-  it("every task names a site that is a tasks site, and every tasks site has a task", () => {
-    const taskSites = new Set(TIMER_SITES.filter((s) => s.kind === "tasks").map((s) => s.file));
-    for (const t of RECURRING_TASKS) assert.ok(taskSites.has(t.site), `${t.id}'s site ${t.site} is not a tasks site`);
-    for (const file of taskSites) assert.ok(RECURRING_TASKS.some((t) => t.site === file), `${file} schedules no task`);
+  it("every task names a site that schedules it, and every timer site but the shared scheduler has a task", () => {
+    const timerSites = new Set(TIMER_SITES.filter((s) => s.kind === "tasks").map((s) => s.file));
+    const callerSites = new Set(
+      sourceFiles(SRC)
+        .filter((f) => readFileSync(f, "utf8").includes("scheduleRecurringTask({"))
+        .map((f) => relative(SRC, f)),
+    );
+    for (const t of RECURRING_TASKS) {
+      assert.ok(timerSites.has(t.site) || callerSites.has(t.site), `${t.id}'s site ${t.site} neither holds a task timer nor calls scheduleRecurringTask`);
+    }
+    for (const file of timerSites) {
+      if (file === "lib/taskScheduler.ts") continue;
+      assert.ok(RECURRING_TASKS.some((t) => t.site === file), `${file} schedules no task`);
+    }
   });
 
-  it("every task records its completed runs somewhere in the source", () => {
+  it("every task records its completed runs: directly, or as a step of the shared scheduler in its site", () => {
     const all = sourceFiles(SRC).filter((f) => !f.endsWith("recurringTasks.ts")).map((f) => readFileSync(f, "utf8")).join("\n");
     for (const task of RECURRING_TASKS) {
-      assert.ok(all.includes(`recordTaskCompleted("${task.id}")`), `${task.id} never records a completed run`);
+      const site = readFileSync(join(SRC, task.site), "utf8");
+      const direct = all.includes(`recordTaskCompleted("${task.id}")`);
+      const asStep = site.includes("scheduleRecurringTask({") && site.includes(`id: "${task.id}"`);
+      assert.ok(direct || asStep, `${task.id} never records a completed run`);
     }
   });
 
@@ -110,25 +125,17 @@ describe("one failed run never makes a task overdue", () => {
     }
   });
 
-  it("every hourly scheduler waits the retry delay, not the full hour, after a failure", () => {
-    // The schedulers are closures in index.ts and membershipSchedules.ts; this
-    // pins that each one routes its next delay through nextRunDelayMs, so a new
-    // or edited scheduler that hard-codes the hour again fails here.
+  it("index.ts and the grace sweep hold no task timer of their own but Fact of the Day's", () => {
+    // Every other task there runs on the shared scheduler, whose rules the
+    // tests below drive; a hand-rolled timer would carry its own copy of them.
     const index = readFileSync(join(SRC, "index.ts"), "utf8");
-    for (const hardCoded of ["schedule(HOURLY_MS);", "schedule(60 * 60 * 1000);"]) {
-      assert.ok(!index.includes(hardCoded), `index.ts reschedules with ${hardCoded} regardless of failure`);
-    }
-    assert.ok(!/setInterval\(/.test(index), "index.ts has a setInterval, which cannot retry a failed run early");
+    assert.equal(index.match(/\bsetTimeout\(/g)?.length, 3, "index.ts: Fact of the Day, the meme-bake backfill and the exit safety timer only");
+    assert.ok(!/setInterval\(/.test(index));
     const membership = readFileSync(join(SRC, "lib/membershipSchedules.ts"), "utf8");
-    assert.ok(membership.includes("nextRunDelayMs(ok, intervalMs)"), "the grace sweep must retry a failed run early");
-    assert.ok(!/setInterval\(/.test(membership), "the grace sweep must not run on a fixed interval");
+    assert.ok(!/set(?:Timeout|Interval)\(/.test(membership), "the grace sweep must run on the shared scheduler");
   });
 });
 
-// The phone alert of 2026-11-19, 23:54 UTC: production restarted at 23:11;
-// every task ran again within minutes except the grace sweep, which waited a
-// full interval after a start, so the deadline counted from its last
-// completion (22:21) passed at 23:51 with no run. A restart must never page.
 describe("a restart never makes a task overdue", () => {
   it("every task not pinned to the wall clock first runs inside its grace", () => {
     for (const task of RECURRING_TASKS) {
@@ -143,10 +150,94 @@ describe("a restart never makes a task overdue", () => {
     }
   });
 
-  it("the grace sweep's first run reads the inventory, not the interval", () => {
-    const membership = readFileSync(join(SRC, "lib/membershipSchedules.ts"), "utf8");
-    assert.ok(membership.includes('schedule(Math.min(taskFirstRunMs("grace_sweep"), intervalMs));'));
-    assert.ok(!membership.includes("schedule(intervalMs);"), "the grace sweep waits a full interval after a start");
+});
+
+// The shared scheduler (lib/taskScheduler.ts), driven with an injected timer
+// and recorder: the three routes that each paged "site down" with nothing
+// stopped (Issues #1061, #1086, #1076) as behaviour, not as source text.
+describe("the shared scheduler", () => {
+  const HOUR = 60 * 60 * 1000;
+  function harness(opts: { record?: (id: RecurringTaskId) => Promise<boolean> } = {}) {
+    const delays: number[] = [];
+    let pending: (() => void) | null = null;
+    const setTimer = (fn: () => void, ms: number) => {
+      delays.push(ms);
+      pending = fn;
+    };
+    const fire = async () => {
+      const fn = pending!;
+      pending = null;
+      fn();
+      for (let i = 0; i < 50 && pending === null; i++) await new Promise((r) => setImmediate(r));
+    };
+    const recorded: string[] = [];
+    const record = opts.record ?? (async (id: RecurringTaskId) => (recorded.push(id), true));
+    return { delays, fire, recorded, setTimer, record };
+  }
+
+  it("first runs when the inventory says, for every task it can schedule", () => {
+    for (const task of RECURRING_TASKS) {
+      const h = harness();
+      scheduleRecurringTask({ cadenceMs: HOUR, steps: [{ id: task.id, run: async () => {} }], setTimer: h.setTimer, record: h.record });
+      assert.equal(h.delays[0], Math.min(HOUR, task.firstRunMs), `${task.id}'s first run`);
+    }
+  });
+
+  it("a failed run is retried in minutes; a success waits the cadence and records", async () => {
+    let fail = true;
+    const h = harness();
+    scheduleRecurringTask({
+      cadenceMs: HOUR,
+      steps: [{ id: "session_sweep", run: async () => { if (fail) throw new Error("Authentication timed out"); } }],
+      setTimer: h.setTimer,
+      record: h.record,
+    });
+    await h.fire();
+    assert.equal(h.delays.at(-1), RETRY_AFTER_FAILURE_MS);
+    assert.deepEqual(h.recorded, []);
+    fail = false;
+    await h.fire();
+    assert.equal(h.delays.at(-1), HOUR);
+    assert.deepEqual(h.recorded, ["session_sweep"]);
+  });
+
+  it("a run whose completion could not be recorded is retried in minutes, not a cadence later", async () => {
+    const h = harness({ record: async () => false });
+    scheduleRecurringTask({ cadenceMs: HOUR, steps: [{ id: "content_purge", run: async () => {} }], setTimer: h.setTimer, record: h.record });
+    await h.fire();
+    assert.equal(h.delays.at(-1), RETRY_AFTER_FAILURE_MS);
+  });
+
+  it("one failing step does not stop the others on its timer, and the timer retries soon", async () => {
+    const h = harness();
+    scheduleRecurringTask({
+      cadenceMs: HOUR,
+      steps: [
+        { id: "session_sweep", run: async () => { throw new Error("down"); } },
+        { id: "retention_windows", run: async () => {} },
+      ],
+      setTimer: h.setTimer,
+      record: h.record,
+    });
+    await h.fire();
+    assert.deepEqual(h.recorded, ["retention_windows"]);
+    assert.equal(h.delays.at(-1), RETRY_AFTER_FAILURE_MS);
+  });
+
+  it("a clock-aligned task waits for its next mark after a success, and a backlog's follow-up wins over the cadence", async () => {
+    const clock = harness();
+    scheduleRecurringTask({ cadenceMs: HOUR, nextMarkMs: () => 1234, steps: [{ id: "transient_render_purge", run: async () => {} }], setTimer: clock.setTimer, record: clock.record });
+    await clock.fire();
+    assert.equal(clock.delays.at(-1), 1234);
+    const backlog = harness();
+    scheduleRecurringTask({ cadenceMs: HOUR, steps: [{ id: "rate_limit_counter_purge", run: async () => ({ followUpMs: 60_000 }) }], setTimer: backlog.setTimer, record: backlog.record });
+    await backlog.fire();
+    assert.equal(backlog.delays.at(-1), 60_000);
+  });
+
+  it("the next top of the hour is never more than an hour away", () => {
+    assert.equal(msUntilNextTopOfHour(new Date("2026-11-20T10:59:30Z")), 30_000);
+    assert.equal(msUntilNextTopOfHour(new Date("2026-11-20T10:00:00Z")), HOUR);
   });
 });
 
