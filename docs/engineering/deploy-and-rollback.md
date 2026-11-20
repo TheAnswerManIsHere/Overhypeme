@@ -137,18 +137,29 @@ offers a redeploy; opening it on the Publishing → Overview page settles it.`
 
 ### 2. A migration failed on production at boot
 
-**It has happened, and the site went down.** On 2026-11-18 a publish applied
-Replit's generated structure first, and when the new release booted and ran
-its pending migrations, 0152 failed (it named a review stage the structure
-had already removed) and the server exited at start-up. The release was
-live: production crash-looped instead of the previous release staying up
-(PR #1053 — Bug: production crash-loops at boot because migration 0152 names
-a review stage the publish already removed). So **do not count on the old
-release to keep serving**: until a fixed release is published, the site is
-down. Each pending migration runs in its own transaction
-(`lib/db/src/migrate.ts`), so the failing one leaves its own changes
-unapplied, and the migrations after it never run. Adding a later migration
-therefore does not help: the runner never reaches it.
+**It has happened, and the old release broke under it.** On 2026-11-18 a
+publish applied Replit's generated structure first, then the new release
+booted to run its pending migrations, and 0152 failed (it named a review
+stage the structure had already removed). The new release never started:
+Replit's publish screen read *"Your app built successfully but failed to
+start. … The deployment is crash looping."* It was never switched in. The
+**previous** release kept serving, on a structure it could not read, and
+answered fact pages with errors: *"Meanwhile the old release, running on the
+schema the publish had already changed, answers `GET /api/facts` with
+500"* (PR #1053 — Bug: production crash-loops at boot because migration 0152
+names a review stage the publish already removed). Fact pages were down for
+about 25 minutes (03:34–03:57 UTC) while the home page and its uptime check
+stayed green (Issue #1029, comment of 2026-11-18). So **the previous release
+is only as healthy as the publish's migrations left it**: read a core page
+(a fact page, `/api/facts`) before telling anyone the site is fine or down.
+The failure shows as that publish screen message and as no `Server
+listening` for the new deployment in the publish log (after-publish step 4).
+Each pending migration runs in its own transaction (`lib/db/src/migrate.ts`),
+so the failing one leaves its own changes unapplied, and the migrations after
+it never run. Adding a later migration therefore does not help: the runner
+never reaches it. Reverting code does not help either, because the structure
+the old code cannot read is already in place; getting a release to boot is
+the way back.
 
 **The rule this meets.** A merged migration file is never edited
 ([`migrations-and-backfills.md`, *Migration principles*](./migrations-and-backfills.md#migration-principles):
@@ -159,17 +170,25 @@ again. Which way past is right depends on why it failed, read from the
 failing statement in the publish log. The agent diagnoses and proposes;
 each route goes through a pull request like any other fix.
 
-- **The migration can be made to run on both histories, and running it
-  again changes nothing.** This is the repair that worked on 2026-11-18:
-  0152 was edited to accept the old stage name or its successor, and because
-  0152 only ever sets what is already set, the replay on every database that
-  had run it was a no-op, measured on a copy of a fully migrated database
-  before merge (PR #1053's description). The rule's danger is a replay that
-  changes something; where a replay is shown to change nothing, the edit is
-  the fastest way back. The showing is the condition: a migration whose
-  replay would insert, delete or rewrite rows is never edited.
-  `migrations-and-backfills.md` states the rule without this exception;
-  reconciling the two is recorded on Issue #1029.
+- **The migration can be made to run on both histories, and its replay
+  changes nothing on a database that already ran it.** This is the repair
+  that worked on 2026-11-18: 0152 was edited to accept the old stage name or
+  its successor (PR #1053). 0152 fills approvals that are missing and leaves
+  recorded ones alone, so a replay changes only rows still missing one. The
+  measurement before merge replayed it on a copy of the fully migrated
+  **test** database, which held nothing for 0152 to act on (its output began
+  `already recorded 0`), so it showed the runner completes, not that a
+  populated database is unchanged; that part rested on reading the SQL. The
+  rule's danger is a replay that changes something, so the condition for
+  another such edit is a showing: the edited file replayed by the real
+  runner on a copy of a database that already ran it **and holds rows the
+  migration can act on**, with that output in the pull request. A run on a
+  database with no such rows shows nothing. A migration whose replay could
+  change a row on a database that already ran it is never edited.
+  The rule's three homes state it without this exception
+  (`migrations-and-backfills.md`, `known-failure-patterns.md` and
+  `.agents/memory/migration-file-immutable-once-merged.md`); reconciling
+  them is recorded on Issue #1029.
 - **Production holds rows the migration cannot handle** (it passed on
   dev's data and fails on production's). The rows are repaired on
   production so the unchanged migration succeeds at the next publish. That
@@ -204,7 +223,11 @@ the restore point is in it, while Stripe keeps the money.
    will not publish to it, resume it and republish at once, accepting the
    minutes the damaging release runs again. `unable to verify: whether a
    paused deployment can be published to; one look at the Republish page
-   while paused settles it.`
+   while paused settles it, and the fault afternoon's pause (Issue #1029)
+   is where it is looked at.` What the damaging release writes to the
+   database in those minutes the restore discards; what it does outside the
+   database (an email sent, a charge, a file) it does not. If the republish
+   fails, pause again (step 1) and the agent proposes the next route.
 3. **Choose the recovery point: the latest completed backup pair before the
    damage**, not simply "a moment before"
    ([`media-backup-and-restore.md`, *In an incident*](./media-backup-and-restore.md#in-an-incident)).
@@ -305,10 +328,10 @@ as the answer (Q27: 1, Issue #1029).
 
 ### In development (the Repl)
 
-The dev API runs under `tsx watch` inside `scripts/dev-supervisor.sh`
-(`artifacts/api-server/package.json`, `dev`;
-`artifacts/api-server/scripts/dev-run.sh`: *"restarts the server whenever a
-source file changes"*).
+The dev API runs under `tsx watch`, wrapped by `scripts/dev-watch-guard.sh`,
+inside `scripts/dev-supervisor.sh` (`artifacts/api-server/package.json`,
+`dev`; `artifacts/api-server/scripts/dev-run.sh`: *"restarts the server
+whenever a source file changes"*).
 
 - **Any change to a source file restarts it. This is the ordinary cause, and
   it is by design.** Measured 2026-11-20 with tsx 4.21.0, a process under
@@ -331,8 +354,8 @@ source file changes"*).
   to stop** (same measurement: *"Previous process hasn't exited yet. Force
   killing..."*), which is shorter than the server's ten-second grace. A job
   in flight is cut off and resumed by the next process (Issue #1000).
-- **A crash in development leaves the API down until the next file change.**
-  Measured the same way, with a process that exits with code 1:
+- **A crash in development is restarted by the supervisor.** It was not,
+  until 2026-11-20: measured with a process that exits with code 1,
 
   ```
   BOOT pid 2788 2026-11-20T00:04:20.181Z
@@ -341,11 +364,16 @@ source file changes"*).
   BOOT pid 2844 2026-11-20T00:04:24.383Z
   ```
 
-  Between the exit and the edit nothing restarted it: `tsx watch` stays
-  alive waiting for a change, so the supervisor, which watches `tsx`, never
-  sees an exit. The comment above `fatalExit` in `index.ts` says the
-  supervisor restarts the process; under `tsx watch` it does not. This is a
-  defect in the dev tooling, tracked as its own bugfix (Issue #1083).
+  nothing restarted it between the exit and the edit, because `tsx watch`
+  stays alive waiting for a change and the supervisor watched only `tsx`.
+  PR #1089 — Fix #1083: a dev API server that crashes is restarted, instead
+  of staying down until a file changes — added the guard, which notices
+  `tsx` alive with no server for about six seconds and exits, so the
+  supervisor logs it, backs off and restarts. Two limits remain: on a
+  machine that hides its process information the guard says so once and
+  detection is off; and a dev server that cannot start at all is restarted
+  until the supervisor's cap of 20 crashes in five minutes, after which it
+  stays down until the workflow is restarted.
 - **The dev workflows can also simply be stopped**
   ([`replit-environment.md`, *The dev app can be stopped*](../ai-context/replit-environment.md#the-dev-app-can-be-stopped-and-boots-in-about-30-seconds)).
 
