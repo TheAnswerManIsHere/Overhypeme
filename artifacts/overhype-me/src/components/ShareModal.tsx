@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Turnstile, type TurnstileHandle } from "@/components/ui/Turnstile";
 import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
-import { isReadOnlyNow } from "@/lib/readOnlyNotice";
+import { isReadOnlyNow, noteReadOnlyRefusal } from "@/lib/readOnlyNotice";
 
 // ── AI suggestion (mirrors NameTag logic) ───────────────────────────────────
 
@@ -293,6 +293,8 @@ export function ShareModal({ open, onClose, path = "/", factId, shareText }: Sha
 
   async function handleSendEmail() {
     if (!canSendEmail) return;
+    // Enter in the email box reaches here past the paused Send Invite button.
+    if (isReadOnlyNow()) { noteReadOnlyRefusal(); return; }
     setSending(true);
     try {
       const res = await fetch("/api/share/invite", {
