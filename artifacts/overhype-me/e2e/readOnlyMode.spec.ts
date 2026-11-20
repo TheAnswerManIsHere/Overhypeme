@@ -51,6 +51,9 @@ test("read-only mode: on from Operations, browsing and a name save carry on, a w
 
     await setSwitch(admin.page, true);
     await expect(admin.page.getByTestId("read-only-panel")).toContainText("picks up a change within about");
+    // In the admin's own tab the notice follows the switch at once, not on its
+    // next minute's read (Issue #1111): the default 5 s wait is well inside that minute.
+    await expect(admin.page.getByTestId("read-only-notice")).toBeVisible();
 
     // The notice pushes the admin screen down rather than covering its header (Issue #1107).
     await admin.page.reload();
@@ -100,6 +103,7 @@ test("read-only mode: on from Operations, browsing and a name save carry on, a w
 
     // Off again: the member's write reaches its handler, and the notice goes on the next read.
     await setSwitch(admin.page, false);
+    await expect(admin.page.getByTestId("read-only-notice"), "the notice goes at once in the admin's tab (Issue #1111)").toHaveCount(0);
     const after = await appWrite(member, "POST", "/api/memes", {});
     expect(after.code).not.toBe("READ_ONLY_MODE");
     await member.reload();

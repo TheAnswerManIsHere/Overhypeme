@@ -12,6 +12,8 @@ vi.mock("@/components/admin/AdminLayout", () => ({
 }));
 
 import AdminOperations from "./operations";
+import { ReadOnlyNotice } from "@/components/ReadOnlyNotice";
+import { __resetReadOnlyNoticeForTests } from "@/lib/readOnlyNotice";
 
 const LANE = { lane: "render", liveInstanceCount: 1, lastScheduledAt: new Date().toISOString(), inFlightCount: 0, stalled: false };
 
@@ -24,7 +26,7 @@ function stub(payload: unknown, rings: boolean | "not_connected" = true, status 
   }));
 }
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); __resetReadOnlyNoticeForTests(); });
 
 describe("Operations page", () => {
   it("says a failed first load is not a healthy reading", async () => {
@@ -120,5 +122,33 @@ describe("Operations page", () => {
     render(<AdminOperations />);
     fireEvent.click(await screen.findByTestId("operations-drill"));
     await waitFor(() => expect(screen.getByTestId("operations-drill-started").textContent).toContain("stuck after 2 minutes"));
+  });
+  it("shows and hides the site-wide notice in this tab as soon as the switch is saved, without waiting for its next read (Issue #1111)", async () => {
+    const readOnly = (enforcing: "on" | "off") => ({ instanceId: "abcdef0123", enforcing, status: "ok", confirmedAt: new Date().toISOString(), savedAt: new Date().toISOString(), refreshSeconds: 30 });
+    const configReads: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      // The notice's own read keeps answering "off", as another server that has
+      // not yet picked the change up would: only the save can show the notice.
+      if (url.includes("/api/config")) { configReads.push(url); return new Response(JSON.stringify({ readOnlyMode: false }), { status: 200 }); }
+      if (url.includes("/read-only") && init?.method === "PUT") {
+        const on = (JSON.parse(String(init.body)) as { on: boolean }).on;
+        return new Response(JSON.stringify({ readOnly: readOnly(on ? "on" : "off") }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ checkedAt: new Date().toISOString(), lanes: { status: "ok", lanes: [] }, incidents: { status: "ok", incidents: [] }, readOnly: readOnly("off") }), { status: 200 });
+    }));
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<><ReadOnlyNotice /><AdminOperations /></>);
+    await waitFor(() => expect(configReads.length).toBe(1));
+    expect(screen.queryByTestId("read-only-notice")).toBeNull();
+
+    fireEvent.click(await screen.findByTestId("read-only-toggle"));
+    await waitFor(() => expect(screen.getByTestId("read-only-state").textContent).toMatch(/^On:/));
+    expect(screen.getByTestId("read-only-notice")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("read-only-toggle"));
+    await waitFor(() => expect(screen.getByTestId("read-only-state").textContent).toMatch(/^Off:/));
+    expect(screen.queryByTestId("read-only-notice")).toBeNull();
+    expect(configReads.length, "no read of the switch was needed").toBe(1);
   });
 });
