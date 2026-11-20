@@ -5,6 +5,7 @@
  *   GET  /admin/operations             — live state + recent incidents
  *   POST /admin/operations/test-alert  — sends a real alert through the whole route
  *   POST /admin/operations/drill       — starts the "job stopped or wedged" drill
+ *   POST /admin/operations/crash-drill — ends this server process on purpose (Q30: 1)
  *
  * Launch Phase 16 (Issue #1029; plan design A, "the in-app half"). Sentry is
  * the only incident store, so the incident list is read from Sentry by the
@@ -242,6 +243,39 @@ router.post("/admin/operations/drill", requireAdmin, async (req: Request, res: R
     logger.error({ err }, "[operations] the drill could not be started");
     res.status(503).json({ error: "The drill could not be started" });
   }
+});
+
+/**
+ * The crash drill (increment 7, David's Q30: 1, 2026-11-20): end this server
+ * process on purpose, through the same path a real crash takes, so the
+ * fault-injection afternoon can show a crash reaching David's phone. The
+ * one real crash on record (2026-10-31, Issue #826) never reached Sentry.
+ *
+ * The answer goes out first; half a second later an error is thrown outside
+ * any request, so the process's uncaughtException handler (`fatalExit` in
+ * index.ts) reports it to Sentry, waits for the report to leave, and exits.
+ * The platform starts the process again. Only the instance that answered is
+ * ended. The body must carry { confirm: "crash" }, so nothing sends it by
+ * accident.
+ */
+export const CRASH_DRILL_DELAY_MS = 500;
+export const CRASH_DRILL_MESSAGE = "Crash drill: an admin ended this server process on purpose (launch Phase 16, increment 7)";
+const throwOutsideRequest = (err: Error): void => {
+  setTimeout(() => { throw err; }, CRASH_DRILL_DELAY_MS);
+};
+let scheduleCrash: (err: Error) => void = throwOutsideRequest;
+/** Tests replace the crash with a recorder; `null` restores the real one. */
+export function __setCrashSchedulerForTest(fn: ((err: Error) => void) | null): void { scheduleCrash = fn ?? throwOutsideRequest; }
+
+router.post("/admin/operations/crash-drill", requireAdmin, async (req: Request, res: Response): Promise<void> => {
+  if (!(await withinLimit(req, "admin.operations.crash-drill", 3))) { res.status(429).json({ error: "Too many requests" }); return; }
+  if ((req.body as { confirm?: unknown } | undefined)?.confirm !== "crash") {
+    res.status(400).json({ error: "Send { confirm: \"crash\" } to end this server process." });
+    return;
+  }
+  logger.warn({ adminId: req.user?.id ?? null, delayMs: CRASH_DRILL_DELAY_MS }, "[operations] crash drill requested: this process will exit");
+  res.json({ crashing: true, delayMs: CRASH_DRILL_DELAY_MS, rings: isProductionEnv() });
+  scheduleCrash(new Error(CRASH_DRILL_MESSAGE));
 });
 
 export default router;

@@ -246,6 +246,7 @@ export default function AdminOperations() {
   const [drill, setDrill] = useState<
     { status: "idle" | "starting" | "failed" } | { status: "started"; alreadyRunning: boolean; holdMinutes: number; alertAfterMinutes: number }
   >({ status: "idle" });
+  const [crash, setCrash] = useState<{ status: "idle" | "sending" | "failed" } | { status: "sent"; rings: boolean }>({ status: "idle" });
   const hasData = useRef(false);
   const seq = useRef(0);
   const appliedSeq = useRef(0);
@@ -308,6 +309,24 @@ export default function AdminOperations() {
       setDrill({ status: "started", ...body });
     } catch {
       setDrill({ status: "failed" });
+    }
+  };
+
+  const crashServer = async (): Promise<void> => {
+    if (!window.confirm("End the server process now? The site stops answering for about 15 seconds while it restarts, and any request in flight on this server is dropped.")) return;
+    setCrash({ status: "sending" });
+    try {
+      const res = await fetch("/api/admin/operations/crash-drill", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: "crash" }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = (await res.json()) as { rings?: boolean };
+      setCrash({ status: "sent", rings: body.rings === true });
+    } catch {
+      setCrash({ status: "failed" });
     }
   };
 
@@ -465,6 +484,29 @@ export default function AdminOperations() {
           )}
           {drill.status === "failed" && (
             <p className="mt-2 text-sm text-destructive">The drill could not be started. Try again in a minute.</p>
+          )}
+        </section>
+
+        <section>
+          <h2 className="mb-2 text-lg font-semibold">Drill: the server crashes</h2>
+          <p className="mb-2 text-sm text-muted-foreground">
+            Ends the server process that answers, the way a real crash would: the error goes to Sentry, the process
+            exits, and the platform starts it again. The site stops answering for about 15 seconds and any request in
+            flight on that server is dropped. On the live site your phone rings for the error.
+          </p>
+          <Button variant="danger" onClick={() => void crashServer()} disabled={crash.status === "sending"} data-testid="operations-crash-drill">
+            {crash.status === "sending" ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+            Crash the server
+          </Button>
+          {crash.status === "sent" && (
+            <p className="mt-2 text-sm" data-testid="operations-crash-drill-sent">
+              {crash.rings
+                ? "Sent. The server ends in half a second; this page reconnects when it is back. Watch for the phone."
+                : "Sent. The server ends in half a second; this is not the live site, so the phone will not ring."}
+            </p>
+          )}
+          {crash.status === "failed" && (
+            <p className="mt-2 text-sm text-destructive">The crash drill could not be sent. Try again in a minute.</p>
           )}
         </section>
       </div>
