@@ -450,6 +450,18 @@ re-gather it when the work is scheduled.
     does a grouped
     Dependabot PR that stays unmergeable for two passes running. That fired
     once, on 2026-11-01, when #648 was superseded by #817.
+  - **Third pass, 2026-11-20.** `pnpm audit --prod` on `main` (`0e91c14`)
+    reports critical 0, high 4, moderate 12, low 1, and the four High rows
+    are sharp ×3 and `zod`, both parked, so no High row needs triage. **No
+    in-range sweep was run this pass**: with no High row to clear, a
+    lockfile-only PR and its review round were not spent on the moderates.
+    Grouped Dependabot PR #1064 (9 updates, opened 2026-11-18) fails every CI
+    job at `pnpm install --frozen-lockfile` with
+    `ERR_PNPM_LOCKFILE_CONFIG_MISMATCH` (its lockfile does not carry the
+    workspace's `overrides`), the failure that superseded #648, and it also
+    carries `zod` 3.25.76 → 4.6.6, the parked major. This is its first pass
+    unmergeable; if it still is at the next pass, the two-pass trigger fires
+    and that pass runs the sweep in its place.
 
 - **recharts v2 → v3.**
   - **Launch plan placement (on my recommendation, David delegated 2026-10-13): not blocking.** Upgraded with Phase 13's dashboard rebuild, which rewrites the charts anyway, or sooner if a security advisory lands against v2.
@@ -487,6 +499,9 @@ re-gather it when the work is scheduled.
   - **Cost of waiting.** One High row in `pnpm audit --prod`. That breaks the
     launch bar Phase 15 sets in the entry above, "no High or Critical", so
     the migration has to land before Phase 15 closes.
+  - **Checked 2026-11-20 `/maintenance`: not yet placed.** No line in #628
+    or `docs/plans/PLAN_GET_TO_LAUNCH.md` names the migration, Phase 15 is
+    not yet opened, and the workspace catalog still pins `zod: ^3.25.76`.
   - **Revisit trigger.** Placing it in the launch plan (#628) before Phase 15,
     or a second zod advisory that reaches a request path, whichever comes
     first. Drop orval's `override.zod.version: 3` in the same change and
@@ -1062,6 +1077,10 @@ re-gather it when the work is scheduled.
     (`docs/ai-context/launch-definition.md`). The first `/maintenance` pass
     after that runs step 6a over a window that starts on **2026-10-12**,
     whatever its own marker says, then closes this entry.
+  - **Checked 2026-11-20 `/maintenance`: not fired.** #628's checklist reads
+    "Phase 18 — Seed → not yet opened". The window keeps growing: 189 PRs
+    merged between this pass and the last, of which roughly 150 are product
+    features and fixes.
 
 ---
 
