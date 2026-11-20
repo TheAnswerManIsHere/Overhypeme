@@ -18,6 +18,8 @@ import { usersTable } from "@workspace/db/schema";
 import { like } from "drizzle-orm";
 
 import adminOperationsRouter, {
+  CRASH_DRILL_MESSAGE,
+  __setCrashSchedulerForTest,
   __resetIncidentCacheForTest,
   __setOperationsLimiterForTest,
   __setOperationsFetchForTest,
@@ -39,22 +41,26 @@ async function createUser(isAdmin: boolean): Promise<string> {
 const ROUTES: Array<{ method: "get" | "post"; path: string }> = [
   { method: "get", path: "/admin/operations" },
   { method: "post", path: "/admin/operations/test-alert" },
+  { method: "post", path: "/admin/operations/crash-drill" },
 ];
 
 describe("/admin/operations", () => {
   let adminId: string;
   let memberId: string;
   const captured: Array<{ message: string; context: unknown }> = [];
+  const crashes: Error[] = [];
 
   before(async () => {
     adminId = await createUser(true);
     memberId = await createUser(false);
     __setAlertCaptureForTest((message, context) => { captured.push({ message, context }); });
     __setAlertReadinessForTest(() => true);
+    __setCrashSchedulerForTest((err) => { crashes.push(err); });
   });
 
   afterEach(() => {
     captured.length = 0;
+    crashes.length = 0;
     __setOperationsFetchForTest(null);
     __resetIncidentCacheForTest();
     __setOperationsLimiterForTest(null);
@@ -62,6 +68,7 @@ describe("/admin/operations", () => {
   });
 
   after(async () => {
+    __setCrashSchedulerForTest(null);
     __setAlertCaptureForTest(null);
     __setAlertReadinessForTest(null);
     await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
@@ -75,6 +82,28 @@ describe("/admin/operations", () => {
       assert.equal(member.status, 403);
     });
   }
+
+  it("the crash drill ends the process only when an admin confirms it, and answers first", async () => {
+    const app = buildTestApp({ kind: "authenticated", userId: adminId }, adminOperationsRouter);
+    const unconfirmed = await request(app).post("/api/admin/operations/crash-drill").send({});
+    assert.equal(unconfirmed.status, 400);
+    const wrong = await request(app).post("/api/admin/operations/crash-drill").send({ confirm: "yes" });
+    assert.equal(wrong.status, 400);
+    assert.equal(crashes.length, 0, "nothing is scheduled without the exact confirmation");
+
+    const res = await request(app).post("/api/admin/operations/crash-drill").send({ confirm: "crash" });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.crashing, true);
+    assert.equal(crashes.length, 1);
+    assert.equal(crashes[0]!.message, CRASH_DRILL_MESSAGE);
+  });
+
+  it("a member's confirmed crash drill schedules nothing", async () => {
+    const res = await request(buildTestApp({ kind: "authenticated", userId: memberId }, adminOperationsRouter))
+      .post("/api/admin/operations/crash-drill").send({ confirm: "crash" });
+    assert.equal(res.status, 403);
+    assert.equal(crashes.length, 0);
+  });
 
   it("sends a test alert tagged with its source", async () => {
     const res = await request(buildTestApp({ kind: "authenticated", userId: adminId }, adminOperationsRouter))

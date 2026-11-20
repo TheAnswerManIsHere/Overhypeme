@@ -436,5 +436,7 @@ event and an uptime incident. Two things have **not** been shown yet. An
 error raised on the deployed API reaching the phone is the fault afternoon's
 first row (increment 7), which throws inside one request through the admin
 Sentry diagnostics route and does not end the process. A crash that ends the
-deployed process (through `fatalExit`) is not part of the afternoon at all;
-until one is seen to ring, this section claims the mechanism, not the proof.
+deployed process (through `fatalExit`) is the afternoon's crash-drill row
+(Admin → Operations → *Drill: the server crashes*; plan amendment 5, David's
+Q30: 1); until it is seen to ring, this section claims the mechanism, not the
+proof.
