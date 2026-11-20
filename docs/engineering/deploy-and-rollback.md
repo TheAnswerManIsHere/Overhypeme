@@ -91,10 +91,14 @@ All of it is readable without a log. In order:
 4. **The publish's own log** (Replit → Publishing → Logs, filtered to the new
    deployment id): the migration lines for this release, each migration's
    notice with its counts, then `Server listening`.
-5. **The release's own checks**: each merged pull request's *Post-merge
-   verification* section names what to run against production for that
-   change. They are run through the connector, read-only unless the section
-   says otherwise.
+5. **The release's own behaviour, on the published site.** Each merged pull
+   request's *Post-merge verification* section was run at its merge, in the
+   Repl's workspace against the development database
+   ([`test-run-contract.md`](../tests/test-run-contract.md)); that proves the
+   change on dev, not on production. For the published site the agent picks,
+   from what the release changed, the read-only observations that show it
+   working there (a count, a config read, one page) and reports them as
+   *checked on the published site*, separately from what was checked on dev.
 6. **The phone**: no push from Pushover in the minutes after. An error the
    new release throws for the first time rings as *new or returning
    production error*.
@@ -131,7 +135,7 @@ redeploy button; its ⋮ menu was not opened), so it is not a route this page
 relies on. `unable to verify: whether the ⋮ menu on a Publish history row
 offers a redeploy; opening it on the Publishing → Overview page settles it.`
 
-### 2. A migration failed part-way: fix forward
+### 2. A migration failed on production: never edit it, go around it
 
 Each pending migration runs in its own transaction
 (`lib/db/src/migrate.ts`), so one that fails leaves its own changes unapplied
@@ -139,32 +143,87 @@ and the new server does not start. Replit promotes a release only after its
 startup check answers, so the previous release should keep serving, on a
 schema Replit's own migration has already changed, which the migration
 policy makes safe. `unable to verify: that a release whose boot migration
-fails is never promoted on this deployment; it has not happened here.` Read
-the publish log
-for the failing statement, fix the migration in a pull request, sync,
-republish. Replit's own generated migration may already have applied the
-structure, which is why every migration's structural statements skip work
-they find done
-([*How a database receives a change*](./migrations-and-backfills.md#how-a-database-receives-a-change)).
+fails is never promoted on this deployment; it has not happened here.`
+
+The migration already ran on the development database, and a merged
+migration file is never edited: the runner identifies a migration by the
+hash of its whole file, so an edit makes every database that ran it run it
+again
+([`migrations-and-backfills.md`, *Migration principles*](./migrations-and-backfills.md#migration-principles):
+*"A migration file already merged into `main` is byte-for-byte immutable"*).
+Adding a later migration does not help either: the runner stops at the first
+one that fails and never reaches it. So the way past depends on why it
+failed, read from the failing statement in the publish log. The agent
+diagnoses and proposes; nothing here is David's to run.
+
+- **Production holds rows the migration cannot handle** (the usual case: it
+  passed on dev's data and fails on production's). The rows are repaired on
+  production so the unchanged migration succeeds at the next publish. That
+  repair is a write to production, so it is named to David, statement by
+  statement, before it runs.
+- **The migration itself is wrong.** Its pull request is reverted, which
+  takes the file out of the release without changing it, and the change
+  ships again as a new migration written to be right on both kinds of
+  database: one that ran the first attempt (development) and one that never
+  did (production). `unable to verify: that removing a merged migration
+  passes the repo's migration checks and leaves development's ledger usable;
+  a run of the real runner on a scratch database, with the original applied
+  and then removed, would settle it.`
 
 ### 3. Data was damaged: restore production's database
 
 Only when rows were lost or rewritten wrongly and no forward repair exists.
+A restore winds back everything in the database, and three things in it
+shape the order below: the read-only switch is a row in that database, so
+**a restore turns read-only mode back off**; the records of media are in it,
+while the media itself is not; and the record of every payment taken since
+the restore point is in it, while Stripe keeps the money.
 
-1. **Stop the damage**: read-only mode if visitors' writes are the cause; a
-   paused deployment (Replit → Republish page → *Manage your app* → Pause) if
-   the server's own work is.
-2. **Restore** with Replit's Database tool, point-in-time, to a moment before
-   the damage: seven days back on Core, up to 28 on Pro
+1. **Stop the damage.** Read-only mode if visitors' writes are the cause; a
+   paused deployment (step 4) if the server's own work is.
+2. **Replace the release that did the damage, first** (route 1: revert,
+   sync, republish), while read-only mode still holds. A restore under the
+   damaging release would hand it the restored data. `unable to verify:
+   whether a paused deployment can be published to; until it has been seen,
+   the release is replaced before the pause.`
+3. **Choose the recovery point: the latest completed backup pair before the
+   damage**, not simply "a moment before"
+   ([`media-backup-and-restore.md`, *In an incident*](./media-backup-and-restore.md#in-an-incident)).
+   Recovery is promised only at completed pairs, because the database and
+   the media must match: media is deleted in the ordinary course (the content
+   purger runs hourly), so a database wound back past a deletion points at
+   objects the live bucket no longer holds, whether or not the incident
+   touched media. Restoring to a later moment to lose less is outside that
+   contract; if it is chosen, media changed since the pair will not match.
+4. **Pause the deployment** (David: Replit → Republish page → *Manage your
+   app* → Pause). Read-only mode is not enough here: admins, background jobs
+   and payment webhooks keep writing under it by design, and the restore
+   itself switches it off. The site is down for everyone until step 7.
+5. **Restore the database** (David: Replit's Database tool, point-in-time,
+   to the pair's `database.at`). Seven days back on Core, up to 28 on Pro
    ([`replit-platform.md`, *The two databases*](../ai-context/replit-platform.md#the-two-databases-and-what-a-publish-does-to-productions)).
-   Everything written after that moment is lost, which is why writes are
-   stopped first. This is David's action.
-3. **Media** follows the database only if media was damaged too:
-   [`media-backup-and-restore.md`, *In an incident*](./media-backup-and-restore.md#in-an-incident).
-4. **Code**: if the release that did the damage is still published, revert it
-   forward (route 1) before turning writes back on. The restored database's
-   migration ledger says which migrations it has; the next boot applies the
-   rest.
+   Everything written after that moment is lost. `unable to verify: how
+   Replit's point-in-time restore treats a deployment that is still running;
+   pausing first makes the question moot.`
+6. **Restore that pair's media** (the agent, with the media runbook's
+   `restore` command). It lands beside the live media under `_restores/`,
+   never over it; putting restored objects back under their live names is
+   not tooled and is decided with David at the time (same runbook, step 5).
+   Until that is done, restored records can point at media the site cannot
+   show.
+7. **Resume the deployment** (David). The first boot applies any migration
+   the restored database's ledger lacks.
+8. **Set read-only mode again, on or off, from the Operations page.** Saving
+   it is what makes every server agree: a server that was running through
+   the restore still holds the old "on", and one that started after reads
+   the restored "off".
+9. **Check, as after a publish** (*After a publish: what to check*, above).
+   Expect the Stripe comparison to report every payment taken since the
+   restore point as unprocessed, and the uptime check to ring for it: that
+   is the list of payments whose records were wound back. `unable to verify:
+   how those payments are replayed into the restored database; Stripe's
+   event resend against the webhook, tried on a test-mode event, would
+   settle it.`
 
 ### 4. The site is down and nothing above applies
 
@@ -185,8 +244,11 @@ Use it when **public writes are the problem or are in the way**:
 
 - a bad release is corrupting or mis-saving what people submit, and the
   revert is minutes away;
-- before a production database restore, so nothing more is written that the
-  restore would discard;
+- in the minutes before a production database restore, to limit what
+  visitors write that the restore will discard. It does not hold across the
+  restore: the restore switches it back off, and jobs, webhooks and admins
+  write under it anyway, so the restore itself runs under a paused
+  deployment (route 3);
 - a data repair or a contract migration is about to run that the public
   write paths could race;
 - abuse through a public write path that needs a fix, not a takedown.
@@ -292,10 +354,10 @@ all projects: *"No issues found"*). The 2026-10-31 crash is known from the
 log alone, so that empty result is not proof that nothing crashed before
 alerts existed.
 
-### Why a restart no longer goes unnoticed
+### What has changed since, and what has not been shown yet
 
 The 2026-10-04 complaint was as much that nobody knew as that it happened.
-Since increments 1 and 2 of this phase:
+What exists now, from increments 1 and 2 of this phase:
 
 - an uncaught error is reported to Sentry before the process exits, and the
   rule *Phone: new or returning production error* turns it into a push;
@@ -304,5 +366,10 @@ Since increments 1 and 2 of this phase:
 - a job the dead process held is resumed, and rings only if nobody picks it
   up or it fails for good.
 
-The fault afternoon (increment 7) proves each of these on the deployed site,
-including a forced error on the deployed API.
+The alert route was proven on the real accounts in increment 1 with an error
+event and an uptime incident. A real crash of the deployed API ringing the
+phone has **not** been shown yet: that is the fault afternoon's forced
+error (increment 7), and until it has run this section claims the mechanism,
+not the proof. Whether the 2026-10-04 question counts as closed on this
+answer, with that night's cause unknown, is David's to say; the answer is
+recorded on Issue #1029.
