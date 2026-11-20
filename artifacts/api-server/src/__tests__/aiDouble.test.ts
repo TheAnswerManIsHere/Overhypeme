@@ -28,6 +28,7 @@ import {
   vendorRejectionCaptured,
   controlAlreadyCaptured,
   strayErrorRecordings,
+  WEB_SEARCH_ALLOWANCE_USD,
 } from "../lib/aiDouble/recorder.js";
 import { allRecordings } from "../lib/aiDouble/recordings.js";
 
@@ -140,6 +141,31 @@ describe("AI doubles and recorder", () => {
       const retry = { ...CHAT, messages: [...CHAT.messages, { role: "user", content: "Fix the JSON." }] };
       await assert.rejects(getOpenAIClient().chat.completions.create(retry as any), NoRecordingError);
       assert.equal(doubleCalls.at(-1)?.outcome, "no-recording");
+    });
+
+    it("records the reading's web-search call (Responses API) and replays it, priced with its search allowance (Issue #1018)", async () => {
+      const READING = {
+        model: "gpt-6.1-sol",
+        tools: [{ type: "web_search" }],
+        reasoning: { effort: "low" },
+        input: [{ role: "system", content: "Read the joke." }, { role: "user", content: "Alex counted to infinity. Twice." }],
+        text: { format: { type: "json_schema", name: "fact_reading", strict: true, schema: {} } },
+        max_output_tokens: 29_000,
+      };
+      const vendor: any = fakeOpenAIVendor();
+      vendor.responses = { async create() { return { id: "resp_real", output_text: '{"references":[],"humorNote":"A note."}', usage: { input_tokens: 1000, output_tokens: 2000 } }; } };
+      const allowance = new Allowance(5);
+      await recordingOpenAI(vendor, allowance, CTX).responses.create(READING as any);
+      const line = allowance.lines.at(-1)!;
+      assert.equal(line.outcome, "ok");
+      // $2 and $10 per million tokens, plus the per-call search allowance.
+      assert.equal(Number(line.actualUsd!.toFixed(4)), Number((1000 * 2e-6 + 2000 * 10e-6 + WEB_SEARCH_ALLOWANCE_USD).toFixed(4)));
+      assert.ok(line.reservedUsd >= 29_000 * 10e-6 + WEB_SEARCH_ALLOWANCE_USD, "the reservation covers the whole output cap");
+
+      process.env.AI_BACKEND = "recorded-double";
+      const replayed: any = await getOpenAIClient().responses.create(READING as any);
+      assert.equal(replayed.output_text, '{"references":[],"humorNote":"A note."}');
+      assert.deepEqual(doubleCalls.at(-1), { kind: "openai.responses", target: "gpt-6.1-sol", outcome: "replayed" });
     });
 
     it("writes every unrecorded request to the miss log, for the replay run to fail on", async () => {
