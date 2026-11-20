@@ -18,8 +18,9 @@ import { runMigrations } from "@workspace/db";
 import { backfillEmbeddings } from "./lib/embeddings";
 import { refreshPricingCache } from "./lib/falPricing";
 import { getConfigString, getConfigInt } from "./lib/adminConfig";
-import { beginTaskMonitoring, recordTaskCompleted } from "./lib/recurringTasks";
+import { beginTaskMonitoring } from "./lib/recurringTasks";
 import { msUntilNextTopOfHour, scheduleRecurringTask } from "./lib/taskScheduler";
+import { factOfTheDayStep, msUntilNextSend } from "./jobs/factOfTheDay";
 import { attachShutdownHandlers } from "./shutdown";
 import { registerEmailHandler } from "./lib/email.js";
 import { registerEnrichmentJobHandlers } from "./lib/enrichmentJobs.js";
@@ -326,29 +327,16 @@ function scheduleMediaBackup() {
   });
 }
 
-// Daily at 09:00 UTC: Fact of the Day. Not on the shared scheduler: it emails
-// subscribers, and a run that failed part-way may already have sent some, so
-// it is never retried early (recurringTasks.ts, noRetryAfterFailure).
+// Daily at 09:00 UTC, and a few minutes after a start: Fact of the Day.
+// runDailyFactOfTheDay queues the day's emails and writes the day's mark in one
+// transaction, so the scheduler's retry after a failure, its catch-up after a
+// start and the jobs route never email anyone twice (Issue #1092).
 function scheduleDailyFactJob() {
-  const schedule = () => {
-    const now = new Date();
-    const next9am = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 9, 0, 0, 0));
-    if (next9am <= now) next9am.setUTCDate(next9am.getUTCDate() + 1);
-    const msUntilNext = next9am.getTime() - now.getTime();
-    logger.info({ nextRunAt: next9am.toISOString(), msUntilNext }, "Fact of the Day scheduled");
-    setTimeout(async () => {
-      try {
-        const { runFactOfTheDayJob } = await import("./jobs/factOfTheDay");
-        const result = await runFactOfTheDayJob();
-        logger.info(result, "Fact of the Day sent");
-        void recordTaskCompleted("fact_of_the_day");
-      } catch (err) {
-        logger.error({ err }, "Fact of the Day job failed");
-      }
-      schedule(); // reschedule for next day
-    }, msUntilNext);
-  };
-  schedule();
+  scheduleRecurringTask({
+    cadenceMs: 24 * HOURLY_MS,
+    nextMarkMs: () => msUntilNextSend(),
+    steps: [factOfTheDayStep()],
+  });
 }
 
 // ── Startup sequence ─────────────────────────────────────────────────────────

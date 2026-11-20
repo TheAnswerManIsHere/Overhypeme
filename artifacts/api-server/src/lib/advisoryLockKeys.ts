@@ -16,4 +16,6 @@ export const ADVISORY_LOCK_KEYS = {
   adminPopulation: 7_654_322,
   /** One media backup capture at a time, held for the whole capture. */
   mediaBackup: 7_654_323,
+  /** One Fact of the Day send at a time across every server instance, held for the whole send. */
+  factOfTheDay: 7_654_324,
 } as const;

@@ -86,7 +86,8 @@ describe("the recurring-task inventory", () => {
     const all = sourceFiles(SRC).filter((f) => !f.endsWith("recurringTasks.ts")).map((f) => readFileSync(f, "utf8")).join("\n");
     for (const task of RECURRING_TASKS) {
       const site = readFileSync(join(SRC, task.site), "utf8");
-      const direct = all.includes(`recordTaskCompleted("${task.id}")`);
+      // Directly, best-effort, or exactly inside a transaction (Fact of the Day's mark commits with its emails).
+      const direct = all.includes(`recordTaskCompleted("${task.id}")`) || all.includes(`writeTaskCompletion("${task.id}"`);
       const asStep = site.includes("scheduleRecurringTask({") && site.includes(`id: "${task.id}"`);
       assert.ok(direct || asStep, `${task.id} never records a completed run`);
     }
@@ -111,12 +112,8 @@ describe("one failed run never makes a task overdue", () => {
     assert.equal(nextRunDelayMs(false, 20_000), 20_000);
   });
 
-  it("fits a retry inside every task's grace, unless the task says why it does not retry", async () => {
+  it("fits a retry inside every task's grace", async () => {
     for (const task of RECURRING_TASKS) {
-      if ("noRetryAfterFailure" in task) {
-        assert.ok(task.noRetryAfterFailure.length > 20, `${task.id} must say why it does not retry`);
-        continue;
-      }
       const cadence = await task.cadenceMs();
       assert.ok(
         nextRunDelayMs(false, cadence) < task.graceMs,
@@ -125,11 +122,11 @@ describe("one failed run never makes a task overdue", () => {
     }
   });
 
-  it("index.ts and the grace sweep hold no task timer of their own but Fact of the Day's", () => {
+  it("index.ts and the grace sweep hold no task timer of their own", () => {
     // Every other task there runs on the shared scheduler, whose rules the
     // tests below drive; a hand-rolled timer would carry its own copy of them.
     const index = readFileSync(join(SRC, "index.ts"), "utf8");
-    assert.equal(index.match(/\bsetTimeout\(/g)?.length, 3, "index.ts: Fact of the Day, the meme-bake backfill and the exit safety timer only");
+    assert.equal(index.match(/\bsetTimeout\(/g)?.length, 2, "index.ts: the meme-bake backfill and the exit safety timer only");
     assert.ok(!/setInterval\(/.test(index));
     const membership = readFileSync(join(SRC, "lib/membershipSchedules.ts"), "utf8");
     assert.ok(!/set(?:Timeout|Interval)\(/.test(membership), "the grace sweep must run on the shared scheduler");
@@ -137,12 +134,8 @@ describe("one failed run never makes a task overdue", () => {
 });
 
 describe("a restart never makes a task overdue", () => {
-  it("every task not pinned to the wall clock first runs inside its grace", () => {
+  it("every task first runs inside its grace after a start", () => {
     for (const task of RECURRING_TASKS) {
-      if ("alignedToClock" in task) {
-        assert.ok(task.alignedToClock.length > 20, `${task.id} must say how it is pinned to the clock`);
-        continue;
-      }
       assert.ok(
         task.firstRunMs < task.graceMs,
         `${task.id}: its first run after a start (${task.firstRunMs} ms) must land inside its grace (${task.graceMs} ms)`,

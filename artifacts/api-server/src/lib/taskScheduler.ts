@@ -33,6 +33,8 @@ export interface TaskStep {
   id: RecurringTaskId;
   /** The work. Throw on failure. May ask for an earlier follow-up (a backlog still draining). */
   run: () => Promise<void | { followUpMs?: number }>;
+  /** Set where the step records its own completion (its record is part of what makes it safe to repeat); the scheduler then does not. */
+  recordsItself?: boolean;
   /** Logged at error level with the error when the work throws; omitted where the step reports its own failures. */
   failureMessage?: string;
 }
@@ -70,7 +72,7 @@ export async function runStepsOnce(opts: ScheduleOptions): Promise<number> {
       continue;
     }
     // The work is done; it counts only once the health check can see it.
-    if (!(await record(step.id))) allDone = false;
+    if (!step.recordsItself && !(await record(step.id))) allDone = false;
   }
   if (!allDone) return nextRunDelayMs(false, opts.cadenceMs);
   if (followUpMs !== undefined) return followUpMs;
