@@ -4,7 +4,7 @@
  */
 import { NameFieldHint, useNameField } from "@/hooks/use-name-field";
 import { useState, useRef, useEffect } from "react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import { LegalNotice } from "@/components/legal/LegalLinks";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
@@ -14,6 +14,20 @@ import { isMobileDevice } from "@/lib/utils";
 import { getSafeReturnTo } from "@/lib/safe-return-to";
 import { usePersonName } from "@/hooks/use-person-name";
 import { track } from "@/lib/analytics";
+
+/**
+ * What a suspended account is offered where it is told it is suspended (#1099;
+ * Phase 16 plan, design E): the contact page, the same link the suspended
+ * screen carries. Suspension ends every session, so the sign-in page is where
+ * a suspended member actually hears it.
+ */
+function SuspendedSupportLink() {
+  return (
+    <p className="mt-1 font-normal">
+      Think this is a mistake? <Link href="/support?category=account" className="underline hover:text-primary" data-testid="login-suspended-support">Contact support</Link>.
+    </p>
+  );
+}
 
 function getResetSuccess(): boolean {
   const params = new URLSearchParams(window.location.search);
@@ -90,6 +104,8 @@ export default function Login() {
   }, [displayName, mode]);
 
   const [error, setError] = useState("");
+  // The refusal's code, kept so a suspended account's refusal can carry the support link.
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   // Every name field follows the shared name rule (identity-flow Phase 2).
   const displayNameField = useNameField(displayName, setDisplayName);
   const firstNameField = useNameField(firstName, (v) => {
@@ -104,10 +120,12 @@ export default function Login() {
   const [registeredEmail, setRegisteredEmail] = useState("");
   const resetSuccess = getResetSuccess();
   const authError = getAuthError();
+  const authErrorSuspended = new URLSearchParams(window.location.search).get("error") === "account_suspended";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setErrorCode(null);
     setLoading(true);
 
     try {
@@ -142,6 +160,7 @@ export default function Login() {
 
       if (!res.ok) {
         setError(data.error || "Something went wrong");
+        setErrorCode(typeof data.code === "string" ? data.code : null);
         return;
       }
 
@@ -230,6 +249,7 @@ export default function Login() {
           {authError && (
             <div className="mb-6 bg-destructive/10 text-destructive border border-destructive/20 rounded-sm px-4 py-3 text-sm font-medium">
               {authError}
+              {authErrorSuspended && <SuspendedSupportLink />}
             </div>
           )}
 
@@ -360,6 +380,7 @@ export default function Login() {
             {error && (
               <div className="bg-destructive/10 text-destructive border border-destructive/20 rounded-sm px-4 py-3 text-sm font-medium">
                 {error}
+                {errorCode === "ACCOUNT_SUSPENDED" && <SuspendedSupportLink />}
               </div>
             )}
 
