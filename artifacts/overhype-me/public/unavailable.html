@@ -9,7 +9,9 @@
       The explanation page for visitors the site does not serve (launch Phase
       14, increment 3). Script-free and self-contained on purpose: Cloudflare
       sends every address to this page for a refused visitor, so it may load
-      nothing else, and it starts no analytics or monitoring.
+      nothing else, and it starts no analytics or monitoring. The email_off
+      markers keep Cloudflare's Email Address Obfuscation from rewriting the
+      address and adding its decoder script (Issue #1124).
     -->
     <style>
       body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
@@ -24,7 +26,7 @@
     <main>
       <h1>Overhype.me isn't available where you are</h1>
       <p>We don't offer Overhype.me in the European Economic Area, the United Kingdom, or places under broad US sanctions (Cuba, Iran, North Korea, and the Crimea, Donetsk and Luhansk regions of Ukraine).</p>
-      <p>We decide this from the location of your internet connection, which isn't always exact. If you think we've got it wrong, write to <a href="mailto:support@overhype.me">support@overhype.me</a>.</p>
+      <p>We decide this from the location of your internet connection, which isn't always exact. If you think we've got it wrong, write to <!--email_off--><a href="mailto:support@overhype.me">support@overhype.me</a><!--/email_off-->.</p>
     </main>
   </body>
 </html>
