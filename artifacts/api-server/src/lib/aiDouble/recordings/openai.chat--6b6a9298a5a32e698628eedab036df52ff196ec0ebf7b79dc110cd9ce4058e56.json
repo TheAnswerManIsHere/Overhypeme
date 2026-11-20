@@ -1,0 +1,98 @@
+{
+  "kind": "openai.chat",
+  "request": {
+    "max_completion_tokens": 512,
+    "messages": [
+      {
+        "content": "You read the scene of a picture and list who is in it.\nThe picture's subject is called Alex. NEVER list Alex, and never use Alex's name in a label or a description.\nList every OTHER person or animal the scene shows or clearly places in the picture. Do not list objects, places or crowds of unnamed extras unless a speaker label names them.\nFor each, return:\n- label: a short, neutral, lowercase label (\"mom\", \"bartender\", \"dog\").\n- description: a few words that pick that character out in the picture, taken from the scene (\"the older woman in the passenger seat\"). Describe what is visible; never explain the joke.\nRules for labels:\n- When the request lists SPEAKERS, each speaker the scene shows must appear with its label written EXACTLY as given, character for character. A speaker the scene does not show is left out; never invent one.\n- When the request lists FACT CHARACTERS and the scene shows one of them, use that label.\n- Labels are unique.\nAt most 10. Return an empty list when Alex is the only character.",
+        "role": "system"
+      },
+      {
+        "content": "SCENE: In a classroom, Alex calmly addss the final check mark to a chalkboard bearing just two large lines: “1 → 2 → 3 → … → ∞ ✓” and beneath it “∞ → … → 3 → 2 → 1 ✓”. Alex stands beside the board with a composed expression, chalk still touching the second check. A mathematics teacher holding an unused eraser stares at the two completed lines, mouth slightly open.",
+        "role": "user"
+      }
+    ],
+    "model": "gpt-6-luna",
+    "reasoning_effort": "none",
+    "response_format": {
+      "json_schema": {
+        "name": "gag_cast",
+        "schema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "additionalProperties": false,
+          "properties": {
+            "cast": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "description": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "label",
+                  "description"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "cast"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      },
+      "type": "json_schema"
+    },
+    "temperature": 0.7
+  },
+  "fingerprint": "6b6a9298a5a32e698628eedab036df52ff196ec0ebf7b79dc110cd9ce4058e56",
+  "recordedAt": "2026-11-20T23:08:49.767Z",
+  "clients": {
+    "@fal-ai/client": "1.9.5",
+    "openai": "6.33.0"
+  },
+  "target": "gpt-6-luna",
+  "response": {
+    "id": "recorded-6",
+    "object": "chat.completion",
+    "created": 1795216129,
+    "model": "gpt-6-luna",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"cast\":[{\"label\":\"mathematics teacher\",\"description\":\"the teacher holding an unused eraser, staring at the board with mouth slightly open\"}]}",
+          "refusal": null,
+          "annotations": []
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 378,
+      "completion_tokens": 39,
+      "total_tokens": 417,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      }
+    },
+    "service_tier": "default",
+    "system_fingerprint": null
+  }
+}
