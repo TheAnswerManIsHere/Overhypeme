@@ -46,6 +46,13 @@ in with a password, you can set one from your account settings without being
 asked to prove you know a password you never had — or follow a reset link,
 which works for an account that has no password yet.
 
+Signing in from a page brings you back to it: the login link carries where
+you came from, and a new Google or Apple account carries it through set-up
+too. That destination is only ever a page on our own site. Anything
+else — another site's address, or a disguised one — is ignored without a
+message, and you land on the home page. Otherwise a link to our login page
+could sign you in for real and then hand you to a look-alike site.
+
 ### Verify, then onboard, then act
 
 Every new account goes through the same order, whichever way it signed up,
