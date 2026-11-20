@@ -135,40 +135,55 @@ redeploy button; its ⋮ menu was not opened), so it is not a route this page
 relies on. `unable to verify: whether the ⋮ menu on a Publish history row
 offers a redeploy; opening it on the Publishing → Overview page settles it.`
 
-### 2. A migration failed on production: never edit it, go around it
+### 2. A migration failed on production at boot
 
-Each pending migration runs in its own transaction
-(`lib/db/src/migrate.ts`), so one that fails leaves its own changes unapplied
-and the new server does not start. Replit promotes a release only after its
-startup check answers, so the previous release should keep serving, on a
-schema Replit's own migration has already changed, which the migration
-policy makes safe. `unable to verify: that a release whose boot migration
-fails is never promoted on this deployment; it has not happened here.`
+**It has happened, and the site went down.** On 2026-11-18 a publish applied
+Replit's generated structure first, and when the new release booted and ran
+its pending migrations, 0152 failed (it named a review stage the structure
+had already removed) and the server exited at start-up. The release was
+live: production crash-looped instead of the previous release staying up
+(PR #1053 — Bug: production crash-loops at boot because migration 0152 names
+a review stage the publish already removed). So **do not count on the old
+release to keep serving**: until a fixed release is published, the site is
+down. Each pending migration runs in its own transaction
+(`lib/db/src/migrate.ts`), so the failing one leaves its own changes
+unapplied, and the migrations after it never run. Adding a later migration
+therefore does not help: the runner never reaches it.
 
-The migration already ran on the development database, and a merged
-migration file is never edited: the runner identifies a migration by the
-hash of its whole file, so an edit makes every database that ran it run it
-again
+**The rule this meets.** A merged migration file is never edited
 ([`migrations-and-backfills.md`, *Migration principles*](./migrations-and-backfills.md#migration-principles):
-*"A migration file already merged into `main` is byte-for-byte immutable"*).
-Adding a later migration does not help either: the runner stops at the first
-one that fails and never reaches it. So the way past depends on why it
-failed, read from the failing statement in the publish log. The agent
-diagnoses and proposes; nothing here is David's to run.
+*"A migration file already merged into `main` is byte-for-byte
+immutable"*), because the runner identifies a migration by the hash of its
+whole file, and an edit makes every database that already ran it run it
+again. Which way past is right depends on why it failed, read from the
+failing statement in the publish log. The agent diagnoses and proposes;
+each route goes through a pull request like any other fix.
 
-- **Production holds rows the migration cannot handle** (the usual case: it
-  passed on dev's data and fails on production's). The rows are repaired on
+- **The migration can be made to run on both histories, and running it
+  again changes nothing.** This is the repair that worked on 2026-11-18:
+  0152 was edited to accept the old stage name or its successor, and because
+  0152 only ever sets what is already set, the replay on every database that
+  had run it was a no-op, measured on a copy of a fully migrated database
+  before merge (PR #1053's description). The rule's danger is a replay that
+  changes something; where a replay is shown to change nothing, the edit is
+  the fastest way back. The showing is the condition: a migration whose
+  replay would insert, delete or rewrite rows is never edited.
+  `migrations-and-backfills.md` states the rule without this exception;
+  reconciling the two is recorded on Issue #1029.
+- **Production holds rows the migration cannot handle** (it passed on
+  dev's data and fails on production's). The rows are repaired on
   production so the unchanged migration succeeds at the next publish. That
-  repair is a write to production, so it is named to David, statement by
-  statement, before it runs.
+  repair is a write to production, so it waits for David's approval of the
+  exact statements before it runs.
 - **The migration itself is wrong.** Its pull request is reverted, which
   takes the file out of the release without changing it, and the change
   ships again as a new migration written to be right on both kinds of
   database: one that ran the first attempt (development) and one that never
-  did (production). `unable to verify: that removing a merged migration
-  passes the repo's migration checks and leaves development's ledger usable;
-  a run of the real runner on a scratch database, with the original applied
-  and then removed, would settle it.`
+  did (production). Later migrations that depend on it go with it.
+  `unable to verify: that removing a merged migration passes the repo's
+  migration checks and leaves development's ledger usable; a run of the real
+  runner on a scratch database, with the original applied and then removed,
+  would settle it.`
 
 ### 3. Data was damaged: restore production's database
 
@@ -179,13 +194,17 @@ shape the order below: the read-only switch is a row in that database, so
 while the media itself is not; and the record of every payment taken since
 the restore point is in it, while Stripe keeps the money.
 
-1. **Stop the damage.** Read-only mode if visitors' writes are the cause; a
-   paused deployment (step 4) if the server's own work is.
-2. **Replace the release that did the damage, first** (route 1: revert,
-   sync, republish), while read-only mode still holds. A restore under the
-   damaging release would hand it the restored data. `unable to verify:
-   whether a paused deployment can be published to; until it has been seen,
-   the release is replaced before the pause.`
+1. **Stop the damage.** Read-only mode if visitors' writes are the cause.
+   If the server's own work is the cause (a background job, a payment
+   webhook), pause the deployment now (David: step 4's control); stopping
+   the damage wins over everything below.
+2. **Replace the release that did the damage** (route 1: revert, sync,
+   republish), before the restore: a restore under the damaging release
+   would hand it the restored data. If the deployment is paused and Replit
+   will not publish to it, resume it and republish at once, accepting the
+   minutes the damaging release runs again. `unable to verify: whether a
+   paused deployment can be published to; one look at the Republish page
+   while paused settles it.`
 3. **Choose the recovery point: the latest completed backup pair before the
    damage**, not simply "a moment before"
    ([`media-backup-and-restore.md`, *In an incident*](./media-backup-and-restore.md#in-an-incident)).
@@ -273,11 +292,16 @@ night nobody could explain. This section is its answer.
 
 **What is on record about that night** is one sentence, in the two
 assessments on Issue #628: *"tonight's unexplained API restart went unnoticed
-until a log was read."* No log line, exit code or Sentry event was kept, and
-the dev workflow's log from that night no longer exists. `unable to verify:
-the cause of that one restart; its log would settle it and is gone.` What can
-be settled, and is below, is every way the server restarts, which of them is
-a fault, and that a fault no longer passes unnoticed.
+until a log was read."* It does not say whether it was the dev app or the
+published site. No log line, exit code or Sentry event was kept. Two things
+narrow it: no commit reached `main` between 2026-09-30 and 2026-10-05
+(GitHub's commit list for those dates is empty), so if it was the dev app, a
+synced merge did not restart it; and whether the published site's logs reach
+back that far was not checked (Replit keeps them 30 days, so they would not).
+`unable to verify: the cause of that one restart; its log would settle it and
+is gone.` What can be settled, and is below, is every way the server restarts,
+which of them is a fault, and how a fault is now caught. David accepted this
+as the answer (Q27: 1, Issue #1029).
 
 ### In development (the Repl)
 
@@ -343,16 +367,19 @@ The crash causes found so far, and where each stands:
 
 | Cause | Found | State |
 |---|---|---|
-| A torn-down log pipe (`EIO`, `EPIPE`) treated as fatal | date not established | absorbed by `lib/stdioGuard.ts`; reported once, the server keeps serving |
+| A torn-down log pipe (`EIO`, `EPIPE`) treated as fatal (it reached Sentry) | 2026-05-02 (`4c23f1f`, Task #402) | absorbed by `lib/stdioGuard.ts`; reported once, the server keeps serving |
 | A database connection dropped while idle or checked out | 2026-10-31, production (Issue #826) | fixed, PR #828 |
 | An object-storage error midway through sending an image | 2026-11-07, by review, never observed (Issue #894) | open; its own bugfix |
 
 Sentry holds no event tagged as a fatal exit, or as an absorbed log-pipe
 error, in the 90 days to 2026-11-20 (search
 `fatal:[uncaughtException,unhandledRejection,stdio-stream-error-absorbed]`,
-all projects: *"No issues found"*). The 2026-10-31 crash is known from the
-log alone, so that empty result is not proof that nothing crashed before
-alerts existed.
+all projects: *"No issues found"*). **That includes the one real production
+crash on record, 2026-10-31**, which `fatalExit` should have reported. Why it
+did not is Issue #826's open half: whether production's Sentry key was set
+then is unknown. So the alert a crash depends on has never been seen to
+arrive from the published site, which is why the fault afternoon's first row
+is an error forced on the deployed API.
 
 ### What has changed since, and what has not been shown yet
 
@@ -367,9 +394,9 @@ What exists now, from increments 1 and 2 of this phase:
   up or it fails for good.
 
 The alert route was proven on the real accounts in increment 1 with an error
-event and an uptime incident. A real crash of the deployed API ringing the
-phone has **not** been shown yet: that is the fault afternoon's forced
-error (increment 7), and until it has run this section claims the mechanism,
-not the proof. Whether the 2026-10-04 question counts as closed on this
-answer, with that night's cause unknown, is David's to say; the answer is
-recorded on Issue #1029.
+event and an uptime incident. Two things have **not** been shown yet. An
+error raised on the deployed API reaching the phone is the fault afternoon's
+first row (increment 7), which throws inside one request through the admin
+Sentry diagnostics route and does not end the process. A crash that ends the
+deployed process (through `fatalExit`) is not part of the afternoon at all;
+until one is seen to ring, this section claims the mechanism, not the proof.
