@@ -4,12 +4,14 @@
  */
 import { db } from "@workspace/db";
 import { commentsTable, factsTable, pendingReviewsTable } from "@workspace/db/schema";
+import type { Page } from "./myContent";
+import { likeContains } from "./sqlLike";
 import { and, asc, desc, eq, sql, type AnyColumn, type SQL } from "drizzle-orm";
 
 export type SubmissionType = "facts" | "comments";
 export type SubmissionStatus = "review" | "live" | "declined" | "gone";
-export type StatusCounts = Record<SubmissionStatus, number>;
-export type TypeCounts = Record<SubmissionType, StatusCounts>;
+type StatusCounts = Record<SubmissionStatus, number>;
+type TypeCounts = Record<SubmissionType, StatusCounts>;
 
 const r = pendingReviewsTable;
 const f = factsTable;
@@ -69,10 +71,10 @@ const COMMENT_STATUS: Record<SubmissionStatus, SQL> = {
 const MAX_TERMS = 8;
 
 /**
- * The words of a search, each with its LIKE wildcards escaped so they match
- * literally. A leading "#" is dropped, so "#chin" and "chin" find the same.
+ * The words of a search as LIKE patterns that match literally. A leading "#"
+ * is dropped, so "#chin" and "chin" find the same.
  */
-export function searchTerms(q: string | undefined): string[] {
+function searchTerms(q: string | undefined): string[] {
   if (!q) return [];
   return q
     .trim()
@@ -80,69 +82,76 @@ export function searchTerms(q: string | undefined): string[] {
     .map((w) => w.replace(/^#+/, ""))
     .filter((w) => w.length > 0)
     .slice(0, MAX_TERMS)
-    .map((w) => `%${w.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`);
+    .map(likeContains);
 }
 
-/** Every term must appear: in the fact's saved wording or one of its hashtags. */
+// Every term must appear. With no terms, `and()` is undefined: no filter.
+
+/** In the fact's saved wording or one of its hashtags. */
 function reviewSearch(terms: string[]): SQL | undefined {
-  if (!terms.length) return undefined;
   return and(...terms.map((p) => sql`(${r.submittedText} ILIKE ${p} OR EXISTS (
     SELECT 1 FROM jsonb_array_elements_text(coalesce(${r.hashtags}, '[]'::jsonb)) AS h(name) WHERE h.name ILIKE ${p}))`));
 }
 
 function factSearch(terms: string[]): SQL | undefined {
-  if (!terms.length) return undefined;
   return and(...terms.map((p) => sql`(${f.text} ILIKE ${p} OR EXISTS (
     SELECT 1 FROM fact_hashtags fh JOIN hashtags h ON h.id = fh.hashtag_id
      WHERE fh.fact_id = ${f.id} AND h.name ILIKE ${p}))`));
 }
 
 function commentSearch(terms: string[]): SQL | undefined {
-  if (!terms.length) return undefined;
   return and(...terms.map((p) => sql`${c.text} ILIKE ${p}`));
 }
 
 // ── Counts ─────────────────────────────────────────────────────────
+//
+// One pass per table counts each status, and, with a search, each status's
+// matches beside it, from the same predicates the lists use.
 
-const n = (s: SQL) => sql<number>`(count(*) FILTER (WHERE ${s}))::int`;
+const n = (...parts: (SQL | undefined)[]) => sql<number>`(count(*) FILTER (WHERE ${and(...parts) ?? sql`true`}))::int`;
 
-async function countFacts(userId: string, search: SQL | undefined, reviewSearchSql: SQL | undefined): Promise<StatusCounts> {
+type Pair = { totals: StatusCounts; matches: StatusCounts };
+
+async function countFacts(userId: string, terms: string[]): Promise<Pair> {
+  const rs = reviewSearch(terms);
+  const fs = factSearch(terms);
   const [[reviews], [facts]] = await Promise.all([
     db.select({
-      review: n(and(REVIEW_STATUS.review, reviewSearchSql ?? sql`true`)!),
-      declined: n(and(REVIEW_STATUS.declined, reviewSearchSql ?? sql`true`)!),
+      review: n(REVIEW_STATUS.review), declined: n(REVIEW_STATUS.declined),
+      reviewMatch: n(REVIEW_STATUS.review, rs), declinedMatch: n(REVIEW_STATUS.declined, rs),
     }).from(r).where(reviewScope(userId)),
     db.select({
-      live: n(and(FACT_STATUS.live, search ?? sql`true`)!),
-      gone: n(and(FACT_STATUS.gone, search ?? sql`true`)!),
+      live: n(FACT_STATUS.live), gone: n(FACT_STATUS.gone),
+      liveMatch: n(FACT_STATUS.live, fs), goneMatch: n(FACT_STATUS.gone, fs),
     }).from(f).where(factScope(userId)),
   ]);
-  return { review: reviews!.review, declined: reviews!.declined, live: facts!.live, gone: facts!.gone };
+  return {
+    totals: { review: reviews!.review, live: facts!.live, declined: reviews!.declined, gone: facts!.gone },
+    matches: { review: reviews!.reviewMatch, live: facts!.liveMatch, declined: reviews!.declinedMatch, gone: facts!.goneMatch },
+  };
 }
 
-async function countComments(userId: string, search: SQL | undefined): Promise<StatusCounts> {
-  const s = search ?? sql`true`;
+async function countComments(userId: string, terms: string[]): Promise<Pair> {
+  const s = commentSearch(terms);
   const [row] = await db.select({
-    review: n(and(COMMENT_STATUS.review, s)!),
-    live: n(and(COMMENT_STATUS.live, s)!),
-    declined: n(and(COMMENT_STATUS.declined, s)!),
-    gone: n(and(COMMENT_STATUS.gone, s)!),
+    review: n(COMMENT_STATUS.review), live: n(COMMENT_STATUS.live),
+    declined: n(COMMENT_STATUS.declined), gone: n(COMMENT_STATUS.gone),
+    reviewMatch: n(COMMENT_STATUS.review, s), liveMatch: n(COMMENT_STATUS.live, s),
+    declinedMatch: n(COMMENT_STATUS.declined, s), goneMatch: n(COMMENT_STATUS.gone, s),
   }).from(c).innerJoin(f, eq(c.factId, f.id)).where(commentScope(userId));
-  return row!;
+  return {
+    totals: { review: row!.review, live: row!.live, declined: row!.declined, gone: row!.gone },
+    matches: { review: row!.reviewMatch, live: row!.liveMatch, declined: row!.declinedMatch, gone: row!.goneMatch },
+  };
 }
 
 /** Totals per type and status, and with a search term, the matches too. */
 export async function countMySubmissions(userId: string, q?: string): Promise<{ totals: TypeCounts; matches: TypeCounts | null }> {
   const terms = searchTerms(q);
-  const [factTotals, commentTotals, factMatches, commentMatches] = await Promise.all([
-    countFacts(userId, undefined, undefined),
-    countComments(userId, undefined),
-    terms.length ? countFacts(userId, factSearch(terms), reviewSearch(terms)) : null,
-    terms.length ? countComments(userId, commentSearch(terms)) : null,
-  ]);
+  const [facts, comments] = await Promise.all([countFacts(userId, terms), countComments(userId, terms)]);
   return {
-    totals: { facts: factTotals, comments: commentTotals },
-    matches: factMatches && commentMatches ? { facts: factMatches, comments: commentMatches } : null,
+    totals: { facts: facts.totals, comments: comments.totals },
+    matches: terms.length ? { facts: facts.matches, comments: comments.matches } : null,
   };
 }
 
@@ -192,7 +201,7 @@ export type SubmissionRow =
       factId: number; factText: string; factLive: boolean; hidden: boolean; teamNote: string | null;
     };
 
-export interface ListOptions {
+interface ListOptions {
   type: SubmissionType;
   status: SubmissionStatus;
   q?: string;
@@ -203,110 +212,97 @@ export interface ListOptions {
 
 const iso = (key: string | null) => (key ? new Date(key).toISOString() : null);
 
+/** A page from rows fetched one past the limit, its cursor taken from the last row kept. */
+function toPage<R extends { key: string; id: number }, T>(rows: R[], limit: number, toItem: (row: R) => T): Page<T> {
+  const kept = rows.slice(0, limit);
+  const last = kept[kept.length - 1];
+  return { items: kept.map(toItem), nextCursor: rows.length > limit && last ? encodeCursor(last.key, last.id) : null };
+}
+
 /** One page of the person's submissions of one type in one status. */
-export async function listMySubmissions(userId: string, opts: ListOptions): Promise<{ items: SubmissionRow[]; nextCursor: string | null }> {
+export async function listMySubmissions(userId: string, opts: ListOptions): Promise<Page<SubmissionRow>> {
   const terms = searchTerms(opts.q);
   const cursor = decodeCursor(opts.cursor);
   const dir = opts.oldest ? asc : desc;
-
-  let page: { key: string; id: number; item: SubmissionRow }[];
-  let more: boolean;
+  /** The list's own order, (date, id), and where the cursor left off in it. */
+  const window = (key: SQL, id: AnyColumn) => ({
+    after: afterCursor(key, id, cursor, opts.oldest),
+    order: [dir(key), dir(id)] as const,
+  });
 
   if (opts.type === "facts" && (opts.status === "review" || opts.status === "declined")) {
     // Under Review is ordered by when it was sent; Declined by when it was
     // declined (when it was sent, where no decision date was recorded).
-    const key = opts.status === "review" ? sql`${r.createdAt}` : sql`coalesce(${r.reviewedAt}, ${r.createdAt})`;
+    const declined = opts.status === "declined";
+    const key = declined ? sql`coalesce(${r.reviewedAt}, ${r.createdAt})` : sql`${r.createdAt}`;
+    const w = window(key, r.id);
     const rows = await db.select({
       key: sql<string>`(${key})::text`,
       id: r.id, text: r.submittedText, hashtags: r.hashtags, createdAt: r.createdAt,
-      reviewedAt: r.reviewedAt, status: r.status, workflowStage: r.workflowStage,
-      reason: r.reason, adminNote: r.adminNote,
+      reviewedAt: r.reviewedAt, workflowStage: r.workflowStage, reason: r.reason, adminNote: r.adminNote,
     })
       .from(r)
-      .where(and(reviewScope(userId), REVIEW_STATUS[opts.status], reviewSearch(terms), afterCursor(key, r.id, cursor, opts.oldest)))
-      .orderBy(dir(key), dir(r.id))
+      .where(and(reviewScope(userId), REVIEW_STATUS[opts.status], reviewSearch(terms), w.after))
+      .orderBy(...w.order)
       .limit(opts.limit + 1);
-    more = rows.length > opts.limit;
-    page = rows.slice(0, opts.limit).map((row) => {
-      const declined = row.status === "rejected";
-      return {
-        key: row.key,
-        id: row.id,
-        item: {
-          kind: "review",
-          id: row.id,
-          text: row.text,
-          hashtags: row.hashtags ?? [],
-          createdAt: row.createdAt.toISOString(),
-          decidedAt: declined ? (row.reviewedAt?.toISOString() ?? null) : null,
-          // The step name stays on the server: a first look, or past it and
-          // being prepared. Neither promises publication.
-          progress: declined ? null : row.workflowStage === "triage" ? "first_look" : "preparing",
-          // Before a decline both columns hold the moderator's unsaved draft,
-          // which is not the submitter's to read (Issue #1057).
-          reason: declined ? (row.reason ?? null) : null,
-          teamNote: declined ? (row.adminNote ?? null) : null,
-        },
-      };
-    });
-  } else if (opts.type === "facts") {
-    const status = opts.status === "gone" ? "gone" : "live";
+    return toPage(rows, opts.limit, (row): SubmissionRow => ({
+      kind: "review",
+      id: row.id,
+      text: row.text,
+      hashtags: row.hashtags ?? [],
+      createdAt: row.createdAt.toISOString(),
+      decidedAt: declined ? (row.reviewedAt?.toISOString() ?? null) : null,
+      // The step name stays on the server: a first look, or past it and
+      // being prepared. Neither promises publication.
+      progress: declined ? null : row.workflowStage === "triage" ? "first_look" : "preparing",
+      // Before a decline both columns hold the moderator's unsaved draft,
+      // which is not the submitter's to read (Issue #1057).
+      reason: declined ? (row.reason ?? null) : null,
+      teamNote: declined ? (row.adminNote ?? null) : null,
+    }));
+  }
+
+  if (opts.type === "facts") {
+    const live = opts.status === "live";
     const key = sql`coalesce(${f.approvedAt}, ${f.createdAt})`;
-    const rows = await db.select({ key: sql<string>`(${key})::text`, row: f })
+    const w = window(key, f.id);
+    const rows = await db.select({ key: sql<string>`(${key})::text`, id: f.id, row: f })
       .from(f)
-      .where(and(factScope(userId), FACT_STATUS[status], factSearch(terms), afterCursor(key, f.id, cursor, opts.oldest)))
-      .orderBy(dir(key), dir(f.id))
+      .where(and(factScope(userId), live ? FACT_STATUS.live : FACT_STATUS.gone, factSearch(terms), w.after))
+      .orderBy(...w.order)
       .limit(opts.limit + 1);
-    more = rows.length > opts.limit;
-    const kept = rows.slice(0, opts.limit);
-    const tags = status === "gone" ? await hashtagsOf(kept.map((k) => k.row.id)) : new Map<number, string[]>();
-    page = kept.map(({ key: k, row }) => {
+    const tags = live ? new Map<number, string[]>() : await hashtagsOf(rows.slice(0, opts.limit).map((k) => k.id));
+    return toPage(rows, opts.limit, ({ key: k, row }): SubmissionRow => {
       const base = { id: row.id, text: row.text, createdAt: row.createdAt.toISOString(), decidedAt: iso(k) };
-      return {
-        key: k,
-        id: row.id,
-        item: status === "live"
-          ? { kind: "fact", ...base, row }
-          : { kind: "fact_gone", ...base, hashtags: tags.get(row.id) ?? [] },
-      };
-    });
-  } else {
-    const key = sql`${c.createdAt}`;
-    const rows = await db.select({
-      key: sql<string>`(${key})::text`,
-      id: c.id, text: c.text, createdAt: c.createdAt, status: c.status, flagged: c.flagged,
-      flagReason: c.flagReason, factId: c.factId, factText: f.text, factLive: f.isActive,
-    })
-      .from(c)
-      .innerJoin(f, eq(c.factId, f.id))
-      .where(and(commentScope(userId), COMMENT_STATUS[opts.status], commentSearch(terms), afterCursor(key, c.id, cursor, opts.oldest)))
-      .orderBy(dir(key), dir(c.id))
-      .limit(opts.limit + 1);
-    more = rows.length > opts.limit;
-    page = rows.slice(0, opts.limit).map((row) => {
-      const declined = row.status === "rejected";
-      return {
-        key: row.key,
-        id: row.id,
-        item: {
-          kind: "comment",
-          id: row.id,
-          text: row.text,
-          createdAt: row.createdAt.toISOString(),
-          factId: row.factId,
-          factText: row.factText,
-          factLive: row.factLive,
-          hidden: row.status === "approved" && row.flagged,
-          // On a declined comment this is the moderator's note to the author;
-          // on any other it can be an automated flag's explanation, not theirs.
-          teamNote: declined ? (row.flagReason ?? null) : null,
-        },
-      };
+      return live ? { kind: "fact", ...base, row } : { kind: "fact_gone", ...base, hashtags: tags.get(row.id) ?? [] };
     });
   }
 
-  const last = page[page.length - 1];
-  return { items: page.map((p) => p.item), nextCursor: more && last ? encodeCursor(last.key, last.id) : null };
+  const key = sql`${c.createdAt}`;
+  const w = window(key, c.id);
+  const rows = await db.select({
+    key: sql<string>`(${key})::text`,
+    id: c.id, text: c.text, createdAt: c.createdAt, status: c.status, flagged: c.flagged,
+    flagReason: c.flagReason, factId: c.factId, factText: f.text, factLive: f.isActive,
+  })
+    .from(c)
+    .innerJoin(f, eq(c.factId, f.id))
+    .where(and(commentScope(userId), COMMENT_STATUS[opts.status], commentSearch(terms), w.after))
+    .orderBy(...w.order)
+    .limit(opts.limit + 1);
+  return toPage(rows, opts.limit, (row): SubmissionRow => ({
+    kind: "comment",
+    id: row.id,
+    text: row.text,
+    createdAt: row.createdAt.toISOString(),
+    factId: row.factId,
+    factText: row.factText,
+    factLive: row.factLive,
+    hidden: row.status === "approved" && row.flagged,
+    // On a declined comment this is the moderator's note to the author; on
+    // any other it can be an automated flag's explanation, not theirs.
+    teamNote: row.status === "rejected" ? (row.flagReason ?? null) : null,
+  }));
 }
 
 async function hashtagsOf(factIds: number[]): Promise<Map<number, string[]>> {

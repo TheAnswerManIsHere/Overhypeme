@@ -14,6 +14,7 @@ import {
   AlertTriangle, ArrowDownUp, CheckCircle, Clock, EyeOff, FileText, MessageSquare, Search, X, XCircle,
 } from "lucide-react";
 import { FactCard } from "@/components/facts/FactCard";
+import { useDebouncedValue } from "@/components/meme-builder/hooks/useDebouncedValue";
 import { Button } from "@/components/ui/Button";
 
 export type SubmissionType = "facts" | "comments";
@@ -102,9 +103,11 @@ export function useSubmissionCounts(q: string, enabled = true) {
 
 /** How many submissions there are altogether, across both types. */
 export function submissionTotal(counts: MySubmissionCounts | undefined): number | null {
-  if (!counts) return null;
-  const sum = (c: MySubmissionStatusCounts) => c.review + c.live + c.declined + c.gone;
-  return sum(counts.totals.facts) + sum(counts.totals.comments);
+  return counts ? sumCounts(counts.totals.facts) + sumCounts(counts.totals.comments) : null;
+}
+
+function sumCounts(c: MySubmissionStatusCounts): number {
+  return c.review + c.live + c.declined + c.gone;
 }
 
 export function SubmissionsPanel() {
@@ -112,15 +115,16 @@ export function SubmissionsPanel() {
   const { type, sort, q } = view;
 
   // The search box is typed into freely and written to the address shortly after.
+  // It runs only when the typed term settles, so an address change made
+  // elsewhere (Back, a type switch) is never written over by a stale term.
   const [draft, setDraft] = useState(q);
   useEffect(() => { setDraft(q); }, [q]);
+  const settled = useDebouncedValue(draft.trim(), 300);
   useEffect(() => {
-    const term = draft.trim();
-    if (term === q) return;
-    const t = setTimeout(() => view.update({ q: term || null }, false), 300);
-    return () => clearTimeout(t);
+    if (settled !== q) view.update({ q: settled || null }, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft]);
+  }, [settled]);
+  const clearSearch = () => { setDraft(""); view.update({ q: null }, false); };
 
   const counts = useSubmissionCounts(q);
   const totals = counts.data?.totals[type];
@@ -128,7 +132,7 @@ export function SubmissionsPanel() {
   const status: SubmissionStatus | null = view.status ?? (totals ? openingStatus(totals) : null);
   const typeTotal = (t: SubmissionType) => {
     const c = counts.data?.totals[t];
-    return c ? c.review + c.live + c.declined + c.gone : null;
+    return c ? sumCounts(c) : null;
   };
 
   const visibleStatuses = STATUS_ORDER.filter((s) => s !== "gone" || (totals?.gone ?? 0) > 0 || status === "gone");
@@ -202,7 +206,7 @@ export function SubmissionsPanel() {
           {draft && (
             <button
               aria-label="Clear search"
-              onClick={() => { setDraft(""); view.update({ q: null }, false); }}
+              onClick={clearSearch}
               className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"
             >
               <X className="w-4 h-4" />
@@ -225,7 +229,8 @@ export function SubmissionsPanel() {
 
       {counts.isError ? (
         <LoadError onRetry={() => void counts.refetch()} />
-      ) : !status || !totals ? (
+      ) : !status ? (
+        // Only the opening status waits for the counts; one the address names loads at once.
         <ListSkeleton />
       ) : (
         <>
@@ -236,7 +241,7 @@ export function SubmissionsPanel() {
             q={q}
             sort={sort}
             typeIsEmpty={typeTotal(type) === 0}
-            onClearSearch={() => { setDraft(""); view.update({ q: null }, false); }}
+            onClearSearch={clearSearch}
           />
         </>
       )}

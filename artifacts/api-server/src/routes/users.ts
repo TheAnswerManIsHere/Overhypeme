@@ -229,39 +229,30 @@ router.get("/users/me/submissions/counts", async (req: Request, res: Response) =
 // optionally matching `q`, newest or oldest first; `cursor` is the previous
 // page's `nextCursor`. Only the signed-in user's own submissions, ever.
 const MY_SUBMISSIONS_PAGE = 24;
+const SUBMISSION_BLANKS = {
+  hashtags: [] as string[], decidedAt: null, progress: null, reason: null, teamNote: null,
+  fact: null, factId: null, factText: null, factLive: null, hidden: null,
+};
 router.get("/users/me/submissions", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   const parsed = ListMySubmissionsQueryParams.safeParse(req.query);
   if (!parsed.success) { res.status(400).json({ error: "Invalid query" }); return; }
   const { type, status, q, sort, cursor } = parsed.data;
-  const userId = req.user.id;
-  const page = await listMySubmissions(userId, {
+  const page = await listMySubmissions(req.user.id, {
     type, status, q, cursor, oldest: sort === "oldest", limit: MY_SUBMISSIONS_PAGE,
   });
 
   const liveRows = page.items.flatMap((i) => (i.kind === "fact" ? [i.row] : []));
-  const summaries = new Map((await buildFactSummaries(liveRows, userId)).map((s) => [s.id, s]));
+  const summaries = new Map((await buildFactSummaries(liveRows, req.user.id)).map((s) => [s.id, s]));
 
   res.json({
     nextCursor: page.nextCursor,
+    // The contract is one flat shape; the fields a kind does not carry are null.
     items: page.items.map((i) => {
-      const empty = {
-        hashtags: [] as string[], decidedAt: null, progress: null, reason: null, teamNote: null,
-        fact: null, factId: null, factText: null, factLive: null, hidden: null,
-      };
-      switch (i.kind) {
-        case "review":
-          return { ...empty, ...i };
-        case "fact_gone":
-          return { ...empty, ...i };
-        case "fact": {
-          const { row, ...rest } = i;
-          const fact = summaries.get(row.id) ?? null;
-          return { ...empty, ...rest, hashtags: fact?.hashtags ?? [], fact };
-        }
-        case "comment":
-          return { ...empty, ...i };
-      }
+      if (i.kind !== "fact") return { ...SUBMISSION_BLANKS, ...i };
+      const { row, ...rest } = i;
+      const fact = summaries.get(row.id) ?? null;
+      return { ...SUBMISSION_BLANKS, ...rest, hashtags: fact?.hashtags ?? [], fact };
     }),
   });
 });
