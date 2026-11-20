@@ -7,6 +7,7 @@ import { useAuth } from "@workspace/replit-auth-web";
 import { useUpdateMyProfile } from "@workspace/api-client-react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import { Link } from "wouter";
 import { usePersonName } from "@/hooks/use-person-name";
 import { useIdentityGate } from "@/hooks/use-identity-gate";
 import { inferPronounsFromName } from "@/lib/infer-pronouns";
@@ -283,6 +284,22 @@ export function WelcomeModal() {
         <FlameMark /> Hype me
       </button>
 
+      {/* A returning visitor whose browser forgot them (cleared cache, a new
+          device) meets this sheet first, and it covers the navbar's Sign in;
+          /login is a suppressed path, so the sheet closes there, and a
+          complete account is never asked again on return. */}
+      {!isAuthenticated && (
+        <p className="mt-4 text-center text-[13px] md:text-[14px] text-muted-foreground">
+          Already have an account?{" "}
+          <Link
+            href={`/login?from=${encodeURIComponent(window.location.pathname + window.location.search)}`}
+            data-testid="identity-sign-in"
+            className="font-semibold text-primary hover:underline"
+          >
+            Sign in
+          </Link>
+        </p>
+      )}
     </>
   );
 
