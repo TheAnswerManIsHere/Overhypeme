@@ -26,8 +26,8 @@ export interface OffDatabaseStore {
 
 export const OFF_DATABASE_STORES: Readonly<Record<string, OffDatabaseStore>> = {
   "media-backup": {
-    holds: "copies of stored photos, memes and pictures",
-    period: "7 days from each copy (mediaBackup/config.ts BACKUP_RETENTION_DAYS)",
+    holds: "copies of stored photos, memes and pictures, and a full database dump in each restore point",
+    period: "a copy stays while any retained restore point includes it: about 7 days after it is removed from live storage (restore points are kept 7 days, mediaBackup/config.ts BACKUP_RETENTION_DAYS), and the latest complete restore point is kept until a newer one replaces it (mediaBackup/expiry.ts)",
     mechanism: "app job",
   },
   "database-restore": {
@@ -129,12 +129,12 @@ export const PRIVACY_RETENTION_ROWS: readonly PrivacyRetentionRow[] = [
   },
   {
     information: "Photos, memes and pictures you delete",
-    howLong: "Removed 30 days after you delete them; backup copies are kept up to 7 days after they were made",
+    howLong: "Removed 30 days after you delete them. Our backups keep them about 7 more days after that; if newer backups fail, the latest complete backup is kept until a newer one replaces it",
     covers: ["memes", "upload_image_metadata", "user_ai_images", "share_intents", "media-backup"],
   },
   {
     information: "Your photos, memes and pictures when your account is deleted",
-    howLong: "Removed when the deletion takes effect; backup copies are kept up to 7 days after they were made",
+    howLong: "Removed when the deletion takes effect, then kept in our backups about 7 more days, under the same backup rule",
     covers: ["memes", "upload_image_metadata", "user_ai_images", "media-backup"],
   },
   {
@@ -173,13 +173,13 @@ export const PRIVACY_RETENTION_ROWS: readonly PrivacyRetentionRow[] = [
     covers: ["image_provenance", "image_generation_requests"],
   },
   {
-    information: "Abuse limits (your IP address, session or an email address you entered)",
-    howLong: "Until the limit's window ends, at most a few hours; a scrambled form of your IP address for preview pictures, 30 days",
+    information: "Abuse limits (your IP address, account, session or an email address you entered)",
+    howLong: "While a limit's window runs, which is at most a day (the daily upload limit), then removed within about a day after it ends; a scrambled form of your IP address for preview pictures, 30 days",
     covers: ["rate_limit_counters", "transient_renders"],
   },
   {
-    information: "Emails waiting to be sent",
-    howLong: "30 days after they are sent. Our email provider, Resend, keeps sent emails and their logs for 30 days",
+    information: "Emails we send you",
+    howLong: "Our record of each email is removed 30 days after it was queued, except an alert to our staff that an email could not be delivered, which repeats the address and subject and is kept. Our email provider, Resend, keeps sent emails and their logs for 30 days",
     covers: ["async_jobs", "resend"],
   },
   {
@@ -194,8 +194,8 @@ export const PRIVACY_RETENTION_ROWS: readonly PrivacyRetentionRow[] = [
   },
   {
     information: "Database backups",
-    howLong: "Up to 28 days, to restore the service after a fault",
-    covers: ["database-restore"],
+    howLong: "Up to 28 days in our hosting provider's restore history, to restore the service after a fault; copies inside our own backups follow the backup rule above",
+    covers: ["database-restore", "media-backup"],
   },
   {
     information: "Server and edge logs",

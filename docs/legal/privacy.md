@@ -1,6 +1,6 @@
 ---
 title: Privacy Policy
-version: 2026-11-19
+version: 2026-11-19.2
 summary: What we collect, why, who receives it, how long we keep it, and your choices.
 ---
 

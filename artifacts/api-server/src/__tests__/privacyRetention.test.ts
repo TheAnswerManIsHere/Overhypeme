@@ -44,6 +44,12 @@ describe("the Privacy page's retention table", () => {
     assert.equal(row("Your searches"), `${SEARCH_HISTORY_RETENTION_DAYS} days`);
     assert.match(row("What your pictures cost us"), new RegExp(`^${GENERATION_COST_RETENTION_MONTHS} months`));
     assert.match(row("Payment records"), new RegExp(`kept ${WEBHOOK_AUDIT_RETENTION_DAYS} days`));
+    assert.match(row("Emails we send you"), /30 days after it was queued, except an alert to our staff/);
+    assert.match(row("Abuse limits (your IP address, account, session or an email address you entered)"), /at most a day/);
+    for (const r of ["Photos, memes and pictures you delete", "Your photos, memes and pictures when your account is deleted"]) {
+      assert.doesNotMatch(row(r), /after they were made/, "backup retention is measured from removal, not from the copy");
+    }
+    assert.match(row("Photos, memes and pictures you delete"), /latest complete backup is kept until a newer one replaces it/);
     assert.match(row("Pictures made by AI, at fal.ai"), new RegExp(`each picture ${GENERATED_OUTPUT_EXPIRY_SECONDS / 86400} days`));
     assert.equal(CLASSIFIER_UPLOAD_LIFECYCLE.expiresIn, "1h");
     assert.match(row("Your photo, when we check it for safety at upload"), /within an hour/);
