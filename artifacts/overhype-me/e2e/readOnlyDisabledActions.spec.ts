@@ -160,7 +160,7 @@ async function explanationIsOnTop(page: Page): Promise<boolean> {
   });
 }
 
-test("read-only mode: the picture menu's Delete explains itself above the menu; an open password form's Save is grayed", async ({ browser }) => {
+test("read-only mode: the picture menu's Delete explains itself above the menu; an open password form's Save and the desktop photo are grayed", async ({ browser }) => {
   test.setTimeout(150_000);
   const admin = await adminPage(browser);
   await setSwitch(admin.page, false);
@@ -171,10 +171,22 @@ test("read-only mode: the picture menu's Delete explains itself above the menu; 
     await signInThroughForm(page, FREE_ACCOUNT.email, TEST_ACCOUNT_PASSWORD);
     // The password form opened before the pause.
     await page.goto("/profile");
+    const desktopPhoto = page.locator('img[class*="w-[120px]"]');
+    await expect(page.getByTitle("Upload profile photo").first()).toBeAttached(); // open site: the upload overlay is there
     await page.getByRole("button", { name: /(set a|change) password/i }).click();
     await setSwitch(admin.page, true);
     await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
     await expect(paused(page, "Save Password")).toBeVisible();
+
+    // The desktop profile photo: the paused control has the photo's box, and hovering it explains.
+    const pausedPhoto = page.getByTestId("read-only-paused").filter({ has: desktopPhoto });
+    await expect(pausedPhoto).toBeVisible();
+    const box = await pausedPhoto.boundingBox();
+    expect(box && Math.round(box.width) >= 118 && Math.round(box.height) >= 118, `paused photo box ${JSON.stringify(box)}`).toBe(true);
+    await desktopPhoto.hover({ force: true });
+    await expect(page.getByTestId("read-only-explanation")).toHaveText(EXPLANATION);
+    expect(await explanationIsOnTop(page), "the photo's explanation is drawn on top").toBe(true);
+    await page.mouse.move(0, 0);
 
     // Desktop: the picture menu's Delete, hovered.
     await stubMyMeme(page);

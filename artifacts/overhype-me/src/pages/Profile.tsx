@@ -988,12 +988,13 @@ export default function Profile() {
         <div className="hidden md:flex items-end gap-10 pb-10 mb-10 border-b border-border">
           {/* Avatar */}
           <div className="relative group shrink-0">
+            {/* The photo is inside the paused wrapper so it sizes it and grays with it. */}
+            <PausedWhenReadOnly className="rounded-full">
             <img
               src={getAvatarUrl()}
               alt={profile.displayName ?? "User"}
               className="w-[120px] h-[120px] rounded-full border-2 border-primary object-cover bg-secondary shadow-[0_0_24px_rgba(249,115,22,0.25)]"
             />
-            <PausedWhenReadOnly>
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={photoUploading}
