@@ -337,6 +337,19 @@ Both halves are load-bearing, and neither is sufficient alone:
 Check only one and the other becomes the hole. Check the branch name alone
 and both are.
 
+**A publish leaves an empty commit on the Repl's `main`, and can leave the
+dev app stopped.** Measured after David's publish of 2026-11-20 (20:42Z):
+the Repl read `## main...origin/main [ahead 1, behind 2]`, the extra commit
+being `56b4a22` by *Replit Agent*, "Published your App", with no file changes
+(`git show --stat` printed nothing), and the API Server workflow was not
+running (`healthz` on port 8080 answered `000`). So the next close-out sync
+after any publish finds the Repl ahead. Handle it as any Repl commit
+(`claude-core.md`, *This environment's git constraints*): push it to a branch
+(`replit/publish-commit-<date>`), reset the Repl's `main` to `origin/main`,
+and start the dev workflows again. An empty commit needs no pull request;
+one that changes files does. Never fast-forward over it, and never let it
+reach GitHub's `main` without a PR.
+
 What to check after a publish, and the ways back from a bad one, are
 [`deploy-and-rollback.md`](../engineering/deploy-and-rollback.md).
 
