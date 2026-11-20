@@ -6,11 +6,26 @@
 /** The code the server's read-only gate answers with (api-server `lib/readOnlyMode.ts`). */
 export const READ_ONLY_CODE = "READ_ONLY_MODE";
 
-/** The title of the toast shown when an action is refused. */
-export const READ_ONLY_REFUSED_TITLE = "Paused for a moment";
+/**
+ * The maintenance sentence (David, Issue #1107): the site-wide banner, and the
+ * explanation on every control grayed out while the site is paused (#1109).
+ */
+export const READ_ONLY_EXPLANATION =
+  "Overhype.me is undergoing maintenance. Real men get pedicures. Keep browsing but the site is read-only until we're done waiting for our toes to dry.";
 
-/** The short message shown when an action is refused. */
-export const READ_ONLY_REFUSED_MESSAGE = "Changes are paused for a little while. Nothing you typed is lost; please try again shortly.";
+/** The warning admin screens show instead of the banner while paused (David, #1109 Q30/Q31). */
+export const READ_ONLY_ADMIN_WARNING =
+  "The site is paused for the public. Admin changes still save. If you're about to restore the database or run a repair, stop: changes made now can be lost or collide.";
+
+/** The title of the toast shown when an action is refused (David, #1109 Q32). */
+export const READ_ONLY_REFUSED_TITLE = "Overhype.me is undergoing maintenance";
+
+/** The text under that title (David, #1109 Q32). */
+export const READ_ONLY_REFUSED_MESSAGE =
+  "Real men get pedicures. We can't process any data until we're done waiting for our toes to dry. Try again in a few minutes.";
+
+/** Title and text as one message, for a form that shows an error without a title. */
+export const READ_ONLY_REFUSED_FULL = `${READ_ONLY_REFUSED_TITLE}. ${READ_ONLY_REFUSED_MESSAGE}`;
 
 type Listener = (on: boolean) => void;
 
@@ -74,6 +89,34 @@ export function isReadOnlyRefusal(failure: unknown, body?: unknown): boolean {
   if (f.status !== 503) return false;
   const payload = body !== undefined ? body : f.data;
   return !!payload && typeof payload === "object" && (payload as { code?: unknown }).code === READ_ONLY_CODE;
+}
+
+/**
+ * Before a full-page navigation that the server would refuse while paused
+ * (linking a sign-in provider), asks the public config whether the site is
+ * paused now. A navigation is not a fetch, so a refusal would land on the
+ * server's raw error page instead of reaching the app (#1109 D8). When paused,
+ * it raises the refusal (banner and popup) and answers false; when it cannot
+ * tell, it answers true and the server stays the guarantee.
+ */
+export async function confirmNotReadOnly(): Promise<boolean> {
+  if (on || (await fetchReadOnlyFlag()) === true) {
+    noteReadOnlyRefusal();
+    return false;
+  }
+  return true; // open, or cannot tell: the server stays the guarantee
+}
+
+/** The switch as the public config reports it now; null when it cannot be read. */
+export async function fetchReadOnlyFlag(): Promise<boolean | null> {
+  try {
+    const res = await fetch("/api/config", { credentials: "include" });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { readOnlyMode?: unknown };
+    return typeof body.readOnlyMode === "boolean" ? body.readOnlyMode : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Test seam. */

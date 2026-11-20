@@ -301,6 +301,7 @@ export function Step2Image({
 
       <div>
         <WizardPrimaryAction
+          writes
           label="Make my meme"
           onClick={handleMakeMyMeme}
           disabled={!sourceSelected || !captionFontReady}

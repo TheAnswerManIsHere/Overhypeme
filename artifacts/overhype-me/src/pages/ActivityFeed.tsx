@@ -13,6 +13,7 @@ import {
   ThumbsUp, FileText, Bell, Loader2, ChevronLeft, ChevronRight,
   ShieldAlert,
 } from "lucide-react";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
 
 type ActivityType =
   | "fact_submitted"
@@ -218,7 +219,7 @@ export default function ActivityFeed() {
             <p className="text-lg">No activity yet.</p>
             <p className="text-sm mt-2">
               Start by{" "}
-              <Link href="/submit" className="text-primary underline">submitting a fact</Link>.
+              <PausedWhenReadOnly><Link href="/submit" className="text-primary underline">submitting a fact</Link></PausedWhenReadOnly>.
             </p>
           </div>
         )}

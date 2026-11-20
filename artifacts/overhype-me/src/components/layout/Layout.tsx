@@ -7,6 +7,8 @@ import { Link } from "wouter";
 import { LegalLinks } from "@/components/legal/LegalLinks";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Mail, X, CheckCircle, Loader2 } from "lucide-react";
+import { resendVerification } from "@/lib/resendVerification";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
 
 function EmailVerificationBanner() {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
@@ -15,6 +17,7 @@ function EmailVerificationBanner() {
   const [dismissed, setDismissed] = useState(false);
   const [resending, setResending] = useState(false);
   const [resendDone, setResendDone] = useState(false);
+  const [resendError, setResendError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated || authLoading) return;
@@ -32,13 +35,11 @@ function EmailVerificationBanner() {
 
   const handleResend = async () => {
     setResending(true);
+    setResendError(null);
     try {
-      await fetch("/api/auth/resend-verification", {
-        method: "POST",
-        credentials: "include",
-      });
-      setResendDone(true);
-    } catch {
+      const result = await resendVerification();
+      if (result.sent) setResendDone(true);
+      else setResendError(result.message);
     } finally {
       setResending(false);
     }
@@ -49,16 +50,19 @@ function EmailVerificationBanner() {
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
         <div className="flex items-center gap-2.5 min-w-0">
           <Mail className="w-4 h-4 text-amber-500 shrink-0" />
-          <p className="text-sm text-amber-700 dark:text-amber-400 truncate">
+          <p className={`text-sm text-amber-700 dark:text-amber-400 ${resendError ? "" : "truncate"}`}>
             {resendDone
               ? "Verification email sent — check your inbox."
-              : email
+              : resendError
+                ? resendError
+                : email
                 ? `Please verify your email address (${email}) to unlock all features.`
                 : "Please verify your email address to unlock all features."}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {!resendDone && (
+            <PausedWhenReadOnly>
             <button
               onClick={handleResend}
               disabled={resending}
@@ -67,6 +71,7 @@ function EmailVerificationBanner() {
               {resending ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
               Resend email
             </button>
+            </PausedWhenReadOnly>
           )}
           <button
             onClick={() => setDismissed(true)}

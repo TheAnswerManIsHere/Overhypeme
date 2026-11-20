@@ -11,6 +11,7 @@ import {
   onReadOnlyChange,
   noteReadOnlyRefusal,
   onReadOnlyRefusal,
+  confirmNotReadOnly,
   isReadOnlyRefusal,
 } from "./readOnlyNotice";
 
@@ -58,5 +59,25 @@ describe("isReadOnlyRefusal (Issue #1107)", () => {
     noteReadOnlyRefusal();
     expect(isReadOnlyNow()).toBe(true);
     expect(isReadOnlyRefusal({ status: 401, data: { error: "Sign in" } })).toBe(false);
+  });
+});
+
+describe("confirmNotReadOnly (#1109 D8)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("stops a navigation and raises the refusal when the config says the site is paused", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json(200, { readOnlyMode: true })));
+    const refused = vi.fn();
+    onReadOnlyRefusal(refused);
+    expect(await confirmNotReadOnly()).toBe(false);
+    expect(isReadOnlyNow()).toBe(true);
+    expect(refused).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets it go when the site is open, or when it cannot tell", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json(200, { readOnlyMode: false })));
+    expect(await confirmNotReadOnly()).toBe(true);
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("offline"); }));
+    expect(await confirmNotReadOnly()).toBe(true);
   });
 });

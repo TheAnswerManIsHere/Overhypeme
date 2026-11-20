@@ -4,6 +4,7 @@
  */
 
 import type { HeaderCopyKey } from "./types";
+import { READ_ONLY_REFUSED_FULL } from "@/lib/readOnlyNotice";
 
 export const HEADER_COPY: Record<HeaderCopyKey, { eyebrow: string; title: string; subtitle: string }> = {
   "make-this-your-own": {
@@ -47,6 +48,7 @@ export const UPLOAD_ERROR_COPY = {
   "too-large": "That file is too big. Try one under 15 MB.",
   "invalid-format": "Use a JPEG, PNG, or WebP image.",
   rejected: "This image cannot be used. Please try a different one.",
+  paused: READ_ONLY_REFUSED_FULL,
   network: "Something went wrong. Check your connection and try again.",
 } as const;
 

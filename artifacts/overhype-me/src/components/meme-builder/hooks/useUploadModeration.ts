@@ -4,10 +4,11 @@
  */
 import { useCallback, useState } from "react";
 import { preProcessImageFile } from "@/lib/image-upload";
+import { isReadOnlyRefusal } from "@/lib/readOnlyNotice";
 
 export type UploadStatus = "idle" | "previewing" | "uploading" | "moderating" | "ready" | "error";
 
-export type UploadError = "too-large" | "invalid-format" | "rejected" | "network";
+export type UploadError = "too-large" | "invalid-format" | "rejected" | "paused" | "network";
 
 export interface UploadedImage {
   objectPath: string;
@@ -104,7 +105,10 @@ export function useUploadModeration() {
         return null;
       }
       if (!res.ok) {
-        setState({ status: "error", error: "network", image: null, progress: 0 });
+        // A read-only refusal says the site is paused, not that the connection failed (#1109 D8).
+        const body = res.status === 503 ? await res.clone().json().catch(() => null) : null;
+        const error: UploadError = isReadOnlyRefusal(res, body) ? "paused" : "network";
+        setState({ status: "error", error, image: null, progress: 0 });
         URL.revokeObjectURL(previewBlobUrl);
         return null;
       }

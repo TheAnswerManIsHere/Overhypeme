@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { useForgetThisBrowser } from "@/hooks/use-sign-out";
 import { pageNavigation } from "@/lib/navigation";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
@@ -184,9 +185,11 @@ function DeleteForm({ hasPassword, providers, returned, onCancel }: { hasPasswor
       {error && <p className="text-sm text-destructive font-medium" role="alert">{error}</p>}
 
       <div className="flex flex-wrap gap-2">
+        <PausedWhenReadOnly>
         <Button variant="danger" size="sm" onClick={() => void submit()} disabled={!canSubmit} className="gap-2">
           {submitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Deleting…</> : <><Trash2 className="w-4 h-4" /> Delete my account</>}
         </Button>
+        </PausedWhenReadOnly>
         <Button variant="outline" size="sm" onClick={onCancel}>Cancel</Button>
       </div>
     </div>

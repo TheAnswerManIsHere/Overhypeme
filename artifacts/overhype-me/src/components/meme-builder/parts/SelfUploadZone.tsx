@@ -3,6 +3,9 @@ import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import { useUploadModeration } from "../hooks/useUploadModeration";
 import { UPLOAD_ERROR_COPY } from "../copy";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
+import { useReadOnly } from "@/hooks/use-read-only";
+import { isReadOnlyNow, noteReadOnlyRefusal } from "@/lib/readOnlyNotice";
 
 interface Props {
   onUploaded: (objectPath: string) => void;
@@ -25,6 +28,8 @@ export function SelfUploadZone({ onUploaded, allowReplace = true }: Props) {
 
   const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    // A picker opened before the pause would otherwise upload once a file is chosen (#1109).
+    if (file && isReadOnlyNow()) { e.target.value = ""; noteReadOnlyRefusal(); return; }
     if (file) void handleFile(file);
   };
 
@@ -36,6 +41,7 @@ export function SelfUploadZone({ onUploaded, allowReplace = true }: Props) {
   };
 
   const showReplace = image && allowReplace;
+  const readOnly = useReadOnly();
 
   return (
     <div
@@ -44,7 +50,11 @@ export function SelfUploadZone({ onUploaded, allowReplace = true }: Props) {
         setIsDragging(true);
       }}
       onDragLeave={() => setIsDragging(false)}
-      onDrop={onDrop}
+      onDrop={(e) => {
+        // While the site is read-only a dropped file is not uploaded (#1109 D3).
+        if (readOnly) { e.preventDefault(); setIsDragging(false); return; }
+        onDrop(e);
+      }}
       className={cn(
         "rounded-md border-2 border-dashed p-6 text-center transition",
         isDragging ? "border-primary bg-primary/5" : "border-border",
@@ -62,7 +72,7 @@ export function SelfUploadZone({ onUploaded, allowReplace = true }: Props) {
         <div className="space-y-3">
           <p className="font-display text-lg uppercase">Drop a photo of yourself</p>
           <p className="text-sm text-muted-foreground">We need to see a face. JPEG, PNG, or WebP. Up to 15 MB.</p>
-          <Button type="button" onClick={() => inputRef.current?.click()}>Choose file</Button>
+          <PausedWhenReadOnly><Button type="button" onClick={() => inputRef.current?.click()}>Choose file</Button></PausedWhenReadOnly>
         </div>
       )}
 
@@ -76,9 +86,11 @@ export function SelfUploadZone({ onUploaded, allowReplace = true }: Props) {
       {status === "error" && error && (
         <div className="space-y-3">
           <p className="text-sm text-destructive">{UPLOAD_ERROR_COPY[error]}</p>
+          <PausedWhenReadOnly>
           <Button type="button" variant="secondary" onClick={() => { reset(); inputRef.current?.click(); }}>
             Try another
           </Button>
+          </PausedWhenReadOnly>
         </div>
       )}
 
@@ -90,9 +102,11 @@ export function SelfUploadZone({ onUploaded, allowReplace = true }: Props) {
             {image.isLowRes ? " · low-res" : ""}
           </p>
           {showReplace && (
+            <PausedWhenReadOnly>
             <Button type="button" variant="secondary" onClick={() => { reset(); inputRef.current?.click(); }}>
               Replace
             </Button>
+            </PausedWhenReadOnly>
           )}
         </div>
       )}

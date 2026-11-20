@@ -20,6 +20,7 @@ import { useAskBefore, useIdentityGate } from "@/hooks/use-identity-gate";
 import { lazyWithRetry } from "@/lib/lazy-retry";
 import { AdminMediaInfo, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
 import { roleToIdentity } from "@/components/meme-builder/integration/studioAdapter";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
 
 const MemeBuilderWizard = lazyWithRetry(() =>
   import("@/components/meme-builder/wizard").then(m => ({ default: m.MemeBuilderWizard })),
@@ -242,6 +243,7 @@ export default function FactDetail() {
 
         {/* PRIMARY CTA — Make a meme, full-width, prominent */}
         <div className="mb-4">
+          <PausedWhenReadOnly>
           <Button
             variant="primary"
             size="lg"
@@ -251,6 +253,7 @@ export default function FactDetail() {
             <Flame className="w-5 h-5" />
             MAKE A MEME OF THIS
           </Button>
+          </PausedWhenReadOnly>
         </div>
 
         {/* Ad slot — hidden for premium users */}
@@ -380,6 +383,7 @@ export default function FactDetail() {
                 <p className="text-sm text-muted-foreground mb-6 max-w-md mx-auto">
                   Make this fact yours.
                 </p>
+                <PausedWhenReadOnly>
                 <Button
                   variant="primary"
                   size="lg"
@@ -389,6 +393,7 @@ export default function FactDetail() {
                   <Flame className="w-5 h-5" />
                   MAKE A MEME OF THIS
                 </Button>
+                </PausedWhenReadOnly>
               </div>
             ) : (
               <div className="py-12 text-center border-2 border-dashed border-border rounded-2xl mb-6">
@@ -412,6 +417,7 @@ export default function FactDetail() {
 
         {/* PRIMARY CTA — repeated after the meme grid so deep-scroll visitors keep the affordance */}
         <div className="mb-12">
+          <PausedWhenReadOnly>
           <Button
             variant="primary"
             size="lg"
@@ -421,6 +427,7 @@ export default function FactDetail() {
             <Flame className="w-5 h-5" />
             MAKE A MEME OF THIS
           </Button>
+          </PausedWhenReadOnly>
         </div>
 
         {/* Comments — list first, composer at bottom (variant="detail") */}

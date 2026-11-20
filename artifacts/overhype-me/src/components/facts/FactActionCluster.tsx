@@ -7,6 +7,7 @@ import { useAuth } from "@workspace/replit-auth-web";
 import { cn } from "@/components/ui/Button";
 import { ShareModal } from "@/components/ShareModal";
 import { useAskBefore, useAskBeforeSignedIn } from "@/hooks/use-identity-gate";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
 
 type Size = "sm" | "md" | "lg";
 
@@ -122,7 +123,8 @@ export function FactActionCluster({ fact, onCommentClick, size = "sm", commentAr
   return (
     <div className="flex items-center justify-between gap-3">
       <div className="flex items-center gap-3">
-        {/* Vote pill (up + down combined) */}
+        {/* Vote pill (up + down combined) — grayed out while the site is read-only (#1109) */}
+        <PausedWhenReadOnly>
         <div className={cn(
           "inline-flex items-center rounded-full border transition-colors",
           s.pillH,
@@ -153,6 +155,7 @@ export function FactActionCluster({ fact, onCommentClick, size = "sm", commentAr
             <ThumbsDown className={cn("w-3.5 h-3.5", fact.userRating === "down" && "fill-current")} />
           </button>
         </div>
+        </PausedWhenReadOnly>
 
         {/* Comments */}
         <button
@@ -181,7 +184,8 @@ export function FactActionCluster({ fact, onCommentClick, size = "sm", commentAr
         </button>
       </div>
 
-      {/* Make a Meme — primary CTA, right-aligned */}
+      {/* Make a Meme — primary CTA, right-aligned; grayed out while read-only (#1109, Q29) */}
+      <PausedWhenReadOnly className="flex-shrink-0">
       <button
         onClick={handleMakeMeme}
         className={cn(
@@ -193,6 +197,7 @@ export function FactActionCluster({ fact, onCommentClick, size = "sm", commentAr
         <Flame className={s.ctaIcon} />
         Make a Meme
       </button>
+      </PausedWhenReadOnly>
 
       <ShareModal
         open={shareOpen}

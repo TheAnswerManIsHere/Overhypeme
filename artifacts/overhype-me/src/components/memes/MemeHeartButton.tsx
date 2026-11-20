@@ -8,6 +8,7 @@ import { useHeartMeme } from "@workspace/api-client-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useLocation } from "wouter";
 import { useAskBeforeSignedIn } from "@/hooks/use-identity-gate";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
 
 interface MemeHeartButtonProps {
   memeId: number;
@@ -75,6 +76,7 @@ export function MemeHeartButton({
   const textClass = size === "sm" ? "text-xs" : "text-sm";
 
   return (
+    <PausedWhenReadOnly>
     <button
       type="button"
       onClick={onClick}
@@ -87,5 +89,6 @@ export function MemeHeartButton({
       <Heart className={`${iconClass} ${active ? "fill-current" : ""}`} />
       <span>{count}</span>
     </button>
+    </PausedWhenReadOnly>
   );
 }

@@ -19,6 +19,7 @@ import {
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
 
 // Spring entrance animation injected once per menu render (idempotent)
 const GLASSMORPHIC_KEYFRAMES = `
@@ -140,8 +141,9 @@ function ActionMenu({
         icon: <Trash2 className="w-4 h-4 text-red-400" />,
         label: <span className="text-red-400">Delete</span>,
         action: onDeleteRequest ?? (() => { void onDeleteConfirm?.(); }),
+        writes: true,
       },
-    ].filter(Boolean) as { icon: ReactNode; label: ReactNode; action: () => void }[];
+    ].filter(Boolean) as { icon: ReactNode; label: ReactNode; action: () => void; writes?: boolean }[];
 
     return createPortal(
       <div className="fixed inset-0 z-[9998] flex items-end" onClick={onClose}>
@@ -155,17 +157,21 @@ function ActionMenu({
           <div className="flex justify-center pt-2.5 pb-1">
             <div className="w-10 h-1 bg-muted-foreground/30 rounded-full" />
           </div>
-          {mobileItems.map((item, i) => (
-            <button
-              key={i}
-              role="menuitem"
-              onClick={() => { item.action(); onClose(); }}
-              className="flex items-center gap-4 w-full px-6 py-4 text-left text-sm font-medium hover:bg-accent transition-colors"
-            >
-              {item.icon}
-              {item.label}
-            </button>
-          ))}
+          {mobileItems.map((item, i) => {
+            const row = (
+              <button
+                key={i}
+                role="menuitem"
+                onClick={() => { item.action(); onClose(); }}
+                className="flex items-center gap-4 w-full px-6 py-4 text-left text-sm font-medium hover:bg-accent transition-colors"
+              >
+                {item.icon}
+                {item.label}
+              </button>
+            );
+            // Deleting is paused while the site is read-only (#1109).
+            return item.writes ? <PausedWhenReadOnly key={i} className="w-full">{row}</PausedWhenReadOnly> : row;
+          })}
           <button
             role="menuitem"
             onClick={onClose}
@@ -299,6 +305,7 @@ function ActionMenu({
 
         {/* Delete — two-step inline confirm */}
         {hasDelete && (
+          <PausedWhenReadOnly className="w-full">
           <button
             role="menuitem"
             onClick={e => { e.stopPropagation(); void handleDeleteClick(); }}
@@ -332,6 +339,7 @@ function ActionMenu({
             </span>
             <span>{confirmDelete ? "Confirm Delete" : "Delete"}</span>
           </button>
+          </PausedWhenReadOnly>
         )}
 
         {/* Inline cancel for delete confirm */}
@@ -609,6 +617,7 @@ export function ImageCard({
           )}
           {/* Delete in bar: compact mode only — non-compact delete is in the kebab menu */}
           {compact && visibleActions.includes("delete") && onDelete && (
+            <PausedWhenReadOnly className="pointer-events-auto">
             <button
               aria-label="Delete"
               tabIndex={0}
@@ -618,6 +627,7 @@ export function ImageCard({
             >
               <Trash2 className="w-3 h-3" />
             </button>
+            </PausedWhenReadOnly>
           )}
         </div>
       )}
@@ -635,6 +645,7 @@ export function ImageCard({
             >
               Cancel
             </button>
+            <PausedWhenReadOnly className="flex-1">
             <button
               onClick={e => { e.stopPropagation(); void handleDeleteConfirm(); }}
               disabled={deleting}
@@ -643,6 +654,7 @@ export function ImageCard({
               {deleting && <Loader2 className="w-2.5 h-2.5 animate-spin" />}
               Delete
             </button>
+            </PausedWhenReadOnly>
           </div>
         </div>
       )}
@@ -659,6 +671,7 @@ export function ImageCard({
             >
               Cancel
             </button>
+            <PausedWhenReadOnly className="flex-1">
             <button
               onClick={e => { e.stopPropagation(); void handleDeleteConfirm(); }}
               disabled={deleting}
@@ -667,6 +680,7 @@ export function ImageCard({
               {deleting && <Loader2 className="w-3 h-3 animate-spin" />}
               Delete
             </button>
+            </PausedWhenReadOnly>
           </div>
         </div>
       )}

@@ -16,6 +16,8 @@ import { inferPronounsFromName } from "@/lib/infer-pronouns";
 import { usePersonName } from "@/hooks/use-person-name";
 import { NameFieldHint, useNameField } from "@/hooks/use-name-field";
 import { track, trackPersonaliseOnce } from "@/lib/analytics";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
+import { useReadOnly } from "@/hooks/use-read-only";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
@@ -86,6 +88,7 @@ export function ageFromParts(y: string, m: string, d: string, now: Date = new Da
 }
 
 export default function Onboard() {
+  const readOnly = useReadOnly();
   const [, setLocation] = useLocation();
   const { isAuthenticated, isLoading, refreshUser } = useAuth();
   const device = usePersonName();
@@ -199,7 +202,8 @@ export default function Onboard() {
 
   // Save progress a moment after each change, so a reload resumes the form.
   useEffect(() => {
-    if (step !== "details") return;
+    // Not saved while the site is read-only; the form keeps it, and it saves once the pause ends (#1109 D3).
+    if (step !== "details" || readOnly) return;
     const body = JSON.stringify({ displayName, pronouns, dobYear, dobMonth, dobDay, marketingOptIn });
     if (body === lastSavedDraft.current) return;
     if (draftTimer.current) clearTimeout(draftTimer.current);
@@ -220,7 +224,7 @@ export default function Onboard() {
     return () => {
       if (draftTimer.current) clearTimeout(draftTimer.current);
     };
-  }, [step, displayName, pronouns, dobYear, dobMonth, dobDay, marketingOptIn]);
+  }, [step, displayName, pronouns, dobYear, dobMonth, dobDay, marketingOptIn, readOnly]);
 
   const age = ageFromParts(dobYear, dobMonth, dobDay);
   const tooYoung = underAge || (age != null && age < 13);
@@ -442,6 +446,7 @@ export default function Onboard() {
             </p>
           )}
 
+          <PausedWhenReadOnly className="w-full">
           <Button
             onClick={handleUsePhoto}
             disabled={!photoFile || photoUploading}
@@ -455,6 +460,7 @@ export default function Onboard() {
               <>Use this photo</>
             )}
           </Button>
+          </PausedWhenReadOnly>
 
           <div className="flex items-center justify-between">
             <button
@@ -573,9 +579,11 @@ export default function Onboard() {
           <p className="text-destructive text-sm font-medium text-center" role="alert">{error}</p>
         )}
 
+        <PausedWhenReadOnly className="w-full">
         <Button onClick={handleSubmit} disabled={!canSubmit} className="w-full">
           {submitting ? "Saving…" : "Finish set-up"}
         </Button>
+        </PausedWhenReadOnly>
         <LegalNotice />
         {!pronouns && (
           <p className="text-xs text-muted-foreground text-center">Choose your pronouns to finish.</p>

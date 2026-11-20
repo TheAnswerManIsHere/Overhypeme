@@ -27,6 +27,9 @@ import {
   ChevronDown, ChevronUp, GitBranch, Trash2,
 } from "lucide-react";
 import { track } from "@/lib/analytics";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
+import { useReadOnly } from "@/hooks/use-read-only";
+import { isReadOnlyNow } from "@/lib/readOnlyNotice";
 
 type Step = "write" | "preview";
 
@@ -61,6 +64,7 @@ export default function SubmitFact() {
   const isCaptchaVerified = hasBypassEntitlement || !!user?.onboardingCompleted;
 
   const [step, setStep] = useState<Step>("write");
+  const readOnly = useReadOnly();
 
   const [rawText, setRawText] = useState("");
 
@@ -132,7 +136,7 @@ export default function SubmitFact() {
   const { checking: checkingDuplicate, shown: shownDuplicate, clear: clearDuplicate } =
     // Stopped from the moment Submit is pressed until it fails or the next fact
     // starts: a check landing after the save would match the submitter's own review.
-    useDuplicatePreview(step === "preview" ? template : rawText, !submitting && !submitted);
+    useDuplicatePreview(step === "preview" ? template : rawText, !submitting && !submitted && !readOnly);
 
   async function handleTokenize() {
     if (rawText.length < 10) return;
@@ -180,6 +184,8 @@ export default function SubmitFact() {
   // only for the most recent request (older responses are ignored). Best-effort:
   // any failure leaves the field empty for manual entry.
   const fetchHashtagSuggestions = useCallback(async (templateText: string) => {
+    // Not sent while the site is read-only: the server would refuse it (#1109 D3).
+    if (isReadOnlyNow()) return;
     const myId = ++suggestReqIdRef.current;
     setSuggestingHashtags(true);
     // Clear any PRIOR auto-filled tags so a re-preview of a *different* fact
@@ -215,6 +221,7 @@ export default function SubmitFact() {
 
   async function handleFinalSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (isReadOnlyNow()) return; // the Submit button is grayed out; Enter is a no-op too (#1109)
     setError("");
     setOnboardingRequired(false);
     if (!template || template.length < 5) { setError("No template to submit."); return; }
@@ -495,6 +502,7 @@ export default function SubmitFact() {
                 </div>
               )}
 
+              <PausedWhenReadOnly className="w-full">
               <Button
                 size="lg"
                 className="w-full h-14 text-lg font-bold"
@@ -506,6 +514,7 @@ export default function SubmitFact() {
                   : <><Sparkles className="w-5 h-5 mr-2" /> Preview <ChevronRight className="w-5 h-5 ml-1" /></>
                 }
               </Button>
+              </PausedWhenReadOnly>
             </div>
           )}
 
@@ -705,6 +714,7 @@ export default function SubmitFact() {
                 >
                   <ChevronLeft className="w-4 h-4 mr-1" /> Edit
                 </Button>
+                <PausedWhenReadOnly className="flex-1">
                 <Button
                   type="submit"
                   size="lg"
@@ -716,6 +726,7 @@ export default function SubmitFact() {
                     : <><CheckCircle2 className="w-5 h-5 mr-2" /> Looks Great — Submit</>
                   }
                 </Button>
+                </PausedWhenReadOnly>
               </div>
 
               {/* Moderation notice */}

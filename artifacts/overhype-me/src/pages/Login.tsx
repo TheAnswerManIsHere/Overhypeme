@@ -14,6 +14,9 @@ import { isMobileDevice } from "@/lib/utils";
 import { getSafeReturnTo } from "@/lib/safe-return-to";
 import { usePersonName } from "@/hooks/use-person-name";
 import { track } from "@/lib/analytics";
+import { resendVerification } from "@/lib/resendVerification";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
+import { isReadOnlyNow } from "@/lib/readOnlyNotice";
 
 /**
  * What a suspended account is offered where it is told it is suspended (#1099;
@@ -124,6 +127,8 @@ export default function Login() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Creating an account is paused while the site is read-only; signing in is not (#1109).
+    if (mode !== "login" && isReadOnlyNow()) return;
     setError("");
     setErrorCode(null);
     setLoading(true);
@@ -225,15 +230,16 @@ export default function Login() {
               <Button variant="primary" className="w-full mb-3" onClick={() => { window.location.href = "/"; }}>
                 CONTINUE BROWSING
               </Button>
+              <PausedWhenReadOnly>
               <button
                 className="text-xs text-muted-foreground hover:text-foreground underline transition-colors"
                 onClick={async () => {
-                  await fetch("/api/auth/resend-verification", { method: "POST", credentials: "include" });
-                  alert("Verification email resent. Please check your inbox.");
+                  alert((await resendVerification()).message);
                 }}
               >
                 Didn't receive it? Resend verification email
               </button>
+              </PausedWhenReadOnly>
             </div>
           </div>
         </div>
@@ -384,6 +390,7 @@ export default function Login() {
               </div>
             )}
 
+            <PausedWhenReadOnly className="w-full" active={mode !== "login"}>
             <Button
               type="submit"
               variant="primary"
@@ -401,6 +408,7 @@ export default function Login() {
                 </>
               )}
             </Button>
+            </PausedWhenReadOnly>
             {mode === "register" && <LegalNotice />}
           </form>
 

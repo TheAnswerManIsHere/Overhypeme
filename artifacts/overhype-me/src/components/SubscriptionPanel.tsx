@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/Button";
 import { SubscriptionInfo } from "@/components/SubscriptionInfo";
 import { formatAmount, findAnnualPriceId, getAnnualSavingsPercent } from "@/components/subscriptionHelpers";
 import { Star, CreditCard, Zap, ExternalLink, AlertCircle, RefreshCw, ArrowUpCircle, XCircle, CheckCircle2 } from "lucide-react";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
 
 interface Subscription {
   id: string;
@@ -100,24 +101,28 @@ interface ConfirmDialogProps {
   loading: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  /** The confirmation saves something the server refuses while read-only: gray it out then (#1109). */
+  pausesWhenReadOnly?: boolean;
 }
 
-function ConfirmDialog({ title, children, confirmLabel, isDestructive = false, loading, onConfirm, onCancel }: ConfirmDialogProps) {
+function ConfirmDialog({ title, children, confirmLabel, isDestructive = false, loading, onConfirm, onCancel, pausesWhenReadOnly = false }: ConfirmDialogProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div className="bg-card border border-primary/25 rounded-2xl p-6 max-w-md w-full space-y-4 shadow-[0_0_40px_rgba(249,115,22,0.18),inset_0_1px_0_rgba(255,255,255,0.06)]">
         <h3 className="font-display text-lg uppercase tracking-wide text-foreground">{title}</h3>
         <div className="text-sm text-muted-foreground space-y-2">{children}</div>
         <div className="flex gap-3 pt-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onConfirm}
-            disabled={loading}
-            className={isDestructive ? "border-destructive text-destructive hover:bg-destructive/10" : "border-primary text-primary hover:bg-primary/10"}
-          >
-            {loading ? "Processing..." : confirmLabel}
-          </Button>
+          <PausedWhenReadOnly active={pausesWhenReadOnly}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onConfirm}
+              disabled={loading}
+              className={isDestructive ? "border-destructive text-destructive hover:bg-destructive/10" : "border-primary text-primary hover:bg-primary/10"}
+            >
+              {loading ? "Processing..." : confirmLabel}
+            </Button>
+          </PausedWhenReadOnly>
           <Button variant="outline" size="sm" onClick={onCancel} disabled={loading}>
             Go Back
           </Button>
@@ -572,6 +577,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
             }}
             reactivateButton={
               !isLifetime && cancelAtPeriodEnd && periodEnd ? (
+                <PausedWhenReadOnly>
                 <Button
                   variant="outline"
                   size="sm"
@@ -582,6 +588,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
                   <RefreshCw className="w-4 h-4" />
                   {reactivateLoading ? "Reactivating..." : "Reactivate Subscription"}
                 </Button>
+                </PausedWhenReadOnly>
               ) : undefined
             }
           />
@@ -612,6 +619,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
             <div className="flex flex-col gap-3 pt-1">
               {/* Monthly-to-annual switch */}
               {isMonthly && annualPriceAvailable && (
+                <PausedWhenReadOnly>
                 <Button
                   variant="outline"
                   size="sm"
@@ -621,6 +629,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
                   <ArrowUpCircle className="w-4 h-4" />
                   Switch to Annual{savingsPercent ? ` — save ${savingsPercent}%` : ""}
                 </Button>
+                </PausedWhenReadOnly>
               )}
 
               <Button
@@ -710,6 +719,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
         <ConfirmDialog
           title="Switch to Annual Billing"
           confirmLabel="Confirm Switch"
+          pausesWhenReadOnly
           loading={switchLoading || previewLoading}
           onConfirm={handleSwitchPlan}
           onCancel={() => { setShowSwitchDialog(false); setProrationPreview(null); }}

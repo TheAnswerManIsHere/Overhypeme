@@ -16,6 +16,7 @@ import {
   AlertTriangle, Bell, ChevronLeft, ChevronRight, Clock,
   FileText, ImageIcon, Images, Lock, Plus, RotateCcw, ThumbsUp, Trash2,
 } from "lucide-react";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
@@ -251,6 +252,7 @@ export default function Library() {
           {/* Persistent submit entry point — Submit a Fact is no longer in
               chrome, so the Library page (the natural home for "stuff I've
               made") owns it. Stays visible across all tabs. */}
+          <PausedWhenReadOnly className="shrink-0">
           <Button
             variant="outline"
             size="sm"
@@ -259,6 +261,7 @@ export default function Library() {
           >
             <Plus className="w-4 h-4" /> SUBMIT A FACT
           </Button>
+          </PausedWhenReadOnly>
         </div>
 
         <div className="relative mb-8">
@@ -595,9 +598,11 @@ function RecentlyDeletedPanel({ data, isLoading, windowDays, onRestore }: {
                         {left} {left === 1 ? "day" : "days"} left
                       </span>
                     </div>
+                    <PausedWhenReadOnly>
                     <Button size="sm" variant="outline" className="gap-2" disabled={restoring === id} onClick={() => void restoreItem(item)}>
                       <RotateCcw className="w-4 h-4" /> {restoring === id ? "RESTORING…" : "RESTORE"}
                     </Button>
+                    </PausedWhenReadOnly>
                   </div>
                 </div>
               );

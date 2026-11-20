@@ -10,8 +10,10 @@ import { Button } from "@/components/ui/Button";
 import { returnToFromSearch } from "@/lib/safe-return-to";
 import { useSignOut } from "@/hooks/use-sign-out";
 import { LegalLinks } from "@/components/legal/LegalLinks";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
+import { useReadOnly } from "@/hooks/use-read-only";
+import { resendVerification } from "@/lib/resendVerification";
 
-const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
 export default function CheckEmail() {
   const [, setLocation] = useLocation();
@@ -36,49 +38,34 @@ export default function CheckEmail() {
   }, [isLoading, isAuthenticated, user?.eligibility, returnTo, setLocation]);
 
   const unverified = isAuthenticated && user?.eligibility === "unverified";
+  const readOnly = useReadOnly();
   useEffect(() => {
-    if (!unverified || linkRequested.current) return;
+    // While the site is read-only the link is not sent; it goes once the pause ends (#1109 D3).
+    if (!unverified || linkRequested.current || readOnly) return;
     linkRequested.current = true;
     void (async () => {
-      try {
-        const res = await fetch(`${BASE_URL}api/auth/resend-verification`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ifNoneOut: true }),
-        });
-        if (!res.ok) {
-          const data = (await res.json().catch(() => ({}))) as { error?: string };
-          setLinkError(data.error ?? "We couldn't send the link. Try again in a minute.");
-          setLinkState("error");
-          return;
-        }
-        setLinkState("out");
-      } catch {
-        setLinkError("Network error. Try again.");
+      const result = await resendVerification({ ifNoneOut: true });
+      if (result.sent) setLinkState("out");
+      else {
+        setLinkError(result.message);
         setLinkState("error");
       }
     })();
-  }, [unverified]);
+  }, [unverified, readOnly]);
 
   async function resend() {
     setResendState("sending");
     setResendError("");
-    try {
-      const res = await fetch(`${BASE_URL}api/auth/resend-verification`, { method: "POST", credentials: "include" });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        setResendError(data.error ?? "We couldn't send it. Try again in a minute.");
-        setResendState("error");
-        return;
-      }
-      setResendState("sent");
-      setLinkState("out");
-    } catch {
-      setResendError("Network error. Try again.");
+    const result = await resendVerification();
+    if (!result.sent) {
+      setResendError(result.message);
       setResendState("error");
+      return;
     }
+    setResendState("sent");
+    setLinkState("out");
   }
+
 
   async function checkAgain() {
     setChecking(true);
@@ -101,7 +88,12 @@ export default function CheckEmail() {
     <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-6 p-4">
       <div className="w-full max-w-md bg-card border border-border rounded-xl p-6 sm:p-8 shadow-lg space-y-5 text-center">
         <h1 className="text-3xl font-display uppercase tracking-tight text-foreground">Check your email</h1>
-        {linkState === "checking" ? (
+        {linkState === "checking" && readOnly ? (
+          <p className="text-muted-foreground text-sm" data-testid="check-email-paused">
+            Sending the link to <span className="text-foreground font-semibold">{user?.email ?? "your address"}</span> is paused while
+            Overhype.me is undergoing maintenance. It goes out as soon as we're done. If you already have a link, it still works.
+          </p>
+        ) : linkState === "checking" ? (
           <p className="text-muted-foreground text-sm">
             Sending a link to <span className="text-foreground font-semibold">{user?.email ?? "your address"}</span>…
           </p>
@@ -122,6 +114,7 @@ export default function CheckEmail() {
         </Button>
 
         <div className="space-y-1">
+          <PausedWhenReadOnly>
           <button
             type="button"
             onClick={resend}
@@ -130,6 +123,7 @@ export default function CheckEmail() {
           >
             {resendState === "sending" ? "Sending…" : resendState === "sent" ? "Sent. Check your inbox." : linkState === "error" ? "Send the link" : "Send the link again"}
           </button>
+          </PausedWhenReadOnly>
           {resendState === "error" && (
             <p className="text-destructive text-sm font-medium" role="alert">{resendError}</p>
           )}
