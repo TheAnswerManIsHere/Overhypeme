@@ -48,7 +48,7 @@ const STATUS_HELP: Record<SubmissionType, Record<SubmissionStatus, string>> = {
   comments: {
     review: "A person on the team reads every comment before it appears. Hidden comments were up, and are off the site while the team takes another look.",
     live: "Visible to everyone under the fact you commented on.",
-    declined: "Not approved, so they never appeared. Where the team left a note, it's on the card.",
+    declined: "Not approved by the team, so they don't appear on the site — including any that were up and then hidden for another look. Where the team left a note, it's on the card.",
     gone: "Approved, but the fact they're on has since been taken down, so they no longer appear.",
   },
 };

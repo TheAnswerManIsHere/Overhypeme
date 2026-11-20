@@ -94,6 +94,17 @@ describe("SubmissionsPanel", () => {
     expect(api.listCalls.every((p) => p.status === "declined")).toBe(true);
   });
 
+  // Issue #1104: a comment can be visible, hidden for another look, then
+  // declined, so the Declined line must not say declined comments never appeared.
+  it("explains declined comments without claiming they never appeared", async () => {
+    setCounts({ live: 1 }, { declined: 1 });
+    api.pages["comments:declined"] = [{ ...base, kind: "comment", id: 7, text: "was up once", factId: 3, factText: "{NAME} x", factLive: true, hidden: false, teamNote: "Off topic." }];
+    renderPanel("/library?tab=submitted&type=comments&status=declined");
+    expect(await screen.findByText("was up once")).toBeTruthy();
+    expect(screen.queryByText(/never appeared/i)).toBeNull();
+    expect(screen.getByText(/hidden for another look/i)).toBeTruthy();
+  });
+
   it("says the person has submitted nothing yet when the type is empty", async () => {
     setCounts({});
     renderPanel("/library?tab=submitted");
