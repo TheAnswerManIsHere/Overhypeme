@@ -23,9 +23,15 @@ describe("public/unavailable.html", () => {
   });
 
   it("keeps every email address inside email_off markers", () => {
-    const outside = html.replace(/<!--email_off-->[\s\S]*?<!--\/email_off-->/g, "");
-    const comments = /<!--[\s\S]*?-->/g;
-    expect(outside.replace(comments, "")).not.toMatch(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/);
-    expect(html).toMatch(/<!--email_off--><a href="mailto:support@overhype\.me">support@overhype\.me<\/a><!--\/email_off-->/);
+    const protectedSpans = [...html.matchAll(/<!--email_off-->[\s\S]*?<!--\/email_off-->/g)].map((m) => [
+      m.index,
+      m.index + m[0].length,
+    ]);
+    const addresses = [...html.matchAll(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g)];
+    expect(addresses.length).toBeGreaterThan(0);
+    for (const a of addresses) {
+      const inside = protectedSpans.some(([start, end]) => a.index >= start && a.index + a[0].length <= end);
+      expect(inside, `${a[0]} at ${a.index} is outside email_off`).toBe(true);
+    }
   });
 });
