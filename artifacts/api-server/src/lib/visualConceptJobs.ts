@@ -384,11 +384,6 @@ export async function runVisualConceptsJob(
     await assertJobOwnership(); // paid AI call: only while this run owns its job (Issue #1000)
     result = await deps.generate({
       factText: cycle.factText,
-      // The taxonomy is not an input: the blind check (plan
-      // PLAN_FACT_LIFECYCLE_REBUILD.md, 1A) passed, and the writer runs
-      // before the taxonomy run may have finished.
-      enrichment: null,
-      classification: "omit",
       renderPolicy: resolveRenderPolicy(cycle.primaryGag ? { visualPromptStrategyOverride: cycle.primaryGag } : null),
       humorNote,
       existingGags,
@@ -415,7 +410,6 @@ export async function runVisualConceptsJob(
     reviewId: cycle.reviewId,
     source: cycle.source,
     inputHash,
-    jokeRead: result.jokeRead,
     humorNoteUsed: humorNote,
   };
 
@@ -530,14 +524,12 @@ async function assembleConceptsResponse(
   const blob = parsed.data;
 
   let staleReason = await staleness(blob);
-  // The approved note is kept out of the input hash, so confirming a correct
-  // read does not stale the gags it was confirmed beside. A saved note that
-  // differs from both the note these gags were written under and their own
-  // joke read means they were written for another reading of the joke.
+  // The approved note is kept out of the input hash and compared here: a
+  // saved note that differs from the one these gags were written under means
+  // they were written for another reading of the joke.
   if (staleReason === undefined && savedNote) {
     const under = blob.humorNoteUsed?.trim() ?? "";
-    const read = blob.jokeRead?.trim() ?? "";
-    if (savedNote !== under && savedNote !== read) staleReason = "humor_note_changed";
+    if (savedNote !== under) staleReason = "humor_note_changed";
   }
 
   return {
@@ -546,7 +538,6 @@ async function assembleConceptsResponse(
     current: staleReason === undefined,
     ...(staleReason ? { staleReason } : {}),
     generatedAt: blob.generatedAt,
-    ...(blob.jokeRead ? { jokeRead: blob.jokeRead } : {}),
     humorNote,
     ...(failureReason ? { failureReason } : {}),
   };

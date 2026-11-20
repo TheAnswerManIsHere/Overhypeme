@@ -15,7 +15,7 @@
     "typecheck": "bash -c 'tsc -b && pnpm run check:cycles && pnpm run check:no-console'",
     "check:cycles": "node scripts/check-cycles.mjs",
     "check:no-console": "node scripts/check-no-console.mjs",
-    "blind-check:gag-writer": "tsx scripts/gag-writer-blind-check.ts",
+    "preview:gag-writer": "tsx scripts/gag-writer-preview.ts",
     "cleanup:subject-name-entities": "tsx scripts/cleanup-subject-name-semantic-entities.ts",
     "migrate:ai-backgrounds": "tsx scripts/migrate-ai-backgrounds.ts",
     "migrate:ai-backgrounds-v2": "tsx scripts/migrate-ai-backgrounds-v2.ts",

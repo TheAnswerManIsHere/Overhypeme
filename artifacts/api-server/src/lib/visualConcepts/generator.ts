@@ -1,15 +1,14 @@
 /**
- * The gag writer: one structured-outputs call drafts a fact's joke read and
- * three candidate visual gags (plan docs/plans/PLAN_GAG_GENERATOR.md, approved
- * by David 2026-11-13).
+ * The gag writer: one structured-outputs call drafts three candidate visual
+ * gags for a fact (plan docs/plans/PLAN_GAG_GENERATOR.md, approved by David
+ * 2026-11-13). It writes no joke read: the approved humor note is written
+ * before it runs (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1C, increment 1.2d).
  *
  * - The system prompt is the text David locked (visualConceptsConfig.ts).
- * - The request is built here, for a gag writer, from the review cycle's
- *   effective enrichment: the caption with the stand-in name "Alex", the
- *   approved humor note, what references mean, the joke mechanism, the
- *   violence and text limits, every gag the fact already has and the
- *   moderator's working draft.
- *   It no longer reuses the render planner's context blocks.
+ * - The request is the caption with the stand-in name "Alex", the approved
+ *   humor note, the violence and text limits, every gag the fact already has
+ *   and the moderator's working draft. The classification is not sent (the
+ *   blind check of PLAN_FACT_LIFECYCLE_REBUILD.md, 1A, passed).
  * - The model writes "Alex"; every scene and bubble line is converted to a
  *   token template by the existing tokenizer before the existing validation,
  *   sanitizing and budget preflight run. A conversion that leaves the stand-in
@@ -28,13 +27,9 @@ import {
   sanitizeCandidateConcept,
   isCandidateConceptPickable,
   withCandidateConceptDraft,
-  getSubtypeGuidance,
   CANDIDATE_VISUAL_CONCEPT_COUNT,
   VISUAL_CONCEPTS_PROMPT_VERSION,
-  HUMOR_NOTE_MAX_CHARS,
   type CandidateConceptsWire,
-  type FactEnrichment,
-  type FactSubtype,
   type RenderPolicy,
   type StoredCandidateConcept,
   type VisualConceptProvenance,
@@ -44,28 +39,13 @@ import { validateVisualStrategyOverridePersistence } from "../imagePrompt/prompt
 import { VIOLENCE_RULE } from "../imagePrompt/violenceRule";
 import { callUtilityLLM } from "../utilityLLM";
 import { rethrowIfOwnershipLost } from "../jobFence";
-import { renderPersonalized, stripSubjectNameSemanticEntities } from "../renderCanonical";
+import { renderPersonalized } from "../renderCanonical";
 import { hasNoLikelySubjectReference, tokenizePlainTextToTemplate } from "../factTokenizer";
 import { getVisualConceptsSystem, getVisualConceptsEngineId, DEFAULT_VISUAL_CONCEPTS_ENGINE_ID } from "../visualConceptsConfig";
 import { engineById } from "../engineInterpreter";
 import { logger } from "../logger";
 
 
-/**
- * A cultural reference is "material" — strong enough to state as settled to
- * the gag writer — when it was researched with high confidence, OR the
- * enrichment was confident about it and it isn't flagged for admin review.
- * Ambiguous / review-required references are marked tentative (they may be
- * wrong). (Moved here from the render planner when it was removed.)
- */
-export function isMaterialCulturalReference(r: {
-  confidence: number;
-  requiresAdminReview: boolean;
-  researchConfidence?: "high" | "medium" | "low";
-}): boolean {
-  if (r.researchConfidence === "high") return true;
-  return r.confidence >= 0.8 && !r.requiresAdminReview;
-}
 
 /** A frontier reasoning model at high effort needs minutes, not the 30s default. */
 // Measured on dev 2026-11-14 (PR #936 post-merge, five facts): 100–211 s per
@@ -101,12 +81,6 @@ export interface ContextGag {
 export interface GenerateVisualConceptsInput {
   /** Fact template with {NAME}/pronoun tokens intact. */
   factText: string;
-  /**
-   * The fact's classification, read only when `classification` is "include".
-   * The product sends null with "omit" (Issue #1018, increment 1.2c-ii); the
-   * blind-check harness still sends one.
-   */
-  enrichment: FactEnrichment | null;
   renderPolicy: RenderPolicy;
   /** The fact's approved humor note, or null. */
   humorNote: string | null;
@@ -118,19 +92,9 @@ export interface GenerateVisualConceptsInput {
   existingGags: ContextGag[];
   /** The moderator's unsaved working draft (Regenerate). */
   draft: ContextGag | null;
-  /**
-   * Whether the request carries the classification's reference meanings and
-   * joke-mechanism line ("include", the default and today's request) or leaves
-   * both out ("omit"). The blind check of plan PLAN_FACT_LIFECYCLE_REBUILD.md
-   * (1A) passed, so the product sends "omit" from the stage cutover (1.2c-ii)
-   * on: the meanings travel in the humor note. The option, these blocks and
-   * blindCheck.ts leave with the gag-writer relock (1.2d).
-   */
-  classification?: "include" | "omit";
 }
 
 export interface VisualConceptsGenerationResult {
-  jokeRead: string;
   candidates: StoredCandidateConcept[];
   provenance: VisualConceptProvenance;
 }
@@ -215,8 +179,6 @@ export function withStandIn(template: string): string {
   return renderPersonalized(template, STAND_IN_NAME, "they");
 }
 
-const plain = (snake: string) => snake.replace(/_/g, " ");
-
 function gagLines(label: string, gag: ContextGag): string[] {
   const lines = [label, withStandIn(gag.scene.trim())];
   for (const b of gag.bubbles) {
@@ -227,44 +189,16 @@ function gagLines(label: string, gag: ContextGag): string[] {
 }
 
 /**
- * What the classification says the fact's references and ambiguous terms
- * mean, one line each, as the gag writer is told them.
- */
-export function referenceMeaningLines(e: FactEnrichment): string[] {
-  const meanings: string[] = [];
-  for (const r of e.culturalReferences ?? []) {
-    const status = isMaterialCulturalReference(r) ? "" : " (tentative)";
-    meanings.push(`- "${r.sourcePhrase}" refers to ${r.canonicalReference}${status}: ${r.explanation}${r.visualImplication ? ` Visually: ${r.visualImplication}` : ""}`);
-  }
-  for (const s of stripSubjectNameSemanticEntities(e.semanticEntities ?? []).filter((x) => x.materiallyAffectsVisualPrompt)) {
-    meanings.push(`- "${s.surfaceText}" means ${s.visualReferent}${s.requiresAdminReview ? " (tentative)" : ""}.`);
-  }
-  return meanings;
-}
-
-/**
  * The per-request message: only what a gag writer needs, absent blocks
  * omitted, no second copy of the output rules (those are in the system prompt).
  */
 export function buildVisualConceptsUserMessage(input: GenerateVisualConceptsInput): string {
-  const e = input.enrichment;
   const blocks: string[][] = [];
 
   blocks.push(["FACT (the caption):", withStandIn(input.factText.trim())]);
 
   if (input.humorNote?.trim()) {
     blocks.push(["APPROVED HUMOR NOTE (written or confirmed by a moderator; the correct reading of this joke):", input.humorNote.trim()]);
-  }
-
-  if (input.classification !== "omit" && e) {
-    const meanings = referenceMeaningLines(e);
-    if (meanings.length) blocks.push(["WHAT THE REFERENCES MEAN:", ...meanings]);
-
-    const guide = getSubtypeGuidance(e.primaryArchetype, e.subtype as FactSubtype);
-    blocks.push([
-      "JOKE MECHANISM:",
-      `${plain(e.primaryArchetype)}, ${plain(e.subtype)}${guide?.principle ? `. ${guide.principle}` : ""}`,
-    ]);
   }
 
   // The one violence rule, word for word: the sentence every picture's
@@ -299,7 +233,7 @@ export function buildVisualConceptsUserMessage(input: GenerateVisualConceptsInpu
 }
 
 function buildCorrective(error: string): string {
-  return `The previous response failed validation: ${error}\n\nReturn the full JSON object again: a jokeRead and exactly ${CANDIDATE_VISUAL_CONCEPT_COUNT} concepts.`;
+  return `The previous response failed validation: ${error}\n\nReturn the full JSON object again: exactly ${CANDIDATE_VISUAL_CONCEPT_COUNT} concepts.`;
 }
 
 function safeJsonParse(raw: string): unknown {
@@ -391,7 +325,7 @@ export async function convertStandInName(wire: CandidateConceptsWire, tokenize: 
  */
 export function validateAndSanitizeCandidateConcepts(
   parsed: unknown,
-): { ok: true; jokeRead: string; candidates: StoredCandidateConcept[] } | { ok: false; error: string } {
+): { ok: true; candidates: StoredCandidateConcept[] } | { ok: false; error: string } {
   const result = validateCandidateConcepts(parsed);
   if (!result.ok) return result;
   const candidates = result.data.concepts.map(sanitizeCandidateConcept);
@@ -413,8 +347,7 @@ export function validateAndSanitizeCandidateConcepts(
     return { ok: false, error: `no concept could be used (${why}). Name the subject "Alex" in every sceneDescription and give no other character that name.` };
   }
 
-  // Capped at the note's own limit, so "That's right" can always save it.
-  return { ok: true, jokeRead: result.data.jokeRead.trim().slice(0, HUMOR_NOTE_MAX_CHARS), candidates };
+  return { ok: true, candidates };
 }
 
 type UserMessage = { role: "user"; content: string };
@@ -423,7 +356,7 @@ export async function generateVisualConceptsWithModel(
   input: GenerateVisualConceptsInput,
   callModel: (msgs: UserMessage[]) => Promise<string>,
   tokenize: TokenizeFn = defaultTokenize,
-): Promise<{ jokeRead: string; candidates: StoredCandidateConcept[] }> {
+): Promise<{ candidates: StoredCandidateConcept[] }> {
   const firstUser: UserMessage = { role: "user", content: buildVisualConceptsUserMessage(input) };
 
   const attempt = async (msgs: UserMessage[]) => {
@@ -436,7 +369,7 @@ export async function generateVisualConceptsWithModel(
   let result = await attempt([firstUser]);
   if (!result.ok) result = await attempt([firstUser, { role: "user", content: buildCorrective(result.error) }]);
   if (!result.ok) throw new VisualConceptsError(result.error);
-  return { jokeRead: result.jokeRead, candidates: result.candidates };
+  return { candidates: result.candidates };
 }
 
 /** Token counts of one gag-writer call, for a caller that reports cost. */
@@ -449,9 +382,9 @@ export function makeOpenAIConceptsCaller(
   settings: VisualConceptsLLMSettings,
   onUsage?: (usage: VisualConceptsUsage) => void,
   /**
-   * A candidate system prompt in place of the locked one. Only the blind check
-   * of PLAN_FACT_LIFECYCLE_REBUILD.md passes it, to judge a draft revision
-   * before David relocks it; the product never does.
+   * A candidate system prompt in place of the locked one. Only the gag-writer
+   * preview script passes it, so David can judge a revision before he relocks
+   * it (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1C); the product never does.
    */
   systemPromptOverride?: string,
 ): (userMessages: UserMessage[]) => Promise<string> {
@@ -473,7 +406,7 @@ export function makeOpenAIConceptsCaller(
 }
 
 /**
- * Draft a joke read and three candidate gags on the configured gag writer.
+ * Draft three candidate gags on the configured gag writer.
  * Throws VisualConceptsEngineUnusable when the engine cannot be used (no
  * fallback), VisualConceptsError on an unrecoverable response.
  */

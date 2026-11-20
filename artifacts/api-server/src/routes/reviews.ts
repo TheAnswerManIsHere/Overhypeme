@@ -982,7 +982,7 @@ router.post("/admin/reviews/:id/approve-visual-concept", requireAdmin, async (re
 
   const stagingFactId = review.stagingFactId;
   try {
-    const outcome = await db.transaction(async (tx) => {
+    await db.transaction(async (tx) => {
       if (!(await lockReviewAt(tx, id, canApproveGags))) throw new ReviewMovedError("gone", "gone");
       await tx.update(pendingReviewsTable).set({ workflowStage: "test_renders" }).where(eq(pendingReviewsTable.id, id));
       await recordAdminAction({ reviewId: id, factId: stagingFactId }, req.user.id, "gag_approval", {}, tx);

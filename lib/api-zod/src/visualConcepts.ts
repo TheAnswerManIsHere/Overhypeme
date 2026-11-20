@@ -67,8 +67,12 @@ export const CANDIDATE_SCENE_MAX_CHARS = 1500;
  * (`VIOLENCE_RULE`, plan docs/plans/PLAN_GAG_DIRECT_RENDER.md, B), word for
  * word, the sentence every picture's prompt carries; a gag's old violence
  * override no longer shapes it. The locked system prompt is unchanged.
+ * v6: the gag writer returns three gags and no joke read: the approved humor
+ * note is written before it runs (plan docs/plans/PLAN_FACT_LIFECYCLE_REBUILD.md,
+ * 1C, increment 1.2d). Its request is the fact, the approved note, the limits
+ * and the fact's gags; the classification left it at increment 1.2c-ii.
  */
-export const VISUAL_CONCEPTS_PROMPT_VERSION = 5 as const;
+export const VISUAL_CONCEPTS_PROMPT_VERSION = 6 as const;
 
 /** The approved humor note's length cap (plain prose, never shown to end users). */
 export const HUMOR_NOTE_MAX_CHARS = 1500;
@@ -110,8 +114,6 @@ export const candidateConceptWireSchema = z.object({
 export type CandidateConceptWire = z.infer<typeof candidateConceptWireSchema>;
 
 export const candidateConceptsWireSchema = z.object({
-  /** Why the boast is funny and what a picture must preserve (moderator-facing). */
-  jokeRead: z.string(),
   concepts: z.array(candidateConceptWireSchema),
 });
 export type CandidateConceptsWire = z.infer<typeof candidateConceptsWireSchema>;
@@ -139,7 +141,6 @@ export function validateCandidateConcepts(
     return { ok: false, error: res.error.issues[0]?.message ?? "invalid candidate concepts payload" };
   }
   const { concepts } = res.data;
-  if (!res.data.jokeRead.trim()) return { ok: false, error: "jokeRead is empty" };
   if (concepts.length !== CANDIDATE_VISUAL_CONCEPT_COUNT) {
     return {
       ok: false,
@@ -349,7 +350,11 @@ export const visualConceptCandidatesBlobSchema = z.object({
   source: z.enum(VISUAL_CONCEPT_SOURCE_VALUES),
   /** Hash over the render-affecting inputs — see buildVisualConceptInputHash. */
   inputHash: z.string(),
-  /** v3: the model's joke read for these gags. Absent on older blobs. */
+  /**
+   * Retired at v6 (increment 1.2d): idea sets written before it carry the gag
+   * writer's own read of the joke. Kept so they still parse; nothing writes
+   * or shows it.
+   */
   jokeRead: z.string().optional(),
   /** v3: the approved humor note the gags were generated under; null when none. */
   humorNoteUsed: z.string().nullable().optional(),
@@ -374,8 +379,6 @@ export interface VisualConceptsResponse {
   current: boolean;
   staleReason?: VisualConceptStaleReason;
   generatedAt?: string;
-  /** The joke read generated with these gags (absent on pre-v3 blobs). */
-  jokeRead?: string;
   /** The fact's approved humor note, or null when none is saved. */
   humorNote?: { text: string; approvedBy: string | null; approvedAt: string } | null;
   /** Why the last generation failed, when it failed for a reason the moderator can act on. */

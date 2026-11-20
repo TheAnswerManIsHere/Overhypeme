@@ -13,7 +13,7 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, BookOpen, CheckCircle2, ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { HUMOR_NOTE_MAX_CHARS, type FactReadingView, type ReviewReadingView } from "@workspace/api-zod";
+import { HUMOR_NOTE_MAX_CHARS, isWebUrl, type FactReadingView, type ReviewReadingView } from "@workspace/api-zod";
 
 export function ReadingResearch({ reading }: { reading: FactReadingView }) {
   const refs = reading.research?.references ?? [];
@@ -39,9 +39,15 @@ export function ReadingResearch({ reading }: { reading: FactReadingView }) {
                 <ul className="flex flex-wrap gap-x-3 gap-y-1">
                   {r.sources.map((s, j) => (
                     <li key={j}>
-                      <a href={s.url} target="_blank" rel="noreferrer noopener" className="text-xs text-primary underline inline-flex items-center gap-1">
-                        {s.title || s.url} <ExternalLink className="w-3 h-3" />
-                      </a>
+                      {/* A reading stored before the schema dropped non-web links is
+                          still shown, as plain text, never as a link. */}
+                      {isWebUrl(s.url) ? (
+                        <a href={s.url} target="_blank" rel="noreferrer noopener" className="text-xs text-primary underline inline-flex items-center gap-1">
+                          {s.title || s.url} <ExternalLink className="w-3 h-3" />
+                        </a>
+                      ) : (
+                        <span className="text-xs text-muted-foreground" data-testid="reading-source-unlinked">{s.title || s.url}</span>
+                      )}
                     </li>
                   ))}
                 </ul>

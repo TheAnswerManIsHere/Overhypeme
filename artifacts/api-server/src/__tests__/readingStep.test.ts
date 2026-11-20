@@ -351,7 +351,6 @@ describe("Regenerate on the Gags step (Codex and Fable, PR #1041 round 1)", () =
 });
 
 const stubIdeas: typeof generateVisualConcepts = async () => ({
-  jokeRead: "",
   candidates: [0, 1, 2].map((i) => ({ title: `Idea ${i}`, whyItWorks: "Because.", sceneDescription: `{NAME} does thing ${i}.`, bubbles: [] })),
   provenance: { engineId: "stub", model: "stub", reasoningEffort: null, timeoutMs: 1, promptVersion: "stub", fallbackReason: null },
 }) as never;

@@ -42,20 +42,19 @@ const STALE_COPY: Record<VisualConceptStaleReason, string> = {
 };
 
 /**
- * The joke read and the fact's approved humor note (plan
- * docs/plans/PLAN_GAG_GENERATOR.md, E). The latest generation's read is always
- * shown, labelled as the AI's. With no saved note it can be confirmed with one
- * press or corrected; a saved note shows who approved it and when, and can be
- * edited. A correction being typed survives polling, because this card keeps
- * its own edit state while the panel re-renders with new server data.
+ * The fact's approved humor note (plan docs/plans/PLAN_GAG_GENERATOR.md, E).
+ * A saved note shows who approved it and when, and can be edited; with none,
+ * one can be written. The gag writer writes no read of the joke of its own
+ * (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1C): the note is approved at the
+ * Reading step before it runs. A correction being typed survives polling,
+ * because this card keeps its own edit state while the panel re-renders with
+ * new server data.
  */
 function HumorNoteCard({
-  jokeRead,
   humorNote,
   disabled,
   onSave,
 }: {
-  jokeRead?: string;
   humorNote: NonNullable<VisualConceptsResponse["humorNote"]> | null;
   disabled?: boolean;
   onSave: (text: string) => Promise<string | null>;
@@ -71,7 +70,7 @@ function HumorNoteCard({
     if (failure) setError(failure);
     else setEditing(null);
   };
-  if (!jokeRead && !humorNote && editing == null) {
+  if (!humorNote && editing == null) {
     return (
       <div className="text-xs" data-testid="humor-note-empty">
         <button type="button" disabled={disabled} onClick={() => setEditing("")} className="inline-flex items-center gap-1 text-primary hover:underline disabled:opacity-40" data-testid="humor-note-write">
@@ -90,22 +89,6 @@ function HumorNoteCard({
             Approved {new Date(humorNote.approvedAt).toLocaleString()}. The gag writer uses it on every regeneration.{" "}
             <button type="button" disabled={disabled} onClick={() => setEditing(humorNote.text)} className="text-primary hover:underline disabled:opacity-40" data-testid="humor-note-edit">Edit</button>
           </p>
-        </div>
-      )}
-      {jokeRead && editing == null && (humorNote?.text ?? "") !== jokeRead && (
-        <div className="space-y-1" data-testid="joke-read">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">The AI's read of the joke</p>
-          <p className="text-sm text-foreground/90 whitespace-pre-wrap" data-testid="joke-read-text">{jokeRead}</p>
-          {!humorNote && (
-            <div className="flex gap-2">
-              <button type="button" disabled={disabled || saving} onClick={() => void save(jokeRead)} data-testid="joke-read-confirm" className="inline-flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-sm border border-primary/50 text-primary hover:bg-primary/10 disabled:opacity-40">
-                {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} That's right
-              </button>
-              <button type="button" disabled={disabled || saving} onClick={() => setEditing(jokeRead)} data-testid="joke-read-edit" className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-sm border border-border hover:bg-muted disabled:opacity-40">
-                <Pencil className="w-3 h-3" /> Edit
-              </button>
-            </div>
-          )}
         </div>
       )}
       {editing != null && (
@@ -322,7 +305,6 @@ export function VisualConceptCandidates({
           and a note can be written before any generation has succeeded. */}
       {onSaveNote && (
         <HumorNoteCard
-          jokeRead={status === "ok" ? visualConcepts?.jokeRead : undefined}
           humorNote={visualConcepts?.humorNote ?? null}
           disabled={disabled}
           onSave={onSaveNote}
