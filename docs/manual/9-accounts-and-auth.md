@@ -46,15 +46,13 @@ in with a password, you can set one from your account settings without being
 asked to prove you know a password you never had — or follow a reset link,
 which works for an account that has no password yet.
 
-When a link to the login page carries where you came from — as the prompts
-to sign in to comment, vote or heart something do, and any page that needs an
-account — signing in takes you back there, and a new Google or Apple account
-carries it through set-up too. Signing in from the navigation bar carries
-none, and lands on the home page. That destination is only ever a page on our
-own site. Anything else — another site's address, or a disguised one — is
-ignored without a message, and you land on the home page. Otherwise a link to
-our login page could sign you in for real and then hand you to a look-alike
-site.
+When the link to the login page carries where you came from, signing in
+takes you back there, and a new Google or Apple account carries it through
+set-up too. A link that carries no destination lands on the home page. That
+destination is only ever a page on our own site. Anything else — another
+site's address, or a disguised one — is ignored without a message, and you
+land on the home page. Otherwise a link to our login page could sign you in
+for real and then hand you to a look-alike site.
 
 ### Verify, then onboard, then act
 
