@@ -34,6 +34,7 @@ import remarkGfm from "remark-gfm";
 import remarkRehype from "remark-rehype";
 import rehypeStringify from "rehype-stringify";
 import { visit } from "unist-util-visit";
+import { renderPrivacyRetentionTable } from "../../../lib/db/src/privacyRetention";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "..", "..", "..");
@@ -81,7 +82,21 @@ export function parseLegalDoc(slug: string, source: string): ParsedLegalDoc {
   if (!/^\d{4}-\d{2}-\d{2}(\.\d+)?$/.test(fields.version!)) {
     fail(`docs/legal/${slug}.md: version must be a date, optionally with a .N suffix (got ${fields.version})`);
   }
-  return { slug, title: fields.title!, version: fields.version!, summary: fields.summary!, body: m[2]!.trim() + "\n" };
+  return { slug, title: fields.title!, version: fields.version!, summary: fields.summary!, body: expandGenerated(slug, m[2]!.trim()) + "\n" };
+}
+
+/**
+ * A line reading exactly `{{retention-table}}` is replaced by the Privacy
+ * page's retention table, rendered from `lib/db/src/privacyRetention.ts`
+ * (launch Phase 14, increment 6b). The expansion happens before hashing, so a
+ * change to the table's words changes the body and needs a new version, as
+ * any other text change does. Any other `{{...}}` line fails.
+ */
+export function expandGenerated(slug: string, body: string): string {
+  return body.replace(/^\{\{([a-z-]+)\}\}$/gm, (_line, name: string) => {
+    if (name === "retention-table" && slug === "privacy") return renderPrivacyRetentionTable();
+    fail(`docs/legal/${slug}.md: unknown generated block {{${name}}}`);
+  });
 }
 
 export function bodyHash(body: string): string {
