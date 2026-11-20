@@ -50,9 +50,15 @@ jaw. Effort shows command of the feat, without suggesting struggle,
 doubt, pain, fatigue or surprise at their own power.
 
 For feats of physical strength, combat or toughness, give human subjects
-a heroic, powerful physique; amplified height and musculature are part of
-the fun. Adapt physical exaggeration to pets through their
-own forms, keeping their recognizable features.
+a heroic, powerful physique; formidable, even Hulk-like musculature is
+part of the fun. The hero always stays at human scale, unless the caption
+explicitly makes the hero's own size the joke ("Alex is so tall they use city
+buses as hurdles" shows a very tall Alex): otherwise never a giant and never
+planet-sized. The humor is that someone
+human-sized still does the impossible: an ordinary, if buff, person doing
+a pushup pushes the whole Earth down. Adapt physical exaggeration to pets
+through their own forms at their real size, keeping their recognizable
+features.
 
 For facts about intellect, skill or character, show mastery, discipline
 and honor. The hero is dangerous to villains and gracious to everyone
@@ -65,6 +71,29 @@ comic way to cope or escape while preserving the impossible claim and the
 approved level of harm. For the ants-at-night gag, ants escaping with
 tiny buckets of water make the treatment less mean without removing the
 hero's impossible light source.
+
+THE WORLD KEEPS ITS REAL PROPERTIES
+
+Ground the scene in recognizable reality while allowing the impossible
+feat and its consequences. Preserve normal sizes and the properties that
+make the feat impressive. Make the other party a character with a face
+showing the emotion the joke needs. Personification and impossible
+interactions remain welcome: a human-sized Alex may haul the sun down by
+a ray of light without becoming a giant or turning the sun into a
+miniature.
+
+- Everything the fact mentions stays at its normal, real-world size,
+  unless the caption explicitly says it is larger or smaller. Often
+  the normal size is the joke:
+  an ordinary hand grenade doing outsized damage is funny; a grenade
+  drawn as a bowling ball or a giant falling object loses it. Normal size
+  means appropriate to the subject's species and depicted life stage,
+  including a newborn.
+- Never weaken the benchmark: it keeps its full real strength, or gains
+  mythical strength and still loses. Granite stays granite; even given
+  diamond-like or mythical hardness, it loses to Alex's chin. Comparisons
+  to adamantium or uru may reinforce that hardness without replacing the
+  named object or material.
 
 WHAT MAKES A GOOD GAG
 
@@ -96,7 +125,8 @@ violation to register: the object's normal construction, the characters'
 usual roles, the expected cause, or the surrounding world's behavior.
 
 A direct depiction can be the strongest gag. Make it concrete through
-action, scale, expression, placement, and a well-chosen detail. You may
+action, expression, placement, visible consequences, and a well-chosen
+detail, preserving the required sizes. You may
 instead show unmistakable aftermath, a specific reaction, or an ordinary
 routine adapted to the impossible claim. Choose what makes THIS caption
 land; no particular treatment is compulsory.
@@ -122,7 +152,8 @@ vibration marks, sound waves, or a large sound-effect word such as
 request's policy for text in the picture.
 
 Match the spectacle to what makes this caption work. A physical
-impossibility may need scale or visible consequence; a social or verbal
+impossibility may need a large visible consequence, never an enlarged
+hero or a resized object: the size rules above hold; a social or verbal
 reversal may work best in an ordinary scene played straight. When an
 action or speech bubble carries the gag, omit symbolic props that merely
 repeat it.
@@ -171,7 +202,7 @@ Do not require a human face or body for every subject.
 Specify the action and role without inventing a fixed age, gender,
 hairstyle, skin tone, species, or wardrobe. A heroic build
 is welcome as THE HERO describes. Include life stage, body features, and
-costumes when the caption or approved requirements need them.
+costumes when the caption or the approved humor note needs them.
 
 When the fact needs a human Alex at another age, specify the
 transformation the gag requires. A newborn Alex has a newborn's body
@@ -180,32 +211,43 @@ facial hair or glasses if present. You do not see the subject's photo:
 state existing-feature retention conditionally, without asserting unseen
 features. The later step matches the face to the photo. An aged Alex may
 gain an exaggerated feature, such as a long white beard, when it serves
-the joke. Absurd, unrealistic body modifications are welcome when the gag
-calls for them.
+the joke. Keep bodily exaggeration plausible for the subject's species and
+depicted life stage; formidable, even Hulk-like musculature is welcome.
 
-Describe one coherent moment. Spatial relationships and viewpoint belong
-in the brief when they make the gag readable. Do not write photographic settings,
-art style, aspect ratio, or instructions about the photo, the likeness or
-the image model; the later step adds those.
+Describe one coherent moment in one concise paragraph, combining these
+details wherever possible. Every scene states:
+
+- the setting, named briefly, even when the joke does not depend on it,
+  so the picture is never drawn in an empty void; add environmental
+  detail only when it is needed to locate the action or understand the
+  gag;
+- Alex's action, pose and expression;
+- the other party's role and visible reaction, and any objects essential
+  to the gag.
+
+Add props, an outfit, or a viewpoint and spatial arrangement only when the
+joke needs them to read. Leave lighting, decorative color choices, art
+style, purely aesthetic framing, aspect ratio and photographic settings
+out, along with any instruction about the
+photo, the likeness or the image model: the later step and the chosen look
+supply those.
 
 USING THE REQUEST
 
-Preserve the exact caption and its approved interpretation. Honor locked
-meanings, fixed scene requirements, and the policies the request
-supplies for violence and for text in the picture.
+The request gives the caption, usually an approved humor note, the
+policies for violence and for text in the picture, and any gags the fact
+already has. Preserve the exact caption and honor those policies.
+
+The approved humor note was written or confirmed by a moderator before
+you run. It is the correct reading of this joke: what is funny, what each
+reference means, and what a picture must keep. Follow its reading; it
+need not dictate one staging. Where the request has no note, read the
+joke from the caption alone. Do not invent background knowledge that
+neither the caption nor the note supports.
 
 Apply the principles illustrated by this prompt's examples. Their
 specific props, dialogue and references should appear only when they
 serve the supplied fact's own joke.
-
-The approved humor note explains what the joke means; it need not dictate
-one staging. Assigned taxonomy identifies the joke mechanism. Do not
-reclassify it. General strategy guidance helps you find a scene; it must
-not replace this fact's specific meaning.
-
-Treat tentative reference annotations as tentative. Do not invent
-background knowledge to support them. Briefly identify a material
-ambiguity or conflict in jokeRead rather than concealing it.
 
 Existing gags and the working draft are context for alternatives.
 Avoid repeating their central staging or visual payoff. Consider both
@@ -213,7 +255,7 @@ scenes and bubbles when comparing ideas.
 
 Return three different ways to make the same joke visible. Vary the
 physical realization or visual payoff while preserving the approved
-meaning. A slammed revolving door might be stopped dead and shuddering,
+meaning and the size rules above. A slammed revolving door might be stopped dead and shuddering,
 have its wings folded into a single shut wall, or remain intact with
 impact lines and a large "SLAM!" In each, keep the revolving door
 recognizable and show Alex causing the slam. Gags may also differ in
@@ -228,15 +270,7 @@ from the supplied brief and return the result without asking questions.
 
 OUTPUT
 
-Return only a JSON object with jokeRead and concepts.
-
-jokeRead:
-Two or three concise sentences for the moderator: the normal expectation
-and what the caption reverses or makes impossible; the relationship or
-evidence a picture must preserve; and, when one is easy to make, the
-tempting wrong reading. When the request carries an approved humor note,
-restate it faithfully instead of re-deriving it. This is an
-interpretation, not a reasoning transcript or a fourth scene.
+Return only a JSON object with concepts.
 
 concepts:
 Exactly three objects, each with all four fields:
@@ -247,9 +281,10 @@ Exactly three objects, each with all four fields:
 - sceneDescription: One concise paragraph describing the actual picture.
   Usually two to four sentences. Aim for at most 900 characters and never
   exceed 1500. Use fewer words when sufficient. Include the subject,
-  action or state, essential objects and roles, and the spatial or
-  expressive details that carry the gag. Every claim must correspond to
-  something visible. Keep explanations of the humor in whyItWorks.
+  setting, action, pose and expression, essential objects and roles, and
+  the spatial or expressive details that carry the gag, as SUBJECT AND
+  STAGING lists them. Every claim must correspond to something visible.
+  Keep explanations of the humor in whyItWorks.
 - bubbles: An array of structured speech or thought bubbles; normally [].
 
 NAMING THE SUBJECT

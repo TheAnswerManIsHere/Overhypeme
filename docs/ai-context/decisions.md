@@ -13,6 +13,20 @@
 
 ---
 
+### 2026-11-20 · The gag writer is relocked: no joke read, no classification, a checklist, and the world keeps its real scale
+- **Decision:** the gag writer's locked prompt (`docs/plans/gag-prompt-LOCKED.md`) is relocked with plan 1C's revision (PLAN_FACT_LIFECYCLE_REBUILD.md, increment 1.2d).
+  - **Its request** is the fact, the approved humor note, the limits and the fact's gags.
+  - **It returns three gags and no joke read.** The note is approved at the Reading step before it runs.
+  - **Each scene states** the setting, briefly, and Alex's action, pose and expression. Props, outfit and viewpoint appear only when the joke needs them; lighting and style are left to the look.
+  - **Issue #969's scale rules hold.** The hero stays at human scale. The benchmark is never weakened. Everything the fact names keeps its real size unless the caption explicitly says otherwise.
+  - **One exception for the hero (David, Q34: 1):** when the caption makes the hero's own size the joke, the hero may be drawn bigger. David: *"For example 'David is so tall he uses city busses as hurdles.' should show a very tall David."*
+- **Why:**
+  - David judged the revised writer's ideas on the facts that exposed the problems (pushups #32, the Mount Rushmore chin #34746, the grenade #56) beside benchmark facts #41, #34658 and #34749, and relocked it (Q33: 1).
+  - The preview run cost $0.56. Its ideas are on Issue #1018.
+  - The size exceptions read "unless the caption explicitly says" rather than "or the approved humor note", on Astra's advice: the plan's rule is "unless the fact itself says".
+- **Reference:** Issue #1018; Issue #969; PR #1094; the relock PR.
+- **Revisit if:** a moderator's approved note keeps having to argue a size change the caption doesn't state.
+
 ### 2026-11-19 · Geography before launch is a country rule at Cloudflare, not a sealed origin; the dev preview's key guards only the admin shortcut
 - **Decision:** increment 3 of `PLAN_PHASE14_COMPLIANCE.md` ships the Cloudflare redirect rule for the blocked places, the script-free `/unavailable` page, a redirect of page requests on Replit's own address (`*.replit.app`) to `overhype.me`, and the monitoring header allowlist. It does **not** ship the plan's settled decision S-e (a secret header Cloudflare adds and the origin requires, with the API reading location only on requests that carry it) or S-e2's second half (analytics and monitoring starting only after the API admits the visit). On the development preview, `DEV_PREVIEW_KEY` guards the dev admin shortcut only; the rest of the dev API is open as before.
 - **Why:** David, 2026-11-19: *"I feel like this is extremely overbuilt for a product that hasn't launched yet and it's creating friction for development and testing already … We're not building a system that stores state secrets, we're simply trying to focus on the US market first."* Claude agreed on the merits: a country rule exists to show the service is not offered in those places; a VPN defeats any country rule, and the secret header only stops a visitor who deliberately goes around Cloudflare, at the price of a publish-order dependency and a site-wide outage on any mismatch between Cloudflare and Replit. The admission gate guarded against a blocked visitor running a copy of the app saved before travelling, and had already caused one funnel bug. On dev, the measured hole was the admin shortcut minting an administrator session for anyone; locking the whole dev API to close it caused the testing friction and broke Stripe's test webhook (PR #1066). David chose Q20: 3 and Q21: 1.
@@ -139,6 +153,7 @@
 - **Cost:** about $0.25 per generation (estimate at plan time, to be replaced by measured usage), on each fact entering paid preparation, each refresh and each Regenerate; accepted by David.
 - **Reference:** `docs/plans/PLAN_GAG_GENERATOR.md`; #935.
 - **Revisit if:** the moderator-confirmed share of joke reads stays low, or Astra's availability starts holding up moderation.
+- **Superseded in part (2026-11-20):** the gag writer no longer returns a joke read; the humor note is approved at the Reading step before it runs. See [The gag writer is relocked](#2026-11-20--the-gag-writer-is-relocked-no-joke-read-no-classification-a-checklist-and-the-world-keeps-its-real-scale).
 
 ### 2026-11-12 · The prompt ceiling rises to 10,150 characters; the room goes to tunable wording
 - **Decision:** `PROMPT_TOTAL_BUDGET` / `MAX_PROMPT_CHARS` go from 6,900 to 10,150, and the whole rise goes to `FIXED_REQUIRED_RESERVE_BUDGET` (1,750 → 5,000). Today's wording still measures 1,704, so a prompt-tuner version can add about 3,300 characters instead of about 46. The moderator Concept, additions and balloon pools and the 750 outer margin are unchanged. No prompt sent today changes: the longest dev prompt in the last 60 days was 4,958 characters, under either ceiling.
