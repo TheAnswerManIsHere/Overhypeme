@@ -20,7 +20,7 @@ import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFr
 import { uploadUserImage } from "@/lib/image-upload";
 import { shouldAskForRealPhoto } from "@/lib/profile-photo";
 import { STRIPE_UNVERIFIED_CODE, STRIPE_UNVERIFIED_CONFIRM_MESSAGE } from "@workspace/api-zod";
-import { confirmNotReadOnly, isReadOnlyNow, isReadOnlyRefusal, READ_ONLY_REFUSED_FULL } from "@/lib/readOnlyNotice";
+import { confirmNotReadOnly, isReadOnlyNow, isReadOnlyRefusal, noteReadOnlyRefusal, READ_ONLY_REFUSED_FULL } from "@/lib/readOnlyNotice";
 
 import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
 import { resendVerification as requestVerificationEmail } from "@/lib/resendVerification";
@@ -681,6 +681,8 @@ export default function Profile() {
     if (!fileInputRef.current) fileInputRef.current = e.target;
     e.target.value = "";
     if (!file) return;
+    // A picker opened before the pause would otherwise upload once a file is chosen (#1109).
+    if (isReadOnlyNow()) { noteReadOnlyRefusal(); return; }
 
     const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
     if (!allowedTypes.includes(file.type)) {
@@ -1742,9 +1744,11 @@ export default function Profile() {
                   )}
 
                   <div className="flex gap-3">
-                    <Button onClick={handleSetPassword} disabled={passwordLoading} size="sm" className="gap-2">
-                      {passwordLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving…</> : <><Check className="w-4 h-4" /> Save Password</>}
-                    </Button>
+                    <PausedWhenReadOnly>
+                      <Button onClick={handleSetPassword} disabled={passwordLoading} size="sm" className="gap-2">
+                        {passwordLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving…</> : <><Check className="w-4 h-4" /> Save Password</>}
+                      </Button>
+                    </PausedWhenReadOnly>
                     <Button variant="outline" size="sm" onClick={() => { setShowPasswordSection(false); setPasswordError(""); setCurrentPassword(""); setNewPassword(""); setConfirmPassword(""); }}>
                       Cancel
                     </Button>

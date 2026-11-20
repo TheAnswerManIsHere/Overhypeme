@@ -138,6 +138,70 @@ test("read-only mode grays out every action that saves, explains why, and gives 
   }
 });
 
+/** One meme of the member's own in the Library, so its picture menu can be opened. */
+async function stubMyMeme(page: Page): Promise<void> {
+  const image = "/api/storage/objects/e2e-read-only-meme.png";
+  await page.route(/\/api\/users\/me\/memes(\?.*)?$/, (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ memes: [{ id: 9101, factId: FACT.id, templateId: "t", imageUrl: image, permalinkSlug: "e2e-toes", isPublic: true,
+      createdAt: new Date().toISOString(), originalWidth: 1, originalHeight: 1, uploadFileSizeBytes: 1, heartCount: 0, viewerHasHearted: false }], nextCursor: null }),
+  }));
+  await page.route((url) => url.pathname === image, (route) => route.fulfill({ status: 200, contentType: "image/png",
+    body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=", "base64") }));
+}
+
+/** The explanation is on top where it is drawn: nothing covers its centre (the picture menus sit at a high layer). */
+async function explanationIsOnTop(page: Page): Promise<boolean> {
+  return page.getByTestId("read-only-explanation").evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return !!hit && el.contains(hit);
+  });
+}
+
+test("read-only mode: the picture menu's Delete explains itself above the menu; an open password form's Save is grayed", async ({ browser }) => {
+  test.setTimeout(150_000);
+  const admin = await adminPage(browser);
+  await setSwitch(admin.page, false);
+  const memberContext = await browser.newContext();
+  const page = await memberContext.newPage();
+  const phone = await browser.newContext({ viewport: { width: 393, height: 852 }, hasTouch: true, isMobile: true });
+  try {
+    await signInThroughForm(page, FREE_ACCOUNT.email, TEST_ACCOUNT_PASSWORD);
+    // The password form opened before the pause.
+    await page.goto("/profile");
+    await page.getByRole("button", { name: /(set a|change) password/i }).click();
+    await setSwitch(admin.page, true);
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await expect(paused(page, "Save Password")).toBeVisible();
+
+    // Desktop: the picture menu's Delete, hovered.
+    await stubMyMeme(page);
+    await page.goto("/library?tab=memes");
+    await page.getByRole("img", { name: "Meme" }).first().hover();
+    await page.getByLabel("Image actions").first().click();
+    await paused(page, "Delete").first().hover();
+    await expect(page.getByTestId("read-only-explanation")).toHaveText(EXPLANATION);
+    expect(await explanationIsOnTop(page), "the explanation is drawn above the menu").toBe(true);
+
+    // Phone: the bottom sheet's Delete, tapped.
+    await phone.addCookies(await memberContext.cookies());
+    const mobile = await phone.newPage();
+    await stubMyMeme(mobile);
+    await mobile.goto("/library?tab=memes");
+    await mobile.getByLabel("Image actions").first().tap();
+    await paused(mobile, "Delete").first().tap({ force: true });
+    await expect(mobile.getByTestId("read-only-explanation")).toHaveText(EXPLANATION);
+    expect(await explanationIsOnTop(mobile), "the explanation is drawn above the sheet").toBe(true);
+  } finally {
+    await switchOff(admin);
+    await phone.close();
+    await memberContext.close();
+    await admin.context.close();
+  }
+});
+
 test("read-only mode: a held-back profile edit saves once the pause ends (D5)", async ({ browser }) => {
   test.setTimeout(120_000);
   const admin = await adminPage(browser);

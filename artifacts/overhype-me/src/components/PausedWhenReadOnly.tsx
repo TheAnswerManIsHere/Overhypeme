@@ -89,11 +89,12 @@ function PausedControl({ children, className }: { children: ReactNode; className
           </span>
         </span>
       </PopoverAnchor>
+      {/* Above every layer a paused control can sit in (the picture menus are 9998). */}
       <PopoverContent
         side="top"
         role="tooltip"
         data-testid="read-only-explanation"
-        className="w-auto max-w-xs p-3 text-sm leading-snug"
+        className="z-[10000] w-auto max-w-xs p-3 text-sm leading-snug"
         onOpenAutoFocus={(e) => e.preventDefault()}
         onCloseAutoFocus={(e) => e.preventDefault()}
       >

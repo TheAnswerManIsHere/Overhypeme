@@ -5,6 +5,7 @@ import { useUploadModeration } from "../hooks/useUploadModeration";
 import { UPLOAD_ERROR_COPY } from "../copy";
 import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
 import { useReadOnly } from "@/hooks/use-read-only";
+import { isReadOnlyNow, noteReadOnlyRefusal } from "@/lib/readOnlyNotice";
 
 interface Props {
   onUploaded: (objectPath: string) => void;
@@ -27,6 +28,8 @@ export function SelfUploadZone({ onUploaded, allowReplace = true }: Props) {
 
   const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    // A picker opened before the pause would otherwise upload once a file is chosen (#1109).
+    if (file && isReadOnlyNow()) { e.target.value = ""; noteReadOnlyRefusal(); return; }
     if (file) void handleFile(file);
   };
 

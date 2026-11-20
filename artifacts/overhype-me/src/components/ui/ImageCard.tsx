@@ -645,6 +645,7 @@ export function ImageCard({
             >
               Cancel
             </button>
+            <PausedWhenReadOnly className="flex-1">
             <button
               onClick={e => { e.stopPropagation(); void handleDeleteConfirm(); }}
               disabled={deleting}
@@ -653,6 +654,7 @@ export function ImageCard({
               {deleting && <Loader2 className="w-2.5 h-2.5 animate-spin" />}
               Delete
             </button>
+            </PausedWhenReadOnly>
           </div>
         </div>
       )}
@@ -669,6 +671,7 @@ export function ImageCard({
             >
               Cancel
             </button>
+            <PausedWhenReadOnly className="flex-1">
             <button
               onClick={e => { e.stopPropagation(); void handleDeleteConfirm(); }}
               disabled={deleting}
@@ -677,6 +680,7 @@ export function ImageCard({
               {deleting && <Loader2 className="w-3 h-3 animate-spin" />}
               Delete
             </button>
+            </PausedWhenReadOnly>
           </div>
         </div>
       )}
