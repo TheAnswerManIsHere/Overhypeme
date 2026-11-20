@@ -52,6 +52,15 @@ test("read-only mode: on from Operations, browsing and a name save carry on, a w
     await setSwitch(admin.page, true);
     await expect(admin.page.getByTestId("read-only-panel")).toContainText("picks up a change within about");
 
+    // The notice pushes the admin screen down rather than covering its header (Issue #1107).
+    await admin.page.reload();
+    const notice = admin.page.getByTestId("read-only-notice");
+    await expect(notice).toBeVisible();
+    await expect.poll(async () => {
+      const [n, shell] = await Promise.all([notice.boundingBox(), admin.page.getByTestId("admin-shell").boundingBox()]);
+      return n && shell ? shell.y - (n.y + n.height) : -1;
+    }, { message: "the admin screen starts below the notice" }).toBeGreaterThanOrEqual(-1);
+
     // A signed-out visitor: browsing works and the notice is shown.
     const visitorContext = await browser.newContext();
     const visitor = await visitorContext.newPage();

@@ -6,7 +6,7 @@ interface Props {
 
 export function WizardTopBar({ onClose }: Props) {
   return (
-    <div className="fixed inset-x-0 top-0 z-10 bg-[#111]">
+    <div className="fixed inset-x-0 top-[var(--read-only-notice-h,0px)] z-10 bg-[#111]">
       <div className="flex items-center justify-end h-12 px-3 pt-[env(safe-area-inset-top)]">
         <button
           type="button"
