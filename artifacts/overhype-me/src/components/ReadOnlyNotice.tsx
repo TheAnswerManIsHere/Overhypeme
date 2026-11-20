@@ -9,6 +9,7 @@ import {
   onReadOnlyChange,
   onReadOnlyRefusal,
   READ_ONLY_REFUSED_MESSAGE,
+  READ_ONLY_REFUSED_TITLE,
   setReadOnlyNow,
 } from "@/lib/readOnlyNotice";
 
@@ -31,7 +32,7 @@ export function ReadOnlyNotice() {
   useEffect(() => {
     const offChange = onReadOnlyChange(setOn);
     const offRefusal = onReadOnlyRefusal(() => {
-      toast({ title: "Paused for a moment", description: READ_ONLY_REFUSED_MESSAGE });
+      toast({ title: READ_ONLY_REFUSED_TITLE, description: READ_ONLY_REFUSED_MESSAGE });
     });
     void readSwitch();
     const timer = window.setInterval(() => void readSwitch(), POLL_MS);

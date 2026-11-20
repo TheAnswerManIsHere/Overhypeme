@@ -6,12 +6,24 @@
 /** The code the server's read-only gate answers with (api-server `lib/readOnlyMode.ts`). */
 export const READ_ONLY_CODE = "READ_ONLY_MODE";
 
+/** The title of the toast shown when an action is refused. */
+export const READ_ONLY_REFUSED_TITLE = "Paused for a moment";
+
 /** The short message shown when an action is refused. */
 export const READ_ONLY_REFUSED_MESSAGE = "Changes are paused for a little while. Nothing you typed is lost; please try again shortly.";
 
 type Listener = (on: boolean) => void;
 
+/**
+ * How long after a refusal the app's own failure toasts stay quiet. The
+ * refused action's caller usually raises its generic "failed, please try
+ * again" toast too, and only one toast shows at a time, so without this the
+ * generic one could replace the refusal's reason (Issue #1107).
+ */
+export const REFUSAL_QUIET_MS = 4000;
+
 let on = false;
+let lastRefusalAt = Number.NEGATIVE_INFINITY;
 const listeners = new Set<Listener>();
 const refusalListeners = new Set<() => void>();
 
@@ -37,6 +49,7 @@ export function onReadOnlyRefusal(l: () => void): () => void {
 
 /** A request was refused because the site is paused. */
 export function noteReadOnlyRefusal(): void {
+  lastRefusalAt = Date.now();
   setReadOnlyNow(true);
   for (const l of refusalListeners) l();
 }
@@ -56,9 +69,20 @@ export async function inspectForReadOnly(response: Response): Promise<void> {
   }
 }
 
+/**
+ * Whether a toast should be dropped: any toast other than the refusal's own,
+ * raised within REFUSAL_QUIET_MS of a refusal, is the refused action's caller
+ * reporting the same failure without the reason.
+ */
+export function shouldSuppressToast(title: unknown): boolean {
+  if (title === READ_ONLY_REFUSED_TITLE) return false;
+  return Date.now() - lastRefusalAt < REFUSAL_QUIET_MS;
+}
+
 /** Test seam. */
 export function __resetReadOnlyNoticeForTests(): void {
   on = false;
+  lastRefusalAt = Number.NEGATIVE_INFINITY;
   listeners.clear();
   refusalListeners.clear();
 }

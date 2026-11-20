@@ -9,7 +9,11 @@ import {
   inspectForReadOnly,
   isReadOnlyNow,
   onReadOnlyChange,
+  noteReadOnlyRefusal,
   onReadOnlyRefusal,
+  READ_ONLY_REFUSED_TITLE,
+  REFUSAL_QUIET_MS,
+  shouldSuppressToast,
 } from "./readOnlyNotice";
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -39,5 +43,21 @@ describe("a refused request", () => {
     await inspectForReadOnly(json(200, { ok: true }));
     expect(refused).not.toHaveBeenCalled();
     expect(isReadOnlyNow()).toBe(false);
+  });
+});
+
+describe("toasts right after a refusal (Issue #1107)", () => {
+  it("keeps the refusal's reason: the caller's own failure toast is dropped for a moment", () => {
+    vi.useFakeTimers();
+    try {
+      expect(shouldSuppressToast("Failed to post comment")).toBe(false);
+      noteReadOnlyRefusal();
+      expect(shouldSuppressToast("Failed to post comment")).toBe(true);
+      expect(shouldSuppressToast(READ_ONLY_REFUSED_TITLE)).toBe(false);
+      vi.advanceTimersByTime(REFUSAL_QUIET_MS);
+      expect(shouldSuppressToast("Failed to post comment")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
