@@ -24,7 +24,7 @@
  *
  * Usage (on the Repl, where the database and the OpenAI key are):
  *   pnpm --filter @workspace/api-server run preview:gag-writer -- --facts 32,34746,56 --dry-run
- *   pnpm --filter @workspace/api-server run preview:gag-writer -- --facts 32,34746,56 --system-prompt ../../docs/plans/gag-prompt-CANDIDATE.txt
+ *   pnpm --filter @workspace/api-server run preview:gag-writer -- --facts 32,34746,56 --system-prompt <a candidate prompt file>
  *   options: --out <dir> (default <repository root>/.local/gag-preview/<timestamp>)
  *
  * --dry-run builds and prints the request per fact and calls no model.

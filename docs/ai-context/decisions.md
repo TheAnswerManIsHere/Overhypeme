@@ -13,6 +13,20 @@
 
 ---
 
+### 2026-11-20 · The gag writer is relocked: no joke read, no classification, a checklist, and the world keeps its real scale
+- **Decision:** the gag writer's locked prompt (`docs/plans/gag-prompt-LOCKED.md`) is relocked with plan 1C's revision (PLAN_FACT_LIFECYCLE_REBUILD.md, increment 1.2d).
+  - **Its request** is the fact, the approved humor note, the limits and the fact's gags.
+  - **It returns three gags and no joke read.** The note is approved at the Reading step before it runs.
+  - **Each scene states** the setting, briefly, and Alex's action, pose and expression. Props, outfit and viewpoint appear only when the joke needs them; lighting and style are left to the look.
+  - **Issue #969's scale rules hold.** The hero stays at human scale. The benchmark is never weakened. Everything the fact names keeps its real size unless the caption explicitly says otherwise.
+  - **One exception for the hero (David, Q34: 1):** when the caption makes the hero's own size the joke, the hero may be drawn bigger. David: *"For example 'David is so tall he uses city busses as hurdles.' should show a very tall David."*
+- **Why:**
+  - David judged the revised writer's ideas on the facts that exposed the problems (pushups #32, the Mount Rushmore chin #34746, the grenade #56) beside benchmark facts #41, #34658 and #34749, and relocked it (Q33: 1).
+  - The preview run cost $0.56. Its ideas are on Issue #1018.
+  - The size exceptions read "unless the caption explicitly says" rather than "or the approved humor note", on Astra's advice: the plan's rule is "unless the fact itself says".
+- **Reference:** Issue #1018; Issue #969; PR #1094; the relock PR.
+- **Revisit if:** a moderator's approved note keeps having to argue a size change the caption doesn't state.
+
 ### 2026-11-20 · Hosting stays portable: no new Replit-only runtime service without a written exit
 - **Decision:** the app stays on Replit Autoscale through launch, and nothing is moved before it — not the media bucket, not the production database, and no container image or Kubernetes manifest is built yet. One rule holds from now on: **a new runtime dependency on a service only Replit provides is not adopted until its exit is written down** — in the plan or PR that adopts it, and in this repo's own [`replit-environment.md`](./replit-environment.md): what the app would use instead elsewhere, and how the data it holds gets out. A dependency already in place is not reopened by this rule: the object-storage sidecar (`storageClient.ts`), the `REPLIT_DEPLOYMENT` production signal, and the Anthropic integration's proxy address are the known list, each replaceable without a schema change.
 - **Why:** David, 2026-11-20, exploring Kubernetes on Talos Linux and Omni (AWS, or bare metal later) as a possible future and a showpiece: *"What I'm trying to avoid is getting to a production launch, having a ton of users, and then realizing we should have done things differently pre-launch to make our lives so much easier as we move to containerization."* The assessment in that session found the app already has the shape a container platform needs — sessions and the job queue in Postgres, files in object storage, configuration from the environment, health endpoints, a SIGTERM handler — because Autoscale already runs it as stateless copies. Code changes for a move cost the same after launch as before it; only data grows harder to move, and both stores move without a schema change (stored object addresses are logical `/objects/…` paths, not bucket addresses; the database is ordinary PostgreSQL). So the one thing that could turn a cheap move into an expensive one is a future dependency with no way out, and the rule is aimed at that alone. He chose the rule in answer to Q2 of that session (*"q2 1"*).
@@ -146,6 +160,7 @@
 - **Cost:** about $0.25 per generation (estimate at plan time, to be replaced by measured usage), on each fact entering paid preparation, each refresh and each Regenerate; accepted by David.
 - **Reference:** `docs/plans/PLAN_GAG_GENERATOR.md`; #935.
 - **Revisit if:** the moderator-confirmed share of joke reads stays low, or Astra's availability starts holding up moderation.
+- **Superseded in part (2026-11-20):** the gag writer no longer returns a joke read; the humor note is approved at the Reading step before it runs. See [The gag writer is relocked](#2026-11-20--the-gag-writer-is-relocked-no-joke-read-no-classification-a-checklist-and-the-world-keeps-its-real-scale).
 
 ### 2026-11-12 · The prompt ceiling rises to 10,150 characters; the room goes to tunable wording
 - **Decision:** `PROMPT_TOTAL_BUDGET` / `MAX_PROMPT_CHARS` go from 6,900 to 10,150, and the whole rise goes to `FIXED_REQUIRED_RESERVE_BUDGET` (1,750 → 5,000). Today's wording still measures 1,704, so a prompt-tuner version can add about 3,300 characters instead of about 46. The moderator Concept, additions and balloon pools and the 750 outer margin are unchanged. No prompt sent today changes: the longest dev prompt in the last 60 days was 4,958 characters, under either ceiling.
