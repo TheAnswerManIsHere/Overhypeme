@@ -616,6 +616,88 @@ paths:
         "204":
           description: Search recorded
 
+  /users/me/submissions/counts:
+    get:
+      operationId: getMySubmissionCounts
+      tags: [users]
+      summary: How many of the current user's submissions are in each status, and how many match a search
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 100
+      responses:
+        "200":
+          description: The counts per type and status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MySubmissionCounts"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /users/me/submissions:
+    get:
+      operationId: listMySubmissions
+      tags: [users]
+      summary: One page of the current user's submissions of one type in one status
+      parameters:
+        - name: type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [facts, comments]
+        - name: status
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [review, live, declined, gone]
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 100
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [newest, oldest]
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 200
+      responses:
+        "200":
+          description: One page of submissions and where the next starts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MySubmissionPage"
+        "400":
+          description: Invalid query
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /ai/check-duplicate:
     post:
       operationId: checkDuplicate
@@ -1339,7 +1421,7 @@ components:
 
     UserProfile:
       type: object
-      required: [id, submittedFacts, likedFacts, favoriteHashtags, searchHistory]
+      required: [id, likedFacts, favoriteHashtags, searchHistory]
       properties:
         id:
           type: string
@@ -1392,10 +1474,6 @@ components:
         disputeNotifications:
           type: boolean
           description: "Admin only: whether this admin receives dispute alert emails. Omitted for non-admins."
-        submittedFacts:
-          type: array
-          items:
-            $ref: "#/components/schemas/FactSummary"
         likedFacts:
           type: array
           items:
@@ -1408,24 +1486,55 @@ components:
           type: array
           items:
             type: string
-        pendingSubmissions:
-          type: array
-          items:
-            $ref: "#/components/schemas/PendingSubmission"
-        myComments:
-          type: array
-          items:
-            $ref: "#/components/schemas/MyComment"
 
-    PendingSubmission:
+    MySubmissionStatusCounts:
       type: object
-      required: [id, text, status, hashtags, createdAt]
+      required: [review, live, declined, gone]
       properties:
+        review:
+          type: integer
+        live:
+          type: integer
+        declined:
+          type: integer
+        gone:
+          type: integer
+
+    MySubmissionTypeCounts:
+      type: object
+      required: [facts, comments]
+      properties:
+        facts:
+          $ref: "#/components/schemas/MySubmissionStatusCounts"
+        comments:
+          $ref: "#/components/schemas/MySubmissionStatusCounts"
+
+    MySubmissionCounts:
+      type: object
+      required: [totals, matches]
+      properties:
+        totals:
+          $ref: "#/components/schemas/MySubmissionTypeCounts"
+        matches:
+          description: With a search term, how many match in each status; null without one.
+          allOf:
+            - $ref: "#/components/schemas/MySubmissionTypeCounts"
+          nullable: true
+
+    MySubmission:
+      type: object
+      description: >
+        One submission. `kind` says which fields apply: "review" (a fact under
+        review or declined), "fact" (an approved, live fact, in `fact`),
+        "fact_gone" (an approved fact since taken down) or "comment".
+      required: [kind, id, text, hashtags, createdAt]
+      properties:
+        kind:
+          type: string
+          enum: [review, fact, fact_gone, comment]
         id:
           type: integer
         text:
-          type: string
-        status:
           type: string
         hashtags:
           type: array
@@ -1433,32 +1542,56 @@ components:
             type: string
         createdAt:
           type: string
+        decidedAt:
+          type: string
+          nullable: true
+          description: When it was approved or declined.
+        progress:
+          type: string
+          nullable: true
+          enum: [first_look, preparing, null]
+          description: How far a fact under review has got; null otherwise.
         reason:
           type: string
           nullable: true
-          description: The rejection reason code; set only once the submission is rejected.
-        adminNote:
+          description: The decline reason code; set only on a declined fact.
+        teamNote:
           type: string
           nullable: true
-          description: The moderator's note to the submitter; set only once the submission is rejected.
-
-    MyComment:
-      type: object
-      required: [id, factId, text, status, createdAt]
-      properties:
-        id:
-          type: integer
+          description: The team's note; set only on a declined fact or comment.
+        fact:
+          allOf:
+            - $ref: "#/components/schemas/FactSummary"
+          nullable: true
+          description: The live fact, for kind "fact".
         factId:
           type: integer
+          nullable: true
+          description: The fact a comment is on.
         factText:
           type: string
           nullable: true
-        text:
+          description: The wording of the fact a comment is on.
+        factLive:
+          type: boolean
+          nullable: true
+          description: Whether the fact a comment is on is live.
+        hidden:
+          type: boolean
+          nullable: true
+          description: An approved comment hidden while it is looked at again.
+
+    MySubmissionPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MySubmission"
+        nextCursor:
           type: string
-        status:
-          type: string
-        createdAt:
-          type: string
+          nullable: true
 
     UpdateProfileRequest:
       type: object

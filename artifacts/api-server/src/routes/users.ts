@@ -9,11 +9,11 @@ import { db } from "@workspace/db";
 import {
   factsTable, hashtagsTable, factHashtagsTable,
   reactionsTable, searchHistoryTable, usersTable, emailVerificationTokensTable,
-  userGenerationCostsTable, pendingReviewsTable, commentsTable, uploadImageMetadataTable,
+  userGenerationCostsTable, uploadImageMetadataTable,
 } from "@workspace/db/schema";
 import { getViewerFactRatings, getViewerReactionTargetIds } from "../lib/reactions";
 import { eq, desc, inArray, and, sql } from "drizzle-orm";
-import { RecordSearchBody } from "@workspace/api-zod";
+import { GetMySubmissionCountsQueryParams, ListMySubmissionsQueryParams, RecordSearchBody } from "@workspace/api-zod";
 import crypto from "crypto";
 import { sendEmail, buildEmailChangeVerificationEmail } from "../lib/email";
 import { getSiteBaseUrl } from "../lib/siteUrl";
@@ -29,6 +29,7 @@ import {
   restoreAiImage, restoreUpload, type ContentChangeResult,
 } from "../lib/myContent";
 import { effectiveTierExpr } from "../lib/membershipState";
+import { countMySubmissions, listMySubmissions } from "../lib/mySubmissions";
 
 const router: IRouter = Router();
 
@@ -140,16 +141,6 @@ router.get("/users/me", async (req: Request, res: Response) => {
     .where(eq(usersTable.id, userId))
     .limit(1);
 
-  const submittedRows = await db.select().from(factsTable).where(and(eq(factsTable.submittedById, userId), eq(factsTable.isActive, true))).orderBy(desc(factsTable.createdAt)).limit(50);
-  const pendingRows = await db.select({
-    id: pendingReviewsTable.id,
-    text: pendingReviewsTable.submittedText,
-    status: pendingReviewsTable.status,
-    hashtags: pendingReviewsTable.hashtags,
-    createdAt: pendingReviewsTable.createdAt,
-    reason: pendingReviewsTable.reason,
-    adminNote: pendingReviewsTable.adminNote,
-  }).from(pendingReviewsTable).where(eq(pendingReviewsTable.submittedById, userId)).orderBy(desc(pendingReviewsTable.createdAt)).limit(50);
   const likedRatings = await db.select({ factId: reactionsTable.targetId }).from(reactionsTable)
     .where(and(
       eq(reactionsTable.userId, userId),
@@ -185,23 +176,7 @@ router.get("/users/me", async (req: Request, res: Response) => {
     }
   }
 
-  const [submittedSummaries, likedSummaries, myCommentRows] = await Promise.all([
-    buildFactSummaries(submittedRows, userId),
-    buildFactSummaries(likedFacts, userId),
-    db.select({
-      id: commentsTable.id,
-      factId: commentsTable.factId,
-      factText: factsTable.text,
-      text: commentsTable.text,
-      status: commentsTable.status,
-      createdAt: commentsTable.createdAt,
-    })
-      .from(commentsTable)
-      .leftJoin(factsTable, eq(commentsTable.factId, factsTable.id))
-      .where(eq(commentsTable.authorId, userId))
-      .orderBy(desc(commentsTable.createdAt))
-      .limit(50),
-  ]);
+  const likedSummaries = await buildFactSummaries(likedFacts, userId);
 
   // The canonical real-admin resolution, not a re-read of the stored column.
   // An ADMIN_USER_IDS- or bootstrap-granted admin was previously unable to even
@@ -232,30 +207,62 @@ router.get("/users/me", async (req: Request, res: Response) => {
       adminNotifications: userRow?.adminNotifications ?? true,
       disputeNotifications: userRow?.disputeNotifications ?? true,
     }),
-    submittedFacts: submittedSummaries,
-    pendingSubmissions: pendingRows.map((r) => ({
-      id: r.id,
-      text: r.text,
-      status: r.status,
-      hashtags: r.hashtags ?? [],
-      createdAt: r.createdAt.toISOString(),
-      // The rejection details are the submitter's only once the review is
-      // rejected: before that, both columns hold the moderator's autosaved
-      // draft (PATCH /admin/reviews/:id), which is not theirs to read.
-      reason: r.status === "rejected" ? (r.reason ?? null) : null,
-      adminNote: r.status === "rejected" ? (r.adminNote ?? null) : null,
-    })),
     likedFacts: likedSummaries,
     favoriteHashtags,
     searchHistory: searchRows,
-    myComments: myCommentRows.map((r) => ({
-      id: r.id,
-      factId: r.factId,
-      factText: r.factText ?? null,
-      text: r.text,
-      status: r.status,
-      createdAt: r.createdAt.toISOString(),
-    })),
+  });
+});
+
+// GET /users/me/submissions/counts — how many of the current user's
+// submissions are in each status, per type, and with `q`, how many match.
+// Counted by the same predicates the list below pages through (plan
+// PLAN_LIBRARY_SUBMISSIONS.md), so a count and its list never disagree.
+router.get("/users/me/submissions/counts", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const parsed = GetMySubmissionCountsQueryParams.safeParse(req.query);
+  if (!parsed.success) { res.status(400).json({ error: "Invalid search" }); return; }
+  res.json(await countMySubmissions(req.user.id, parsed.data.q));
+});
+
+// GET /users/me/submissions — one page of the current user's submissions of
+// one type (facts | comments) in one status (review | live | declined | gone),
+// optionally matching `q`, newest or oldest first; `cursor` is the previous
+// page's `nextCursor`. Only the signed-in user's own submissions, ever.
+const MY_SUBMISSIONS_PAGE = 24;
+router.get("/users/me/submissions", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const parsed = ListMySubmissionsQueryParams.safeParse(req.query);
+  if (!parsed.success) { res.status(400).json({ error: "Invalid query" }); return; }
+  const { type, status, q, sort, cursor } = parsed.data;
+  const userId = req.user.id;
+  const page = await listMySubmissions(userId, {
+    type, status, q, cursor, oldest: sort === "oldest", limit: MY_SUBMISSIONS_PAGE,
+  });
+
+  const liveRows = page.items.flatMap((i) => (i.kind === "fact" ? [i.row] : []));
+  const summaries = new Map((await buildFactSummaries(liveRows, userId)).map((s) => [s.id, s]));
+
+  res.json({
+    nextCursor: page.nextCursor,
+    items: page.items.map((i) => {
+      const empty = {
+        hashtags: [] as string[], decidedAt: null, progress: null, reason: null, teamNote: null,
+        fact: null, factId: null, factText: null, factLive: null, hidden: null,
+      };
+      switch (i.kind) {
+        case "review":
+          return { ...empty, ...i };
+        case "fact_gone":
+          return { ...empty, ...i };
+        case "fact": {
+          const { row, ...rest } = i;
+          const fact = summaries.get(row.id) ?? null;
+          return { ...empty, ...rest, hashtags: fact?.hashtags ?? [], fact };
+        }
+        case "comment":
+          return { ...empty, ...i };
+      }
+    }),
   });
 });
 

@@ -133,12 +133,13 @@ describe("GET /users/me", () => {
     assert.equal(res.body.hasPassword, false);
     assert.equal(res.body.avatarStyle, "bottts");
     assert.equal(res.body.avatarSource, "avatar");
-    assert.deepEqual(res.body.submittedFacts, []);
     assert.deepEqual(res.body.likedFacts, []);
-    assert.deepEqual(res.body.pendingSubmissions, []);
     assert.deepEqual(res.body.favoriteHashtags, []);
     assert.deepEqual(res.body.searchHistory, []);
-    assert.deepEqual(res.body.myComments, []);
+    // The submission lists moved to GET /users/me/submissions (routes.users.submissions.test.ts).
+    assert.equal("submittedFacts" in res.body, false);
+    assert.equal("pendingSubmissions" in res.body, false);
+    assert.equal("myComments" in res.body, false);
     // Non-admin users do NOT get the notification fields.
     assert.equal("adminNotifications" in res.body, false);
   });
@@ -182,52 +183,6 @@ describe("GET /users/me", () => {
 
     // 'alpha' (most recent) comes first; 'beta' second; the older 'alpha' is dropped.
     assert.deepEqual(res.body.searchHistory, ["alpha", "beta"]);
-  });
-});
-
-// Issue #1057: a declined submission's card must carry the rejection details
-// the submitter was emailed (the reason and the admin's note), while a review
-// still in moderation exposes neither: on a pending row those columns hold the
-// moderator's autosaved draft, which is not the submitter's to read.
-describe("GET /users/me — the submitter's view of rejection details", () => {
-  it("returns the reason and the admin's note on a rejected submission", async () => {
-    const userId = await createTestUser();
-    await db.insert(pendingReviewsTable).values({
-      submittedText: "{NAME} once declined a rejection.",
-      submittedById: userId,
-      status: "rejected",
-      workflowStage: "rejected",
-      reason: "visual",
-      adminNote: "We tried three framings and none of them landed.",
-    });
-    const sid = await bearerForUser(userId);
-    const res = await request(makeApp()).get("/users/me").set("authorization", `Bearer ${sid}`);
-
-    assert.equal(res.status, 200);
-    assert.equal(res.body.pendingSubmissions.length, 1);
-    const [sub] = res.body.pendingSubmissions;
-    assert.equal(sub.status, "rejected");
-    assert.equal(sub.reason, "visual");
-    assert.equal(sub.adminNote, "We tried three framings and none of them landed.");
-  });
-
-  it("withholds a draft reason and draft note on a submission still in review", async () => {
-    const userId = await createTestUser();
-    await db.insert(pendingReviewsTable).values({
-      submittedText: "{NAME} is still being considered.",
-      submittedById: userId,
-      status: "pending",
-      reason: "lame",
-      adminNote: "Draft: leaning towards rejecting this one.",
-    });
-    const sid = await bearerForUser(userId);
-    const res = await request(makeApp()).get("/users/me").set("authorization", `Bearer ${sid}`);
-
-    assert.equal(res.status, 200);
-    const [sub] = res.body.pendingSubmissions;
-    assert.equal(sub.status, "pending");
-    assert.equal(sub.reason, null);
-    assert.equal(sub.adminNote, null);
   });
 });
 

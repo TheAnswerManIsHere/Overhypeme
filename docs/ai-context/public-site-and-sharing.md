@@ -146,6 +146,18 @@ signed-in owner. Tabs: Liked Facts, Submissions, My Memes, My Images,
 Search History. **This is entirely self-view — there is no equivalent for
 viewing another user's submissions or memes.**
 
+The open tab is in the address (`?tab=`). **Submissions** is
+`components/library/SubmissionsPanel.tsx`: tabs by type (Facts, Comments),
+then by status (Under Review, Approved & Live, Declined, and No longer live
+only when it has items), with search, sort and paging, all in the address.
+Each submission has exactly one status, classified on the server by
+`api-server/src/lib/mySubmissions.ts` and read through
+`GET /users/me/submissions` and `/users/me/submissions/counts`; counts, search
+and pages use the same predicates. A fact submission is an approved fact
+(whatever reviews sit behind it) or a pending or rejected review, never both.
+A pending review's reason and note are a moderator's draft and are never
+returned (plan `PLAN_LIBRARY_SUBMISSIONS.md`).
+
 **`Profile.tsx` has no tabs.** The tab UI moved to `Library.tsx`; the
 dead tab state, the Images, AI-images and Memes queries it left behind and
 the never-shown Memes count were deleted in launch Phase 4, removal 7

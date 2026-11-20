@@ -6,8 +6,6 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { FactSummary } from "./factSummary";
-import type { MyComment } from "./myComment";
-import type { PendingSubmission } from "./pendingSubmission";
 import type { UserProfileMembershipTier } from "./userProfileMembershipTier";
 
 export interface UserProfile {
@@ -41,10 +39,7 @@ export interface UserProfile {
   adminNotifications?: boolean;
   /** Admin only: whether this admin receives dispute alert emails. Omitted for non-admins. */
   disputeNotifications?: boolean;
-  submittedFacts: FactSummary[];
   likedFacts: FactSummary[];
   favoriteHashtags: string[];
   searchHistory: string[];
-  pendingSubmissions?: PendingSubmission[];
-  myComments?: MyComment[];
 }

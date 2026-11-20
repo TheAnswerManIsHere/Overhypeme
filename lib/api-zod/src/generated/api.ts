@@ -506,8 +506,6 @@ export const ListHashtagsResponse = zod.object({
 /**
  * @summary Get the current user's profile
  */
-export const getMyProfileResponseSubmittedFactsItemShareCountMin = 0;
-
 export const getMyProfileResponseLikedFactsItemShareCountMin = 0;
 
 export const GetMyProfileResponse = zod.object({
@@ -552,27 +550,6 @@ export const GetMyProfileResponse = zod.object({
     .describe(
       "Admin only: whether this admin receives dispute alert emails. Omitted for non-admins.",
     ),
-  submittedFacts: zod.array(
-    zod.object({
-      id: zod.number().int(),
-      text: zod.string(),
-      upvotes: zod.number().int(),
-      downvotes: zod.number().int(),
-      score: zod.number().int().optional(),
-      commentCount: zod.number().int(),
-      shareCount: zod
-        .number()
-        .int()
-        .min(getMyProfileResponseSubmittedFactsItemShareCountMin),
-      hashtags: zod.array(zod.string()),
-      submittedBy: zod.string().nullish(),
-      submittedByImage: zod.string().nullish(),
-      userRating: zod
-        .union([zod.literal("up"), zod.literal("down"), zod.literal(null)])
-        .nullish(),
-      createdAt: zod.coerce.date(),
-    }),
-  ),
   likedFacts: zod.array(
     zod.object({
       id: zod.number().int(),
@@ -596,41 +573,6 @@ export const GetMyProfileResponse = zod.object({
   ),
   favoriteHashtags: zod.array(zod.string()),
   searchHistory: zod.array(zod.string()),
-  pendingSubmissions: zod
-    .array(
-      zod.object({
-        id: zod.number().int(),
-        text: zod.string(),
-        status: zod.string(),
-        hashtags: zod.array(zod.string()),
-        createdAt: zod.string(),
-        reason: zod
-          .string()
-          .nullish()
-          .describe(
-            "The rejection reason code; set only once the submission is rejected.",
-          ),
-        adminNote: zod
-          .string()
-          .nullish()
-          .describe(
-            "The moderator's note to the submitter; set only once the submission is rejected.",
-          ),
-      }),
-    )
-    .optional(),
-  myComments: zod
-    .array(
-      zod.object({
-        id: zod.number().int(),
-        factId: zod.number().int(),
-        factText: zod.string().nullish(),
-        text: zod.string(),
-        status: zod.string(),
-        createdAt: zod.string(),
-      }),
-    )
-    .optional(),
 });
 
 /**
@@ -693,6 +635,153 @@ export const RecordSearchBody = zod.object({
 });
 
 export const RecordSearchResponse = zod.void();
+
+/**
+ * @summary How many of the current user's submissions are in each status, and how many match a search
+ */
+export const getMySubmissionCountsQueryQMax = 100;
+
+export const GetMySubmissionCountsQueryParams = zod.object({
+  q: zod.coerce.string().max(getMySubmissionCountsQueryQMax).optional(),
+});
+
+export const GetMySubmissionCountsResponse = zod.object({
+  totals: zod.object({
+    facts: zod.object({
+      review: zod.number().int(),
+      live: zod.number().int(),
+      declined: zod.number().int(),
+      gone: zod.number().int(),
+    }),
+    comments: zod.object({
+      review: zod.number().int(),
+      live: zod.number().int(),
+      declined: zod.number().int(),
+      gone: zod.number().int(),
+    }),
+  }),
+  matches: zod
+    .union([
+      zod.object({
+        facts: zod.object({
+          review: zod.number().int(),
+          live: zod.number().int(),
+          declined: zod.number().int(),
+          gone: zod.number().int(),
+        }),
+        comments: zod.object({
+          review: zod.number().int(),
+          live: zod.number().int(),
+          declined: zod.number().int(),
+          gone: zod.number().int(),
+        }),
+      }),
+      zod.null(),
+    ])
+    .describe(
+      "With a search term, how many match in each status; null without one.",
+    ),
+});
+
+/**
+ * @summary One page of the current user's submissions of one type in one status
+ */
+export const listMySubmissionsQueryQMax = 100;
+
+export const listMySubmissionsQueryCursorMax = 200;
+
+export const ListMySubmissionsQueryParams = zod.object({
+  type: zod.enum(["facts", "comments"]),
+  status: zod.enum(["review", "live", "declined", "gone"]),
+  q: zod.coerce.string().max(listMySubmissionsQueryQMax).optional(),
+  sort: zod.enum(["newest", "oldest"]).optional(),
+  cursor: zod.coerce.string().max(listMySubmissionsQueryCursorMax).optional(),
+});
+
+export const listMySubmissionsResponseItemsItemFactOneShareCountMin = 0;
+
+export const ListMySubmissionsResponse = zod.object({
+  items: zod.array(
+    zod
+      .object({
+        kind: zod.enum(["review", "fact", "fact_gone", "comment"]),
+        id: zod.number().int(),
+        text: zod.string(),
+        hashtags: zod.array(zod.string()),
+        createdAt: zod.string(),
+        decidedAt: zod
+          .string()
+          .nullish()
+          .describe("When it was approved or declined."),
+        progress: zod
+          .union([
+            zod.literal("first_look"),
+            zod.literal("preparing"),
+            zod.literal(null),
+          ])
+          .nullish()
+          .describe("How far a fact under review has got; null otherwise."),
+        reason: zod
+          .string()
+          .nullish()
+          .describe("The decline reason code; set only on a declined fact."),
+        teamNote: zod
+          .string()
+          .nullish()
+          .describe("The team's note; set only on a declined fact or comment."),
+        fact: zod
+          .union([
+            zod.object({
+              id: zod.number().int(),
+              text: zod.string(),
+              upvotes: zod.number().int(),
+              downvotes: zod.number().int(),
+              score: zod.number().int().optional(),
+              commentCount: zod.number().int(),
+              shareCount: zod
+                .number()
+                .int()
+                .min(listMySubmissionsResponseItemsItemFactOneShareCountMin),
+              hashtags: zod.array(zod.string()),
+              submittedBy: zod.string().nullish(),
+              submittedByImage: zod.string().nullish(),
+              userRating: zod
+                .union([
+                  zod.literal("up"),
+                  zod.literal("down"),
+                  zod.literal(null),
+                ])
+                .nullish(),
+              createdAt: zod.coerce.date(),
+            }),
+            zod.null(),
+          ])
+          .optional()
+          .describe('The live fact, for kind "fact".'),
+        factId: zod
+          .number()
+          .int()
+          .nullish()
+          .describe("The fact a comment is on."),
+        factText: zod
+          .string()
+          .nullish()
+          .describe("The wording of the fact a comment is on."),
+        factLive: zod
+          .boolean()
+          .nullish()
+          .describe("Whether the fact a comment is on is live."),
+        hidden: zod
+          .boolean()
+          .nullish()
+          .describe("An approved comment hidden while it is looked at again."),
+      })
+      .describe(
+        'One submission. `kind` says which fields apply: "review" (a fact under review or declined), "fact" (an approved, live fact, in `fact`), "fact_gone" (an approved fact since taken down) or "comment".\n',
+      ),
+  ),
+  nextCursor: zod.string().nullable(),
+});
 
 /**
  * @summary Check if a fact text is a duplicate (requires auth)
