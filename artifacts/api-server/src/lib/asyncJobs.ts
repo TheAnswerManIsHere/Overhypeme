@@ -82,8 +82,6 @@ export interface JobHandler {
   run(payload: unknown, row: ClaimedJobRow): Promise<HandlerResult>;
   /** Optional: fired when a row is marked `failed` after exhausting retries. */
   onAbandon?(row: AsyncJobRow): Promise<void> | void;
-  /** Optional: skip a row purge during retention sweep (returns true to keep). */
-  retainDuringPurge?(row: AsyncJobRow): boolean;
   /** Optional: per-queue retention override in days (otherwise admin-config / 30). */
   retentionDaysOverride?(): Promise<number | undefined>;
   /**
@@ -1062,9 +1060,8 @@ export async function recoverStuckProcessing(
 /**
  * Delete done/failed rows older than `retentionDays` days for a given queue.
  * Per-queue retention via admin_config `async_job_<queue>_retention_days`
- * (default 30). Handlers can implement `retainDuringPurge(row)` to keep
- * specific rows around longer (used by the email handler to retain the
- * abandoned-email admin-alert thread).
+ * (default 30). No row is exempt: every finished row of the queue goes once
+ * it is past the window (the Privacy page promises this for emails).
  */
 export async function purgeTerminalJobs(
   dbInstance: Pick<typeof defaultDb, "delete" | "select">,
@@ -1078,25 +1075,6 @@ export async function purgeTerminalJobs(
   const retentionDays = overrideDays ?? (await getConfigInt(`async_job_${queue}_retention_days`, 30));
   if (retentionDays <= 0) return 0;
   const cutoff = new Date(now.getTime() - retentionDays * 24 * 3_600_000);
-
-  if (handler?.retainDuringPurge) {
-    // Per-row filtering — slower but supports the abandoned-email retain path.
-    const candidates = await dbInstance
-      .select()
-      .from(asyncJobsTable)
-      .where(and(
-        eq(asyncJobsTable.queue, queue),
-        or(eq(asyncJobsTable.status, "done"), eq(asyncJobsTable.status, "failed")),
-        lt(asyncJobsTable.createdAt, cutoff),
-      ));
-    let deleted = 0;
-    for (const row of candidates) {
-      if (handler.retainDuringPurge(row)) continue;
-      await dbInstance.delete(asyncJobsTable).where(eq(asyncJobsTable.id, row.id));
-      deleted++;
-    }
-    return deleted;
-  }
 
   const result = await dbInstance
     .delete(asyncJobsTable)

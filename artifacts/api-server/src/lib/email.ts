@@ -398,8 +398,6 @@ async function sendMessage(message: OutgoingEmail, idempotencyKey?: string): Pro
  *   - Resend 401 disables delivery process-wide.
  *   - Abandoned (max-retries) emails fire an admin alert email (unless the
  *     row IS the admin alert itself).
- *   - Retention purge skips rows whose `kind` starts with
- *     "admin_abandoned_email_alert" so the alert thread isn't auto-deleted.
  */
 export const emailJobHandler: JobHandler = {
   // The one answer to "can email be delivered now": a Resend key, or a
@@ -439,11 +437,6 @@ export const emailJobHandler: JobHandler = {
         lastError: row.lastError ?? "unknown",
       }),
     );
-  },
-
-  retainDuringPurge(row: AsyncJobRow): boolean {
-    const ep = row.payload as EmailJobPayload | null;
-    return ep?.kind?.startsWith("admin_abandoned_email_alert") === true;
   },
 
   async retentionDaysOverride(): Promise<number | undefined> {
