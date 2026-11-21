@@ -177,23 +177,6 @@ export async function getConfigStringStrict(key: string): Promise<string | undef
   return rows[0]?.value;
 }
 
-/**
- * Get a config integer reading the `value` column directly. Since Debug mode
- * went this returns what `getConfigInt` returns; it stays as the named entry
- * point for the audit-bearing `engine_revision` marker.
- */
-export async function getConfigIntRaw(key: string, defaultValue: number): Promise<number> {
-  try {
-    const { byKey } = await loadAll();
-    const row = byKey.get(key);
-    if (!row) return defaultValue;
-    const parsed = parseInt(row.value, 10);
-    return isNaN(parsed) ? defaultValue : parsed;
-  } catch {
-    return defaultValue;
-  }
-}
-
 /** Get all config rows ordered by key (for the admin list endpoint). */
 export async function getAllConfig(): Promise<AdminConfig[]> {
   const { rows } = await loadAll();

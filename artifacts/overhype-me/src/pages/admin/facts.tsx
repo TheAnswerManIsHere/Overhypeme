@@ -4,18 +4,13 @@ import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Trash2, Search, AlertCircle, CheckCircle, Pencil, X, Save, Brain, EyeOff, Loader2, Sparkles, ChevronRight, ChevronDown } from "lucide-react";
-import type { FactEnrichment } from "@workspace/api-zod";
-import { EnrichmentEditor } from "@/components/admin/EnrichmentEditor";
+import { FactTaxonomyPanel } from "@/components/admin/FactTaxonomyPanel";
+import { GagFoldPanel } from "@/components/admin/GagFoldPanel";
 import { GagsPanel } from "@/components/admin/gags/GagsPanel";
 import { DEFAULT_SUBJECT_EXAMPLE_NAMES } from "@/components/admin/subjectExampleNames";
-import { FactEnrichmentVersionHistory, type EnrichmentVersionInfo } from "@/components/admin/FactEnrichmentVersionHistory";
 import { useDraftForm, CommitInterruption } from "@/components/admin/useDraftForm";
 import { patchFactDraft } from "@/components/admin/patchFactDraft";
 import { FactTextEditHistory } from "@/components/admin/FactTextEditHistory";
-import {
-  useFactEnrichmentEditing,
-  type EnrichmentSaveResponse,
-} from "@/components/admin/useFactEnrichmentEditing";
 
 interface Fact {
   id: number;
@@ -33,13 +28,11 @@ interface Fact {
   splitTokenIndex: number | null;
   createdAt: string;
   updatedAt: string;
-  // Visual-taxonomy enrichment projections (present from the list query; the
-  // full blob is loaded on demand by the enrichment editor).
+  // The stored AI taxonomy's projection (present from the list query; the
+  // full output is loaded on demand by the taxonomy panel).
   primaryArchetype?: string | null;
   enrichmentStatus?: string | null;
   hasEnrichment?: boolean;
-  hasEnrichmentOverrides?: boolean;
-  enrichmentBaselineChanged?: boolean;
 }
 
 interface FactsResponse {
@@ -105,44 +98,12 @@ function ReadOnlyField({ label, value }: { label: string; value: string | number
 
 
 /**
- * The shared Visual Taxonomy Enrichment editor, surfaced on a live fact. Uses the
- * SAME universal autosave helper (`useFormDraft`) as every other form, plus the
- * shared `useEnrichmentJobs` for the enrichment-specific ACTIONS (re-run, preview,
- * polling). Keyed by fact id at the call site so it resets cleanly between facts.
- *
- * Unlike the moderation review form (which stores drafts as-is), a live fact is
- * validated server-side on save and its projection columns re-synced — so an
- * invalid edit surfaces here as a save error rather than being stored.
+ * A selected fact's gags and its stored AI taxonomy, both read-only. A live
+ * fact's gags are not edited between Phase 1 and Phase 3 of the fact lifecycle
+ * rebuild (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1F), and the taxonomy is never
+ * edited (2A): it keeps only "Re-run". Collapsible; starts closed.
  */
-function FactEnrichmentPanel({
-  fact,
-  onSaved,
-  disabled = false,
-  disabledReason,
-}: {
-  fact: Fact;
-  onSaved: (resp: EnrichmentSaveResponse) => void;
-  /** Read-only mode while a refresh is in review: the editor stays mounted so
-   *  the ACTIVE enrichment is inspectable, but every write path (save, per-field
-   *  overrides, re-run) is withheld — the backend REFRESH_IN_REVIEW 409s remain
-   *  the backstop for stale tabs. */
-  disabled?: boolean;
-  disabledReason?: string;
-}) {
-  // ALL editing machinery (localStorage draft + per-field override tracking +
-  // re-run wiring) lives in the shared useFactEnrichmentEditing hook — the same
-  // engine the moderation ReviewModal mounts, so the two screens stay in
-  // lockstep by construction.
-  const {
-    enrichment, enrichmentStatus, draft, overrideContext, jobs, rerunWithConfirm, overrideError,
-  } = useFactEnrichmentEditing({
-      target: { kind: "fact", factId: fact.id },
-      enabled: true,
-      initialStatus: fact.enrichmentStatus ?? null,
-      onSaved,
-    });
-
-  const busy = draft.loading || draft.committing || jobs.loading || jobs.rerunBusy || disabled;
+function FactGagsAndTaxonomyPanel({ fact }: { fact: Fact }) {
   const [expanded, setExpanded] = useState(false);
   return (
     <div className="rounded-sm border border-border bg-muted/20" data-testid="fact-enrichment-panel">
@@ -152,127 +113,25 @@ function FactEnrichmentPanel({
         className="w-full flex items-center justify-between gap-2 p-3 text-left"
       >
         <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-          <Sparkles className="w-3.5 h-3.5 text-primary" /> Visual Taxonomy Enrichment
+          <Sparkles className="w-3.5 h-3.5 text-primary" /> Gags and AI taxonomy
         </span>
         {expanded ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
       </button>
 
       {expanded && (
-        <div className="px-3 pb-3 space-y-2">
-          {disabled && disabledReason && (
-            <p className="text-xs text-amber-700 dark:text-amber-300" data-testid="enrichment-panel-disabled">
-              {disabledReason}
-            </p>
-          )}
-          {/* Pinned header bar with draft status */}
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="font-display font-bold text-foreground uppercase tracking-wide text-sm flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-primary" />
-              Visual Taxonomy Enrichment
-            </h3>
-            <div className="flex items-center gap-3 shrink-0">
-              <div className="text-xs text-muted-foreground">
-                {draft.committing ? (
-                  <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving to server…</span>
-                ) : draft.commitError ? (
-                  <span className="text-destructive">Save refused</span>
-                ) : draft.hasUncommittedChanges ? (
-                  <span>{draft.draftLabel || "Unsaved changes"}</span>
-                ) : draft.committedAt ? (
-                  <span className="text-green-600 dark:text-green-400">Saved to server</span>
-                ) : null}
-              </div>
-              {draft.hasUncommittedChanges && (
-                <button
-                  type="button"
-                  onClick={draft.discard}
-                 
-                  className="text-xs text-primary underline hover:opacity-80 disabled:opacity-50 disabled:no-underline"
-                >
-                  Discard changes
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* A refused save's reason can be several sentences (the prompt-budget
-              refusal carries one per violated cap, #685), so it gets its own
-              wrapping box below the header — the header's status slot cannot
-              shrink and would push the sentence past the panel edge. */}
-          {draft.commitError && (
-            <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2" data-testid="enrichment-commit-error">
-              <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-              <p className="text-sm text-destructive min-w-0 break-words">{draft.commitError}</p>
-            </div>
-          )}
-          {draft.loading && !enrichment && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="w-3 h-3 animate-spin" /> Loading enrichment…
-            </div>
-          )}
-          {/* The fact's gags, read-only: a live fact's gags are not edited
-              between Phase 1 and Phase 3 of the fact lifecycle rebuild (plan
-              PLAN_FACT_LIFECYCLE_REBUILD.md, 1F); the fact sheet brings
-              editing back, through a draft and "Publish changes". */}
+        <div className="px-3 pb-3 space-y-3">
           <p className="text-xs text-muted-foreground" data-testid="gags-read-only-note">
             Gags can't be changed here. A fact in moderation is edited from its review; editing a live fact's gags comes with the new fact page.
           </p>
           <GagsPanel
             factId={fact.id}
-            characters={enrichment?.characters}
             reviewId={null}
             rendersEnabled={false}
             subjectNames={[...DEFAULT_SUBJECT_EXAMPLE_NAMES]}
             reloadKey={0}
             disabled
           />
-          {/* The taxonomy lives here only (plan PLAN_GAG_DIRECT_RENDER.md, F;
-              David, Q2: 1): the AI's classification of the fact, kept for AI
-              and code to use. The gags above are what shapes a picture. */}
-          <section className="space-y-1" data-testid="ai-classification">
-            <h3 className="text-sm font-bold text-foreground">AI classification</h3>
-            <p className="text-xs text-muted-foreground">
-              How the AI classified this fact. It is used by AI and code (finding similar facts, filtering); the gags above,
-              not this, decide what a picture shows.
-            </p>
-          </section>
-          <EnrichmentEditor
-            value={enrichment}
-            status={enrichmentStatus}
-            factText={fact.text}
-            onChange={(next) => { if (!disabled) draft.setValue(next); }}
-            onSave={
-              !disabled && draft.hasUncommittedChanges
-                ? () => void draft.save()
-                : undefined
-            }
-            onRerun={disabled ? undefined : rerunWithConfirm}
-            busy={busy}
-            rerunBusy={jobs.rerunBusy}
-            overrideContext={disabled ? undefined : overrideContext}
-          />
-          {overrideError && !disabled && (
-            <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
-              <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-              <p className="text-sm text-destructive">{overrideError}</p>
-            </div>
-          )}
-          <div className="flex items-center justify-end gap-3 min-h-[1.75rem]">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={draft.discard}
-              disabled={!draft.hasUncommittedChanges || draft.committing}
-            >
-              Discard changes
-            </Button>
-          </div>
-          {jobs.error && (
-            <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
-              <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-              <p className="text-sm text-destructive">{jobs.error}</p>
-            </div>
-          )}
+          <FactTaxonomyPanel factId={fact.id} initialStatus={fact.enrichmentStatus ?? null} />
         </div>
       )}
     </div>
@@ -320,17 +179,6 @@ function FactListRow({
               {fact.enrichmentStatus === "pending" ? "classifying…" : (fact.primaryArchetype ?? "enriched")}
             </span>
           )}
-          {fact.hasEnrichmentOverrides && (
-            fact.enrichmentBaselineChanged ? (
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30" title="A manual override's AI baseline has changed — needs review">
-                override needs review
-              </span>
-            ) : (
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-primary/10 text-primary border border-primary/30" title="This fact has manual taxonomy overrides">
-                overridden
-              </span>
-            )
-          )}
           <span>{new Date(fact.createdAt).toLocaleDateString()}</span>
         </div>
       </div>
@@ -358,8 +206,6 @@ export default function AdminFacts() {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<FactsTab>("facts");
   const [visibilityFilter, setVisibilityFilter] = useState<FactVisibilityFilter>("active");
-  const [onlyOverridden, setOnlyOverridden] = useState(false);
-  const [onlyBaselineChanged, setOnlyBaselineChanged] = useState(false);
 
   const [selectedFact, setSelectedFact] = useState<Fact | null>(null);
   const selectedFactRef = useRef<Fact | null>(null);
@@ -368,25 +214,6 @@ export default function AdminFacts() {
 
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
-
-  // The selected fact's enrichment version history (read-only).
-  const [versionInfo, setVersionInfo] = useState<EnrichmentVersionInfo | null>(null);
-  const [versionInfoLoading, setVersionInfoLoading] = useState(false);
-
-  const [backfillingEnrichment, setBackfillingEnrichment] = useState(false);
-  const [enrichmentBackfillResult, setEnrichmentBackfillResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
-
-  // Patch the selected fact + its list row when the enrichment editor saves, so
-  // the projection (archetype) and status stay consistent without a refetch.
-  function applyEnrichmentSave(factId: number, resp: EnrichmentSaveResponse) {
-    const patch = {
-      primaryArchetype: resp.projection?.primaryArchetype ?? resp.enrichment.primaryArchetype,
-      enrichmentStatus: "ok" as const,
-      hasEnrichment: true,
-    };
-    setFacts((prev) => prev.map((f) => (f.id === factId ? { ...f, ...patch } : f)));
-    setSelectedFact((f) => (f && f.id === factId ? { ...f, ...patch } : f));
-  }
 
   // The fact edit form follows the universal local-draft model:
   // edits autosave to localStorage, "Save Changes" commits to the server (new
@@ -449,8 +276,6 @@ export default function AdminFacts() {
       limit: String(LIMIT),
       ...(debouncedSearch ? { search: debouncedSearch } : {}),
       ...(visibilityFilter !== "active" ? { visibility: visibilityFilter } : {}),
-      ...(onlyOverridden ? { hasOverrides: "true" } : {}),
-      ...(onlyBaselineChanged ? { baselineChanged: "true" } : {}),
     });
     fetch(`/api/admin/facts?${params}`, { credentials: "include" })
       .then(async (r) => {
@@ -462,7 +287,7 @@ export default function AdminFacts() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [page, debouncedSearch, visibilityFilter, onlyOverridden, onlyBaselineChanged, refreshNonce]);
+  }, [page, debouncedSearch, visibilityFilter, refreshNonce]);
 
   function selectFact(fact: Fact) {
     setSelectedFact(fact);
@@ -474,7 +299,7 @@ export default function AdminFacts() {
     setSaveResult(null);
   }
 
-  // On mount: if ?focus=<id> is in the URL (e.g. linked from Taxonomy Health),
+  // On mount: if ?focus=<id> is in the URL (a link to one fact),
   // fetch that fact by ID and select it immediately, regardless of which page of
   // the list it would appear on.
   useEffect(() => {
@@ -510,47 +335,6 @@ export default function AdminFacts() {
       setShowDeleteModal(false);
     } finally {
       setDeleting(false);
-    }
-  }
-
-  // ── Enrichment version history ──────────────────────────────────────────────
-
-  const loadVersionInfo = useCallback(async (factId: number) => {
-    setVersionInfoLoading(true);
-    try {
-      const res = await fetch(`/api/admin/facts/${factId}/enrichment-versions`, { credentials: "include" });
-      if (res.ok && selectedFactRef.current?.id === factId) {
-        setVersionInfo((await res.json()) as EnrichmentVersionInfo);
-      }
-    } catch {
-      /* best-effort; the panel just shows no history */
-    } finally {
-      setVersionInfoLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    setVersionInfo(null);
-    if (selectedFact?.id != null) void loadVersionInfo(selectedFact.id);
-    // Refetch only when the SELECTED FACT changes — mutations refetch explicitly.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedFact?.id, loadVersionInfo]);
-
-  async function handleBackfillEnrichment() {
-    setBackfillingEnrichment(true);
-    setEnrichmentBackfillResult(null);
-    try {
-      const res = await fetch("/api/admin/facts/backfill-enrichment", { method: "POST", credentials: "include" });
-      const data = await res.json() as { queued?: number; message?: string; error?: string };
-      if (res.ok) {
-        setEnrichmentBackfillResult({ type: "success", message: data.message ?? `Queued ${data.queued ?? 0} facts.` });
-      } else {
-        setEnrichmentBackfillResult({ type: "error", message: data.error ?? "Backfill failed" });
-      }
-    } catch (err) {
-      setEnrichmentBackfillResult({ type: "error", message: err instanceof Error ? err.message : "Backfill failed" });
-    } finally {
-      setBackfillingEnrichment(false);
     }
   }
 
@@ -640,30 +424,6 @@ export default function AdminFacts() {
                 <option value="both">Both</option>
               </select>
             </label>
-            <button
-              onClick={() => { setOnlyOverridden((v) => !v); setPage(1); }}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border rounded-sm transition-colors shrink-0 ${
-                onlyOverridden
-                  ? "bg-primary/10 text-primary border-primary/30"
-                  : "text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
-              }`}
-              title="Show only facts with manual taxonomy overrides"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              Overridden
-            </button>
-            <button
-              onClick={() => { setOnlyBaselineChanged((v) => !v); setPage(1); }}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border rounded-sm transition-colors shrink-0 ${
-                onlyBaselineChanged
-                  ? "bg-amber-500/10 text-amber-600 border-amber-500/30"
-                  : "text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
-              }`}
-              title="Show only overrides whose AI baseline has changed (needs review)"
-            >
-              <AlertCircle className="w-3.5 h-3.5" />
-              Needs review
-            </button>
             <span className="text-sm text-muted-foreground whitespace-nowrap">
               {total}
             </span>
@@ -700,7 +460,7 @@ export default function AdminFacts() {
           )}
         </div>
 
-        {/* Right — edit panel, or the taxonomy backfill */}
+        {/* Right — the edit panel */}
         {selectedFact && draft ? (
           <div className="bg-card border border-border rounded-lg flex flex-col xl:h-[calc(100dvh-7rem)] xl:overflow-y-auto">
             {/* Header — sticky within the scrolling panel */}
@@ -875,21 +635,9 @@ export default function AdminFacts() {
               </div>
             </div>
 
-            {/* Visual Taxonomy Enrichment — the shared editor (same as moderation).
-                Edit + autosave the metadata, regenerate the visual preview, or
-                re-run classification to tune a fact rendering bad images.
-                Collapsible; starts closed. */}
+            {/* The fact's gags and its stored AI taxonomy (read-only, with Re-run). */}
             <div className="border-t border-border pt-3">
-              <FactEnrichmentPanel
-                key={selectedFact.id}
-                fact={selectedFact}
-                onSaved={(resp) => applyEnrichmentSave(selectedFact.id, resp)}
-              />
-            </div>
-
-            {/* Enrichment version history (read-only) */}
-            <div className="border-t border-border pt-3">
-              <FactEnrichmentVersionHistory info={versionInfo} loading={versionInfoLoading} />
+              <FactGagsAndTaxonomyPanel key={selectedFact.id} fact={selectedFact} />
             </div>
 
             {/* Wording edits made before the wording lock (read-only history) */}
@@ -961,30 +709,11 @@ export default function AdminFacts() {
         ) : null}
       </div>
       ) : (
-          <div className="bg-card border border-border rounded-lg p-5 flex flex-col gap-4 xl:min-h-[calc(100dvh-7rem)]">
-            <div className="flex flex-col gap-2">
-              <h3 className="text-sm font-bold text-foreground uppercase tracking-wide flex items-center gap-2">
-                <Brain className="w-4 h-4" /> Visual Taxonomy
-              </h3>
-              <p className="text-xs text-muted-foreground">
-                Classify existing facts that have no enrichment yet (archetype, subtype, modifiers, hashtags). Runs in the background.
-              </p>
-              {enrichmentBackfillResult && (
-                <div className={`flex items-start gap-2 text-sm px-3 py-2.5 rounded-sm ${
-                  enrichmentBackfillResult.type === "success"
-                    ? "bg-green-500/10 text-green-400 border border-green-500/30"
-                    : "bg-destructive/10 text-destructive border border-destructive/30"
-                }`}>
-                  {enrichmentBackfillResult.type === "success"
-                    ? <CheckCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                    : <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />}
-                  {enrichmentBackfillResult.message}
-                </div>
-              )}
-              <Button variant="outline" onClick={handleBackfillEnrichment} disabled={backfillingEnrichment} className="w-full">
-                {backfillingEnrichment ? "Starting…" : "Backfill enrichment"}
-              </Button>
-            </div>
+          <div className="bg-card border border-border rounded-lg p-5 flex flex-col gap-4 xl:min-h-[calc(100dvh-7rem)]" data-testid="facts-utilities">
+            {/* The gag fold (Issue #982): its run on the live database is still
+                owed, so it moved here when Taxonomy Health went (plan
+                PLAN_FACT_LIFECYCLE_REBUILD.md, 2A). */}
+            <GagFoldPanel />
           </div>
       )}
     </AdminLayout>

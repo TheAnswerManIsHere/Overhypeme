@@ -66,16 +66,8 @@ async function stubReview(page: Page, stage: "gags" | "test_renders" = "test_ren
     return route.fulfill({ json: { success: true } });
   });
   await page.route(new RegExp(`/api/admin/facts/${FACT_ID}/gags$`), (route: Route) => route.fulfill({ json: view }));
-  await page.route(new RegExp(`/api/admin/facts/${FACT_ID}(/enrichment-resolved|/enrichment-versions)?(\\?.*)?$`), (route: Route) => {
-    const path = new URL(route.request().url()).pathname;
-    if (path.endsWith("/enrichment-resolved")) {
-      return route.fulfill({ json: { aiDerived: classification, overrides: {}, effective: classification, overrideSummary: { overriddenPaths: [], count: 0 } } });
-    }
-    if (path.endsWith("/enrichment-versions")) {
-      return route.fulfill({ json: { current: { hasEnrichment: true, enrichmentStatus: "ok", hasOverrides: false }, versions: [] } });
-    }
-    return route.fulfill({ json: { id: FACT_ID, text: TEXT, isActive: false, enrichment: classification, enrichmentStatus: "ok" } });
-  });
+  await page.route(new RegExp(`/api/admin/facts/${FACT_ID}(\\?.*)?$`), (route: Route) =>
+    route.fulfill({ json: { id: FACT_ID, text: TEXT, isActive: false, enrichment: classification, enrichmentStatus: "ok" } }));
   return { approvals: () => approvals };
 }
 

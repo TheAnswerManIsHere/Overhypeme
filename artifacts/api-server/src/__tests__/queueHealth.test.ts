@@ -149,7 +149,8 @@ describe("queueHealth — derived statuses", () => {
 
   it("sanitizes skip reasons against the closed set", () => {
     assert.equal(sanitizeSkipReason("already_current"), "already_current");
-    assert.equal(sanitizeSkipReason("admin_edited"), "admin_edited");
+    assert.equal(sanitizeSkipReason("gag_removed"), "gag_removed");
+    assert.equal(sanitizeSkipReason("admin_edited"), "other"); // Taxonomy Health's, gone with it
     // A handler can put anything in `result`. An admin surface must not echo it.
     assert.equal(sanitizeSkipReason("Resend said: <script>alert(1)</script>"), "other");
     assert.equal(sanitizeSkipReason(undefined), null);

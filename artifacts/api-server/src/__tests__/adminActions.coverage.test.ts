@@ -2,8 +2,7 @@
  * Every admin mutation of a fact or a review writes the admin-action record
  * (plan docs/plans/PLAN_FACT_LIFECYCLE_REBUILD.md 1I: "every mutation this plan
  * introduces writes to it as it is built"). This reads the route files and
- * finds every admin POST/PUT/PATCH/DELETE on a fact, a review, a gag or a
- * Taxonomy Health action; each handler either calls recordAdminAction(s) or is
+ * finds every admin POST/PUT/PATCH/DELETE on a fact, a review or a gag; each handler either calls recordAdminAction(s) or is
  * named below with the reason it records nothing. A new route fails here until
  * it does one or the other.
  */
@@ -14,8 +13,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROUTES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../routes");
-const FILES = ["reviews.ts", "admin.ts", "gags.ts", "adminTaxonomyHealth.ts", "adminReferenceResearch.ts"];
-const IN_SCOPE = /^\/admin\/(reviews|facts|taxonomy-health\/actions|references)\b/;
+const FILES = ["reviews.ts", "admin.ts", "gags.ts", "adminReferenceResearch.ts"];
+const IN_SCOPE = /^\/admin\/(reviews|facts|references)\b/;
 
 /** Route → why it writes no record. */
 const EXEMPT: Record<string, string> = {
@@ -25,10 +24,6 @@ const EXEMPT: Record<string, string> = {
   "POST /admin/facts/:factId/gags/cast": "reads who is in a draft's scene and stores nothing",
   "POST /admin/facts/backfill-ai-memes": "a system maintenance run over every fact, not an action on one",
   "POST /admin/facts/backfill-embeddings": "a system maintenance run over every fact, not an action on one",
-  "POST /admin/facts/backfill-enrichment": "a system maintenance run over every fact, not an action on one",
-  "POST /admin/taxonomy-health/actions/fill-characters": "a mechanical repair over every fact; leaves with Taxonomy Health in Phase 2",
-  "POST /admin/taxonomy-health/actions/repair-projections": "a mechanical repair over every fact; leaves with Taxonomy Health in Phase 2",
-  "POST /admin/taxonomy-health/actions/mark-major-update": "changes the engine revision, not a fact",
   "POST /admin/references/research": "researches text it is given and changes no fact",
 };
 

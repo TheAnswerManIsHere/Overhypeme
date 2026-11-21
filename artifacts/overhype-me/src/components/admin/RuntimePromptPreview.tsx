@@ -356,7 +356,7 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender, onPr
       if (!res.ok) {
         const detail = typeof data?.details === "string" ? `: ${data.details}` : "";
         if (data?.error === "fact_enrichment_invalid") {
-          setError("This fact has no usable enrichment yet. Run “Backfill enrichment” first, then try again.");
+          setError("This fact has no usable AI taxonomy yet. Re-run it from the fact's \"Gags and AI taxonomy\" panel, then try again.");
         } else {
           setError(`${data?.error ?? `Request failed (${res.status})`}${detail}`);
         }

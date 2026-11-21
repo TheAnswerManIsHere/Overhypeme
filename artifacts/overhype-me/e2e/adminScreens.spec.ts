@@ -25,7 +25,7 @@ const DESKTOP = { width: 1280, height: 900 };
 /** The sidebar's entries, in order (`components/admin/AdminLayout.tsx`, NAV_ITEMS). */
 const SIDEBAR = [
   "Dashboard", "Facts", "Users", "Moderation", "Eval", "Billing", "Refunds & Disputes",
-  "Trace an image", "Taxonomy Health", "Email Queue", "Operations", "Queue Health", "Features", "AI Settings", "Configuration", "Help",
+  "Trace an image", "Email Queue", "Operations", "Queue Health", "Features", "AI Settings", "Configuration", "Help",
 ];
 
 /** 2,750 characters dense with {NAME}: fits the box (3,000), but past the 3,500-character pooled budget once names are filled in. */
@@ -61,13 +61,13 @@ async function expectRequiredMarker(page: Page, card: Locator): Promise<void> {
   await expect(header).not.toHaveCSS("color", red);
 }
 
-/** Open the Facts editor on a stubbed fact and expand its Visual Taxonomy Enrichment panel. */
+/** Open the Facts editor on a stubbed fact and expand its gags and AI taxonomy panel. */
 async function openFactEnrichment(page: Page, id: number, text: string): Promise<Locator> {
   await page.goto("/admin/facts");
   await page.getByText(text, { exact: true }).first().click();
   await expect(page.getByText(new RegExp(`edit fact #${id}`, "i"))).toBeVisible();
   const panel = page.getByTestId("fact-enrichment-panel");
-  await panel.getByRole("button", { name: /visual taxonomy enrichment/i }).click();
+  await panel.getByRole("button", { name: /gags and ai taxonomy/i }).click();
   await expect(panel.getByTestId("visual-concept-card")).toBeVisible();
   return panel;
 }
@@ -113,8 +113,9 @@ test.describe("Admin described screens", () => {
         const show = page.getByRole("combobox", { name: "Show facts" });
         await expect(show).toHaveValue("active");
         await expect(show.locator("option")).toHaveText(["Active", "Inactive", "Both"]);
+        // The override filters went with the override system (PLAN_FACT_LIFECYCLE_REBUILD.md, 2A).
         for (const toggle of ["Overridden", "Needs review"]) {
-          await expect(page.getByRole("button", { name: toggle, exact: true })).toBeVisible();
+          await expect(page.getByRole("button", { name: toggle, exact: true })).toHaveCount(0);
         }
       },
     },
@@ -265,9 +266,11 @@ test.describe("Admin described screens", () => {
     await expect(editor.getByText(/^use case$/i)).toHaveCount(0);
     await expect(editor.getByText(/^variants/i)).toHaveCount(0);
     await expect(editor.getByRole("button", { name: /add variant/i })).toHaveCount(0);
-    for (const section of ["Visual Taxonomy Enrichment", "Enrichment Version History", "Approved text edit history", "Prompt Diagnostics"]) {
+    for (const section of ["Gags and AI taxonomy", "Approved text edit history", "Prompt Diagnostics"]) {
       await expect(editor.getByRole("button", { name: section, exact: true })).toBeVisible();
     }
+    // The version panel went with the override system (PLAN_FACT_LIFECYCLE_REBUILD.md, 2A).
+    await expect(editor.getByRole("button", { name: /enrichment version history|visual taxonomy enrichment/i })).toHaveCount(0);
     await expect(editor.getByTestId("fact-enrichment-panel")).toBeVisible();
     for (const action of ["Save Changes", "Discard", "Cancel", "Deactivate Fact"]) {
       await expect(editor.getByRole("button", { name: action, exact: true })).toBeVisible();

@@ -18,7 +18,6 @@ import {
   parseCharacterResponse,
   extractFactCharactersWithModel,
   attachCharacters,
-  charactersOverrideOnly,
   CharacterExtractionError,
 } from "../lib/factCharacters.js";
 
@@ -133,17 +132,5 @@ describe("schema boundaries", () => {
 
   it("the main classifier's response schema has no characters field", () => {
     assert.equal(Object.prototype.hasOwnProperty.call(factEnrichmentWireSchema.shape, "characters"), false);
-  });
-});
-
-describe("charactersOverrideOnly (bulk re-enrich keeps only the character correction)", () => {
-  it("keeps /characters and drops the rest", () => {
-    const ov = {
-      "/characters": { value: [], overriddenFrom: [], overriddenAt: "x", overriddenBy: "a" },
-      "/overhypeFit": { value: "questionable", overriddenFrom: "strong", overriddenAt: "x", overriddenBy: "a" },
-    } as never;
-    assert.deepEqual(Object.keys(charactersOverrideOnly(ov)), ["/characters"]);
-    assert.deepEqual(charactersOverrideOnly({}), {});
-    assert.deepEqual(charactersOverrideOnly(null), {});
   });
 });

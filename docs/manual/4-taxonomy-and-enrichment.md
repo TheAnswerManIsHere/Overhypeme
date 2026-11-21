@@ -1,5 +1,11 @@
 # Chapter 4 · Taxonomy and Enrichment
 
+> **Out of date below this note, until the next documentation pass.** The
+> Taxonomy Health page, manual overrides, "Mark major update" and the
+> taxonomy backfill have been removed (Issue #1018, increment 2.1a). A fact's
+> AI taxonomy is now stored as the classifier wrote it and shown read-only on
+> the Facts page, with a "Re-run" button; nothing waits on it.
+
 > How a submitted fact gets classified — its joke mechanism, tone, and
 > content-safety fit — and how that classification stays current as the
 > classification model, prompts, and code evolve, without ever silently

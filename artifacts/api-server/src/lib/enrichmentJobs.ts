@@ -22,15 +22,8 @@ import {
   factsTable,
   type AsyncJobRow,
 } from "@workspace/db/schema";
-import {
-  validateEnrichment,
-  computeBaselineChangedPaths,
-  type FactEnrichment,
-  type EnrichmentOverrides,
-} from "@workspace/api-zod";
-import { enrichFact, materializeEnrichment } from "./factEnrichment";
-import { recordOverrideHistory } from "./enrichmentOverrideHistory";
-import { currentProcessingSignatureFromConfig } from "./processingSignature";
+import { validateEnrichment, type FactEnrichment } from "@workspace/api-zod";
+import { enrichFact, materializeFromBaseline } from "./factEnrichment";
 import { assertJobOwnership, fencedTransaction } from "./jobFence";
 import { renderCanonical } from "./renderCanonical";
 import { resolveGenericFactEnrichmentDecision } from "./moderationStaging";
@@ -119,16 +112,15 @@ export async function runEnrichmentForFact(
   factId: number,
   deps: FactEnrichmentDeps = { classify: enrichFact },
 ): Promise<HandlerResult> {
-  // Load the fact text (a fact is classified from its own text only) plus the
-  // override layers so re-classification stays STICKY: a
-  // fresh AI baseline is computed but the manual overrides are preserved (the
-  // fact's gags live in fact_gags and are untouched).
+  // Load the fact text (a fact is classified from its own text only) and the
+  // prior run's output, whose character list the classifier carries forward.
+  // The stored taxonomy is read-only AI output: a run replaces it whole (plan
+  // PLAN_FACT_LIFECYCLE_REBUILD.md, 2A). The fact's gags live in fact_gags and
+  // are untouched.
   const [factRow] = await db
     .select({
       text: factsTable.text,
-      enrichment: factsTable.enrichment,
       enrichmentAiDerived: factsTable.enrichmentAiDerived,
-      enrichmentOverrides: factsTable.enrichmentOverrides,
     })
     .from(factsTable)
     .where(eq(factsTable.id, factId))
@@ -160,14 +152,6 @@ export async function runEnrichmentForFact(
   // authoritative backstop.
   const classifiedInputKey = factRow.text;
 
-  // Capture the processing signature BEFORE the (slow) classify call. It is
-  // stamped onto facts.last_processed_signature only for FIRST-TIME staging
-  // prep (decided under the fact lock below) — so a brand-new fact approved
-  // today reads fresh (not stale-for-reprocess). A direct LIVE re-enrich never
-  // stamps: an existing live fact only becomes "fresh" via the versioned
-  // refresh (send-back → promote), keeping refresh-first intact.
-  const signature = await currentProcessingSignatureFromConfig();
-
   let freshAiDerived: FactEnrichment;
   try {
     await assertJobOwnership(); // paid AI call: only while this run owns its job (Issue #1000)
@@ -184,15 +168,6 @@ export async function runEnrichmentForFact(
     return { ok: false, error: `classify: ${msg}` };
   }
 
-  // STICKY re-enrich: keep the existing overrides untouched (never refresh their
-  // `overriddenFrom` — that is what lets us detect a baseline change) and
-  // rematerialize against the fresh baseline. The overrides are re-read under
-  // the row lock below, NOT taken from the pre-classify read, so a moderator
-  // correction saved during the (slow) classifier call survives
-  // (PLAN_BUBBLE_SPEAKERS.md, E). The fact's gags live in fact_gags and are not
-  // touched by re-classification.
-  const priorAiDerived = (factRow.enrichmentAiDerived ?? null) as FactEnrichment | null;
-
   // Transactional RE-check before the write (mirrors the candidate job's
   // phase 3): the pre-classify guard can't cover state that changed DURING the
   // LLM call — most importantly a send-back committing mid-classify, which
@@ -202,13 +177,12 @@ export async function runEnrichmentForFact(
   // send-back waits and seeds its candidate from the freshly-written active.
   const wrote = await fencedTransaction(db, async (tx) => {
     const [locked] = await tx
-      .select({ id: factsTable.id, text: factsTable.text, enrichmentOverrides: factsTable.enrichmentOverrides })
+      .select({ id: factsTable.id, text: factsTable.text })
       .from(factsTable)
       .where(eq(factsTable.id, factId))
       .for("no key update") // the lock rule's strength (lib/reviewLocks.ts)
       .limit(1);
     if (!locked) return false;
-    const overrides = (locked.enrichmentOverrides ?? {}) as EnrichmentOverrides;
     const recheck = await resolveGenericFactEnrichmentDecision(factId, tx);
     if (recheck.action === "skip") {
       logger.info(
@@ -230,36 +204,11 @@ export async function runEnrichmentForFact(
       );
       return false;
     }
-    // Stamp the signature ONLY for first-time staging prep (never live_fact —
-    // that's refresh-first). Use the RECHECK's mode (observed under the lock),
-    // with the pre-classify signature VALUE captured above.
-    const stampSignature = recheck.mode === "first_time_staging";
-    // Audit only the not-changed → changed transitions (no per-re-enrich spam).
-    const before = priorAiDerived ? computeBaselineChangedPaths(priorAiDerived, overrides) : [];
-    const after = computeBaselineChangedPaths(freshAiDerived, overrides);
-    const newlyChanged = after.filter((p) => !before.includes(p));
-    const { columns } = materializeEnrichment({ aiDerived: freshAiDerived, overrides });
+    const { columns } = materializeFromBaseline(freshAiDerived);
     await tx
       .update(factsTable)
-      .set({
-        ...columns,
-        enrichmentStatus: "ok",
-        ...(stampSignature ? { lastProcessedSignature: signature } : {}),
-      })
+      .set({ ...columns, enrichmentStatus: "ok" })
       .where(eq(factsTable.id, factId));
-    if (newlyChanged.length > 0) {
-      await recordOverrideHistory(
-        newlyChanged.map((path) => ({
-          factId,
-          path,
-          action: "baseline_reenriched" as const,
-          oldValue: overrides[path]?.overriddenFrom ?? null,
-          newValue: (freshAiDerived as Record<string, unknown>)[path.slice(1)] ?? null,
-          aiGenerationId: freshAiDerived.aiGenerationId ?? null,
-        })),
-        tx,
-      );
-    }
     // The taxonomy never moves a review or starts idea writing: it is stored
     // data beside moderation (Issue #1018, increment 1.2c-ii).
     return true;

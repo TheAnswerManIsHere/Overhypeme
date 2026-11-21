@@ -10,7 +10,7 @@ import { render, screen, act } from "@testing-library/react";
 import {
   OVERRIDE_TOKEN_CHIPS,
   insertTokenIntoTextControl,
-} from "./EnrichmentEditor";
+} from "./visualConceptText";
 
 // ── chip-list coverage (review rec. 1) ────────────────────────────────────────
 

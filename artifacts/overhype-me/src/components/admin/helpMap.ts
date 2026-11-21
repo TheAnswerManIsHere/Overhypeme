@@ -49,7 +49,6 @@ export const ADMIN_HELP_MAP: Record<string, HelpTarget> = {
   // Type 2 pass); chapter 5 is the nearest neighbour, since the records start
   // in the visual pipeline.
   "/admin/trace": { chapter: "5-visual-pipeline" },
-  "/admin/taxonomy-health": { chapter: "4-taxonomy-and-enrichment", anchor: "for-the-admin-taxonomy-health" },
   "/admin/email-queue": { chapter: "12-background-work", anchor: "email-the-most-consequential-rider" },
   // No chapter covers the Operations page yet (its Manual harvest is the
   // batched Type 2 pass); chapter 12's queue-health section is the nearest

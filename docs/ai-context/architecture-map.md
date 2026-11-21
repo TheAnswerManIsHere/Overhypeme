@@ -60,11 +60,12 @@ docs/                this documentation
   ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)).
 - **Admin** (`src/pages/admin/`, wrapped in `components/admin/AdminLayout.tsx`):
   Dashboard, Facts, Users, Moderation, Eval, Billing, Refunds & Disputes,
-  Trace an image, Taxonomy Health, Email Queue, Queue Health, Features,
+  Trace an image, Email Queue, Queue Health, Features,
   AI Settings (read-only), Configuration, Help — the full, routed inventory is
   [`admin-console.md`](./admin-console.md). `/admin/comments` redirects to
-  Moderation (its orphaned page file went in launch Phase 4, removal 7). Shared: `EnrichmentEditor.tsx` (+
-  `fieldDocs/`), `useTaxonomyHealthActions.ts` (async-status reference).
+  Moderation (its orphaned page file went in launch Phase 4, removal 7). Shared: `FactTaxonomyPanel.tsx` (the
+  read-only stored taxonomy, with Re-run), `fieldDocs/`, `GagFoldPanel.tsx`
+  (async-status reference, [`overlay-declarations.md`](./overlay-declarations.md)).
 - Prefer the generated React Query hooks (`lib/api-client-react`) for API calls.
   Note this is **not** universal: many surfaces (admin prompt-preview/moderation
   hooks, the meme builder flows) intentionally use hand-written `fetch`.

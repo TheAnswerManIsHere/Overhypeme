@@ -38,8 +38,9 @@ sensitive row:
 
 - **The tokenizer, the grammar, and `render-fact`**
   (`artifacts/overhype-me/src/lib/render-fact.ts`).
-- **Enrichment and moderation source-of-truth** — `facts.*`,
-  `resolveEnrichment`, the override layers. See
+- **Enrichment and moderation source-of-truth** — `facts.*` and the one
+  taxonomy write-shape, `materializeFromBaseline` (the override layers went in
+  increment 2.1a of `PLAN_FACT_LIFECYCLE_REBUILD.md`). See
   [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md) and
   [`moderation-workflow.md`](./moderation-workflow.md).
 
@@ -68,10 +69,16 @@ pattern.
 **If unanswered:** an agent re-derives a solved UI instead of copying the one
 that already works.
 
-**The Taxonomy Health panel** — `useTaxonomyHealthActions.ts` on the frontend.
+**The gag-fold panel** — `GagFoldPanel.tsx` on the frontend (the Facts page's
+Utilities tab), with its report route `GET /admin/gag-fold`.
 
-It is the worked example of the two-altitude rule: per-item status and an
-overall state, both live. **Copy it rather than re-deriving the pattern.**
+It is the worked example of the two-altitude rule that remains: a count per
+state and a list per item with its reason and its job's state, both live.
+**Copy it rather than re-deriving the pattern.** It was built in the pattern
+of the Taxonomy Health panel (`useTaxonomyHealthActions.ts`), which went with
+that page in increment 2.1a of `PLAN_FACT_LIFECYCLE_REBUILD.md`; the old panel
+is recoverable from git history. The gag-fold panel leaves once Issue #982's
+fold has run on the live database, and this entry then names its successor.
 
 Its transport is the `async_jobs` queue polled by job id, and the same helpers
 are what a new async surface should reuse rather than inventing a second status
@@ -86,11 +93,11 @@ goes unflagged.
 A reviewer should ask whether a change reuses these rather than reimplementing
 them:
 
-- **`resolveEnrichment`** — enrichment resolution over `facts.*` and the
-  override layers.
+- **`materializeFromBaseline`** — the one shape a fact's stored taxonomy is
+  written in, projections included.
 - **`render-fact`** — fact rendering.
 - **`compileForSubjectRenderMode`** — the visual-pipeline compile path.
-- **`useTaxonomyHealthActions`** — the async status pattern above.
+- **`GagFoldPanel`** — the async status pattern above.
 
 Alongside the conventions, rather than modules: the generated API hooks on the
 frontend, the Drizzle schema conventions, the async job queue, and the engines

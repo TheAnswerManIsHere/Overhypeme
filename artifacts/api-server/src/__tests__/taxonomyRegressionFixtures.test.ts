@@ -1,7 +1,7 @@
 /**
  * Taxonomy regression fixture suite.
  *
- * Twelve canonical fact texts taken from the Taxonomy Health spec. Each
+ * Twelve canonical fact texts. Each
  * fixture pairs a fact with a HAND-AUTHORED expected enrichment shape. The
  * tests assert structurally:
  *
@@ -10,7 +10,6 @@
  *   - semantic entities (where required) match expected referent keywords
  *   - cultural references (where required) match expected visualImplication
  *     keywords AND must-avoid keywords
- *   - the taxonomy health evaluator returns "healthy" for the fixture
  *
  * No live LLM. The fixtures lock the shape we want enrichment to produce
  * so regressions in prompts, schemas, or validators surface here.
@@ -25,7 +24,6 @@ import {
   type FactEnrichment,
   type PrimaryArchetype,
 } from "@workspace/api-zod";
-import { evaluateFactTaxonomyHealth } from "../lib/taxonomyHealth";
 
 interface RegressionFixture {
   id: string;
@@ -239,22 +237,6 @@ describe("taxonomy regression fixtures", () => {
         const raw = buildEnrichment(fixture);
         const result = validateEnrichment(raw);
         assert.equal(result.ok, true, result.ok ? "" : result.error);
-      });
-
-      it("evaluator marks the synthetic fixture as healthy", () => {
-        const raw = buildEnrichment(fixture);
-        const h = evaluateFactTaxonomyHealth({
-          fact: {
-            factId: 1,
-            factText: fixture.factText,
-            enrichment: raw,
-            primaryArchetype: fixture.expected.primaryArchetype,
-            subtype: fixture.expected.subtype,
-            overhypeFit: "strong",
-            adultSuitability: "safe",
-          },
-        });
-        assert.equal(h.overallStatus, "healthy", `expected healthy, got ${h.overallStatus}; issues=${JSON.stringify(h.issues)}`);
       });
 
       const semanticEntities = fixture.expected.semanticEntities ?? [];

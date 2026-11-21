@@ -27,20 +27,15 @@ import type { Express } from "express";
 import request from "supertest";
 
 import { db } from "@workspace/db";
-import { insertLiveFact } from "@workspace/db/live-fact-fixture";
-import { usersTable, factsTable, factGagsTable, asyncJobsTable } from "@workspace/db/schema";
-import { and, count, eq, gte, inArray, like, ne } from "drizzle-orm";
+import { usersTable, factsTable, asyncJobsTable } from "@workspace/db/schema";
+import { and, count, eq, gte, like } from "drizzle-orm";
 import {
   buildPlaceholderFactEnrichment,
   buildPlaceholderGag,
-  EMPTY_VISUAL_STRATEGY_OVERRIDE,
-  type FactEnrichment,
 } from "@workspace/api-zod";
 
 import adminRouter from "../routes/admin.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
-import { buildFactEnrichmentColumns } from "../lib/factEnrichment.js";
-import { __setUtilityLLMClientForTest } from "../lib/utilityLLM.js";
 import { FACT_AI_MEME_BACKFILL_QUEUE } from "../lib/aiMemeBackfillJobs.js";
 
 const USER_PREFIX = "tadminauth-";
@@ -71,13 +66,7 @@ const ADMIN_AUTH_ROUTES: readonly RouteEntry[] = [
   { method: "get",    path: "/admin/facts/:id/text-edit-history" },
   { method: "delete", path: "/admin/facts/:id" },
   { method: "patch",  path: "/admin/facts/:id" },
-  { method: "patch",  path: "/admin/facts/:id/enrichment" },
-  { method: "get",    path: "/admin/facts/:id/enrichment-resolved" },
-  { method: "put",    path: "/admin/facts/:id/enrichment-overrides" },
-  { method: "delete", path: "/admin/facts/:id/enrichment-overrides" },
-  { method: "get",    path: "/admin/facts/:id/enrichment-overrides/history" },
   { method: "post",   path: "/admin/facts/:id/enrich" },
-  { method: "get",    path: "/admin/facts/:id/enrichment-versions" },
   { method: "get",    path: "/admin/comments/pending" },
   { method: "get",    path: "/admin/comments/pending/count" },
   { method: "get",    path: "/admin/comments/flagged" },
@@ -90,7 +79,6 @@ const ADMIN_AUTH_ROUTES: readonly RouteEntry[] = [
   { method: "post",   path: "/admin/users/enable-notifications" },
   { method: "post",   path: "/admin/facts/backfill-ai-memes" },
   { method: "post",   path: "/admin/facts/backfill-embeddings" },
-  { method: "post",   path: "/admin/facts/backfill-enrichment" },
   { method: "get",    path: "/admin/config" },
   { method: "patch",  path: "/admin/config/:key" },
   { method: "get",    path: "/admin/stripe/summary" },
@@ -295,89 +283,6 @@ describe("admin bulk backfill routes", () => {
       isAdmin: true,
     });
     adminApp = buildTestApp({ kind: "authenticated", userId: id }, adminRouter);
-  });
-
-  const CLASSIFIED: FactEnrichment = {
-    primaryArchetype: "superhuman_physical_feat",
-    subtype: "force_scaled_action",
-    modifiers: ["clear_causal_relationship"],
-    visualLiteralness: "literal_dramatization",
-    visualComplexity: "medium",
-    overhypeFit: "strong",
-    adultSuitability: "safe",
-    adultSuitabilityNotes: "",
-    suggestedHashtags: ["strength", "pushups", "earth"],
-    taxonomyConfidence: 0.95,
-    adminReviewNotes: "",
-    culturalReferences: [],
-    semanticEntities: [],
-    characters: [],
-  };
-
-  it("backfill-enrichment?force=true leaves a moderator Visual Concept unchanged after the background loop", async () => {
-    const concept = { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "A moderator wrote this exact scene." };
-    // Starts classified as something else, so a re-classification is observable.
-    const seeded = buildFactEnrichmentColumns({
-      ...CLASSIFIED,
-      primaryArchetype: "object_logic_impossibility",
-      subtype: "mechanical_contradiction",
-    } as FactEnrichment);
-    const fact = await insertLiveFact({
-      text: `${FACT_TEXT_PREFIX}${randomUUID()}`,
-      ...seeded,
-    }, concept);
-    const factId = fact.id;
-    const readConcept = async () => (await db
-      .select({ approvedContent: factGagsTable.approvedContent })
-      .from(factGagsTable).where(and(eq(factGagsTable.factId, factId), eq(factGagsTable.slot, 1))))[0]?.approvedContent as
-      { coreSceneOverride?: string } | undefined;
-    const readBack = async () => (await db
-      .select({ enrichment: factsTable.enrichment, primaryArchetype: factsTable.primaryArchetype })
-      .from(factsTable).where(eq(factsTable.id, factId)))[0]!;
-    const conceptBefore = await readConcept();
-    assert.equal(conceptBefore?.coreSceneOverride, concept.coreSceneOverride, "precondition: the concept is stored");
-
-    // force=true snapshots EVERY active fact into a detached loop. Other files'
-    // leftover active rows are set aside for the call, so the batch is this
-    // fact alone: the loop cannot rewrite unrelated fixtures, and once this
-    // fact is re-classified the loop has no work left that could outlive the
-    // double and reach the real client.
-    const others = await db
-      .update(factsTable)
-      .set({ isActive: false })
-      .where(and(eq(factsTable.isActive, true), ne(factsTable.id, factId)))
-      .returning({ id: factsTable.id });
-    // Only the OpenAI client is a double; the route's own background loop runs.
-    __setUtilityLLMClientForTest({
-      chat: { completions: { create: async () => ({ choices: [{ message: { content: JSON.stringify(CLASSIFIED) } }] }) } },
-    } as never);
-    try {
-      const res = await request(adminApp).post("/api/admin/facts/backfill-enrichment?force=true");
-      assert.equal(res.status, 200);
-      assert.equal(res.body.success, true);
-      assert.equal(res.body.queued, 1, "the batch must be this fact alone");
-
-      // The loop is fire-and-forget: wait until it has re-enriched THIS fact,
-      // its only row, and fail loudly rather than tear down mid-batch.
-      const deadline = Date.now() + 20_000;
-      while ((await readBack()).primaryArchetype === "object_logic_impossibility") {
-        assert.ok(Date.now() < deadline, "the background loop did not finish within 20s");
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-    } finally {
-      __setUtilityLLMClientForTest(null);
-      if (others.length > 0) {
-        await db.update(factsTable).set({ isActive: true }).where(inArray(factsTable.id, others.map((o) => o.id)));
-      }
-    }
-
-    const after = await readBack();
-    assert.equal(after.primaryArchetype, "superhuman_physical_feat", "the loop must have re-classified this fact");
-    assert.deepEqual(
-      await readConcept(),
-      conceptBefore,
-      "the moderator's Visual Concept must survive re-classification",
-    );
   });
 
   it("backfill-ai-memes is retired: it answers 410 and queues nothing", async () => {
