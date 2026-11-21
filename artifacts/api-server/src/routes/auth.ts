@@ -13,7 +13,8 @@ import {
 import * as oidc from "openid-client";
 import * as Sentry from "@sentry/node";
 import { Router, type IRouter, type Request, type Response } from "express";
-import { GetCurrentAuthUserResponse, acceptProvidedPersonalName } from "@workspace/api-zod";
+import { GetCurrentAuthUserResponse } from "@workspace/api-zod";
+import { acceptProvidedPersonalNameChecked } from "../lib/validators/personalName";
 import { db, usersTable, oauthPendingStatesTable } from "@workspace/db";
 import { eq, and, lt } from "drizzle-orm";
 import {
@@ -218,13 +219,12 @@ async function upsertUser(
       ? (appleNameOverride?.lastName ?? null)
       : ((claims.family_name as string) || null);
 
-  // The visitor did not type these, so a name that fails the shared rule is
-  // never a reason to refuse the sign-in, and the denylist is not applied
-  // (#709). It is kept only whole: one the rule can't hold is not stored,
-  // never stored garbled, and onboarding asks for the name in English letters
-  // (names-and-fonts plan).
-  const oidcFirstName = acceptProvidedPersonalName(rawFirstName);
-  const oidcLastName = acceptProvidedPersonalName(rawLastName);
+  // A provider name is checked like a typed one — the shared rule and the
+  // denylist (#709) — but a failure is never a reason to refuse the sign-in:
+  // the name is simply not stored (never stored garbled), and onboarding asks
+  // for it in English letters (names-and-fonts plan).
+  const oidcFirstName = await acceptProvidedPersonalNameChecked(rawFirstName);
+  const oidcLastName = await acceptProvidedPersonalNameChecked(rawLastName);
 
   const existingFirstName = existing[0]?.firstName ?? null;
   const existingLastName = existing[0]?.lastName ?? null;

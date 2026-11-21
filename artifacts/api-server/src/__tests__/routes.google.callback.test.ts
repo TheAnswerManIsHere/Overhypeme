@@ -30,7 +30,7 @@ import cookieParser from "cookie-parser";
 import request from "supertest";
 
 import { db } from "@workspace/db";
-import { usersTable, sessionsTable } from "@workspace/db/schema";
+import { usersTable, sessionsTable, adminConfigTable } from "@workspace/db/schema";
 import { eq, like } from "drizzle-orm";
 
 import authRouter, {
@@ -46,6 +46,8 @@ import {
 } from "../lib/auth.js";
 
 import { __acceptForTests, __resetReadOnlyForTests } from "../lib/readOnlyMode.js";
+import { bustConfigCache } from "../lib/adminConfig.js";
+import { _resetPersonalNameValidatorCache } from "../lib/validators/personalName.js";
 
 import type {
   TokenEndpointResponse,
@@ -505,6 +507,33 @@ describe("GET /api/callback/google — the provider's verified-email claim", () 
       assert.equal(again.firstName, "Ada", "a missing name can be filled by a later sign-in");
       assert.equal(again.lastName, "Nguyễn", "a stored name is never overwritten");
     } finally {
+      restoreEnv();
+    }
+  });
+
+  // #709: a provider name passes the same denylist a typed name does. A match
+  // stores no name and the sign-in still proceeds; onboarding asks for one.
+  it("a provider name the denylist refuses is not stored, and the sign-in still proceeds", async () => {
+    const restoreEnv = applyFakeGoogleEnv();
+    _setClientDiscoveryForTest(makeFakeDiscovery());
+    const email = `${USER_PREFIX}${randomUUID()}@test.local`;
+    const [prior] = await db.select().from(adminConfigTable).where(eq(adminConfigTable.key, "name_denylist_patterns"));
+    await db.update(adminConfigTable).set({ value: JSON.stringify(["^Forbiddenname$"]) }).where(eq(adminConfigTable.key, "name_denylist_patterns"));
+    bustConfigCache();
+    _resetPersonalNameValidatorCache();
+    try {
+      _setAuthCodeGrantForTest(async () => makeFakeTokens(email, true, { given: "Forbiddenname", family: "Lovelace" }));
+      const state = randomUUID();
+      await _storePendingStateForTest(state, { codeVerifier: "v", nonce: "n", returnTo: "/", isPopup: false });
+      const res = await request(makeApp()).get("/api/callback/google").query({ code: "c", state });
+      assert.equal(res.status, 302, `sign-in proceeds (${res.status})`);
+      const [row] = await db.select().from(usersTable).where(eq(usersTable.email, email));
+      assert.equal(row!.firstName, null, "a denylisted provider name is not stored");
+      assert.equal(row!.lastName, "Lovelace", "a name the denylist admits is kept");
+    } finally {
+      await db.update(adminConfigTable).set({ value: prior?.value ?? "[]" }).where(eq(adminConfigTable.key, "name_denylist_patterns"));
+      bustConfigCache();
+      _resetPersonalNameValidatorCache();
       restoreEnv();
     }
   });
