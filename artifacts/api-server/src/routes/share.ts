@@ -185,9 +185,10 @@ router.post("/share/invite", async (req: Request, res: Response) => {
     res.status(429).json({ error: "Recipient throttle exceeded" });
     return;
   }
-  // Keyed on the rebuilt link, so varying the parameters the client sends
-  // cannot buy a fresh allowance for the same page.
-  const originKey = `${ip}:${inviteUrl}`;
+  // Keyed on the page alone (its path), never on the name or pronouns the
+  // sender typed, so changing either cannot buy a fresh allowance for the same
+  // page (build report on PR #1150).
+  const originKey = `${ip}:${new URL(inviteUrl).pathname}`;
   if (!checkBucket(originLimiter, originKey, ORIGIN_LIMIT_PER_WINDOW, INVITE_WINDOW_MS)) {
     audit({ outcome: "origin_throttled", ip, sid: !!sid, shareUrl });
     res.status(429).json({ error: "Origin throttle exceeded" });
