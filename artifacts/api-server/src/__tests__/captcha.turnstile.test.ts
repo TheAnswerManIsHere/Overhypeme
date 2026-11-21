@@ -207,7 +207,7 @@ describe("Turnstile at every challenged route (a secret configured)", () => {
   const inviteBody = (captchaToken?: string) => ({
     recipientEmail: `${RECIPIENT_PREFIX}${randomUUID()}@test.local`,
     recipientName: "Pat",
-    shareUrl: "https://example.com/share/abc",
+    shareUrl: "https://overhype.me/facts/12?displayName=Pat&pronouns=they%2Fthem",
     formStartedAt: Date.now() - 5000,
     ...(captchaToken === undefined ? {} : { captchaToken }),
   });
