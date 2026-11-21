@@ -31,7 +31,8 @@ import { latestReading, runReadingJob } from "../lib/readingJobs.js";
 import { GAG_PREFILL_QUEUE, enqueueGagPrefill, runGagPrefill, type GagPrefillDeps } from "../lib/gags/prefill.js";
 import { contextGagsFor } from "../lib/visualConceptJobs.js";
 import { saveGagContent } from "../lib/gags/gagStore.js";
-import { buildFactGagsView } from "../lib/gags/gagView.js";
+import { __setFillStateReaderForTest, buildFactGagsView } from "../lib/gags/gagView.js";
+import { fillState } from "../lib/gags/prefill.js";
 import { insertExampleRender } from "./helpers/gagExampleSets.js";
 import { factGagExamplesTable } from "@workspace/db/schema";
 
@@ -339,5 +340,23 @@ describe("a fill's status is its job's (Codex 4649903956 and 4649903966, PR #113
     const [gag] = await gagsOf(factId);
     await db.update(factGagsTable).set({ pendingContent: { ...(gag!.pendingContent as object), coreSceneOverride: "{NAME} mine." } }).where(eq(factGagsTable.id, gag!.id));
     assert.equal((await buildFactGagsView(factId))!.gags[0]!.prefilledUntouched, false);
+  });
+
+  it("a fill that lands while the status is worked out is answered with the filled gag beside \"finished\" (Codex 4650051101, PR #1136 round 2)", async () => {
+    const { reviewId, factId } = await atGags();
+    await storeIdeas(reviewId, factId, [idea(0, "w")], NOTE);
+    // The fill's write and its job's "done" land while the status is being read.
+    const restore = __setFillStateReaderForTest(async (...args) => {
+      await prefill(reviewId, factId);
+      await setJobs(reviewId, "done");
+      return fillState(...args);
+    });
+    try {
+      const view = (await buildFactGagsView(factId))!;
+      if (!view.filling) assert.equal(view.gags.length, 1, "\"finished\" never comes with the gags from before the fill");
+      assert.equal(sceneOf(view.gags[0]!.pendingContent ? { pendingContent: view.gags[0]!.pendingContent, approvedContent: null } : { pendingContent: null, approvedContent: null }), "{NAME} does thing 0 (w).");
+    } finally {
+      restore();
+    }
   });
 });

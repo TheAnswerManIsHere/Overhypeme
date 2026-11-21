@@ -38,10 +38,26 @@ async function examples(ids: number[], gagIdOf: Map<number, number>): Promise<Ma
   return out;
 }
 
+let fillStateReader: typeof fillState = fillState;
+/** Test seam: wrap the fill-status read (to land a fill while it runs). Returns the restore function. */
+export function __setFillStateReaderForTest(fn: typeof fillState): () => void {
+  const prev = fillStateReader;
+  fillStateReader = fn;
+  return () => { fillStateReader = prev; };
+}
+
 export async function buildFactGagsView(factId: number): Promise<FactGagsView | null> {
   const [fact] = await db.select({ id: factsTable.id, isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, factId)).limit(1);
   if (!fact) return null;
-  const [gags, review] = await Promise.all([loadGags(factId), openReviewForFact(factId)]);
+  const review = await openReviewForFact(factId);
+  // The fill status is worked out first, from its own read of the gags, and
+  // the gags this answer carries are read after it. Run together, or in the
+  // other order, a fill whose write and "done" land between the two reads
+  // would answer "finished" beside the gags from before it, and the screen
+  // would stop watching with the old gag on it (Codex 4650051101, PR #1136
+  // round 2). Not in parallel, deliberately.
+  const filling = review?.workflowStage === "gags" ? await fillStateReader(factId, review, await loadGags(factId)) : "none";
+  const gags = await loadGags(factId);
 
   const byGag = await loadExamples(gags.map((g) => g.id));
   const exampleIds: number[] = [];
@@ -59,10 +75,9 @@ export async function buildFactGagsView(factId: number): Promise<FactGagsView | 
 
   // Each gag's render tiles are independent reads: the view is polled while
   // renders draw, so they run together.
-  const [views, ready, filling] = await Promise.all([
+  const [views, ready] = await Promise.all([
     Promise.all(gags.map((g) => viewOf(g, fact.isActive, defaultId, examplesFor(byGag, g.id), ex))) as Promise<GagView[]>,
     checkGoLive(factId, "draft", db, gags),
-    review ? fillState(factId, review, gags) : Promise.resolve("none" as const),
   ]);
   return {
     factId,
