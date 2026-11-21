@@ -160,6 +160,41 @@ describe("GET /memes/:slug — private-meme owner-only enforcement", () => {
   });
 });
 
+// #375: the heart toggle resolves a meme by numeric id, so it must apply the
+// same owner-only rule as every slug surface. Otherwise a non-owner can heart a
+// private meme by guessing ids, and the 200-vs-404 answer discloses that it exists.
+describe("POST /memes/:id/heart — private-meme owner-only enforcement", () => {
+  const idOf = async (slug: string) =>
+    (await db.select({ id: memesTable.id }).from(memesTable).where(inArray(memesTable.permalinkSlug, [slug])))[0]!.id;
+  const heart = (id: number, auth: Parameters<typeof buildTestApp>[0]) =>
+    request(buildTestApp(auth, memesRouter)).post(`/api/memes/${id}/heart`);
+
+  it("a different user gets 404 for a private meme, as if it did not exist", async () => {
+    const res = await heart(await idOf(PRIV_SLUG), { kind: "authenticated", userId: otherId });
+    assert.equal(res.status, 404);
+  });
+
+  it("the owner can heart their own private meme", async () => {
+    const res = await heart(await idOf(PRIV_SLUG), { kind: "authenticated", userId: ownerId });
+    assert.equal(res.status, 200);
+  });
+
+  it("an admin can heart a private meme", async () => {
+    const res = await heart(await idOf(PRIV_SLUG), { kind: "authenticated", userId: adminId });
+    assert.equal(res.status, 200);
+  });
+
+  it("anyone signed in can heart a public meme", async () => {
+    const res = await heart(await idOf(PUB_SLUG), { kind: "authenticated", userId: otherId });
+    assert.equal(res.status, 200);
+  });
+
+  it("a deleted meme is still 404, for its owner too", async () => {
+    const res = await heart(await idOf(DEL_PRIV_SLUG), { kind: "authenticated", userId: ownerId });
+    assert.equal(res.status, 404);
+  });
+});
+
 describe("GET /memes/:slug/image — rendered image delivery", () => {
   const photos = photoBackgrounds();
   before(async () => {
