@@ -105,7 +105,7 @@ describe("the classification table", () => {
   it("every admin write, let through by prefix, is behind requireAdmin or the admin API key", () => {
     const admin = declaredUnsafeRoutes().filter((r) => r.path.startsWith("/admin"));
     assert.ok(admin.length > 50, `expected the admin inventory, found ${admin.length}`);
-    for (const r of admin) assert.match(r.declaration, /requireAdmin|requireApiKey/, `${r.key} (${r.file}) is not behind requireAdmin or the admin API key`);
+    for (const r of admin) assert.match(r.declaration, /requireAdmin/, `${r.key} (${r.file}) is not behind requireAdmin`);
   });
 });
 

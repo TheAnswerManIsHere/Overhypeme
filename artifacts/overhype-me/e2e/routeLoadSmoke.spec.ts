@@ -261,26 +261,6 @@ test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
     await page.setViewportSize({ width: 1280, height: 900 });
   });
 
-  // The import test's reviews are rejected afterwards, pass or fail: a pending
-  // review shows as a count on the sidebar's Moderation entry, which later specs
-  // read against this same database.
-  let importMarker: string | null = null;
-  test.afterEach(async ({ context }) => {
-    if (!importMarker) return;
-    const marker = importMarker;
-    importMarker = null;
-    const csrf = (await context.cookies()).find((c) => c.name === "csrf_token")?.value ?? "";
-    const queue = await context.request.get("/api/admin/reviews?status=pending&limit=100");
-    const { reviews } = (await queue.json()) as { reviews: { id: number; submittedText: string }[] };
-    for (const review of reviews.filter((r) => r.submittedText.includes(marker))) {
-      const res = await context.request.post(`/api/admin/reviews/${review.id}/reject`, {
-        headers: { "x-csrf-token": csrf },
-        data: { rejectionReason: "lame", adminNote: "e2e cleanup" },
-      });
-      expect(res.ok(), `cleanup: rejecting the imported review #${review.id}`).toBe(true);
-    }
-  });
-
   test("Three gags, increment 3 — a fact's wording is read-only with the way to replace it; other saves work; the old edit history still reads", async ({ page }) => {
     const LIVE = "{NAME} w1 outran the sunrise.";
     const EARLIER = "{NAME} w1 outran the dawn.";
@@ -367,40 +347,19 @@ test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
 
   });
 
-  test("PR242 2, 3 — a bulk import is queued for moderation, never imported, and stays out of the live Facts list", async ({ page }) => {
-    const stamp = Date.now();
-    importMarker = `w1 import ${stamp}`;
-    const [A, B, C] = ["folds the ocean", "naps through earthquakes", "alphabetised the stars"].map(
-      (feat) => `{NAME} w1 import ${stamp} ${feat}.`,
-    );
+  // Plan PLAN_FACT_LIFECYCLE_REBUILD.md, item 1 (Issue #1018, increment 1.4):
+  // the submission form is the only way a fact enters; the three imports are gone.
+  test("the Facts page offers no bulk import, and the import routes are gone", async ({ page, context }) => {
     await page.goto("/admin/facts");
     await page.locator("main").getByRole("button", { name: "Utilities", exact: true }).click();
-    const box = page.getByPlaceholder(/can sneeze with their eyes open/);
-    const result = page.getByText(/fact\(s\)/);
-
-    await box.fill([A, B].join("\n"));
-    await page.getByRole("button", { name: "Import Facts" }).click();
-    await expect(result).toBeVisible();
-    await expect(result, "PR242 step 2: the import message does not say imported").not.toHaveText(/imported/i);
-    await expect(result, "PR242 step 2: the message reads Queued N fact(s) for moderation").toHaveText(
-      "Queued 2 fact(s) for moderation. They'll appear after review.",
-    );
-
-    await box.fill([A, C].join("\n"));
-    await page.getByRole("button", { name: "Import Facts" }).click();
-    await expect(result, "PR242 step 2: a re-import notes the duplicates it skipped").toHaveText(
-      "Queued 1 fact(s) for moderation (1 skipped as duplicates). They'll appear after review.",
-    );
-    await expect(result, "PR242 step 2: the import message does not say imported").not.toHaveText(/imported/i);
-
-    // Step 3: the imported text is not in the live (active) Facts list.
-    await page.locator("main").getByRole("button", { name: "Facts", exact: true }).click();
-    const listed = page.waitForResponse((r) => r.url().includes("/api/admin/facts?") && r.url().includes("search="));
-    await page.getByPlaceholder("Search facts…").fill(A);
-    expect((await listed).ok()).toBe(true);
-    await expect(page.getByText("Loading…", { exact: true })).toHaveCount(0);
-    await expect(listedText(page, A), "PR242 step 3: the imported fact does not appear in the live fact list").toHaveCount(0);
-    await expect(page.getByText("No facts found.", { exact: true }), "PR242 step 3: the live list has nothing for the imported text").toBeVisible();
+    await expect(page.getByText("Bulk Import", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Import Facts" })).toHaveCount(0);
+    await expect(page.getByPlaceholder(/can sneeze with their eyes open/)).toHaveCount(0);
+    const csrf = (await context.cookies()).find((c) => c.name === "csrf_token")?.value ?? "";
+    for (const [path, data] of [["/api/admin/facts/import", { facts: ["{NAME} gone."] }], ["/api/admin/facts/import-csv", { csv: "{NAME} gone." }], ["/api/admin/import/facts", [{ text: "{NAME} is gone for good." }]]] as const) {
+      const res = await context.request.post(path, { headers: { "x-csrf-token": csrf }, data });
+      expect(res.status(), `${path} no longer exists`).toBe(404);
+    }
   });
 });
 

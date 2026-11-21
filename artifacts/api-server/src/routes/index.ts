@@ -16,7 +16,6 @@ import renderRouter from "./render";
 import storageRouter from "./storage";
 import stripeRouter from "./stripe";
 import jobsRouter from "./jobs";
-import importRouter from "./import";
 import localAuthRouter from "./localAuth";
 import onboardingRouter from "./onboarding";
 import accountDeletionRouter from "./accountDeletion";
@@ -69,6 +68,5 @@ router.use(shareCopyRouter);
 router.use(shareIntentsRouter);
 router.use(supportRouter);
 router.use(lookStylesRouter);
-router.use(importRouter);
 
 export default router;

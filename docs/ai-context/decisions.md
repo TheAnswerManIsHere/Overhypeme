@@ -13,6 +13,15 @@
 
 ---
 
+### 2026-11-21 · The submission form is the only way a fact enters, and identical wording is refused
+- **Decision:** the three imports are removed — the Facts page's Bulk Import (lines, CSV, JSON), `POST /admin/facts/import`, `POST /admin/facts/import-csv`, the API-key `POST /admin/import/facts` with its `requireApiKey` middleware and OpenAPI operation, and `docs/llm-import-prompt.md` (PLAN_FACT_LIFECYCLE_REBUILD.md, item 1 and 1G, Q6; Issue #1018, increment 1.4; ledger row `pre-cut/fact-imports`). `ADMIN_API_KEY` stays: other admin routes still accept it.
+  - **Identical wording is refused at submission** (`POST /facts/submit-review`, 409 `IDENTICAL_FACT`, naming the match). Identical means equal under `duplicateMatchText` (case, whitespace and punctuation ignored, the "exact" the duplicate check already uses), against a fact that is live or was ever approved (`approved_at`), or a submission still awaiting a decision. A rejected submission's never-approved fact does not count, so its wording may be sent again.
+  - **Anything less than identical goes in**, and the duplicate verdict after the commit flags it for triage (Issue #1003). The form shows the server's "duplicate" verdict as an on-brand warning with the matching fact, a way back and "Submit anyway"; a preview whose exact pre-check matched shows the refusal before any click.
+  - **Past imports stay readable**: the admin-action value `import` is kept for the records already written.
+- **Why:** David, Q6 and plan item 1: one entrance, so every fact passes the same form, captcha, rate limit and pending cap; item 2 and 1G for the message and the refusal.
+- **Reference:** Issue #1018; the 1.4 PR.
+- **Revisit if:** a bulk entrance is wanted (the plan's *Next*: "any bulk import").
+
 ### 2026-11-21 · Test Renders is three render windows per gag, and a save on the Gags step buys no render
 - **Decision:** the Test Renders step shows each gag as "Visual gag N" and its male, female and pet render windows, and nothing else from the gag setup: no editor, no state lines, no adding or removing a gag (PLAN_FACT_LIFECYCLE_REBUILD.md, item 11 and 1E; Issue #1018, increment 1.3c). A gag is changed on the Gags step, through "Back to gags".
   - **The male render starts on arrival** (`ensureReviewIterationRenders`, as before); female and pet are drawn on request, together ("Render female and pet") or one window at a time.

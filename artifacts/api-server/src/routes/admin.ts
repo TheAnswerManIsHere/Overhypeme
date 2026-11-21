@@ -2,7 +2,7 @@ import { Router, type IRouter, type Request, type Response, type NextFunction } 
 import { z } from "zod";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, featureFlagsTable, userGenerationCostsTable, membershipEntitlementsTable, entitlementSourceDisputesTable, membershipHistoryTable, asyncJobsTable, stripeWebhookAuditTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, pendingReviewsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, featureFlagsTable, userGenerationCostsTable, membershipEntitlementsTable, entitlementSourceDisputesTable, membershipHistoryTable, asyncJobsTable, stripeWebhookAuditTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, getTableColumns } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
@@ -35,17 +35,15 @@ import {
   pathToField,
   checkPersonalName,
   FACT_TEXT_EDIT_CODES,
-  UNRESOLVED_SUBMISSION_STAGE_VALUES,
   type FactEnrichment,
   type ManualOverride,
   type OverridablePath,
   type VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
-import { normalizeFactTemplateForPendingReview, normalizeFactTemplateForStorage } from "../lib/normalizeFactTemplateForStorage";
-import { createTriageReview } from "../lib/moderationStaging";
+import { normalizeFactTemplateForStorage } from "../lib/normalizeFactTemplateForStorage";
 import { logActivity } from "../lib/activity";
-import { recordAdminAction, recordAdminActions, type AdminActionRecord } from "../lib/adminActions";
+import { recordAdminAction } from "../lib/adminActions";
 import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConfig";
 import {
   isMembershipConfigKey,
@@ -1376,146 +1374,6 @@ router.get("/admin/facts/:id/enrichment-versions", requireAdmin, async (req: Req
       rejectedAt: r.rejectedAt?.toISOString() ?? null,
     })),
   });
-});
-
-// Bound the batch so a single call can't insert an unbounded number of rows
-// (or hold a huge payload in memory). 1000 rows / 2000 chars each is generous
-// for a bulk import; split larger imports across calls.
-export const FactsImportBody = z.object({
-  facts: z.array(z.union([
-    z.string().max(2000),
-    z.object({ text: z.string().max(2000) }).passthrough(),
-  ])).min(1).max(1000),
-});
-
-/**
- * Shared bulk-ingestion funnel (Phase 2 fact-lifecycle closure) for the two
- * session-admin import endpoints. Dedups each text against existing facts AND
- * unresolved reviews, then creates a Stage-1 triage review per new text
- * (submittedById = the acting admin). Bulk import LOADS the moderation queue — it
- * does NOT publish — so nothing here inserts an active fact; enrichment/hashtags/
- * embeddings are deferred to the pipeline. Returns queued/skipped counts.
- */
-async function queueTextsForTriage(
-  submittedById: string | null,
-  texts: string[],
-): Promise<{ queued: number; skipped: number }> {
-  if (texts.length === 0) return { queued: 0, skipped: 0 };
-  const [factRows, reviewRows] = await Promise.all([
-    db.select({ text: factsTable.text }).from(factsTable).where(inArray(factsTable.text, texts)),
-    db
-      .select({ text: pendingReviewsTable.submittedText })
-      .from(pendingReviewsTable)
-      .where(
-        and(
-          inArray(pendingReviewsTable.submittedText, texts),
-          inArray(pendingReviewsTable.workflowStage, [...UNRESOLVED_SUBMISSION_STAGE_VALUES]),
-        ),
-      ),
-  ]);
-  const seen = new Set<string>([...factRows.map((r) => r.text), ...reviewRows.map((r) => r.text)]);
-  let queued = 0;
-  let skipped = 0;
-  await db.transaction(async (tx) => {
-    const records: AdminActionRecord[] = [];
-    for (const text of texts) {
-      if (seen.has(text)) { skipped++; continue; }
-      seen.add(text);
-      const review = await createTriageReview(tx, { submittedText: text, submittedById, hashtags: [] });
-      records.push({ target: { reviewId: review.id }, actorId: submittedById, action: "import" });
-      queued++;
-    }
-    await recordAdminActions(records, tx);
-  });
-  return { queued, skipped };
-}
-
-router.post("/admin/facts/import", requireAdmin, async (req: Request, res: Response) => {
-  const parsed = FactsImportBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
-    return;
-  }
-  const { facts } = parsed.data;
-
-  const texts: string[] = [];
-  for (const item of facts) {
-    if (typeof item === "string" && item.trim().length > 0) {
-      texts.push(item.trim());
-    } else if (typeof item === "object" && item !== null && "text" in item && typeof (item as Record<string, unknown>).text === "string") {
-      const t = ((item as Record<string, unknown>).text as string).trim();
-      if (t.length > 0) texts.push(t);
-    }
-  }
-
-  if (texts.length === 0) {
-    res.status(400).json({ error: "No valid fact texts found in import" });
-    return;
-  }
-
-  // Normalize + validate each row through the SAME normalizer user submissions
-  // use, then QUEUE valid rows for moderation (Stage-1 triage reviews) rather
-  // than inserting active facts. Partial success: invalid rows are reported in
-  // `failed` and skipped; valid rows are queued.
-  const validTexts: string[] = [];
-  const failed: { index: number; text: string; error: string }[] = [];
-  texts.forEach((text, index) => {
-    const normalized = normalizeFactTemplateForPendingReview(text);
-    if (!normalized.valid) {
-      failed.push({ index, text, error: `Template grammar validation failed: ${normalized.grammarResult.error}` });
-      return;
-    }
-    validTexts.push(normalized.text);
-  });
-
-  const { queued, skipped } = await queueTextsForTriage((req as AuthenticatedRequest).user!.id, validTexts);
-
-  res.json({ success: true, queued, skipped, failed });
-});
-
-// Cap the raw CSV size (≤2 MB) so an unbounded string can't exhaust memory.
-export const ImportCsvBody = z.object({ csv: z.string().min(1).max(2_000_000) });
-const IMPORT_CSV_MAX_ROWS = 2000;
-
-router.post("/admin/facts/import-csv", requireAdmin, async (req: Request, res: Response) => {
-  const parsed = ImportCsvBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
-    return;
-  }
-  const { csv } = parsed.data;
-
-  const lines = csv.split("\n")
-    .map((l) => l.replace(/^["']|["']$/g, "").trim())
-    .filter((l) => l.length > 5);
-
-  if (lines.length === 0) {
-    res.status(400).json({ error: "No valid lines found in CSV" });
-    return;
-  }
-  // Reject (don't silently truncate) an over-large batch so the caller knows to split.
-  if (lines.length > IMPORT_CSV_MAX_ROWS) {
-    res.status(400).json({ error: `Too many rows (${lines.length}); import at most ${IMPORT_CSV_MAX_ROWS} per call` });
-    return;
-  }
-
-  // Normalize + validate each row, then QUEUE valid rows for moderation (Stage-1
-  // triage reviews) rather than inserting active facts. Partial success: invalid
-  // rows are reported in `failed` and skipped; valid rows are queued.
-  const validTexts: string[] = [];
-  const failed: { index: number; text: string; error: string }[] = [];
-  lines.forEach((text, index) => {
-    const normalized = normalizeFactTemplateForPendingReview(text);
-    if (!normalized.valid) {
-      failed.push({ index, text, error: `Template grammar validation failed: ${normalized.grammarResult.error}` });
-      return;
-    }
-    validTexts.push(normalized.text);
-  });
-
-  const { queued, skipped } = await queueTextsForTriage((req as AuthenticatedRequest).user!.id, validTexts);
-
-  res.json({ success: true, queued, skipped, failed });
 });
 
 // GET /admin/comments/pending — comments awaiting first moderation

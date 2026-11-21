@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea, Input } from "@/components/ui/Input";
 import { HighlightedFactText } from "@/components/facts/HighlightedFactText";
+import { DuplicateWarning, IdenticalRefusal, toDuplicateMatch, type DuplicateMatch } from "@/components/facts/SubmitDuplicateNotices";
 import { useToast } from "@/hooks/use-toast";
 import { useDuplicatePreview } from "@/hooks/use-duplicate-preview";
 import { useFormDraft } from "@/hooks/use-form-draft";
@@ -81,6 +82,8 @@ export default function SubmitFact() {
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
   const [onboardingRequired, setOnboardingRequired] = useState(false);
+  // The server refused identical wording (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1G): kept for the template it refused.
+  const [identical, setIdentical] = useState<(DuplicateMatch & { forTemplate: string }) | null>(null);
   const [showDiscardDialog, setShowDiscardDialog] = useState(false);
 
   // AI hashtag suggestions — a non-blocking pre-fill of the (editable) Hashtags
@@ -137,6 +140,13 @@ export default function SubmitFact() {
     // Stopped from the moment Submit is pressed until it fails or the next fact
     // starts: a check landing after the save would match the submitter's own review.
     useDuplicatePreview(step === "preview" ? template : rawText, !submitting && !submitted && !readOnly);
+  // The refusal belongs to the wording it refused: an edit to the template drops it.
+  // The preview's exact pre-check (confidence 100, no AI call) is a match the
+  // server refuses, so it shows as the refusal before any click.
+  const exactPreview = shownDuplicate && shownDuplicate.confidence === 100 && shownDuplicate.llmChecked === false
+    ? toDuplicateMatch(shownDuplicate)
+    : null;
+  const identicalShown: DuplicateMatch | null = (identical && identical.forTemplate === template ? identical : null) ?? exactPreview;
 
   async function handleTokenize() {
     if (rawText.length < 10) return;
@@ -245,9 +255,11 @@ export default function SubmitFact() {
         setSubmitted(true);
         window.scrollTo({ top: 0, behavior: "smooth" });
       } else {
-        const d = await r.json() as { error?: string; code?: string };
+        const d = await r.json() as { error?: string; code?: string; matchingFactId?: number; matchingReviewId?: number; matchingCanonicalText?: string };
         if (d.code === "ONBOARDING_REQUIRED") {
           setOnboardingRequired(true);
+        } else if (d.code === "IDENTICAL_FACT") {
+          setIdentical({ ...toDuplicateMatch({ ...d, matchingCanonicalText: d.matchingCanonicalText ?? template }), forTemplate: template });
         } else {
           setError(d.error ?? "Failed to submit — please try again.");
         }
@@ -540,42 +552,14 @@ export default function SubmitFact() {
                 </div>
               )}
 
-              {/* Duplicate warning — shown on the server's "duplicate" verdict for this text */}
-              {!checkingDuplicate && shownDuplicate && (
-                <div className="rounded-xl border-2 border-amber-500/40 bg-amber-500/5 p-6">
-                  <p className="text-lg font-semibold text-amber-600 dark:text-amber-400 mb-4">
-                    {shownDuplicate.matchingReviewId
-                      ? "Your fact matches another submission that's already waiting for review:"
-                      : "Your fact is very similar to another fact already in the database:"}
-                  </p>
-                  <div className="bg-background rounded-lg border border-border px-5 py-4 mb-4">
-                    <p className="text-xl font-bold text-foreground leading-snug">
-                      "{shownDuplicate.matchingCanonicalText ?? shownDuplicate.matchingFactText}"
-                    </p>
-                    {shownDuplicate.matchingFactId && (
-                      <a
-                        href={`/facts/${shownDuplicate.matchingFactId}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm text-primary underline mt-3 block hover:opacity-80"
-                      >
-                        View this fact →
-                      </a>
-                    )}
-                  </div>
-                  <p className="text-muted-foreground">
-                    You may continue to submit this fact and the moderator will decide how to handle it,
-                    or just{" "}
-                    <button
-                      type="button"
-                      onClick={() => setStep("write")}
-                      className="text-foreground font-semibold underline underline-offset-2 hover:text-primary"
-                    >
-                      give up now
-                    </button>
-                    {" "}and avoid wasting everyone's time.
-                  </p>
-                </div>
+              {/* Identical wording, refused by the server; otherwise the "duplicate" verdict's warning. */}
+              {identicalShown ? (
+                <IdenticalRefusal match={identicalShown} onBackOut={() => setStep("write")} />
+              ) : !checkingDuplicate && shownDuplicate && (
+                <DuplicateWarning
+                  match={toDuplicateMatch(shownDuplicate)}
+                  onBackOut={() => setStep("write")}
+                />
               )}
 
               {/* Three pronoun examples — the main UI */}
@@ -719,10 +703,13 @@ export default function SubmitFact() {
                   type="submit"
                   size="lg"
                   className="flex-1 text-lg font-bold"
-                  disabled={!template.trim() || !!templateGrammarError || submitting}
+                  disabled={!template.trim() || !!templateGrammarError || submitting || !!identicalShown}
+                  data-testid="submit-fact"
                 >
                   {submitting
                     ? <><Loader2 className="w-5 h-5 animate-spin mr-2" /> Submitting…</>
+                    : shownDuplicate
+                    ? <><CheckCircle2 className="w-5 h-5 mr-2" /> Submit anyway</>
                     : <><CheckCircle2 className="w-5 h-5 mr-2" /> Looks Great — Submit</>
                   }
                 </Button>
