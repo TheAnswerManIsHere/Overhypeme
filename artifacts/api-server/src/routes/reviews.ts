@@ -168,6 +168,8 @@ router.post("/facts/submit-review", requireAuth, requireFactSubmitRateLimit, asy
     res.status(409).json({
       error: identical.matchingReviewId != null
         ? "This exact fact is already waiting for review."
+        : identical.matchingFactRetired
+        ? "This exact fact was on Overhype.me once and has been retired."
         : "This exact fact is already on Overhype.me.",
       code: "IDENTICAL_FACT",
       ...identical,
