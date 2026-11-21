@@ -381,4 +381,36 @@ describe("a negative contraction joined after a pair stays valid (PR #1145 follo
     assert.equal(validateTemplate("{Subj} {does|do}n'ts").valid, false);
     assert.equal(validateTemplate("{Subj} {does|do}nt care").valid, false);
   });
+
+  // Codex, PR #1153: the shared pair pattern let the joined "n't" through but
+  // did not consume it, so a coordination chain stopped at the contraction and
+  // a second later pair was left as a choice ("... and {acts|act}"). The joined
+  // spelling must come out exactly as the whole-branch spelling does, and the
+  // result must be a fixed point.
+  it("a chain continues past it exactly as past the whole-branch spelling", () => {
+    const cases: Array<[string, string]> = [
+      ["{NAME} {is|are}n't but {seems|seem} and {acts|act} invincible", "{NAME} {isn't|aren't} but {seems|seem} and {acts|act} invincible"],
+      ["{NAME} {runs|run} and {does|do}n't but {hides|hide} or {waits|wait}", "{NAME} {runs|run} and {doesn't|don't} but {hides|hide} or {waits|wait}"],
+      ["{NAME} {runs|run} and {does|do}n’t and {hides|hide} and {waits|wait}", "{NAME} {runs|run} and {doesn’t|don’t} and {hides|hide} and {waits|wait}"],
+      ["{NAME} calmly {does|do}n't and {runs|run} and {hides|hide}", "{NAME} calmly {doesn't|don't} and {runs|run} and {hides|hide}"],
+    ];
+    for (const [joined, whole] of cases) {
+      const out = applyDeterministicGrammar(joined);
+      assert.equal(out, applyDeterministicGrammar(whole), joined);
+      assert.equal(applyDeterministicGrammar(out), out, `not a fixed point: ${joined}`);
+      assert.ok(!/[{|}]/.test(out.replace("{NAME}", "")), `pair left: ${out}`);
+    }
+    assert.equal(
+      applyDeterministicGrammar("{NAME} {is|are}n't but {seems|seem} and {acts|act} invincible"),
+      "{NAME} isn't but seems and acts invincible",
+    );
+  });
+
+  it("after a name, other glued letters still keep their braces and are refused", () => {
+    for (const t of ["{NAME} calmly {adds|add}es it", "{NAME} {does|do}n'ts", "{NAME} {does|do}nt care", "{NAME} {runs|run} and {does|do}n'tx"]) {
+      const out = applyDeterministicGrammar(t);
+      assert.equal(validateTemplate(out).valid, false, `${t} -> ${out}`);
+    }
+    assert.equal(applyDeterministicGrammar("{NAME} calmly {adds|add}s it"), "{NAME} calmly adds it");
+  });
 });
