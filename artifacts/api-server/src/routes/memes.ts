@@ -370,11 +370,13 @@ router.post("/memes/:id/heart", async (req: AuthenticatedRequest, res: Response)
   const memeId = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(memeId)) { res.status(400).json({ error: "Invalid id" }); return; }
 
-  const [exists] = await db.select({ id: memesTable.id })
+  const [meme] = await db.select({ isPublic: memesTable.isPublic, createdById: memesTable.createdById })
     .from(memesTable)
     .where(and(eq(memesTable.id, memeId), liveContent(memesTable)))
     .limit(1);
-  if (!exists) { res.status(404).json({ error: "Meme not found" }); return; }
+  // A private meme the caller may not view answers exactly like a missing one
+  // (lib/memeVisibility.ts), so an id guess can neither heart it nor learn it exists.
+  if (!meme || !canViewMeme(meme, req)) { res.status(404).json({ error: "Meme not found" }); return; }
 
   const result = await toggleHeart(req.user.id, "meme", memeId);
   res.json(result);
