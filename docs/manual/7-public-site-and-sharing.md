@@ -82,8 +82,8 @@ preview at all.
 
 Sharing itself works a few ways depending on where you start: copying a
 link, tapping a platform's share button, or (on a fact specifically)
-sending an invite by email. **The email-invite option doesn't currently
-work** — see Boundaries below. Sharing a meme is deliberately different
+sending an invite by email, which links the friend to that fact on
+Overhype.me's own address (see Boundaries below). Sharing a meme is deliberately different
 from sharing a fact: a meme is a finished, already-rendered thing you're
 passing along as-is, while sharing a *fact* rewrites the link so the
 person who opens it sees it personalized with the name you typed for
@@ -136,11 +136,12 @@ in launch Phase 4 (ledger: [`docs/retired/README.md`](../retired/README.md)).
 - **[Rich link previews](../ai-context/glossary.md#rich-preview) only exist for meme links.** Sharing a fact page,
   a search result, or the home page itself doesn't produce a preview
   image/description the way sharing a meme does.
-- **[Hearting](../ai-context/glossary.md#heart) a private meme isn't currently blocked the way viewing one
-  is.** Every other private-meme surface (the image itself, its rich
-  preview, sharing it) correctly requires being
-  the owner or an admin; the heart button doesn't yet carry that same
-  check. Worth fixing rather than a documented gap.
+- **A private meme's own page says it is private; nothing else does.**
+  Someone who can't see it gets "This Meme Is Private" on its page (with a
+  Sign in button if they're signed out, in case it's theirs). Its image,
+  rich preview, share copy and [heart](../ai-context/glossary.md#heart)
+  answer as if the meme didn't exist; hearting was closed on 2026-11-21
+  (#375).
 
 ## Going deeper
 

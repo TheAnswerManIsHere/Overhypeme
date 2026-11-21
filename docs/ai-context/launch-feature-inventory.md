@@ -52,10 +52,10 @@ routes, delete, git keeps it) · **your call**.
 | A13 | Search history recording | Records signed-in users' searches; never read back | doc | your call: cut the recording (a privacy surface with no product value) or keep |
 | A14 | Leaderboard `/top-facts` | All-time by Wilson score; **time-window pills and hashtag pills do nothing** | doc | your call: remove the dead pills and ship all-time (recommended), fix the pills, or cut the page. *Pills deleted 2026-10-23 (Phase 4, removal 10; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | A15 | Activity feed `/activity` | Signed-in user's contributions + notifications (approve/reject land here) | doc | ship, verify |
-| A16 | Meme permalink `/m/:slug` | Public meme page, image, download; private → 404/410 | 3 unrun UATs; #591 open (private not-found reads as an error) | ship (core); #591 your call now/next |
+| A16 | Meme permalink `/m/:slug` | Public meme page, image, download; a live private meme's page reads "This Meme Is Private" (403) to anyone who can't see it, a deleted one 404/410 | 3 unrun UATs | ship (core); #591 fixed 2026-11-21 (David, Q2: say private, no request-access button; PR #1149) |
 | A17 | Video permalink `/video/:id` | Public video page | doc | follows the video decision. *Deleted 2026-10-22 with video (Phase 4, removal 2; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | A18 | OG preview cards | Meme permalinks only; **#592: og:image "Image not found"** | doc; bug | fix for launch (meme pages); fact-page OG is `next` |
-| A19 | Fact share modal | Copy link + social popups with name/pronouns baked in; email invite fixed 2026-11-21 (#374: the link is rebuilt on the site's own address) | doc; bug | ship; your call on the email option: remove it for launch (recommended) or fix it |
+| A19 | Fact share modal | Copy link + social popups with name/pronouns baked in; email invite fixed 2026-11-21 (#374: the link is rebuilt on the site's own address) | doc | ship; email option fixed for launch (David, Q3: fix, not remove; PR #1150) |
 | A20 | Meme share modal (per-platform copy, share intents) | Native share / platform popups / mailto | doc | ship, verify |
 | A21 | Post-create share screen | Platform list, merch teaser, download | doc | ship minus the merch teaser if merch is cut. *Deleted 2026-10-22 with the legacy studio, its only mounter; the wizard sends a saved meme to its permalink, whose share surface is `MemeShareModal` ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes))* |
 | A22 | Merch "Wear it" `/wear`, Zazzle export + redirect | Product preview → affiliate redirect; pickers cosmetic; **#598 broken** | doc; bug | cut: remove CTA, route, export, redirect, admin Affiliate page. *Deleted 2026-10-22 (Phase 4, removal 4; ledger [`docs/retired/README.md`](../retired/README.md))* |
@@ -73,9 +73,9 @@ routes, delete, git keeps it) · **your call**.
 - **A8** cut (delete `pages/Hashtags.tsx`).
 - **A13** Keep search-history recording **and add it to the search screen** so users see their previous searches (launch; David's scope addition).
 - **A14** Leaderboard ships all-time only; dead time/hashtag pills removed. *Deleted 2026-10-23 (Phase 4, removal 10; ledger [`docs/retired/README.md`](../retired/README.md)).*
-- **A16** Ship; **fix #591 for launch** (private-meme not-found page should read as "private", not an error).
+- **A16** Ship; **fix #591 for launch** (private-meme not-found page should read as "private", not an error). *Done 2026-11-21, PR #1149.*
 - **A18** Fix meme OG preview (#592) for launch; fact-page OG `next`.
-- **A19** **Fix share-by-email for launch** (#374, `example.com` allowlist). David: "Sharing by email is critical. Any modality for sharing should be supported because growth is what will make the site valuable."
+- **A19** **Fix share-by-email for launch** (#374, `example.com` allowlist). David: "Sharing by email is critical. Any modality for sharing should be supported because growth is what will make the site valuable." *Done 2026-11-21, PR #1150.*
 - **A22** Merch cut, including the admin Affiliate screen.
 - **A25** Confirmed: Claude drafts Terms and Privacy for David's approval; launch gate.
 - **A27** Investigate the two orphan endpoints; delete if dead. *Both deleted (removals 6 and 11).*
