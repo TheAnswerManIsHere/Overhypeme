@@ -528,7 +528,7 @@ function ReviewModal({
       });
       if (r.ok) { onActionDone(); onClose(); return; }
       // A refused approval says why in words: CONCEPT_MISSING names each gag's
-      // missing examples ("Gag 1 needs female and pet examples.").
+      // missing renders ("Visual gag 1 needs female and pet renders approved.").
       const d = (await r.json().catch(() => ({}))) as { error?: string };
       setError(d.error ?? `Request failed (${r.status})`);
     } catch {
@@ -652,9 +652,7 @@ function ReviewModal({
   const gagsLive = gagsView?.gags ?? [];
   const hasSavedGag = gagsLive.some((g) => !!(g.pendingContent ?? g.approvedContent)?.coreSceneOverride?.trim());
   const draftReady = gagsView?.draftReady ?? { ok: false, reason: null };
-  const canApproveProduction = finalHashtags.length > 0
-    && draftReady.ok
-    && !gagsUnsaved;
+  const canApproveProduction = finalHashtags.length > 0 && draftReady.ok;
   const ideasPending = visualConceptStatus === "pending";
   const ideasTerminalOk = visualConceptStatus === "ok";
   // "Approve the gags": enabled with a saved gag AND terminal-OK ideas.
@@ -865,9 +863,11 @@ function ReviewModal({
                 </div>
               )}
 
-              {/* Every gag, editable here too, with its male, female and pet
-                  test renders: approving all three makes them that gag's
-                  examples (plan docs/plans/PLAN_GAG_EXAMPLES.md). */}
+              {/* Each gag as its three render windows and nothing else from
+                  the gag setup (plan PLAN_FACT_LIFECYCLE_REBUILD.md, item 11):
+                  the male render is drawn on arrival, female and pet on
+                  request; approving all three makes them that gag's examples.
+                  A gag is changed on the Gags step, through "Back to gags". */}
               {stagingFactId > 0 && (
                 <GagsPanel
                   factId={stagingFactId}
@@ -878,7 +878,6 @@ function ReviewModal({
                   subjectNames={SUBJECT_NAMES}
                   reloadKey={gagsReloadKey}
                   onView={setGagsView}
-                  onUnsavedChange={setGagsUnsavedNames}
                   disabled={loading}
                 />
               )}
@@ -1025,10 +1024,8 @@ function ReviewModal({
                 {!canApproveProduction && (
                   <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                    {gagsUnsaved
-                      ? `Save or undo your edits to ${unsavedGagsWords} first: approving uses the saved gags.`
-                      : !draftReady.ok
-                      ? `Approve is locked until every gag has its male, female and pet renders approved.${draftReady.reason ? ` ${draftReady.reason}` : ""}`
+                    {!draftReady.ok
+                      ? `Approve is locked: ${draftReady.reason ?? "every visual gag needs its male, female and pet renders approved."}`
                       : "Approve is locked until there's at least one hashtag. Add a tag under Final hashtags (above the gags) — clearing them all is usually a mistake."}
                   </p>
                 )}

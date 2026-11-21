@@ -94,16 +94,16 @@ export async function checkGoLive(factId: number, set: GagSet, executor: Executo
   return { ok: gagCount >= 1 && gagCount <= MAX_GAGS_PER_FACT && gaps.length === 0, gagCount, gaps };
 }
 
-/** The refusal in words: "A fact needs at least one gag." / "Gag 1 needs female and pet renders approved." */
+/** The refusal in words: "A fact needs at least one visual gag." / "Visual gag 1 needs female and pet renders approved." */
 export function describeGoLive(check: GoLiveCheck): string {
-  if (check.gagCount === 0) return "A fact needs at least one gag before it can go live.";
+  if (check.gagCount === 0) return "A fact needs at least one visual gag before it can go live.";
   const parts = check.gaps.map((g) => {
     const words: string[] = [];
     if (g.missing.length) words.push(`needs ${joinWithAnd(g.missing)} render${g.missing.length > 1 ? "s" : ""} approved`);
     if (g.outdated.length) words.push(`has ${joinWithAnd(g.outdated)} render${g.outdated.length > 1 ? "s" : ""} of an older version of it; approve new ones`);
-    return `Gag ${g.slot} ${words.join(" and ")}.`;
+    return `Visual gag ${g.slot} ${words.join(" and ")}.`;
   });
-  return parts.join(" ") || "Every gag needs its male, female and pet renders approved.";
+  return parts.join(" ") || "Every visual gag needs its male, female and pet renders approved.";
 }
 
 /** The go-live rule was not met. */

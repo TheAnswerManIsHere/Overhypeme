@@ -13,6 +13,15 @@
 
 ---
 
+### 2026-11-21 · Test Renders is three render windows per gag, and a save on the Gags step buys no render
+- **Decision:** the Test Renders step shows each gag as "Visual gag N" and its male, female and pet render windows, and nothing else from the gag setup: no editor, no state lines, no adding or removing a gag (PLAN_FACT_LIFECYCLE_REBUILD.md, item 11 and 1E; Issue #1018, increment 1.3c). A gag is changed on the Gags step, through "Back to gags".
+  - **The male render starts on arrival** (`ensureReviewIterationRenders`, as before); female and pet are drawn on request, together ("Render female and pet") or one window at a time.
+  - **Nothing is drawn while the review is on Gags.** The guard every draw passes (`assertCanRunGagRenders`) refuses there with `GAGS_STEP`, under the fact lock: a save's queued iteration-render job skips, and the draw route answers 409. A job that runs after the review reached Test Renders draws as before. Until now every save on Gags drew a male render nobody on that step could see.
+  - **The go-live refusal names gags as "Visual gag N"**, and the queue's ideas-failed label reads "Gag ideas failed", matching the step's names (the 1.3b build report).
+- **Why:** David's item 11 ("three render windows per gag and nothing else from the gag setup; male runs automatically") and 1E ("male starts on arrival for any gag without a current male render"); renders drawn on Gags were spend on versions the moderator was still changing.
+- **Reference:** Issue #1018; the 1.3c PR.
+- **Revisit if:** moderators want to adjust a gag without leaving Test Renders.
+
 ### 2026-11-21 · Gag 1 is filled from the first gag idea, and a changed note replaces only gags still exactly their idea
 - **Decision:** on the Gags step, gag 1 is pre-filled from the first usable gag idea by a durable job (`gag_prefill`, `lib/gags/prefill.ts`; PLAN_FACT_LIFECYCLE_REBUILD.md, item 9 and 1C; Issue #1018, increment 1.3b).
   - **A gag records the idea it was filled from** (`fact_gags.prefilled_from`, migration 0158): its scene, bubbles and the humor note it was written under. While its draft scene and bubbles still equal that record, it is untouched.

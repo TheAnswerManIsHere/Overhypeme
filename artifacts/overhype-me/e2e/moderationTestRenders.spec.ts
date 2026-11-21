@@ -4,7 +4,8 @@
  * grid, its scenario checkboxes and the "How the AI read this fact" panel are
  * gone; each gag shows a male, a female and a pet tile; the Final hashtags
  * editor keeps a section of its own and its tags still ship with the approval;
- * and the warning beside Approve names the gag with unsaved edits.
+ * and a gag there is its three render windows and nothing else from the gag
+ * setup (plan PLAN_FACT_LIFECYCLE_REBUILD.md, item 11), with "Back to gags".
  *
  * The review and its gags are stubbed: what the server does with the approval
  * (the per-gag gate, the hashtags) is tested against the real database in the
@@ -41,7 +42,7 @@ function gag(id: number, slot: number): GagView {
   };
 }
 
-async function stubReview(page: Page, stage: "gags" | "test_renders" = "test_renders"): Promise<{ approvals: () => unknown[] }> {
+async function stubReview(page: Page, stage: "gags" | "test_renders" = "test_renders", draftReady: FactGagsView["draftReady"] = { ok: true, reason: null }): Promise<{ approvals: () => unknown[] }> {
   const approvals: unknown[] = [];
   const row = {
     id: REVIEW_ID, submittedText: TEXT, matchingFactId: null, matchingSimilarity: 0, status: "pending",
@@ -52,7 +53,7 @@ async function stubReview(page: Page, stage: "gags" | "test_renders" = "test_ren
     rendersRunning: false, renderReviewState: null,
   };
   const { visualPromptStrategyOverride: _gag, ...classification } = enrichmentWithConcept("{NAME} outlifts a forklift.");
-  const view: FactGagsView = { factId: FACT_ID, isActive: false, review: { id: REVIEW_ID, stage }, gags: [gag(1, 1), gag(2, 2)], maxGags: 3, draftReady: { ok: true, reason: null }, filling: false, fillFailed: false };
+  const view: FactGagsView = { factId: FACT_ID, isActive: false, review: { id: REVIEW_ID, stage }, gags: [gag(1, 1), gag(2, 2)], maxGags: 3, draftReady, filling: false, fillFailed: false };
 
   await page.route(/\/api\/admin\/reviews(\?.*)?$/, (route: Route) =>
     route.fulfill({ json: { reviews: [row], total: 1, page: 1, limit: 20 } }));
@@ -85,7 +86,7 @@ test.describe("Admin · moderation · Test Renders per gag", () => {
     await page.setViewportSize(DESKTOP);
   });
 
-  test("each gag has male, female and pet tiles, the grid is gone, the hashtags still ship, and the warning names the gag", async ({ page }) => {
+  test("each gag is its male, female and pet windows and nothing else, the grid is gone, and the hashtags still ship", async ({ page }) => {
     const server = await stubReview(page);
     await page.goto("/admin/moderation");
     await page.getByText(`"${TEXT}"`, { exact: true }).first().click();
@@ -95,7 +96,13 @@ test.describe("Admin · moderation · Test Renders per gag", () => {
     for (const kind of ["male", "female", "pet"]) {
       await expect(cards.first().locator(`[data-testid="gag-render"][data-kind="${kind}"]`), `gag 1 has a ${kind} tile`).toBeVisible();
     }
-    await expect(cards.first().getByTestId("gag-example-words")).toHaveText("Male, female and pet approved.");
+    await expect(cards.first()).toContainText("Visual gag 1");
+    await expect(cards.first().getByTestId("gag-render-picked"), "each window says its render is approved").toHaveCount(3);
+    // Nothing else from the gag setup: no editor, no save, no removing or adding a gag.
+    for (const id of ["visual-concept-textarea", "gag-save", "gag-remove", "gag-add", "gag-state", "gag-example-words"]) {
+      await expect(page.getByTestId(id), `no ${id} on Test Renders`).toHaveCount(0);
+    }
+    await expect(page.getByTestId("back-to-visual-concept")).toHaveText(/Back to Gags/);
 
     await expect(page.getByText("How the AI read this fact"), "the AI-read panel is gone").toHaveCount(0);
     await expect(page.getByText("Run test renders"), "the scenario checkboxes are gone").toHaveCount(0);
@@ -107,12 +114,6 @@ test.describe("Admin · moderation · Test Renders per gag", () => {
     await tags.getByRole("textbox").fill("forklift");
     await tags.getByRole("textbox").press("Enter");
 
-    // An unsaved edit to gag 2 locks Approve, and the warning says which gag.
-    await cards.nth(1).getByTestId("visual-concept-textarea").fill("{NAME} an edit not saved yet.");
-    await expect(page.getByText("Save or undo your edits to Visual gag 2 first: approving uses the saved gags.")).toBeVisible();
-    await expect(page.getByTestId("approve-for-production")).toBeDisabled();
-    await cards.nth(1).getByTestId("gag-undo").click();
-
     // Reject is on every step (PLAN_FACT_LIFECYCLE_REBUILD.md item 13), with its reason picker.
     await expect(page.getByRole("button", { name: "Reject", exact: true })).toBeVisible();
     await expect(page.locator("option", { hasText: "Couldn't make it work visually" })).toHaveCount(1);
@@ -122,7 +123,15 @@ test.describe("Admin · moderation · Test Renders per gag", () => {
     expect((server.approvals()[0] as { hashtags: string[] }).hashtags).toContain("forklift");
   });
 
-  // Saving a gag draws a paid male render (plan PLAN_GAG_EXAMPLES.md), so the
+  // The lock beside Approve names what is missing, in the gags' own names (Issue #1018, 1.3b build report).
+  test("Approve for production is locked while a gag lacks approved renders, and says which", async ({ page }) => {
+    await stubReview(page, "test_renders", { ok: false, reason: "Visual gag 2 needs female and pet renders approved." });
+    await page.goto("/admin/moderation");
+    await page.getByText(`"${TEXT}"`, { exact: true }).first().click();
+    await expect(page.getByTestId("approve-for-production")).toBeDisabled();
+    await expect(page.getByText("Approve is locked: Visual gag 2 needs female and pet renders approved.")).toBeVisible();
+  });
+
   // The Gags step's explanatory hint and Advanced Options are gone (plan
   // PLAN_FACT_LIFECYCLE_REBUILD.md, items 9 and 23; Issue #1018, increment 1.3b).
   test("the Gags step names its parts Gag ideas and Visual gag, with no hint and no Advanced Options", async ({ page }) => {

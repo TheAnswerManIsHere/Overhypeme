@@ -1,14 +1,15 @@
 /**
- * @purpose The admin Gags panel: every gag of one fact, each with its state in words, its male, female and pet examples, its editor, its test renders and its actions. Used by the moderation review (Gags and Test Renders steps) and, read-only, by the Facts editor.
+ * @purpose The admin Gags panel: every gag of one fact, each with its state in words, its male, female and pet examples, its editor and its actions; on the Test Renders step, only each gag's three render windows. Used by the moderation review (Gags and Test Renders steps) and, read-only, by the Facts editor.
  * @subsystem visual-pipeline
  *
  * Plans docs/plans/PLAN_THREE_GAGS.md, PLAN_GAG_EXAMPLES.md and
  * PLAN_FACT_LIFECYCLE_REBUILD.md (1F). Every change here is to the fact's
  * draft set, and nothing reaches users until the whole draft is published
  * (for a submission, by "Approve for production"), which needs every gag to
- * have an approved male, female and pet render. Saving draws one male render
- * to iterate on; "Render female and pet" draws the other two once the gag
- * works. The Facts editor shows a live fact's gags read-only.
+ * have an approved male, female and pet render. The Test Renders step shows
+ * each gag as its three render windows and nothing else from the gag setup
+ * (plan item 11): the male render is drawn on arrival, the female and pet
+ * renders when asked. The Facts editor shows a live fact's gags read-only.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2, Plus, Play, RefreshCw, Save, Trash2, Users } from "lucide-react";
@@ -56,7 +57,12 @@ export interface GagsPanelProps {
   factId: number;
   /** The review the panel sits in; null on the Facts editor. */
   reviewId: number | null;
-  /** Test renders and "Approve this render" (the Test Renders step and the Facts editor). */
+  /**
+   * The Test Renders step (plan PLAN_FACT_LIFECYCLE_REBUILD.md, item 11): each
+   * gag as its male, female and pet render windows, with "Approve this
+   * render", and nothing else from the gag setup — no editor, no adding or
+   * removing a gag (that is the Gags step's, through "Back to gags").
+   */
   rendersEnabled: boolean;
   /**
    * The server queues iteration renders without being asked here (a review
@@ -210,7 +216,7 @@ function GagsPanelBody({ factId, reviewId, rendersEnabled, rendersExpected = fal
   }
 
   const readOnly = disabled;
-  const canAdd = !readOnly && view.gags.length < view.maxGags;
+  const canAdd = !readOnly && !rendersEnabled && view.gags.length < view.maxGags;
   // On the Gags step, Visual gag 1 is always there: empty until the first idea fills it.
   const showGag1 = startWithGag1 && view.gags.length === 0 && !readOnly;
 
@@ -236,13 +242,23 @@ function GagsPanelBody({ factId, reviewId, rendersEnabled, rendersExpected = fal
         <p className="text-xs text-muted-foreground" data-testid="gags-empty">No visual gags yet.</p>
       )}
 
-      {view.gags.map((g) => (
+      {rendersEnabled && view.gags.map((g) => (
+        <GagRendersCard
+          key={g.id}
+          factId={factId}
+          reviewId={reviewId}
+          gag={g}
+          readOnly={readOnly}
+          onView={acceptAction}
+        />
+      ))}
+
+      {!rendersEnabled && view.gags.map((g) => (
         <GagCard
           key={g.id}
           factId={factId}
           reviewId={reviewId}
           gag={g}
-          rendersEnabled={rendersEnabled}
           subjectNames={subjectNames}
           readOnly={readOnly}
           onView={acceptAction}
@@ -250,7 +266,7 @@ function GagsPanelBody({ factId, reviewId, rendersEnabled, rendersExpected = fal
         />
       ))}
 
-      {(adding || showGag1) && (
+      {!rendersEnabled && (adding || showGag1) && (
         <NewGagCard
           factId={factId}
           reviewId={reviewId}
@@ -429,9 +445,25 @@ function CastChips({ value, cast, disabled }: { value: VisualPromptStrategyOverr
 }
 
 /** Prepare (tokenize and read the cast), then run `persist` with the prepared content; field errors stay on their fields. */
-function useGagSave(factId: number, subjectNames: string[]) {
+/** Busy and error state around one gag action (a draw, an approval, a removal). */
+function useGagAction() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const act = useCallback(async (fn: () => Promise<GagResult>): Promise<GagResult> => {
+    setBusy(true); setError(null);
+    try {
+      const r = await fn();
+      if (!r.ok) setError(r.error);
+      return r;
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+  return { busy, setBusy, error, setError, act };
+}
+
+function useGagSave(factId: number, subjectNames: string[]) {
+  const { busy, setBusy, error, setError, act } = useGagAction();
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const run = useCallback(async (
     content: VisualPromptStrategyOverride,
@@ -451,18 +483,13 @@ function useGagSave(factId: number, subjectNames: string[]) {
     } finally {
       setBusy(false);
     }
-  }, [factId, subjectNames]);
-  const act = useCallback(async (fn: () => Promise<GagResult>): Promise<GagResult> => {
-    setBusy(true); setError(null);
-    try {
-      const r = await fn();
-      if (!r.ok) setError(r.error);
-      return r;
-    } finally {
-      setBusy(false);
-    }
-  }, []);
+  }, [factId, subjectNames, setBusy, setError]);
   return { busy, error, fieldErrors, run, act, setError };
+}
+
+/** The draft's picks for a gag: its draft change's, else its published version's. */
+function examplePicks(g: GagView): PerKind<GagExample | null> {
+  return g.pendingContent != null ? g.pendingExamples : g.approvedExamples;
 }
 
 function stateWords(g: GagView): string {
@@ -515,7 +542,6 @@ function GagCard({
   factId,
   reviewId,
   gag,
-  rendersEnabled,
   subjectNames,
   readOnly,
   onView,
@@ -524,7 +550,6 @@ function GagCard({
   factId: number;
   reviewId: number | null;
   gag: GagView;
-  rendersEnabled: boolean;
   subjectNames: string[];
   readOnly: boolean;
   onView: (v: FactGagsView) => void;
@@ -567,19 +592,10 @@ function GagCard({
     if (!window.confirm(`Remove visual gag ${gag.slot}?`)) return;
     done(await s.act(() => gagApi.remove(factId, gag.id, reviewId)));
   };
-  const runRenders = async (kinds: GagExampleKind[], redraw = false) => done(await s.act(() => gagApi.runRenders(factId, gag.id, reviewId, kinds, redraw)));
-  const approve = async (card: RenderScenarioCard) => {
-    if (card.latestAttemptId == null) return;
-    done(await s.act(() => gagApi.approve(factId, gag.id, card.latestAttemptId!, reviewId)));
-  };
 
   const locked = readOnly || s.busy;
-  const drawing = GAG_EXAMPLE_KINDS.some((k) => IN_FLIGHT.has(gag.renders[k]?.status ?? ""));
-  // The draft's picks for this gag: its draft change's, else its published version's.
   const building = gag.pendingContent != null;
-  const picks = building ? gag.pendingExamples : gag.approvedExamples;
-  const notDrawn = (k: GagExampleKind) => gag.renders[k] == null || gag.renders[k]!.status === "missing";
-  const restMissing = REST_KINDS.filter(notDrawn);
+  const picks = examplePicks(gag);
 
   return (
     <div className="rounded-sm border-2 border-border bg-card p-4 space-y-3" data-testid="gag-card" data-gag-slot={gag.slot}>
@@ -645,34 +661,69 @@ function GagCard({
           </button>
         </div>
       )}
+    </div>
+  );
+}
 
-      {rendersEnabled && (
-        <div className="space-y-2 border-t border-border pt-3" data-testid="gag-renders">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Test renders</p>
-            {!readOnly && restMissing.length > 0 && (
-              <button type="button" onClick={() => void runRenders([...REST_KINDS])} disabled={locked || dirty || drawing} data-testid="gag-render-rest"
-                title={dirty ? "Save your change first: renders draw the saved version." : "Once the gag works on the male render, draw its female and pet renders."}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-border rounded-sm hover:bg-muted text-foreground disabled:opacity-40">
-                <Play className="w-3 h-3" /> Render {joinWithAnd(restMissing)}
-              </button>
-            )}
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            {GAG_EXAMPLE_KINDS.map((k) => (
-              <RenderTile
-                key={k}
-                kind={k}
-                card={gag.renders[k]}
-                picked={picks[k] != null && picks[k]!.attemptId === gag.renders[k]?.latestAttemptId}
-                canAct={!readOnly && !locked && !dirty}
-                readOnly={readOnly}
-                onApprove={(c) => void approve(c)}
-                onDraw={(redraw) => void runRenders([k], redraw)}
-              />
-            ))}
-          </div>
-        </div>
+/**
+ * A gag on the Test Renders step (plan PLAN_FACT_LIFECYCLE_REBUILD.md, item
+ * 11): its three render windows and nothing else from the gag setup. The
+ * male render is drawn on arrival (the review's prepare job); the female and
+ * pet renders when asked, together or one at a time.
+ */
+function GagRendersCard({
+  factId,
+  reviewId,
+  gag,
+  readOnly,
+  onView,
+}: {
+  factId: number;
+  reviewId: number | null;
+  gag: GagView;
+  readOnly: boolean;
+  onView: (v: FactGagsView) => void;
+}) {
+  const s = useGagAction();
+  const done = (r: GagResult | null) => { if (r?.ok) onView(r.view); };
+  const runRenders = async (kinds: GagExampleKind[], redraw = false) => done(await s.act(() => gagApi.runRenders(factId, gag.id, reviewId, kinds, redraw)));
+  const approve = async (card: RenderScenarioCard) => {
+    if (card.latestAttemptId == null) return;
+    done(await s.act(() => gagApi.approve(factId, gag.id, card.latestAttemptId!, reviewId)));
+  };
+  const locked = readOnly || s.busy;
+  const drawing = GAG_EXAMPLE_KINDS.some((k) => IN_FLIGHT.has(gag.renders[k]?.status ?? ""));
+  const picks = examplePicks(gag);
+  const notDrawn = (k: GagExampleKind) => gag.renders[k] == null || gag.renders[k]!.status === "missing";
+  const restMissing = REST_KINDS.filter(notDrawn);
+
+  return (
+    <div className="rounded-sm border-2 border-border bg-card p-4 space-y-2" data-testid="gag-card" data-gag-slot={gag.slot}>
+      <div className="flex items-center justify-between gap-2 flex-wrap" data-testid="gag-renders">
+        <p className="text-sm font-bold text-foreground">Visual gag {gag.slot}</p>
+        {!readOnly && restMissing.length > 0 && (
+          <button type="button" onClick={() => void runRenders([...REST_KINDS])} disabled={locked || drawing} data-testid="gag-render-rest"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-border rounded-sm hover:bg-muted text-foreground disabled:opacity-40">
+            <Play className="w-3 h-3" /> Render {joinWithAnd(restMissing)}
+          </button>
+        )}
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        {GAG_EXAMPLE_KINDS.map((k) => (
+          <RenderTile
+            key={k}
+            kind={k}
+            card={gag.renders[k]}
+            picked={picks[k] != null && picks[k]!.attemptId === gag.renders[k]?.latestAttemptId}
+            canAct={!locked}
+            readOnly={readOnly}
+            onApprove={(c) => void approve(c)}
+            onDraw={(redraw) => void runRenders([k], redraw)}
+          />
+        ))}
+      </div>
+      {s.error && (
+        <p className="text-xs text-destructive flex items-start gap-1.5 break-words" data-testid="gag-error"><AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" /><span className="min-w-0">{s.error}</span></p>
       )}
     </div>
   );
@@ -719,7 +770,6 @@ function RenderTile({ kind, card, picked, canAct, readOnly, onApprove, onDraw }:
   const status = card?.status ?? "missing";
   const inFlight = IN_FLIGHT.has(status);
   const approvable = !!card && status === "done" && card.latestAttemptId != null && !!card.imageUrl && !picked;
-  const hint = canAct ? undefined : "Save or undo your edits first.";
   return (
     <div className="rounded-sm border border-border bg-background p-2 space-y-1.5" data-testid="gag-render" data-kind={kind}>
       <p className="text-xs font-semibold text-foreground flex items-center justify-between gap-1">
@@ -744,13 +794,13 @@ function RenderTile({ kind, card, picked, canAct, readOnly, onApprove, onDraw }:
         </p>
       )}
       {approvable && (
-        <button type="button" onClick={() => onApprove(card!)} disabled={!canAct} data-testid="gag-approve-render" title={hint}
+        <button type="button" onClick={() => onApprove(card!)} disabled={!canAct} data-testid="gag-approve-render"
           className="w-full inline-flex items-center justify-center gap-1 px-2 py-1 text-xs font-bold border border-green-600/50 text-green-700 dark:text-green-400 rounded-sm hover:bg-green-600/10 disabled:opacity-40">
           <CheckCircle2 className="w-3.5 h-3.5" /> Approve this render
         </button>
       )}
       {!readOnly && !inFlight && (
-        <button type="button" onClick={() => onDraw(card != null && status !== "missing")} disabled={!canAct} data-testid="gag-redraw-render" title={hint}
+        <button type="button" onClick={() => onDraw(card != null && status !== "missing")} disabled={!canAct} data-testid="gag-redraw-render"
           className="w-full inline-flex items-center justify-center gap-1 px-2 py-1 text-[11px] border border-border rounded-sm hover:bg-muted text-foreground disabled:opacity-40">
           {card != null && status !== "missing" ? <><RefreshCw className="w-3 h-3" /> Draw again</> : <><Play className="w-3 h-3" /> Draw this render</>}
         </button>

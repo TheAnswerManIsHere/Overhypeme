@@ -661,13 +661,14 @@ export const reviewRenderScenariosPrepareHandler: JobHandler = {
       // the Facts editor). The job runs seconds or minutes later: if that scope
       // has ended since (a withdrawn or closed review, a review opened on a
       // live fact), the render is no longer the moderator's ask and is skipped
-      // (Codex, PR #972 round 1).
+      // (Codex, PR #972 round 1); so is one whose review is on its Gags step
+      // (GAGS_STEP), where a save buys no render.
       if (typeof p.factId === "number") {
         try {
           await assertCanRunGagRenders(p.factId, p.gagId, { adminId: adminUserId, reviewId: p.scopeReviewId ?? null });
         } catch (err) {
           if (!(err instanceof GagError)) throw err;
-          logger.info({ gagId: p.gagId, scopeReviewId: p.scopeReviewId ?? null, code: err.code }, "[moderation] iteration render skipped: its scope has ended");
+          logger.info({ gagId: p.gagId, scopeReviewId: p.scopeReviewId ?? null, code: err.code }, "[moderation] iteration render skipped: its scope has ended or its review is on Gags");
           return { ok: true, result: { gagId: p.gagId, skipped: err.code } };
         }
       }

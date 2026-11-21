@@ -196,7 +196,7 @@ export const REVIEW_WORKFLOW_STAGE_DISPLAY: Record<ReviewWorkflowStage, ReviewWo
   },
   test_renders: {
     label: "Test Renders",
-    hint: "Inspect the test renders, then approve for production.",
+    hint: "Approve each visual gag's male, female and pet renders, then approve for production.",
     group: "test_renders",
   },
   rejected: {

@@ -837,7 +837,7 @@ describe("approval renderability gating", () => {
 
     assert.equal(res.status, 409, JSON.stringify(res.body));
     assert.equal(res.body.code, "CONCEPT_MISSING");
-    assert.equal(res.body.error, "Gag 1 needs male, female and pet renders approved.");
+    assert.equal(res.body.error, "Visual gag 1 needs male, female and pet renders approved.");
     assert.deepEqual(res.body.gaps, [{ slot: 1, missing: ["male", "female", "pet"], outdated: [] }]);
 
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
@@ -1110,7 +1110,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
       .send({});
     assert.equal(blocked.status, 409, JSON.stringify(blocked.body));
     assert.equal(blocked.body.code, "CONCEPT_MISSING");
-    assert.equal(blocked.body.error, "A fact needs at least one gag before it can go live.");
+    assert.equal(blocked.body.error, "A fact needs at least one visual gag before it can go live.");
     const [stillInactive] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
     assert.equal(stillInactive.isActive, false, "a fact with no approved gag must not go live");
 
@@ -1148,7 +1148,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     const blocked = await approve();
     assert.equal(blocked.status, 409, JSON.stringify(blocked.body));
     assert.equal(blocked.body.code, "CONCEPT_MISSING");
-    assert.match(blocked.body.error, /^Gag 2 has male, female and pet renders of an older version of it/);
+    assert.match(blocked.body.error, /^Visual gag 2 has male, female and pet renders of an older version of it/);
     const rows = await db.select().from(factGagsTable).where(eq(factGagsTable.factId, staging.id));
     assert.ok(rows.every((r) => r.approvedContent == null), "nothing was published");
     assert.equal((await db.select().from(factsTable).where(eq(factsTable.id, staging.id)))[0]!.isActive, false);
