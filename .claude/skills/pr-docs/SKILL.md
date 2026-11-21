@@ -88,7 +88,8 @@ the mandatory live check had no recorded command for close-out to run).
    Now the section is in the body when the PR opens, like the oracle; a
    wrong `Expect` is an edit of the body, quoted into the run record; and
    nothing is deleted at close-out — the workstream's `stage:uat` label is
-   what says a run is owed, and `/uat` discovers runs from it. **A legacy
+   what says a run is owed, and `/uat` discovers runs from it once its
+   own session's just-finished work is checked (the `uat` skill, section 1). **A legacy
    doc still in `docs/tests/UAT/` on `main` runs out under the old
    pattern**: `/uat` drives it from the file and deletes it when David
    confirms the run complete (harvesting into the Manual first any
