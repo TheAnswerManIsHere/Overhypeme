@@ -202,6 +202,22 @@ describe("POST /share/invite", () => {
     assert.equal(lastStatus, 429);
   });
 
+  it("caps invites per page, whatever name or pronouns the sender types", async () => {
+    const app = makeApp();
+    const statuses: number[] = [];
+    for (let i = 0; i < 11; i += 1) {
+      const response = await request(app).post("/share/invite").send({
+        ...validBody(),
+        recipientEmail: `${RECIPIENT_PREFIX}${randomUUID()}@test.local`,
+        recipientName: `Pat${String.fromCharCode(97 + i)}`,
+        shareUrl: `https://overhype.me/facts/77?displayName=x&pronouns=p${i}`,
+      });
+      statuses.push(response.status);
+      if (i === 10) assert.deepEqual(response.body, { error: "Origin throttle exceeded" });
+    }
+    assert.deepEqual(statuses, [...Array(10).fill(200), 429]);
+  });
+
   // ── Success path ──────────────────────────────────────────────────────────
 
   it("returns 200 and queues invite email", async () => {
