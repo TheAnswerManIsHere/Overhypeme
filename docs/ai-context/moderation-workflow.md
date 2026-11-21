@@ -74,9 +74,10 @@ must evaluate/approve the **Visual Concept** — the core description of how the
 gag works visually — on every fact before the full render spend. "Approve the visual
 gag" advances `concept_review → production_review` via an atomic compare-and-set
 and enqueues the male iteration render of each new or changed gag, keeping
-any render already drawn for the same content. Saving a gag draws its male
-render too, so iterating at Step 2 costs one render per saved version; its
-female and pet renders are drawn at Step 3 on the moderator's ask
+any render already drawn for the same content. A save on the Gags step draws
+nothing (2026-11-21: that step shows no renders); Test Renders shows each gag
+as its three render windows and nothing else, and its female and pet renders
+are drawn there on the moderator's ask
 ([decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)).
 
 ## The ingestion funnel — one entrance

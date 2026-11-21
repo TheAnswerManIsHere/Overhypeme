@@ -46,9 +46,9 @@ describe("deriveModerationQueueState — label table", () => {
       .toMatchObject({ label: "Ready for gags", spinner: false, actionStep: "concept", tone: "ready" });
   });
 
-  it("gags, ideas failed → Visual-ideas generation failed", () => {
+  it("gags, ideas failed → Gag ideas failed", () => {
     expect(deriveModerationQueueState({ status: "pending", workflowStage: "gags", visualConceptStatus: "failed" }))
-      .toMatchObject({ label: "Visual-ideas generation failed", spinner: false, tone: "attention" });
+      .toMatchObject({ label: "Gag ideas failed", spinner: false, tone: "attention" });
   });
 
   it("gags with no ideas → Gag ideas not written", () => {

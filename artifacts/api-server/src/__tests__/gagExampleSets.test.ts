@@ -271,6 +271,29 @@ describe("renders, counted per action", () => {
     await db.delete(pendingReviewsTable).where(eq(pendingReviewsTable.id, review!.id)).catch(() => undefined);
   });
 
+  it("a save on the Gags step buys no render: the male render starts on arrival at Test Renders (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1E)", async () => {
+    const [f] = await db.insert(factsTable).values({ text: `{NAME} gags step ${RUN} ${randomUUID().slice(0, 6)}`, isActive: false, enrichment: buildPlaceholderFactEnrichment() as never }).returning({ id: factsTable.id });
+    factIds.push(f!.id);
+    const [g] = await db.insert(factGagsTable).values({ factId: f!.id, slot: 1, pendingContent: scene("{NAME} a gag saved on the Gags step.") }).returning({ id: factGagsTable.id });
+    const [review] = await db.insert(pendingReviewsTable).values({
+      submittedText: "gags step", submittedById: adminId, status: "pending", workflowStage: "gags",
+      stagingFactId: f!.id, enrichment: buildPlaceholderFactEnrichment() as never, enrichmentStatus: "ok",
+    }).returning({ id: pendingReviewsTable.id });
+    const job = { factId: f!.id, gagId: g!.id, scopeReviewId: review!.id, adminUserId: adminId };
+
+    const skipped = await reviewRenderScenariosPrepareHandler.run(job, {} as never);
+    assert.equal(skipped.ok, true);
+    assert.equal((skipped as { result?: { skipped?: string } }).result?.skipped, "GAGS_STEP");
+    assert.equal((await attemptsOf(g!.id)).length, 0, "no render was bought on the Gags step");
+
+    // Approved onward before the job ran: the gag is at Test Renders, so its male render is drawn.
+    await db.update(pendingReviewsTable).set({ workflowStage: "test_renders" }).where(eq(pendingReviewsTable.id, review!.id));
+    const drawnJob = await reviewRenderScenariosPrepareHandler.run(job, {} as never);
+    assert.equal(drawnJob.ok, true);
+    assert.deepEqual((await attemptsOf(g!.id)).map((a) => a.key), ["i2i_male_default"]);
+    await db.delete(pendingReviewsTable).where(eq(pendingReviewsTable.id, review!.id)).catch(() => undefined);
+  });
+
   it("a live fact's queued iteration render is skipped once a refresh opens on it", async () => {
     const { factId, gagId } = await liveFact();
     const [review] = await db.insert(pendingReviewsTable).values({
@@ -305,6 +328,13 @@ describe("renders, counted per action", () => {
     assert.equal(bad.status, 400);
     const generic = await request(app).post(url(factId, `/${gagId}/renders`)).send({ scenarios: ["generic_t2i"] });
     assert.equal(generic.status, 400, "the retired scenario list is not accepted");
+
+    // Back on the Gags step, which shows no renders, the route draws nothing (plan 1E).
+    await db.update(pendingReviewsTable).set({ workflowStage: "gags" }).where(eq(pendingReviewsTable.id, review!.id));
+    const onGags = await request(app).post(url(factId, `/${gagId}/renders`)).send({ kinds: ["male"], reviewId: review!.id });
+    assert.equal(onGags.status, 409, JSON.stringify(onGags.body));
+    assert.equal(onGags.body.code, "GAGS_STEP");
+    assert.equal((await attemptsOf(gagId)).length, 2, "no render was bought on the Gags step");
   });
 });
 

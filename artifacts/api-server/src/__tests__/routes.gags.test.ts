@@ -152,7 +152,7 @@ describe("gag routes: every write is to the draft, from a review", () => {
     assert.equal(view.state, "new");
     assert.equal(view.availableToUsers, false);
     assert.equal(res.body.draftReady.ok, false);
-    assert.match(res.body.draftReady.reason, /Gag 1 needs male, female and pet renders approved/);
+    assert.match(res.body.draftReady.reason, /Visual gag 1 needs male, female and pet renders approved/);
     assert.equal((await gagRow(gagId)).approvedContent, null, "nothing is published");
     assert.equal(await jobsForGag(gagId), jobsBefore + 1, "saving enqueues one iteration render job");
   });
@@ -202,7 +202,7 @@ describe("gag routes: every write is to the draft, from a review", () => {
     assert.equal(await examplesOf(gagId, "approved"), 0, "a pick publishes nothing");
     assert.equal((await gagRow(gagId)).approvedContent, null);
     assert.equal(last.body.draftReady.ok, false, "gag 2 still lacks its renders");
-    assert.match(last.body.draftReady.reason, /^Gag 2 needs/);
+    assert.match(last.body.draftReady.reason, /^Visual gag 2 needs/);
     const done = await approveSet(factId, otherId, scene("{NAME} a second gag."), reviewId);
     assert.deepEqual(done.body.draftReady, { ok: true, reason: null }, "every gag has its set: the draft is ready");
   });
@@ -378,7 +378,7 @@ describe("gag routes: remove", () => {
     const removed = await request(app).post(url(factId, `/${gagId}/remove`)).send({ reviewId });
     assert.equal(removed.status, 200, JSON.stringify(removed.body));
     assert.notEqual((await gagRow(gagId)).removedAt, null);
-    assert.deepEqual(removed.body.draftReady, { ok: false, reason: "A fact needs at least one gag before it can go live." });
+    assert.deepEqual(removed.body.draftReady, { ok: false, reason: "A fact needs at least one visual gag before it can go live." });
     assert.equal(await jobsSinceStart(), jobsBefore, "removing spends nothing");
   });
 

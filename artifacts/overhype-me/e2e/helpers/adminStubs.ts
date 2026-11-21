@@ -152,7 +152,7 @@ export function gagsView(factId: number, isActive: boolean, gag: VisualPromptStr
   // A live fact's published gag is ready as it stands; a staging gag has no renders approved yet.
   const draftReady = isActive && gag
     ? { ok: true, reason: null }
-    : { ok: false, reason: gag ? "Gag 1 needs male, female and pet renders approved." : "A fact needs at least one gag before it can go live." };
+    : { ok: false, reason: gag ? "Visual gag 1 needs male, female and pet renders approved." : "A fact needs at least one visual gag before it can go live." };
   return { factId, isActive, review, gags, maxGags: 3, draftReady, filling: false, fillFailed: false };
 }
 

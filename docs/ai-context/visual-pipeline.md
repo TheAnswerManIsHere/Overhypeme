@@ -713,8 +713,10 @@ classification joined with one gag's content (`gagRenderInput`,
   `drawGagKinds` draws the kinds asked for under an advisory lock per gag and
   kind, so overlapping requests draw once; `redraw` asks for a new one anyway.
 - **What draws.** Saving a gag (an edit, an idea, a discard, a new gag) enqueues
-  one **iteration render**, male (`enqueueGagIterationRender`); approving the
-  Gags step enqueues the iteration render of each surviving new or changed gag
+  one **iteration render**, male (`enqueueGagIterationRender`); nothing draws
+  while the fact's review is on its Gags step, which shows no renders
+  (`assertCanRunGagRenders` refuses with `GAGS_STEP`, 2026-11-21); approving the Gags step enqueues the
+  iteration render of each surviving new or changed gag
   (`ensureReviewIterationRenders`) and clears nothing; **Render female and
   pet** draws the other two (`POST /admin/facts/:id/gags/:gagId/renders`,
   `{ kinds, redraw? }`). No paid render fires without a moderator's action.

@@ -53,6 +53,7 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type GagErrorCode =
   | "FACT_NOT_FOUND"
   | "GAG_NOT_FOUND"
+  | "GAGS_STEP"
   | "GAG_LIMIT"
   | "SLOT_TAKEN"
   | "CONTENT_INVALID"
@@ -214,7 +215,7 @@ async function lockGag(tx: Tx, factId: number, gagId: number): Promise<FactGag> 
  * accepts actions from its own screen only, at the gags step onward; a fact
  * with no open review is worked on from the Facts editor.
  */
-async function resolveScope(tx: Tx, factId: number, actor: GagActor): Promise<void> {
+async function resolveScope(tx: Tx, factId: number, actor: GagActor): Promise<{ workflowStage: string } | null> {
   const open = await openReviewForFact(factId, tx);
   if (open) {
     if (actor.reviewId != null && actor.reviewId !== open.id) {
@@ -230,18 +231,24 @@ async function resolveScope(tx: Tx, factId: number, actor: GagActor): Promise<vo
   } else if (actor.reviewId != null) {
     throw new GagError("REVIEW_NOT_EDITABLE", "That review is no longer open.");
   }
+  return open;
 }
 
 /**
  * Whether test renders of this gag may be drawn now, from where the actor is:
- * a fact in moderation, from its review's Gags or Test Renders step; a live
- * fact with no review open, from the Facts editor. Renders spend, so they run
- * only on a moderator's action (plan PLAN_GAG_EXAMPLES.md, section C).
+ * a fact in moderation, from its review's Test Renders step; a live fact with
+ * no review open, from the Facts editor. Renders spend, so they run only on a
+ * moderator's action (plan PLAN_GAG_EXAMPLES.md, section C), and never while
+ * the review is on its Gags step, which shows none: the male render starts on
+ * arrival at Test Renders (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1E).
  */
 export async function assertCanRunGagRenders(factId: number, gagId: number, actor: GagActor): Promise<void> {
   await db.transaction(async (tx) => {
     await lockFact(tx, factId);
-    await resolveScope(tx, factId, actor);
+    const open = await resolveScope(tx, factId, actor);
+    if (open?.workflowStage === "gags") {
+      throw new GagError("GAGS_STEP", "Renders are drawn from the Test Renders step.", 409);
+    }
     await lockGag(tx, factId, gagId);
   });
 }

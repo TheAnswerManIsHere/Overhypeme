@@ -93,7 +93,7 @@ describe("GagsPanel", () => {
       gag({ id: 1, slot: 1, isDefault: true, grandfathered: true }),
       gag({ id: 2, slot: 2, state: "new", availableToUsers: false, approvedContent: null, approvedAt: null, pendingContent: scene("{NAME} juggles planets.") }),
     ]));
-    render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={["Alex"]} />);
+    render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={["Alex"]} />);
     const cards = await screen.findAllByTestId("gag-card");
     expect(cards).toHaveLength(2);
     expect(within(cards[0]!).getByTestId("gag-default")).toBeTruthy();
@@ -170,7 +170,6 @@ describe("GagsPanel", () => {
     expect(within(tiles[0]!).getByTestId("gag-render-picked")).toBeTruthy();
     expect(within(tiles[0]!).queryByTestId("gag-approve-render")).toBeNull();
     expect(within(tiles[2]!).getByTestId("gag-render-status").textContent).toMatch(/Not drawn yet/);
-    expect(screen.getByTestId("gag-example-words").textContent).toMatch(/^Male approved; female and pet to approve\./);
 
     fireEvent.click(within(tiles[1]!).getByTestId("gag-approve-render"));
     await waitFor(() => expect(calls.some((c) => c.url.endsWith("/approve"))).toBe(true));
@@ -233,15 +232,37 @@ describe("GagsPanel", () => {
   });
 
   it("says which examples are approved, and offers no \"Render female and pet\" once both are drawn", async () => {
-    stubFetch(view([gag({
+    const both = view([gag({
       id: 1, slot: 1,
       approvedExamples: { male: ex(1), female: ex(2), pet: ex(3) },
       renders: { male: card("i2i_male_default"), female: card("i2i_female_default"), pet: card("i2i_nonhuman_animal") },
-    })]));
-    render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+    })]);
+    stubFetch(both);
+    const gags = render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={[]} />);
     expect((await screen.findByTestId("gag-example-words")).textContent).toBe("Male, female and pet approved.");
     expect(screen.getAllByTestId("gag-example")).toHaveLength(3);
+    gags.unmount();
+    render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+    expect(await screen.findAllByTestId("gag-render")).toHaveLength(3);
     expect(screen.queryByTestId("gag-render-rest")).toBeNull();
+  });
+
+  it("at Test Renders a gag is its three render windows and nothing else from the gag setup (plan PLAN_FACT_LIFECYCLE_REBUILD.md, item 11)", async () => {
+    stubFetch(view([
+      gag({ id: 1, slot: 1, isDefault: true, renders: { ...NONE, male: card("i2i_male_default") } }),
+      gag({ id: 2, slot: 2, state: "new", availableToUsers: false, approvedContent: null, approvedAt: null, pendingContent: scene("{NAME} juggles planets.") }),
+    ]));
+    render(<GagsPanel factId={5} reviewId={77} rendersEnabled subjectNames={[]} />);
+    const cards = await screen.findAllByTestId("gag-card");
+    expect(cards.map((c) => c.textContent?.startsWith(`Visual gag ${c.getAttribute("data-gag-slot")}`))).toEqual([true, true]);
+    for (const c of cards) {
+      expect(within(c).getAllByTestId("gag-render").map((t) => t.getAttribute("data-kind"))).toEqual(["male", "female", "pet"]);
+    }
+    for (const id of ["visual-concept-textarea", "gag-save", "gag-remove", "gag-undo", "gag-state", "gag-availability", "gag-default", "gag-example-words", "gag-add", "gag-new"]) {
+      expect(screen.queryAllByTestId(id), id).toHaveLength(0);
+    }
+    // Female and pet are drawn on request.
+    expect(within(cards[0]!).getByTestId("gag-render-rest").textContent).toMatch(/Render female and pet/);
   });
 
   it("adds a gag through the create route, up to the limit", async () => {
@@ -342,12 +363,12 @@ describe("GagsPanel", () => {
     it("an edit survives closing and reopening the panel, until it is undone", async () => {
       const v = view([gag({ id: 1, slot: 1, isDefault: true })]);
       stubFetch(v);
-      const first = render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+      const first = render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={[]} />);
       const card = await screen.findByTestId("gag-card");
       fireEvent.change(within(card).getByTestId("visual-concept-textarea"), { target: { value: "{NAME} an edit typed before closing." } });
       first.unmount();
 
-      render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+      render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={[]} />);
       const again = await screen.findByTestId("gag-card");
       expect((within(again).getByTestId("visual-concept-textarea") as HTMLTextAreaElement).value).toBe("{NAME} an edit typed before closing.");
       fireEvent.click(within(again).getByTestId("gag-undo"));
@@ -356,39 +377,39 @@ describe("GagsPanel", () => {
 
     it("a kept edit is dropped once the gag changed on the server", async () => {
       stubFetch(view([gag({ id: 1, slot: 1, isDefault: true })]));
-      const first = render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+      const first = render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={[]} />);
       fireEvent.change(within(await screen.findByTestId("gag-card")).getByTestId("visual-concept-textarea"), { target: { value: "{NAME} an old edit." } });
       first.unmount();
       vi.unstubAllGlobals();
 
       stubFetch(view([gag({ id: 1, slot: 1, isDefault: true, approvedContent: scene("{NAME} changed elsewhere.") })]));
-      render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+      render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={[]} />);
       const card = await screen.findByTestId("gag-card");
       expect((within(card).getByTestId("visual-concept-textarea") as HTMLTextAreaElement).value).toBe("{NAME} changed elsewhere.");
     });
 
     it("an edit survives the panel being locked, as Back to Gags does, then closed (Codex, PR #958 round 2)", async () => {
       stubFetch(view([gag({ id: 1, slot: 1, isDefault: true })]));
-      const first = render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+      const first = render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={[]} />);
       fireEvent.change(within(await screen.findByTestId("gag-card")).getByTestId("visual-concept-textarea"), { target: { value: "{NAME} typed before Back." } });
-      first.rerender(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} disabled />);
+      first.rerender(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={[]} disabled />);
       await act(async () => {});
       first.unmount();
-      render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+      render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={[]} />);
       const again = await screen.findByTestId("gag-card");
       expect((within(again).getByTestId("visual-concept-textarea") as HTMLTextAreaElement).value).toBe("{NAME} typed before Back.");
     });
 
     it("a kept edit survives opening the gag read-only, then comes back when editable", async () => {
       stubFetch(view([gag({ id: 1, slot: 1, isDefault: true })]));
-      const first = render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+      const first = render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={[]} />);
       fireEvent.change(within(await screen.findByTestId("gag-card")).getByTestId("visual-concept-textarea"), { target: { value: "{NAME} kept while frozen." } });
       first.unmount();
-      const locked = render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} disabled />);
+      const locked = render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={[]} disabled />);
       await screen.findByTestId("gag-card");
       await act(async () => {});
       locked.unmount();
-      render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+      render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={[]} />);
       const again = await screen.findByTestId("gag-card");
       expect((within(again).getByTestId("visual-concept-textarea") as HTMLTextAreaElement).value).toBe("{NAME} kept while frozen.");
     });
@@ -396,26 +417,26 @@ describe("GagsPanel", () => {
     it("a new gag, once saved, leaves no draft behind (Codex, PR #958 round 1)", async () => {
       const after = view([gag({ id: 1, slot: 1, isDefault: true }), gag({ id: 2, slot: 2, state: "new", availableToUsers: false, approvedContent: null, approvedAt: null, pendingContent: scene("{NAME} saved as a new gag.") })]);
       stubFetch(view([gag({ id: 1, slot: 1, isDefault: true })]), { after });
-      const first = render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+      const first = render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={[]} />);
       fireEvent.click(await screen.findByTestId("gag-add"));
       fireEvent.change(within(screen.getByTestId("gag-new")).getByTestId("visual-concept-textarea"), { target: { value: "{NAME} saved as a new gag." } });
       fireEvent.click(screen.getByTestId("gag-new-save"));
       await waitFor(() => expect(screen.queryByTestId("gag-new")).toBeNull());
       expect(window.localStorage.getItem("gag-draft::5:new")).toBeNull();
       first.unmount();
-      render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+      render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={[]} />);
       await screen.findAllByTestId("gag-card");
       expect(screen.queryByTestId("gag-new")).toBeNull();
     });
 
     it("a new gag's draft reopens its card", async () => {
       stubFetch(view([gag({ id: 1, slot: 1, isDefault: true })]));
-      const first = render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+      const first = render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={[]} />);
       fireEvent.click(await screen.findByTestId("gag-add"));
       fireEvent.change(within(screen.getByTestId("gag-new")).getByTestId("visual-concept-textarea"), { target: { value: "{NAME} a new gag half-written." } });
       first.unmount();
 
-      render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+      render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={[]} />);
       const reopened = await screen.findByTestId("gag-new");
       expect((within(reopened).getByTestId("visual-concept-textarea") as HTMLTextAreaElement).value).toBe("{NAME} a new gag half-written.");
     });
