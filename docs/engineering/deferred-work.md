@@ -301,7 +301,7 @@ re-gather it when the work is scheduled.
     request. The 2026-10-13 placement asked for a confirm and a limit only on
     the key's routes; whether an admin session wants them too was never asked,
     so it is recorded here rather than closed with the key (build report on
-    PR #1147).
+    PR #1147; the key's deletion is [`decisions.md`](../ai-context/decisions.md#2026-11-21--admin_api_key-is-deleted-not-scoped-admin-actions-need-a-signed-in-admin)).
   - **Why deferred.** Admin-only, and every launcher is idempotent or
     resumable; the risk is a mis-click by the one admin, not an outsider.
   - **Cost of waiting.** A mistaken click starts a long or paid run.

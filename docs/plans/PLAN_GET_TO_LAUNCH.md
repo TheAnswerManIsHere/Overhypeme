@@ -227,7 +227,8 @@ content formats; multi-role RBAC; new vendors beyond PostHog and Turnstile.
 4. Spend controls demonstrated under concurrency, pricing failure, restart
    and ledger-write failure; a launch capacity and an emergency stop.
 5. `/security-review` on the launch scope with no open highs; `ADMIN_API_KEY`
-   scoped (no password reset through it) or gone; `sharp` upgraded or
+   scoped (no password reset through it) or gone (gone since #455,
+   `docs/ai-context/decisions.md#2026-11-21--admin_api_key-is-deleted-not-scoped-admin-actions-need-a-signed-in-admin`); `sharp` upgraded or
    mitigated; CSP enforced on the API and on the web app (after a
    report-only period); HSTS sent once, by Cloudflare; `pnpm audit --prod`
    shows no High or Critical; the old prod dump's exposure closed —
@@ -368,7 +369,9 @@ scope:
   that could not be recorded.
 - **Phase 18:** David decides whether production keeps any admin override
   at all (David, 2026-10-13: "in a live environment we need to be hyper
-  sensitive to backdoors of any kind").
+  sensitive to backdoors of any kind"). The static `ADMIN_API_KEY` is
+  already gone (#455, `docs/ai-context/decisions.md#2026-11-21--admin_api_key-is-deleted-not-scoped-admin-actions-need-a-signed-in-admin`), so what this
+  decides is the dev-admin entry Phase 15 redesigns.
 - **Phase 20:** whether the domain joins the HSTS preload list.
 - **Stripe sync mode-scoping:** fixed — #577 and #653, single-flight
   construction by #657 (amendment v7: it merged as v6 was placing it).
