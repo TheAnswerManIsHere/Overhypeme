@@ -31,10 +31,12 @@ CREATE TABLE IF NOT EXISTS fact_taxonomy_runs (
   requested_by varchar REFERENCES users(id) ON DELETE SET NULL,
   legacy_version_id bigint,
   created_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT fact_taxonomy_runs_outcome_valid CHECK (outcome IN ('ok', 'failed', 'discarded')),
-  CONSTRAINT fact_taxonomy_runs_origin_valid CHECK (origin IN ('provisional_approval', 'rerun', 'unrecorded', 'legacy_promoted', 'legacy_superseded')),
-  CONSTRAINT fact_taxonomy_runs_output_matches_outcome CHECK ((outcome = 'failed') = (output IS NULL)),
-  CONSTRAINT fact_taxonomy_runs_legacy_marked CHECK ((legacy_version_id IS NOT NULL) = (origin IN ('legacy_promoted', 'legacy_superseded')))
+  -- The CHECKs are written in the form pg_dump prints them, so a database built
+  -- by migration and one restored from a dump compare equal (productionAdopt).
+  CONSTRAINT fact_taxonomy_runs_outcome_valid CHECK (((outcome)::text = ANY (ARRAY[('ok'::character varying)::text, ('failed'::character varying)::text, ('discarded'::character varying)::text]))),
+  CONSTRAINT fact_taxonomy_runs_origin_valid CHECK (((origin)::text = ANY (ARRAY[('provisional_approval'::character varying)::text, ('rerun'::character varying)::text, ('unrecorded'::character varying)::text, ('legacy_promoted'::character varying)::text, ('legacy_superseded'::character varying)::text]))),
+  CONSTRAINT fact_taxonomy_runs_output_matches_outcome CHECK ((((outcome)::text = 'failed'::text) = (output IS NULL))),
+  CONSTRAINT fact_taxonomy_runs_legacy_marked CHECK (((legacy_version_id IS NOT NULL) = ((origin)::text = ANY (ARRAY[('legacy_promoted'::character varying)::text, ('legacy_superseded'::character varying)::text]))))
 );
 CREATE INDEX IF NOT EXISTS fact_taxonomy_runs_fact_idx ON fact_taxonomy_runs (fact_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS fact_taxonomy_runs_legacy_version_uq ON fact_taxonomy_runs (legacy_version_id);
