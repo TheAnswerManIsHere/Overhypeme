@@ -196,8 +196,12 @@ traps in [`known-failure-patterns.md`](./known-failure-patterns.md)).
   **`isPublic === false` means owner-only/secret** (David's product call, C3 —
   see [`decisions.md`](./decisions.md)). Every slug-resolving surface gates on it
   *before* the `deletedAt` 410 branch, so a deleted private meme is a **404**
-  (not 410) to non-owners — no existence disclosure. Surfaces: `GET /memes/:slug`
-  + `/image`, the OG shell (`og.ts`), and share-copy/share-intents. (The
+  (not 410) to non-owners. One deliberate disclosure: `GET /memes/:slug`
+  answers a **live** private meme with **403 `{ private: true }`** and nothing
+  else, so its page reads "this meme is private" rather than as an error (#591;
+  David, 2026-11-21, superseding the 2026-07 "404, not 403" — `decisions.md`).
+  Surfaces: `GET /memes/:slug` + `/image`, the OG shell (`og.ts`),
+  share-copy/share-intents, and `POST /memes/:id/heart` (#375, PR #1143). (The
   Zazzle export and redirect went with merch in launch Phase 4; ledger
   [`docs/retired/README.md`](../retired/README.md).)
 - **Non-owner response is 404, not 403** — for owner-only content, so its

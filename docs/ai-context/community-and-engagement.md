@@ -141,14 +141,10 @@ for ratings. Both routes return the identical shape,
 - **Comment heart:** `POST /comments/:id/heart` (`facts.ts:511-524`) —
   auth required, requires the comment to be `approved && !flagged`
   before allowing a toggle.
-- **Meme heart:** `POST /memes/:id/heart` (`memes.ts:533-546`) — auth
-  required, checks existence/`deletedAt` only. **Does not call
-  `canViewMeme()`** — the one known gap in this mechanism, already
-  tracked as [GitHub #375](https://github.com/TheAnswerManIsHere/Overhypeme/issues/375)
-  and documented in
-  [`public-site-and-sharing.md`](./public-site-and-sharing.md#profiles-and-library--the-self-view-split);
-  not re-derived here. Comments have no equivalent gap — they have no
-  private/public visibility concept to enforce, only `status`/`flagged`.
+- **Meme heart:** `POST /memes/:id/heart` — auth required, and the
+  meme must be live and pass `canViewMeme()`; a private meme the caller
+  may not view answers 404, exactly like a missing one (#375, PR #1143).
+  Comments have no visibility concept to enforce, only `status`/`flagged`.
 
 ## Activity feed
 
@@ -197,8 +193,8 @@ prev/next controls off `totalPages = Math.ceil(total/limit)`.
   mechanism behind ratings and both heart types.
 - `artifacts/api-server/src/routes/facts.ts` — rating, comment
   create/list, comment heart.
-- `artifacts/api-server/src/routes/memes.ts` — meme heart (and its
-  known `canViewMeme()` gap, #375).
+- `artifacts/api-server/src/routes/memes.ts` — meme heart (gated by
+  `canViewMeme()` since #375).
 - `artifacts/api-server/src/routes/reviews.ts` — activity feed routes
   (despite the filename).
 - `artifacts/api-server/src/routes/admin.ts` — comment

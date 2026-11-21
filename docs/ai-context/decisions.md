@@ -13,6 +13,12 @@
 
 ---
 
+### 2026-11-21 · A private meme's link says "this meme is private"; it is no longer a 404
+- **Decision:** `GET /memes/:slug` answers a non-viewer of a **live** private meme with 403 `{ error: "This meme is private", private: true }`, and the meme page shows "This Meme Is Private", with a Sign in button (returning to the meme) for a signed-out visitor. There is no "request access" button. A deleted private meme, and every other surface (the image, the OG card, share copy and intents, the heart), still answers a non-viewer as if the meme did not exist. This supersedes the 2026-07 entry below in one respect only: the detail route now confirms that a live private meme exists.
+- **Why:** David's answer to Q2 of the backlog plan (Issue #628, 2026-11-21: *"q2 1"*, choosing "say 'this meme is private' (it reveals the meme exists)", no request-access button), after his note on Issue #591: *"I'm not sure I want it to say 'Meme not found' as that hints at an error as opposed to 'This is a private meme' which lets the user know it's a real link but they don't have access."* Anyone holding the link already knows something is there; the content and its state stay hidden.
+- **Reference:** Issue #591; launch inventory A16.
+- **Revisit if:** private memes ever need to be undiscoverable even to someone holding the link.
+
 ### 2026-11-21 · ADMIN_API_KEY is deleted, not scoped; admin actions need a signed-in admin
 - **Decision:** the static `ADMIN_API_KEY` header no longer opens any admin route; `set-password`, the backfill launchers, `enable-notifications` and both Stripe sync routes take an admin session like every other admin route (#455). This supersedes the 2026-10-13 placement "scoped, not deleted" in `PLAN_GET_TO_LAUNCH.md` (Phase 15) and `deferred-work.md`.
 - **Why:** David's answer to Q4 of the backlog plan (Issue #628, 2026-11-21: *"q4 1"*, choosing "delete the key, so admin actions need a signed-in admin"). The recommendation was the same: a shared master key that can set any account's password is the largest single standing risk on the list, and no tooling in the repository called these routes with it (`grep -rn "x-api-key"` outside tests and the route found none).

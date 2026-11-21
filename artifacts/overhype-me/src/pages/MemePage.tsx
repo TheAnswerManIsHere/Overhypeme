@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useGetFact, getGetFactQueryKey } from "@workspace/api-client-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Layout } from "@/components/layout/Layout";
-import { AlertCircle, Ban, ArrowLeft } from "lucide-react";
+import { AlertCircle, Ban, ArrowLeft, Lock } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Link } from "wouter";
 import {
@@ -53,8 +53,11 @@ interface MemeData {
 }
 
 type MemeResult =
-  | { meme: MemeData; deleted: false }
-  | { meme: null; deleted: true };
+  | { meme: MemeData; deleted: false; private: false }
+  | { meme: null; deleted: true; private: false }
+  // A live private meme this visitor may not see: the server says only that
+  // it is private, so its link reads as real rather than broken (#591).
+  | { meme: null; deleted: false; private: true };
 
 function DimsFromUrl({ url }: { url: string }) {
   const dims = useImageDimensions(url);
@@ -71,10 +74,11 @@ export default function MemePage() {
     queryKey: ["meme-page", slug],
     queryFn: async () => {
       const res = await fetch(`/api/memes/${slug}`, { credentials: "include" });
-      if (res.status === 410) return { meme: null, deleted: true as const };
+      if (res.status === 410) return { meme: null, deleted: true as const, private: false as const };
+      if (res.status === 403) return { meme: null, deleted: false as const, private: true as const };
       if (!res.ok) throw new Error("Meme not found");
       const data = (await res.json()) as MemeData;
-      return { meme: data, deleted: false as const };
+      return { meme: data, deleted: false as const, private: false as const };
     },
     enabled: !!slug,
     retry: false,
@@ -82,6 +86,7 @@ export default function MemePage() {
 
   const meme = memeResult?.meme ?? null;
   const isDeleted = memeResult?.deleted === true;
+  const isPrivate = memeResult?.private === true;
   const factId = meme?.factId;
   const { data: fact } = useGetFact(factId ?? 0, {
     query: { queryKey: getGetFactQueryKey(factId ?? 0), enabled: !!factId },
@@ -115,6 +120,34 @@ export default function MemePage() {
               <ArrowLeft className="w-4 h-4" /> Return to Base
             </Button>
           </Link>
+        </div>
+      </Layout>
+    );
+  }
+
+  if (isPrivate) {
+    return (
+      <Layout>
+        <div className="max-w-xl mx-auto mt-20 p-8 bg-card border border-border rounded-[20px] text-center" data-testid="meme-private">
+          <Lock className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+          <h2 className="text-3xl font-display uppercase mb-2">This Meme Is Private</h2>
+          <p className="text-muted-foreground mb-6">
+            {user
+              ? "Its creator has kept it to themselves."
+              : "Its creator has kept it to themselves. If it's yours, sign in to see it."}
+          </p>
+          <div className="flex flex-wrap justify-center gap-3">
+            {!user && (
+              <Link href={`/login?from=${encodeURIComponent(`/m/${slug}`)}`}>
+                <Button className="gap-2" data-testid="meme-private-sign-in">Sign in</Button>
+              </Link>
+            )}
+            <Link href="/">
+              <Button variant="outline" className="gap-2">
+                <ArrowLeft className="w-4 h-4" /> Return to Base
+              </Button>
+            </Link>
+          </div>
         </div>
       </Layout>
     );
