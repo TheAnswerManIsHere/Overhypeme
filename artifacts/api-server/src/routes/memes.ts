@@ -2,7 +2,7 @@ import { requireFeature } from "../lib/featureAccess";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { createHash } from "crypto";
-import { Readable } from "stream";
+import { sendStorageBody } from "../lib/sendStorageBody";
 import { customAlphabet } from "nanoid";
 import { db } from "@workspace/db";
 import { memesTable, factsTable, usersTable, lookStylesTable } from "@workspace/db/schema";
@@ -422,13 +422,7 @@ router.get("/memes/ai-user/image", async (req: Request, res: Response) => {
       if (key.toLowerCase() !== "content-type" && key.toLowerCase() !== "cache-control") res.setHeader(key, value);
     });
     res.status(200);
-    if (response.body) {
-      const { Readable } = await import("stream");
-      const nodeStream = Readable.fromWeb(response.body as import("stream/web").ReadableStream<Uint8Array>);
-      nodeStream.pipe(res);
-    } else {
-      res.end();
-    }
+    await sendStorageBody(res, response.body, { storagePath });
   } catch (err) {
     req.log.error({ err, storagePath }, "Failed to serve user AI reference image");
     res.status(404).json({ error: "Image not found" });
@@ -475,11 +469,7 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
         setPublicCache(res, CACHE.MEME_IMAGE, etag);
         setPublicCors(res);
       }
-      if (response.body) {
-        Readable.fromWeb(response.body as ReadableStream<Uint8Array>).pipe(res);
-      } else {
-        res.end();
-      }
+      await sendStorageBody(res, response.body, { slug });
       return;
     }
     if (!meme.imageSource) {

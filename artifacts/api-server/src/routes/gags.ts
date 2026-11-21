@@ -19,7 +19,7 @@
  *   POST /api/admin/facts/:factId/gags/:gagId/remove           remove it from the draft
  *   GET  /api/admin/gags/:gagId/renders/:renderJobId/image     a render's image
  */
-import { Readable } from "node:stream";
+import { sendStorageBody } from "../lib/sendStorageBody";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { and, eq } from "drizzle-orm";
 import { db, imagePromptAttemptsTable } from "@workspace/db";
@@ -226,8 +226,7 @@ router.get("/admin/gags/:gagId/renders/:renderJobId/image", requireAdmin, async 
       if (key.toLowerCase() !== "cache-control") res.setHeader(key, value);
     });
     res.setHeader("Cache-Control", "private, no-store");
-    if (response.body) Readable.fromWeb(response.body as never).pipe(res);
-    else res.end();
+    await sendStorageBody(res, response.body, { gagId, renderJobId });
   } catch (err) {
     if (err instanceof ObjectNotFoundError) { res.status(404).json({ error: "image_not_found" }); return; }
     logger.error({ err, gagId, renderJobId }, "[gags] render image stream failed");
