@@ -4,6 +4,7 @@ import { sendEmail, buildShareInviteEmail } from "../lib/email";
 import { getSessionId, getSession } from "../lib/auth";
 import { verifyCaptcha } from "../lib/captcha";
 import { logger } from "../lib/logger";
+import { getSiteBaseUrl } from "../lib/siteUrl";
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { checkPersonalName } from "@workspace/api-zod";
@@ -16,8 +17,12 @@ const RECIPIENT_LIMIT_PER_WINDOW = 3;
 const ORIGIN_LIMIT_PER_WINDOW = 10;
 const MIN_REQUEST_AGE_MS = 1200;
 const RECENT_FINGERPRINT_WINDOW_MS = 10 * 60 * 1000;
-const ALLOWED_SHARE_HOSTS = new Set(["example.com", "www.example.com"]);
-const ALLOWED_SHARE_PATH = /^\/share\/[A-Za-z0-9_-]+$/;
+// The pages a share invite may point at: the home page and a fact page. The
+// link the email carries is rebuilt on our own address from these, never sent
+// as the client wrote it (#374): the old allowlist named a placeholder host and
+// a /share/ path no page has, so every real invite was refused.
+const SHARE_PATH = /^\/(?:facts\/[1-9][0-9]{0,9})?$/;
+const SHARE_PRONOUNS_MAX = 120;
 
 type Bucket = { count: number; resetAt: number };
 const routeRateLimiter = new Map<string, Bucket>();
@@ -47,15 +52,28 @@ function getClientIp(req: Request): string {
   return req.ip || req.socket.remoteAddress || "unknown";
 }
 
-function isAllowedShareUrl(value: string): boolean {
+/**
+ * The link an invite email carries, rebuilt on the site's own address
+ * (`getSiteBaseUrl`) from the page the client named, or null when that page is
+ * not one a share may point at. Only the path and the two personalisation
+ * fields survive: the client's host, port, other query parameters and fragment
+ * are dropped, so the email can never carry someone else's link (#374). The
+ * name is the validated recipient name, not whatever the URL held.
+ */
+export function canonicalShareUrl(value: string, recipientName: string): string | null {
+  let parsed: URL;
   try {
-    const parsed = new URL(value);
-    return (parsed.protocol === "https:" || parsed.protocol === "http:")
-      && ALLOWED_SHARE_HOSTS.has(parsed.hostname.toLowerCase())
-      && ALLOWED_SHARE_PATH.test(parsed.pathname);
+    parsed = new URL(value);
   } catch {
-    return false;
+    return null;
   }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return null;
+  const path = parsed.pathname.length > 1 ? parsed.pathname.replace(/\/+$/, "") : parsed.pathname;
+  if (!SHARE_PATH.test(path)) return null;
+  const params = new URLSearchParams({ displayName: recipientName });
+  const pronouns = parsed.searchParams.get("pronouns")?.trim();
+  if (pronouns && pronouns.length <= SHARE_PRONOUNS_MAX) params.set("pronouns", pronouns);
+  return `${getSiteBaseUrl()}${path}?${params.toString()}`;
 }
 
 function audit(event: Record<string, unknown>): void {
@@ -121,7 +139,6 @@ router.post("/share/invite", async (req: Request, res: Response) => {
   }
 
   const recipientNormalized = trimAndLower(recipientEmail);
-  const originKey = `${ip}:${trimAndLower(shareUrl)}`;
   const fingerprint = createHash("sha256")
     .update(`${ip}|${recipientNormalized}|${trimAndLower(recipientName)}|${trimAndLower(shareUrl)}`)
     .digest("hex");
@@ -138,7 +155,8 @@ router.post("/share/invite", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Invalid email address" });
     return;
   }
-  if (!isAllowedShareUrl(shareUrl.trim())) {
+  const inviteUrl = canonicalShareUrl(shareUrl.trim(), recipientNameCheck.value);
+  if (!inviteUrl) {
     res.status(400).json({ error: "shareUrl host/path not allowed" });
     return;
   }
@@ -167,6 +185,9 @@ router.post("/share/invite", async (req: Request, res: Response) => {
     res.status(429).json({ error: "Recipient throttle exceeded" });
     return;
   }
+  // Keyed on the rebuilt link, so varying the parameters the client sends
+  // cannot buy a fresh allowance for the same page.
+  const originKey = `${ip}:${inviteUrl}`;
   if (!checkBucket(originLimiter, originKey, ORIGIN_LIMIT_PER_WINDOW, INVITE_WINDOW_MS)) {
     audit({ outcome: "origin_throttled", ip, sid: !!sid, shareUrl });
     res.status(429).json({ error: "Origin throttle exceeded" });
@@ -186,7 +207,7 @@ router.post("/share/invite", async (req: Request, res: Response) => {
     // best effort only
   }
 
-  const payload = buildShareInviteEmail(recipientNameCheck.value, shareUrl.trim(), senderName);
+  const payload = buildShareInviteEmail(recipientNameCheck.value, inviteUrl, senderName);
 
   try {
     await sendEmail({
@@ -199,7 +220,7 @@ router.post("/share/invite", async (req: Request, res: Response) => {
     return;
   }
 
-  audit({ outcome: "success", ip, sid: !!sid, recipientEmail: recipientNormalized, shareUrl: shareUrl.trim() });
+  audit({ outcome: "success", ip, sid: !!sid, recipientEmail: recipientNormalized, shareUrl: inviteUrl });
   res.json({ success: true });
 });
 

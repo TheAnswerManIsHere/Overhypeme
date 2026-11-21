@@ -228,19 +228,16 @@ left with no writer, went in removal 11 (migration 0110; same ledger).
    `${origin}${path}?displayName=...&pronouns=...`). Offers copy-link,
    social popups, and "Send via Email."
 
-   **The email-invite path does not work in production.** `POST
-   /share/invite` (`routes/share.ts:71-196`) validates the client-supplied
-   `shareUrl` against an allowlist requiring the hostname to be
-   `example.com`/`www.example.com` (`ALLOWED_SHARE_HOSTS`, line 18) and
-   the path to match `/^\/share\/[A-Za-z0-9_-]+$/` (line 19). But
-   `ShareModal`'s `buildShareUrl` always builds a URL on the real site
-   origin with a path like `/` or `/facts/123` — never `/share/...` (no
-   such route exists anywhere in the app). Every real share-invite request
-   therefore 400s with "shareUrl host/path not allowed." The only place a
-   URL matching the allowlist is ever constructed is the route's own test
-   fixture. This reads as an unfinished placeholder-domain configuration,
-   not a documented product limitation — **Needs David confirmation** on
-   whether it's known and whether a fix is planned.
+   **The email invite rebuilds its link on the site's own address** (#374,
+   fixed 2026-11-21). `POST /share/invite` (`routes/share.ts`,
+   `canonicalShareUrl`) accepts a `shareUrl` whose path is the home page or
+   `/facts/<id>`, and sends `getSiteBaseUrl()` + that path +
+   `?displayName=<the validated recipient name>&pronouns=<as sent, capped>`.
+   The client's host, other query parameters and fragment never reach the
+   email, so it cannot carry someone else's link; any other path is refused
+   with "shareUrl host/path not allowed". (Until then the allowlist named a
+   placeholder `example.com` host and a `/share/` path no page has, so every
+   real invite was refused.)
 
    Every share action also fires `POST /facts/:id/share` to bump
    `factsTable.shareCount` (rate-limited).
