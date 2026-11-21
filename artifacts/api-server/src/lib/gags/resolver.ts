@@ -132,15 +132,18 @@ export interface AvailableGag {
  * picker lists exactly these, offers a choice wherever there is more than
  * one, and draws through `resolveOfferedGag`. Tested in availableGags.test.ts.
  */
-export async function availableGags(factId: number, executor?: Executor): Promise<AvailableGag[]> {
-  // Content and examples are two reads. A publish swaps both in one
-  // transaction, so they are read from one snapshot: a member gets the whole
-  // previous published set or the whole new one, never a mixture (plan
-  // PLAN_FACT_LIFECYCLE_REBUILD.md, Runtime Behavior). A caller's own
-  // transaction is its snapshot already.
-  if (!executor) {
-    return db.transaction((tx) => availableGags(factId, tx), { isolationLevel: "repeatable read", accessMode: "read only" });
-  }
+export async function availableGags(factId: number): Promise<AvailableGag[]> {
+  // Content and examples are two reads, and a publish swaps both in one
+  // transaction, so they run in one read-only repeatable-read transaction: a
+  // member gets the whole previous published set or the whole new one, never
+  // a mixture (plan PLAN_FACT_LIFECYCLE_REBUILD.md, Runtime Behavior). No
+  // caller can supply its own executor: an ordinary transaction is not one
+  // snapshot across two statements (Codex, PR #1133 round 1).
+  return db.transaction((tx) => readPublishedGags(factId, tx), { isolationLevel: "repeatable read", accessMode: "read only" });
+}
+
+/** The two reads behind `availableGags`; only ever called inside its snapshot. */
+async function readPublishedGags(factId: number, executor: Executor): Promise<AvailableGag[]> {
   const rows = await executor
     .select({ gag: factGagsTable })
     .from(factGagsTable)
@@ -176,8 +179,8 @@ export class GagNotAvailableError extends Error {
  * is available, else (no name) the default gag. Phase 7's AI-picture flow and
  * its picker call this, so the "only an available gag" rule cannot be skipped.
  */
-export async function resolveOfferedGag(factId: number, gagId: number | null, executor: Executor = db): Promise<AvailableGag> {
-  const available = await availableGags(factId, executor);
+export async function resolveOfferedGag(factId: number, gagId: number | null): Promise<AvailableGag> {
+  const available = await availableGags(factId);
   const chosen = gagId == null ? available[0] : available.find((g) => g.gagId === gagId);
   if (!chosen) throw new GagNotAvailableError(factId, gagId);
   return chosen;
