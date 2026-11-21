@@ -115,7 +115,9 @@ canonical grammar-only cleanup, run in this exact order:
    after the pair, which renders "addss". Letters glued after a pair are dropped
    only when they repeat the end of its singular branch; any other glued shape
    is left, and `validateTemplate` refuses a pair followed directly by a letter,
-   so it is never stored.
+   so it is never stored. The one join allowed is a negative contraction,
+   `{does|do}n't` (doesn't / don't): it is valid, the repair leaves it, and the
+   name collapse turns `{NAME} {does|do}n't` into `{NAME} doesn't`.
 1. `collapseNameSubjectConjugationPairs` — `{NAME} {gives|give}` → `{NAME} gives`
    (a name is a singular literal for every pronoun set, so a pair after `{NAME}`
    is wrong by construction). Covers adjacent coordinated verbs AND a pair

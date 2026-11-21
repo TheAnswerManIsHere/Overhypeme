@@ -18,6 +18,10 @@ export const ALLOWED_SIMPLE_TOKENS: ReadonlySet<string> = new Set([
 ]);
 
 const CONJUGATION_PAIR_RE = /^[^|]+\|[^|]+$/;
+// "n't" (or "n’t") joined directly after a pair, as in `{does|do}n't`: both
+// branches plus the ending are real words, so it is a legitimate join (the
+// build report on PR #1145 found the glued-suffix rules refused it).
+const NEGATIVE_CONTRACTION_AFTER_PAIR_RE = /^n['’]t(?![A-Za-z])/;
 
 export interface GrammarValidationResult {
   valid: boolean;
@@ -62,7 +66,9 @@ export function validateTemplate(template: string): GrammarValidationResult {
       if (!parts[0] || !parts[1]) {
         return { valid: false, error: `Conjugation pair "${inner}" must have non-empty alternatives` };
       }
-      if (/[A-Za-z]/.test(template[closeIdx + 1] ?? "")) {
+      // A pair joined to the letters after it is refused, except a negative
+      // contraction: `{does|do}n't` reads "doesn't"/"don't" for every set.
+      if (/[A-Za-z]/.test(template[closeIdx + 1] ?? "") && !NEGATIVE_CONTRACTION_AFTER_PAIR_RE.test(template.slice(closeIdx + 1))) {
         return { valid: false, error: `Conjugation pair "{${inner}}" is joined to the letters after it; each alternative must be the whole word` };
       }
       i = closeIdx + 1;
@@ -229,7 +235,7 @@ export function collapseIdenticalConjugationBranches(template: string): string {
 // Any other glued shape is left alone for validateTemplate to refuse.
 // ---------------------------------------------------------------------------
 
-const GLUED_SUFFIX_PAIR_RE = /\{([^|{}]+)\|([^|{}]+)\}([A-Za-z]+)/g;
+const GLUED_SUFFIX_PAIR_RE = /\{([^|{}]+)\|([^|{}]+)\}(?!n['’]t(?![A-Za-z]))([A-Za-z]+)/g;
 
 /**
  * Drop letters glued directly after a conjugation pair when they repeat the
@@ -264,7 +270,7 @@ export function repairGluedConjugationSuffixes(template: string): string {
 // ("addses"), the hole Codex found on PR #1145 (#1131). The lookahead is part
 // of the pattern both name-collapse expressions share, so it is evaluated
 // against the template itself, not a captured substring.
-const PAIR_RE_SRC = "\\{[^|{}]+\\|[^|{}]+\\}(?![A-Za-z])";
+const PAIR_RE_SRC = "\\{[^|{}]+\\|[^|{}]+\\}(?!(?!n['’]t(?![A-Za-z]))[A-Za-z])";
 // One verb unit in a coordination chain: a plain word (contractions allowed) or
 // a conjugation pair. "{...}" simple tokens like {Subj} match neither, which is
 // what stops the chain before a new subject.

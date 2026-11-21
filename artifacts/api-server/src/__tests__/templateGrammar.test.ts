@@ -356,3 +356,29 @@ describe("applyDeterministicGrammar then validateTemplate — an unrepairable gl
     assert.equal(applyDeterministicGrammar("{Subj} {can|can}not stop"), "{Subj} cannot stop");
   });
 });
+
+// Build report on PR #1145: "n't" joined after a pair is a real word in both
+// branches ({does|do}n't → doesn't / don't), so it must stay accepted, be left
+// alone by the repair, and collapse after a name like any other pair.
+describe("a negative contraction joined after a pair stays valid (PR #1145 follow-up)", () => {
+  it("validates {does|do}n't, {is|are}n't and {was|were}n’t", () => {
+    for (const t of ["{Subj} {does|do}n't care", "{Subj} {is|are}n't here", "{Subj} {was|were}n’t there", "{Subj} {does|do}n't."]) {
+      assert.deepEqual(validateTemplate(t), { valid: true }, t);
+    }
+  });
+
+  it("the repair leaves it alone", () => {
+    assert.equal(repairGluedConjugationSuffixes("{Subj} {does|do}n't care"), "{Subj} {does|do}n't care");
+  });
+
+  it("after a name it collapses to the singular word", () => {
+    assert.equal(applyDeterministicGrammar("{NAME} {does|do}n't care"), "{NAME} doesn't care");
+    assert.equal(applyDeterministicGrammar("{NAME} eats cake and {does|do}n't share"), "{NAME} eats cake and doesn't share");
+  });
+
+  it("still refuses other letters joined after a pair, and n't followed by more letters", () => {
+    assert.equal(validateTemplate("{Subj} {adds|add}es it").valid, false);
+    assert.equal(validateTemplate("{Subj} {does|do}n'ts").valid, false);
+    assert.equal(validateTemplate("{Subj} {does|do}nt care").valid, false);
+  });
+});
