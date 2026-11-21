@@ -160,7 +160,7 @@ routes, delete, git keeps it) · **your call**.
 - **Anti-bot:** proposed Cloudflare Turnstile replacing hCaptcha (existing vendor relationship via the OG worker; pending sign-off), applied at registration, submission, comments, share-by-email. Local registration currently has no captcha.
 - **Account suspension:** launch. **Public creator pages:** launch unless David says `next`. **Fact-page OG:** launch ("must have").
 - **Maintenance:** a **read-only mode switch** (browse/personalise stay up; writes show a short notice) instead of takedowns; migrations written backward-compatible so deploys need no window. No such switch exists today.
-- **Age gate:** none exists (registration asks nothing). Proposed for launch: 13+ attestation at sign-up, 18+ for photo upload, final word in the compliance phase (pending). *Done in launch Phase 5 (#795): a required date of birth at onboarding, under 13 refused, 18+ at every photo upload — [`accounts-and-auth.md`](./accounts-and-auth.md#age-audience-and-the-nsfw-opt-in).*
+- **Age gate:** none exists (registration asks nothing). Proposed for launch: 13+ attestation at sign-up, 18+ for photo upload, final word in the compliance phase (pending). *Done in launch Phase 5 (#795): a required date of birth at onboarding, under 13 refused, 18+ at every photo upload — [`accounts-and-auth.md`](./accounts-and-auth.md#age-audience-and-the-nsfw-opt-in).* *Superseded by the compliance phase: an account requires 18+ (Issue #1030 Q3, 2026-11-17; built in its increment 4).*
 
 ### Decisions — Journey C, round three (David, 2026-10-05)
 
@@ -170,7 +170,7 @@ routes, delete, git keeps it) · **your call**.
 - **Turnstile replaces hCaptcha entirely** ("I hate captchas myself"), behind verified email + rate limits.
 - Account suspension: launch. Public creator pages: **at launch**. Fact-page OG: launch. Read-only maintenance mode: agreed.
 - **Two launches:** *soft launch* = full build behind an invite gate, **50 approved facts**, friends as first users and the real-data verification pass; *full launch* = gate off. One feature set, one readiness list, two gates. *(Superseded 2026-10-06 by the four stages in the [launch definition](./launch-definition.md): what this bullet calls "soft launch" is **Seed**; the real-data pass moved to the wider Soft launch; "full launch" is Full launch (US) then (Global).)*
-- **Age gate:** agreed (13+ at sign-up, 18+ for photo upload), compliance phase has the final word. **NSFW mode is a post-launch feature**: design for it now (audience flag on facts/memes, verified-adult state, "mark adult" in moderation) without shipping it.
+- **Age gate:** agreed (13+ at sign-up, 18+ for photo upload), compliance phase has the final word; it ruled 18+ for an account (Issue #1030 Q3, 2026-11-17). **NSFW mode is a post-launch feature**: design for it now (audience flag on facts/memes, verified-adult state, "mark adult" in moderation) without shipping it.
 
 ## Journey D — Meme creation, image (29 items)
 

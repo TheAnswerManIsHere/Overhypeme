@@ -7,3 +7,4 @@ The source of the four public legal pages (launch Phase 14, Issue #1030; plan `d
 - After editing, run `pnpm --filter @workspace/overhype-me run generate:legal` and commit the generated files with the change.
 - Plain Markdown only: no HTML. Links are site paths, `https://` or `mailto:`.
 - Every page says it awaits counsel's review until a firm signs it off. A text promises only what the product does on the day it is published.
+- The walk-through for David's two operator filings (the copyright agent, and NCMEC as a service provider) is [`docs/engineering/legal-registrations.md`](../engineering/legal-registrations.md), kept out of this folder because the generator accepts only the four pages here.

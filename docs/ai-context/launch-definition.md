@@ -82,8 +82,8 @@ count); one onboarding path for every sign-in method; pronouns chosen on the
 device carried through OAuth sign-up, and the default is never "he/him";
 generated avatars; custom photo avatar (Legendary); "My content" listing every
 upload and generation with per-item delete; **self-service account deletion**
-that never destroys legally retained safety records; an age gate (13+ at
-sign-up, 18+ for photo upload; the compliance phase has the final word);
+that never destroys legally retained safety records; an age gate (18+ for an
+account, decided in the compliance phase: Issue #1030 Q3, 2026-11-17);
 Cloudflare Turnstile replacing hCaptcha at registration, submission, comments
 and share-by-email; marketing consent at sign-up; account suspension.
 

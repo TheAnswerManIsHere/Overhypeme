@@ -13,6 +13,33 @@
 
 ---
 
+### 2026-11-17 to 2026-11-20 · Phase 14 (Compliance): the operator, 18+, the NCMEC path, the published texts and how long data is kept
+- **Decision:** David's answers on Issue #1030 — Launch Phase 14 — Compliance, under `PLAN_PHASE14_COMPLIANCE.md` (approved 2026-11-17):
+  - **Q2, the NCMEC path:** David files reports by hand; automated filing is built only once there are more than five distinct cases in any 90 days. The trigger starts the build and never delays a manual report.
+  - **Q3, age:** an account requires 18+. This replaces the 13+ sign-up gate of launch Phase 5 (#795).
+  - **Q4, the operator:** Availeron Consulting, Inc., 745 5th Ave., Suite 500, New York, NY 10151.
+  - **Q5, counsel:** no firm is chosen; Seed does not wait for one, and the counsel package is written to be ready whenever one is.
+  - **Q6, Cloudflare:** the zone stays on the Free plan, with Workers Free.
+  - **Q7–Q11, as recommended:**
+    - Q7: Crimea and the whole Donetsk and Luhansk regions are refused, because an IP address cannot separate the occupied parts.
+    - Q8: child-safety evidence is deleted one year and 30 days after filing unless a hold is recorded.
+    - Q9: the published addresses are `legal@`, `privacy@`, `copyright@` and `support@overhype.me`, forwarded by Cloudflare Email Routing to a dedicated Gmail mailbox.
+    - Q10: New York law and New York courts, with no arbitration until counsel advises.
+    - Q11: code-only exposure around Cloudflare is accepted if closing it is costly. Q20 later narrowed the whole geography scope (the 2026-11-19 entry).
+  - **Q12:** the review gate was waived on PR #1038.
+  - **Q13:** the four legal texts as drafted are approved.
+  - **Q14:** the analytics notice informs and is not a consent switch.
+  - **Q15:** picture costs are deleted at purge and after 13 months; a photo's description is cleared at purge; the payment webhook audit is kept 90 days.
+  - **Q16:** each increment is published once ready.
+  - **Q17:** the content purge clears the member's name too.
+  - **Q18:** processed Stripe event ids are kept 90 days.
+  - **Q19:** made moot by Q21.
+  - **Q22:** publish first, then deploy the country rule (done 2026-11-19).
+  - **2026-11-20, the Privacy page read at version 2026-11-20.3 (PR #1123's UAT step 1):** approved as it stands. A member's mail in the support mailbox, contact-page copies included, is "kept until we delete it", with no deletion step at account deletion. PostHog is printed as "up to 2 years", the figure for the plan in use, while the line under the table says each figure is the longest the provider allows.
+- **Why:** each was David's call on a legal or product consequence no earlier decision covered. The recommendations and their reasoning are in the plan's *Questions for David* and on the issue. The 2026-11-20 read keeps two softer points public rather than adding a mailbox deletion step before Seed.
+- **Dissent:** none recorded. Two build reports on the issue (PR #1093, PR #1101) flagged the mailbox's missing end date and the PostHog figure; David read both and kept them.
+- **Revisit if:** counsel's review asks for a mailbox retention period or a provider's ceiling; PostHog moves off the Free plan; NCMEC cases pass five in 90 days; a firm is chosen (Q5).
+
 ### 2026-11-21 · The submission form is the only way a fact enters, and identical wording is refused
 - **Decision:** the three imports are removed — the Facts page's Bulk Import (lines, CSV, JSON), `POST /admin/facts/import`, `POST /admin/facts/import-csv`, the API-key `POST /admin/import/facts` with its `requireApiKey` middleware and OpenAPI operation, and `docs/llm-import-prompt.md` (PLAN_FACT_LIFECYCLE_REBUILD.md, item 1 and 1G, Q6; Issue #1018, increment 1.4; ledger row `pre-cut/fact-imports`). `ADMIN_API_KEY` stays: other admin routes still accept it.
   - **Identical wording is refused at submission** (`POST /facts/submit-review`, 409 `IDENTICAL_FACT`, naming the match). Identical means equal under `duplicateMatchText` (case, whitespace and punctuation ignored, the "exact" the duplicate check already uses), against a fact that is live or was ever approved (`approved_at`), or a submission still awaiting a decision. A rejected submission's never-approved fact does not count, so its wording may be sent again.
