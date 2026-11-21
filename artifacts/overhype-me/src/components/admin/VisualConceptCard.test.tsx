@@ -12,7 +12,7 @@ import {
   type VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
 import { VisualConceptCard } from "./VisualConceptCard";
-import { withCoreSceneOverride, CORE_SCENE_MAX_CHARS } from "./EnrichmentEditor";
+import { withCoreSceneOverride, CORE_SCENE_MAX_CHARS } from "./visualConceptText";
 
 function Harness({
   initial,

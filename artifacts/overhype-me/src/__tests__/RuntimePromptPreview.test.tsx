@@ -144,7 +144,7 @@ describe("RuntimePromptPreview", () => {
     fireEvent.click(screen.getByTestId("rpp-generate"));
 
     await waitFor(() => expect(screen.getByTestId("rpp-error")).toBeTruthy());
-    expect(screen.getByTestId("rpp-error").textContent).toMatch(/Backfill enrichment/i);
+    expect(screen.getByTestId("rpp-error").textContent).toMatch(/Re-run it from the fact/i);
   });
 
   it("shows no planner panel: no visual-plan debug and no planner provenance (the planner was removed, plan PLAN_GAG_DIRECT_RENDER.md, D)", async () => {

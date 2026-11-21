@@ -60,7 +60,6 @@ const ROUTES: SmokeRoute[] = [
   { path: "/admin/moderation", name: "Admin · Moderation", admin: true },
   { path: "/admin/facts", name: "Admin · Facts", admin: true },
   { path: "/admin/billing", name: "Admin · Billing", admin: true },
-  { path: "/admin/taxonomy-health", name: "Admin · Taxonomy Health", admin: true },
   { path: "/admin/eval", name: "Admin · Eval Dashboard", admin: true },
   // Help carries the largest generated payload in the console (the manual is
   // ~160 KB of prose across 13 dynamically-imported chunks), so it is exactly
@@ -91,6 +90,30 @@ function collectChunkFailures(page: Page): string[] {
   });
   return failures;
 }
+
+test.describe("Taxonomy Health is gone (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 2A)", () => {
+  test("its address answers Page Not Found and no admin link leads to it", async ({ page, context }) => {
+    expect((await context.request.post("/api/auth/dev-admin-login")).ok()).toBe(true);
+    await page.goto("/admin/facts", { waitUntil: "domcontentloaded" });
+    await expect(page.locator("nav").first(), "the admin console renders").toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('a[href="/admin/taxonomy-health"]'), "no link to Taxonomy Health").toHaveCount(0);
+    await expect(page.getByText("Taxonomy Health", { exact: true }), "no Taxonomy Health label").toHaveCount(0);
+
+    await page.goto("/admin/taxonomy-health", { waitUntil: "domcontentloaded" });
+    await expect(page.getByText("404 Page Not Found"), "the old address is not a page").toBeVisible({ timeout: 20_000 });
+    const api = await context.request.get("/api/admin/taxonomy-health/summary");
+    expect(api.status(), "its API is gone too").toBe(404);
+  });
+
+  test("the Facts page's Utilities tab holds the gag fold, and no taxonomy backfill", async ({ page, context }) => {
+    expect((await context.request.post("/api/auth/dev-admin-login")).ok()).toBe(true);
+    await page.goto("/admin/facts", { waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: "Utilities", exact: true }).click();
+    const utilities = page.getByTestId("facts-utilities");
+    await expect(utilities.getByTestId("gag-fold-panel"), "the gag fold moved here").toBeVisible({ timeout: 20_000 });
+    await expect(utilities.getByRole("button", { name: /backfill enrichment/i }), "the taxonomy backfill is gone").toHaveCount(0);
+  });
+});
 
 test.describe("Route-load smoke — no crash/reload loop, no error boundary", () => {
   test.beforeEach(async ({ context }) => {
@@ -287,14 +310,16 @@ test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
     expect(server.patches.at(-1)?.body, "the save sends no text").not.toHaveProperty("text");
     expect(server.patches.at(-1)?.body, "the save carries the edited field").toHaveProperty("submittedById", "e2e-submitter");
 
-    // Saving the enrichment editor saves plainly.
+    // The gags and the AI taxonomy are read-only; the taxonomy keeps Re-run
+    // (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 2A).
     const panel = page.getByTestId("fact-enrichment-panel");
-    await panel.getByRole("button", { name: /visual taxonomy enrichment/i }).click();
+    await panel.getByRole("button", { name: /gags and ai taxonomy/i }).click();
     await expect(panel.getByTestId("visual-concept-card")).toBeVisible();
-    await panel.getByPlaceholder("Add hashtag…").fill("w1tag");
-    await panel.getByRole("button", { name: "Add", exact: true }).last().click();
-    await panel.getByRole("button", { name: "Save enrichment" }).click();
-    await expect(panel.getByText("Saved to server", { exact: true }), "the enrichment save shows Saved to server").toBeVisible();
+    const taxonomy = panel.getByTestId("fact-taxonomy-panel");
+    await expect(taxonomy.getByTestId("taxonomy-summary"), "the stored taxonomy is shown").toBeVisible();
+    await expect(taxonomy.getByTestId("taxonomy-rerun"), "the taxonomy keeps Re-run").toBeEnabled();
+    await expect(panel.getByPlaceholder("Add hashtag…"), "no box edits the AI's hashtags").toHaveCount(0);
+    await expect(panel.getByRole("button", { name: /save enrichment|revert to ai/i }), "nothing saves or overrides the taxonomy").toHaveCount(0);
 
     // An edit made before the lock still reads in the history.
     await page.getByTestId("fact-text-edit-history-toggle").click();
@@ -480,10 +505,10 @@ test.describe("7b — admin screens in regular use (PR287, PR288, PR293, PR308, 
   });
 
   // PR308 step 3 and R6.
-  test("the admin moderation and taxonomy-health screens load with no error and no API response answered 429", async ({ page, context }) => {
+  test("the admin moderation screen loads with no error and no API response answered 429", async ({ page, context }) => {
     expect((await context.request.post("/api/auth/dev-admin-login")).ok()).toBe(true);
     const api = trackApi(page);
-    for (const path of ["/admin/moderation", "/admin/taxonomy-health"]) {
+    for (const path of ["/admin/moderation"]) {
       api.begin();
       await page.goto(path, { waitUntil: "domcontentloaded" });
       await expect(page.locator("nav").first(), `${path} should render the AdminLayout nav`).toBeVisible({ timeout: 20_000 });

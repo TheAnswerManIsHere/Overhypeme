@@ -42,7 +42,6 @@ const AdminComparisonJudging = lazy(() => import("@/pages/admin/comparisonJudgin
 const AdminComparisonResults = lazy(() => import("@/pages/admin/comparisonResults"));
 const AdminConfig = lazy(() => import("@/pages/admin/config"));
 const AdminTrace = lazy(() => import("@/pages/admin/trace"));
-const AdminTaxonomyHealth = lazy(() => import("@/pages/admin/taxonomy-health"));
 const AdminFeatures = lazy(() => import("@/pages/admin/features"));
 const AdminAiSettings = lazy(() => import("@/pages/admin/aiSettings"));
 const AdminEmailQueue = lazy(() => import("@/pages/admin/emailQueue"));
@@ -282,7 +281,6 @@ function Router() {
         <Route path="/admin/reviews"><AdminModerationRedirect /></Route>
         <Route path="/admin/config" component={AdminConfig} />
         <Route path="/admin/trace" component={AdminTrace} />
-        <Route path="/admin/taxonomy-health" component={AdminTaxonomyHealth} />
         <Route path="/admin/ai" component={AdminAiSettings} />
         <Route path="/admin/features" component={AdminFeatures} />
         <Route path="/admin/email-queue" component={AdminEmailQueue} />

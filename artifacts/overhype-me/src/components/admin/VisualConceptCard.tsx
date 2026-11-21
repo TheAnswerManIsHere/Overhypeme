@@ -21,7 +21,7 @@ import {
   insertTokenIntoTextControl,
   OVERRIDE_TOKEN_CHIPS,
   CORE_SCENE_MAX_CHARS,
-} from "./EnrichmentEditor";
+} from "./visualConceptText";
 
 const VISUAL_CONCEPT_TOKEN_EXAMPLES: Record<(typeof OVERRIDE_TOKEN_CHIPS)[number], string> = {
   "{NAME}": "David",

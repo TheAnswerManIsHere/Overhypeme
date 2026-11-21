@@ -1,5 +1,5 @@
 /**
- * @purpose The fold and cast fill on Taxonomy Health: what a run would do (the dry run), the button that starts one, its progress, and the two lists that must be empty before pictures switch to the direct path.
+ * @purpose The fold and cast fill, on the Facts page's Utilities tab: what a run would do (the dry run), the button that starts one, its progress, and the two lists that must be empty before pictures switch to the direct path.
  * @subsystem visual-pipeline
  *
  * Plan docs/plans/PLAN_GAG_DIRECT_RENDER.md, E. The report is read from the

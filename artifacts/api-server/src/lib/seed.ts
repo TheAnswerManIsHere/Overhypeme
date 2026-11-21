@@ -198,14 +198,6 @@ export async function ensureSchema(): Promise<void> {
       ON CONFLICT (key) DO NOTHING`,
     },
     {
-      label: "admin_config seed engine_revision",
-      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
-        VALUES ('engine_revision', '1', 'integer', 'Engine Revision',
-         'Manual marker bumped on a major engine/LLM change. Facts whose enrichment was processed under an older revision read as stale for reprocess in Taxonomy Health.',
-         false)
-      ON CONFLICT (key) DO NOTHING`,
-    },
-    {
       label: "user_ai_images.add_image_type",
       ddl: `ALTER TABLE user_ai_images ADD COLUMN IF NOT EXISTS image_type varchar(20) NOT NULL DEFAULT 'generic'`,
     },

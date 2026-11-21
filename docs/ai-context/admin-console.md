@@ -24,7 +24,7 @@ Mounted routes, from `App.tsx` and `AdminLayout.tsx`'s 15 `NAV_ITEMS` (the Affil
 | Route | File | What it's for |
 | --- | --- | --- |
 | `/admin` | `index.tsx` | Dashboard: fact/user counts, quick links, Sentry diagnostic triggers. (Its route-visit leaderboard was removed in launch Phase 4; [`docs/retired/README.md`](../retired/README.md).) |
-| `/admin/facts` | `facts.tsx` | Broad fact browse/search/edit/delete + bulk import + enrichment backfill — see below. |
+| `/admin/facts` | `facts.tsx` | Broad fact browse/search/edit/deactivate, the read-only AI taxonomy with Re-run, and a Utilities tab holding the gag fold — see below. |
 | `/admin/users` | `users.tsx` | User browse/search + everything not already covered in `accounts-and-auth.md` — see below. |
 | `/admin/billing` | `billing.tsx` | Stripe config/plan summary, live-mode toggle, test-event trigger, price-sync status. |
 | `/admin/refunds-disputes` | `refundsDisputes.tsx` | Refund/dispute event log plus a manual grace-sweep trigger. |
@@ -32,7 +32,6 @@ Mounted routes, from `App.tsx` and `AdminLayout.tsx`'s 15 `NAV_ITEMS` (the Affil
 | `/admin/eval` | `evalDashboard.tsx` | Eval: two tabs, Evaluate Models and Evaluate Prompts, each a wizard (facts, engines or wordings, photo types, looks, description, one Generate Images) and a list of evaluations to judge blind, finish and read (plan `PLAN_EVAL_PAGE.md`). |
 | `/admin/ai` | `aiSettings.tsx` | AI Settings, read-only: each AI step's model, its parameters as sent ("not sent" where the model takes none) and every system prompt, all from code ([decisions.md](./decisions.md#2026-11-14--the-stored-ai-settings-and-the-engines-table-are-deleted-a-read-only-page-shows-the-values)). No controls. |
 | `/admin/config` | `config.tsx` | The generic `admin_config` key/value editor — see *Config surfaces*. |
-| `/admin/taxonomy-health` | `taxonomy-health.tsx` | Covered in [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md). |
 | `/admin/features` | `features.tsx` | The tier × feature-flag permission matrix — see *Config surfaces*. |
 | `/admin/email-queue` | `emailQueue.tsx` | Outbound transactional-email outbox: pending/failed rows, retry, requeue. |
 | `/admin/queue-health` | `queueHealth.tsx` | Background job-queue infra dashboard: per-queue/lane status counts, oldest-pending age, per-item drill-in. |
@@ -186,23 +185,24 @@ with an initial password and tier.
 
 ## Content management (beyond fact/comment moderation)
 
-**Facts:** `/admin/facts` is the broader "all facts" surface — search,
-an active/inactive/both filter, taxonomy-override and
-needs-review quick filters, a full per-fact edit panel (taxonomy fields and
-counts; the wording is shown read-only, since a fact's wording never changes
-once accepted at triage — a wrong one is replaced by deactivating the fact and
-submitting the corrected wording as a new fact, `moderation-workflow.md`,
-*The wording locks at triage*; past wording edits stay listed read-only), a "Resubmit for Moderation" action that puts a fact back through
-the review pipeline, and soft/hard delete. A separate Utilities tab
-handles bulk import (paste, file upload, several formats) and triggers a
-background enrichment-backfill job for previously unenriched facts.
+**Facts:** `/admin/facts` is the broader "all facts" surface — search, an
+active/inactive/both filter, and a per-fact edit panel: counts, deactivate,
+the wording shown read-only (a fact's wording never changes once accepted at
+triage — a wrong one is replaced by deactivating the fact and submitting the
+corrected wording as a new fact, `moderation-workflow.md`, *The wording locks
+at triage*; past wording edits stay listed read-only), the fact's gags
+read-only, and its stored AI taxonomy read-only with "Re-run" (plan
+`PLAN_FACT_LIFECYCLE_REBUILD.md`, 2A: the override editor, the override
+filters and the version panel are gone). A separate Utilities tab holds the
+gag fold (Issue #982) until its live run is done; the imports and the
+taxonomy backfill are gone. Phase 3 of that plan replaces this page with the
+fact sheet.
 
 **Memes:** **there is no dedicated "all memes" browse/edit admin page.**
 The only meme-facing admin surfaces are the Gags panel (a fact's one to three
 gags, each with its male, female and pet examples, editor and test renders; on the moderation
-review's Gags and Test Renders steps and in the Facts editor's Visual Taxonomy
-Enrichment section, where a live fact with no open review also gets **Draft
-more gags**, the gag writer's ideas outside a review; plan
+review's Gags and Test Renders steps, and read-only in the Facts editor's
+"Gags and AI taxonomy" section; plan
 `docs/plans/PLAN_THREE_GAGS.md` and `PLAN_GAG_EXAMPLES.md`, covered in
 [`visual-pipeline.md`](./visual-pipeline.md)) and the legal/safety quarantine path, which currently has no
 purpose-built UI of its own — access is config-only, through the generic

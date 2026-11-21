@@ -176,48 +176,7 @@ describe("GET /admin/facts — a flat list", () => {
   });
 });
 
-describe("PATCH /admin/facts/:id/enrichment", () => {
-  it("rejects a PATCH that changes a tracked field (use the override endpoints)", async () => {
-    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: null });
-
-    // OTHER changes primaryArchetype etc — tracked fields that PATCH may not mutate.
-    const res = await request(adminApp)
-      .patch(`/api/admin/facts/${id}/enrichment`)
-      .send({ enrichment: OTHER });
-    assert.equal(res.status, 400);
-    assert.match(String(res.body.error), /override endpoints/i);
-    assert.ok(Array.isArray(res.body.trackedPaths) && res.body.trackedPaths.includes("/primaryArchetype"));
-
-    // The row is untouched.
-    const [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
-    assert.equal(row.primaryArchetype, "superhuman_physical_feat");
-  });
-
-  it("accepts a PATCH that leaves tracked fields unchanged (hashtags)", async () => {
-    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: null });
-    const res = await request(adminApp)
-      .patch(`/api/admin/facts/${id}/enrichment`)
-      .send({ enrichment: { ...VALID, suggestedHashtags: ["alpha", "beta", "gamma"] } });
-    assert.equal(res.status, 200);
-    assert.equal(res.body.success, true);
-    const [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
-    assert.deepEqual((row.enrichment as FactEnrichment).suggestedHashtags, ["alpha", "beta", "gamma"]);
-    // Tracked projection columns are unchanged.
-    assert.equal(row.primaryArchetype, "superhuman_physical_feat");
-  });
-
-  it("refuses a PATCH that carries a gag (400 GAG_IN_ENRICHMENT) and stores nothing", async () => {
-    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
-    const res = await request(adminApp)
-      .patch(`/api/admin/facts/${id}/enrichment`)
-      .send({ enrichment: { ...VALID, suggestedHashtags: ["alpha", "beta", "gamma"], visualPromptStrategyOverride: vso() } });
-    assert.equal(res.status, 400);
-    assert.equal(res.body.code, "GAG_IN_ENRICHMENT");
-    const [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
-    assert.deepEqual((row.enrichment as FactEnrichment).suggestedHashtags, ["strength", "pushups", "earth"]);
-    assert.equal(await storedVso(id), undefined);
-  });
-
+describe("saving a gag — who and when, and its tokens", () => {
   it("records who saved a gag change and when, and an identical re-save changes neither", async () => {
     const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
     const override = vso({ bubbles: [{ type: "speech", entity: "subject", text: "Light as a feather." }] }, "{NAME} hoists a glowing barbell overhead.");
@@ -249,29 +208,23 @@ describe("PATCH /admin/facts/:id/enrichment", () => {
     assert.equal(bad.status, 400);
     assert.match(String(bad.body.error), /token/i);
   });
+});
 
-  it("rejects invalid enrichment with 400 and does not touch the row", async () => {
-    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID) });
-    // subtype belongs to a different archetype → invalid
-    const res = await request(adminApp)
-      .patch(`/api/admin/facts/${id}/enrichment`)
-      .send({ enrichment: { ...VALID, subtype: "mechanical_contradiction" } });
-    assert.equal(res.status, 400);
-    assert.match(String(res.body.error), /Invalid enrichment/);
-
+describe("the taxonomy is read-only (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 2A)", () => {
+  it("no route edits, overrides or versions a fact's taxonomy any more", async () => {
+    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+    const gone: Array<[string, () => Promise<{ status: number }>]> = [
+      ["PATCH enrichment", () => request(adminApp).patch(`/api/admin/facts/${id}/enrichment`).send({ enrichment: { ...VALID, suggestedHashtags: ["alpha", "beta", "gamma"] } })],
+      ["GET enrichment-resolved", () => request(adminApp).get(`/api/admin/facts/${id}/enrichment-resolved`)],
+      ["PUT enrichment-overrides", () => request(adminApp).put(`/api/admin/facts/${id}/enrichment-overrides`).send({ path: "/visualComplexity", value: "high" })],
+      ["DELETE enrichment-overrides", () => request(adminApp).delete(`/api/admin/facts/${id}/enrichment-overrides`)],
+      ["GET enrichment-overrides/history", () => request(adminApp).get(`/api/admin/facts/${id}/enrichment-overrides/history`)],
+      ["GET enrichment-versions", () => request(adminApp).get(`/api/admin/facts/${id}/enrichment-versions`)],
+      ["POST backfill-enrichment", () => request(adminApp).post(`/api/admin/facts/backfill-enrichment`)],
+    ];
+    for (const [name, call] of gone) assert.equal((await call()).status, 404, name);
     const [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
-    assert.equal(row.primaryArchetype, "superhuman_physical_feat"); // unchanged
-  });
-
-  it("404s an unknown fact and 400s a bad id", async () => {
-    assert.equal(
-      (await request(adminApp).patch(`/api/admin/facts/2000000000/enrichment`).send({ enrichment: VALID })).status,
-      404,
-    );
-    assert.equal(
-      (await request(adminApp).patch(`/api/admin/facts/abc/enrichment`).send({ enrichment: VALID })).status,
-      400,
-    );
+    assert.deepEqual((row.enrichment as FactEnrichment).suggestedHashtags, ["strength", "pushups", "earth"]);
   });
 });
 

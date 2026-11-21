@@ -33,8 +33,6 @@ const REGISTERED_QUEUES = [
   "email",
   "enrichment",
   "fact_ai_meme_backfill",
-  "fact_character_fill",
-  "fact_enrichment_backfill",
   "fact_reading",
   "fact_visual_concepts",
   "gag_fold",
@@ -42,7 +40,6 @@ const REGISTERED_QUEUES = [
   "image_generation",
   "image_prompt_generation",
   "operations_drill",
-  "projection_repair",
   "review_render_scenarios_prepare",
 ] as const;
 
@@ -71,7 +68,7 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** The sidebar as it stood before PR288, plus Queue Health directly after Email Queue, less Engines (removed 2026-11-14). */
+/** The sidebar as it stood before PR288, plus Queue Health directly after Email Queue, less Engines (removed 2026-11-14) and Taxonomy Health (removed, PLAN_FACT_LIFECYCLE_REBUILD.md 2A). */
 const SIDEBAR: [string, string][] = [
   ["Dashboard", "/admin"],
   ["Facts", "/admin/facts"],
@@ -81,7 +78,6 @@ const SIDEBAR: [string, string][] = [
   ["Billing", "/admin/billing"],
   ["Refunds & Disputes", "/admin/refunds-disputes"],
   ["Trace an image", "/admin/trace"],
-  ["Taxonomy Health", "/admin/taxonomy-health"],
   ["Email Queue", "/admin/email-queue"],
   ["Operations", "/admin/operations"],
   ["Queue Health", "/admin/queue-health"],
@@ -176,9 +172,9 @@ test.describe("Admin · Queue Health", () => {
     await expect(rows, "one row per registered queue, no more").toHaveCount(REGISTERED_QUEUES.length);
     for (const queue of REGISTERED_QUEUES) {
       // Scoped to the rows, and matched exactly. A page-level search would be
-      // satisfied by the name appearing anywhere -- and "enrichment" is a
-      // substring of "fact_enrichment_backfill", so a loose match would let one
-      // row stand in for two.
+      // satisfied by the name appearing anywhere -- and one queue's name can be
+      // a substring of another's, so a loose match would let one row stand in
+      // for two.
       await expect(
         rows.filter({ has: page.getByText(queue, { exact: true }) }),
         `queue "${queue}" should have exactly one row`,

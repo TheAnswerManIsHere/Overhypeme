@@ -1,11 +1,25 @@
 # Taxonomy and Enrichment
 
+> **Out of date below this banner, until the batched documentation pass.**
+> Increment 2.1a of Issue #1018 removed Taxonomy Health and its machinery: the
+> page and its routes, the processing signature and engine revision ("Mark
+> major update"), projection repair, the character fill, the old taxonomy
+> backfill, the manual-override system (layers, history writer, the override
+> merge on write, the editor and its badges and filters), the version-history
+> panel and the hashtag edit. The taxonomy is now read-only stored AI output:
+> a run writes the classifier's own result through `taxonomyColumns`
+> (`artifacts/api-server/src/lib/factEnrichment.ts`), and the Facts editor
+> shows it with only "Re-run" (`FactTaxonomyPanel.tsx`). The override,
+> signature and version columns stay in the schema, unread, until increment
+> 2.1c drops them; increment 2.1b adds run history. Trust the code and
+> `docs/plans/PLAN_FACT_LIFECYCLE_REBUILD.md` (2A–2C) over the sections below.
+
 > Enrichment = the AI **classification** layer for a fact. This doc is the
 > source-of-truth boundary map. Key modules: `lib/api-zod/src/taxonomy.ts`
 > (schema + version constants), `lib/api-zod/src/enrichmentOverrides.ts` (the
 > resolver), `artifacts/api-server/src/lib/factEnrichment.ts`,
-> `enrichmentVersioning.ts`, `enrichmentJobs.ts`,
-> `artifacts/api-server/src/lib/taxonomyHealth/`.
+> `enrichmentVersioning.ts`, `enrichmentJobs.ts` (Taxonomy Health's
+> modules went in increment 2.1a).
 
 ## What enrichment is responsible for
 
@@ -290,13 +304,11 @@ must preserve that.
 - `lib/db/src/schema/facts.ts`, `lib/db/src/schema/factEnrichmentVersions.ts`,
   `lib/db/src/schema/engineRevisionBumps.ts`
 - `lib/api-zod/src/enrichmentOverrides.ts`, `lib/api-zod/src/taxonomy.ts`,
-  `lib/api-zod/src/taxonomyHealth.ts`, `lib/api-zod/src/processingSignature.ts`
+  `lib/api-zod/src/processingSignature.ts` (the stored shape only)
 - `artifacts/api-server/src/lib/factEnrichment.ts`,
   `enrichmentOverrideLayers.ts`, `enrichmentVersioning.ts`,
   `sendBackToReview.ts`, `enrichmentJobs.ts`, `factEnrichmentBackfillJob.ts`,
   `factSendBackJob.ts`, `factEnrichmentConfig.ts`, `processingSignature.ts`
-- `artifacts/api-server/src/lib/taxonomyHealth/{index.ts,projectionRepair.ts}`
-- `artifacts/api-server/src/routes/adminTaxonomyHealth.ts`
 - Tests: `enrichmentOverridesResolver.test.ts`,
   `enrichmentVersioning.refresh.test.ts`, `taxonomyHealth.evaluate.test.ts`,
   `factEnrichmentRepair.test.ts`, `projectionRepair.test.ts`,

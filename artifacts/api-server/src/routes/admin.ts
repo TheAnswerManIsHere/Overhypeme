@@ -2,21 +2,11 @@ import { Router, type IRouter, type Request, type Response, type NextFunction } 
 import { z } from "zod";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, featureFlagsTable, userGenerationCostsTable, membershipEntitlementsTable, entitlementSourceDisputesTable, membershipHistoryTable, asyncJobsTable, stripeWebhookAuditTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, featureFlagsTable, userGenerationCostsTable, membershipEntitlementsTable, entitlementSourceDisputesTable, membershipHistoryTable, asyncJobsTable, stripeWebhookAuditTable, factTextEditHistoryTable } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, getTableColumns } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
 import { backfillEmbeddings } from "../lib/embeddings";
-import { enrichFact, materializeEnrichment } from "../lib/factEnrichment";
-import { writeBulkReenrichKeepingCharacterCorrection } from "../lib/factEnrichmentBackfillJob";
-import { recordOverrideHistory } from "../lib/enrichmentOverrideHistory";
-import {
-  applyOverrideReset,
-  applyOverrideUpsert,
-  loadFactOverrideState,
-  serializeResolved,
-  type OverrideLayers,
-} from "../lib/enrichmentOverrideLayers";
 import { enqueueJob, USE_CONFIGURED_MAX_ATTEMPTS } from "../lib/asyncJobs";
 import { emailRetryReset } from "../lib/email";
 import { laneHealth, queueHealth, queueHealthJobs } from "../lib/queueHealth";
@@ -838,31 +828,24 @@ const FACT_LIST_COLUMNS = {
   enrichmentStatus: factsTable.enrichmentStatus,
   hasEmbedding: sql<boolean>`(${factsTable.embedding} IS NOT NULL)`,
   hasEnrichment: sql<boolean>`(${factsTable.enrichment} IS NOT NULL)`,
-  hasEnrichmentOverrides: sql<boolean>`(${factsTable.enrichmentOverrides} <> '{}'::jsonb)`,
-  enrichmentBaselineChanged: factsTable.enrichmentBaselineChanged,
   // Eval harness (Slice 2B): golden-set membership, so the Facts editor can show
   // + toggle it and reflect the saved state.
   evalGolden: factsTable.evalGolden,
   evalGoldenReason: factsTable.evalGoldenReason,
 } as const;
 
-// The Facts list, newest first, filtered by visibility, search, overrides and
-// a changed baseline.
+// The Facts list, newest first, filtered by visibility and search.
 router.get("/admin/facts", requireAdmin, async (req: Request, res: Response) => {
   const page = Math.max(1, parseInt(String(req.query["page"] ?? "1"), 10));
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query["limit"] ?? "50"), 10)));
   const offset = (page - 1) * limit;
   const search = String(req.query["search"] ?? "").trim();
   const visibility = String(req.query["visibility"] ?? (req.query["inactive"] === "true" ? "both" : "active"));
-  const onlyOverridden = req.query["hasOverrides"] === "true";
-  const onlyBaselineChanged = req.query["baselineChanged"] === "true";
   const like = `%${search}%`;
 
   const visibilityFilter = visibility === "both" ? undefined : eq(factsTable.isActive, visibility !== "inactive");
-  const overridesFilter = onlyOverridden ? sql`${factsTable.enrichmentOverrides} <> '{}'::jsonb` : undefined;
-  const baselineChangedFilter = onlyBaselineChanged ? eq(factsTable.enrichmentBaselineChanged, true) : undefined;
   const searchFilter = search ? ilike(factsTable.text, like) : undefined;
-  const where = and(...[visibilityFilter, searchFilter, overridesFilter, baselineChangedFilter].filter(Boolean));
+  const where = and(...[visibilityFilter, searchFilter].filter(Boolean));
 
   const [facts, [{ total }]] = await Promise.all([
     db.select(FACT_LIST_COLUMNS)
@@ -1098,205 +1081,6 @@ router.get("/admin/facts/:id", requireAdmin, async (req: Request, res: Response)
   res.json(row);
 });
 
-// The override-layer machinery (loadFactOverrideState, serializeResolved,
-// applyOverrideUpsert/Reset, provenance stamping) lives in
-// lib/enrichmentOverrideLayers.ts. This file keeps owning the fact-specific
-// persistence: row locks, materialization onto facts.*, and override-history
-// audit rows.
-// GET /admin/facts/:id/enrichment-resolved — the AI baseline, the manual override
-// map, the materialized effective blob, and the unified manual-intervention
-// summary the editor uses to decorate diverged fields.
-router.get("/admin/facts/:id/enrichment-resolved", requireAdmin, async (req: Request, res: Response) => {
-  const id = Number(req.params["id"]);
-  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
-  const state = await loadFactOverrideState(db, id);
-  if (!state) { res.status(404).json({ error: "Fact not found" }); return; }
-  res.json(serializeResolved(state));
-});
-
-// PUT /admin/facts/:id/enrichment-overrides — create/update a manual override for
-// one allowlisted path. Runs in a transaction with a row lock and merges against
-// the latest stored overrides so concurrent edits to different paths never clobber
-// each other. Resetting to the AI value deletes the override (never stores
-// override == AI). Validates the full effective before persisting.
-router.put("/admin/facts/:id/enrichment-overrides", requireAdmin, async (req: Request, res: Response) => {
-  const id = Number(req.params["id"]);
-  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
-  const body = (req.body ?? {}) as { path?: unknown; value?: unknown; reason?: unknown; acknowledgeCurrentAiBaseline?: unknown };
-  const path = String(body.path ?? "");
-  if (!isOverridablePath(path)) { res.status(400).json({ error: `Path "${path}" is not an overridable field` }); return; }
-  const adminId = (req as AuthenticatedRequest).user?.id ?? null;
-  const reason = typeof body.reason === "string" && body.reason.trim() ? body.reason.trim() : undefined;
-  const acknowledge = body.acknowledgeCurrentAiBaseline === true;
-
-  try {
-    const out = await db.transaction(async (tx): Promise<{ status: number; error?: string; body?: object; state?: OverrideLayers }> => {
-      const state = await loadFactOverrideState(tx, id, true);
-      if (!state) return { status: 404, error: "Fact not found" };
-      if (!state.aiDerived) return { status: 409, error: "Fact has no enrichment baseline yet — classify it first" };
-      const aiDerived = state.aiDerived;
-
-      // Shared merge core: validation, reset-when-equal-AI, acknowledge
-      // semantics, subtype auto-link, cross-field validation.
-      const result = applyOverrideUpsert({
-        layers: { ...state, aiDerived },
-        path,
-        value: body.value,
-        ...(reason !== undefined ? { reason } : {}),
-        acknowledge,
-        adminId,
-      });
-      if (!result.ok) return { status: result.status, error: result.error };
-
-      const { columns } = materializeEnrichment({ aiDerived, overrides: result.overrides });
-      await tx.update(factsTable).set({ ...columns, enrichmentStatus: "ok" }).where(eq(factsTable.id, id));
-      // Fact edits are the audited surface — map the change list to history rows.
-      await recordOverrideHistory(
-        result.changes.map((c): InsertEnrichmentOverrideHistory => ({
-          factId: id, path: c.path, action: c.action, oldValue: c.oldValue, newValue: c.newValue,
-          aiGenerationId: c.aiGenerationId, reason: c.reason, performedBy: adminId,
-        })),
-        tx,
-      );
-      await recordAdminAction({ factId: id }, adminId, "classification_edit", { changes: result.changes.map((c) => ({ path: c.path, action: c.action, newValue: c.newValue })) }, tx);
-      return { status: 200, state: { ...state, overrides: result.overrides } };
-    });
-
-    if (out.status !== 200 || !out.state) { res.status(out.status).json(out.body ?? { error: out.error ?? "Error" }); return; }
-    res.json({ success: true, ...serializeResolved({ ...out.state, enrichmentStatus: "ok" }) });
-  } catch (e) {
-    logger.error({ err: e, factId: id, path }, "[PUT /admin/facts/:id/enrichment-overrides] failed");
-    res.status(500).json({ error: "Failed to save override" });
-  }
-});
-
-// DELETE /admin/facts/:id/enrichment-overrides[?path=…] — reset one override (or
-// ALL of them when no `path` is given) back to the AI baseline.
-router.delete("/admin/facts/:id/enrichment-overrides", requireAdmin, async (req: Request, res: Response) => {
-  const id = Number(req.params["id"]);
-  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
-  const rawPath = req.query["path"];
-  const path = rawPath !== undefined ? String(rawPath) : null;
-  if (path !== null && !isOverridablePath(path)) { res.status(400).json({ error: `Path "${path}" is not an overridable field` }); return; }
-  const adminId = (req as AuthenticatedRequest).user?.id ?? null;
-
-  try {
-    const out = await db.transaction(async (tx): Promise<{ status: number; error?: string; body?: object; state?: OverrideLayers }> => {
-      const state = await loadFactOverrideState(tx, id, true);
-      if (!state) return { status: 404, error: "Fact not found" };
-      if (!state.aiDerived) return { status: 409, error: "Fact has no enrichment baseline yet" };
-      const aiDerived = state.aiDerived;
-
-      const result = applyOverrideReset({ layers: { ...state, aiDerived }, path: path as OverridablePath | null });
-
-      const { columns } = materializeEnrichment({ aiDerived, overrides: result.overrides });
-      await tx.update(factsTable).set({ ...columns, enrichmentStatus: "ok" }).where(eq(factsTable.id, id));
-      await recordOverrideHistory(
-        result.changes.map((c): InsertEnrichmentOverrideHistory => ({
-          factId: id, path: c.path, action: c.action, oldValue: c.oldValue, newValue: c.newValue,
-          aiGenerationId: c.aiGenerationId, reason: c.reason, performedBy: adminId,
-        })),
-        tx,
-      );
-      await recordAdminAction({ factId: id }, adminId, "classification_edit", { changes: result.changes.map((c) => ({ path: c.path, action: c.action, newValue: c.newValue })) }, tx);
-      return { status: 200, state: { ...state, overrides: result.overrides } };
-    });
-
-    if (out.status !== 200 || !out.state) { res.status(out.status).json(out.body ?? { error: out.error ?? "Error" }); return; }
-    res.json({ success: true, ...serializeResolved({ ...out.state, enrichmentStatus: "ok" }) });
-  } catch (e) {
-    logger.error({ err: e, factId: id, path }, "[DELETE /admin/facts/:id/enrichment-overrides] failed");
-    res.status(500).json({ error: "Failed to reset override" });
-  }
-});
-
-// GET /admin/facts/:id/enrichment-overrides/history — the audit trail.
-router.get("/admin/facts/:id/enrichment-overrides/history", requireAdmin, async (req: Request, res: Response) => {
-  const id = Number(req.params["id"]);
-  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
-  const history = await db
-    .select()
-    .from(enrichmentOverrideHistoryTable)
-    .where(eq(enrichmentOverrideHistoryTable.factId, id))
-    .orderBy(desc(enrichmentOverrideHistoryTable.createdAt))
-    .limit(200);
-  res.json({ history });
-});
-
-// PATCH /admin/facts/:id/enrichment — persist admin edits to the NON-tracked
-// enrichment fields only (suggested hashtags). Tracked taxonomy/notes paths are
-// owned by the override endpoints (PUT/DELETE /enrichment-overrides); a PATCH
-// that tries to CHANGE any tracked field is rejected with 400 so stale clients
-// can't overwrite them in place. A fact's gags are not enrichment (migration
-// 0139): they are saved through /admin/facts/:id/gags, and a PATCH carrying one
-// is refused rather than silently dropped.
-router.patch("/admin/facts/:id/enrichment", requireAdmin, async (req: Request, res: Response) => {
-  const id = Number(req.params["id"]);
-  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
-
-  const raw = (req.body as { enrichment?: unknown } | null | undefined)?.enrichment;
-  if (raw && typeof raw === "object" && "visualPromptStrategyOverride" in raw) {
-    res.status(400).json({
-      error: "A fact's gags are saved through /admin/facts/:id/gags, not the enrichment.",
-      code: "GAG_IN_ENRICHMENT",
-    });
-    return;
-  }
-  const result = validateEnrichment(raw);
-  if (!result.ok) { res.status(400).json({ error: `Invalid enrichment: ${result.error}` }); return; }
-  const submitted = result.data;
-
-  const state = await loadFactOverrideState(db, id);
-  if (!state) { res.status(404).json({ error: "Fact not found" }); return; }
-
-  // Reject any attempt to change a tracked field through PATCH.
-  if (state.effective) {
-    const changed = OVERRIDABLE_PATH_KEYS.filter((p) => {
-      const field = pathToField(p);
-      return !overrideValuesEqual(
-        (submitted as Record<string, unknown>)[field],
-        (state.effective as unknown as Record<string, unknown>)[field],
-      );
-    });
-    if (changed.length > 0) {
-      res.status(400).json({
-        error: `Tracked field(s) ${changed.map((p) => OVERRIDABLE_PATHS[p].label).join(", ")} must be changed via the override endpoints (PUT/DELETE /admin/facts/${id}/enrichment-overrides), not PATCH`,
-        trackedPaths: changed,
-      });
-      return;
-    }
-  }
-
-  // Apply only the non-tracked edits: suggestedHashtags is an AI field edited
-  // in place on the baseline (not tracked).
-  const baseline = state.aiDerived ?? submitted;
-  if (!baseline) { res.status(409).json({ error: "Fact has no enrichment baseline yet" }); return; }
-  const newAiDerived = { ...baseline, suggestedHashtags: submitted.suggestedHashtags } as FactEnrichment;
-
-  const { columns } = materializeEnrichment({ aiDerived: newAiDerived, overrides: state.overrides });
-  const updated = await db.transaction(async (tx) => {
-    const [row] = await tx
-      .update(factsTable)
-      .set({ ...columns, enrichmentStatus: "ok" })
-      .where(eq(factsTable.id, id))
-      .returning({ id: factsTable.id });
-    if (row) await recordAdminAction({ factId: id }, req.user?.id, "classification_edit", { suggestedHashtags: submitted.suggestedHashtags ?? null }, tx);
-    return row;
-  });
-  if (!updated) { res.status(404).json({ error: "Fact not found" }); return; }
-
-  res.json({
-    success: true,
-    enrichment: columns.enrichment,
-    projection: {
-      primaryArchetype: columns.primaryArchetype,
-      subtype: columns.subtype,
-      overhypeFit: columns.overhypeFit,
-      adultSuitability: columns.adultSuitability,
-    },
-  });
-});
-
 // POST /admin/facts/:id/enrich — re-run classification on a live fact. Marks
 // enrichmentStatus "pending" and enqueues the (generalized) enrichment job for
 // the fact target. The destructive "this overwrites admin-tuned metadata"
@@ -1317,63 +1101,6 @@ router.post("/admin/facts/:id/enrich", requireAdmin, async (req: Request, res: R
   await recordAdminAction({ factId: id }, req.user?.id, "classification_rerun", {});
 
   res.json({ success: true, enrichmentStatus: "pending" });
-});
-
-// GET /admin/facts/:id/enrichment-versions — the fact's versioned-enrichment
-// history, METADATA ONLY (no jsonb blobs — the panel is for visibility, not
-// rollback). "current" is derived from facts.* (the sole active truth — the
-// version table never holds an active row).
-router.get("/admin/facts/:id/enrichment-versions", requireAdmin, async (req: Request, res: Response) => {
-  const id = Number(req.params["id"]);
-  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
-
-  const [fact] = await db
-    .select({
-      enrichment: factsTable.enrichment,
-      enrichmentStatus: factsTable.enrichmentStatus,
-      enrichmentOverrides: factsTable.enrichmentOverrides,
-    })
-    .from(factsTable)
-    .where(eq(factsTable.id, id))
-    .limit(1);
-  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
-
-  const createdByUsers = alias(usersTable, "created_by_users");
-  const rows = await db
-    .select({
-      id: factEnrichmentVersionsTable.id,
-      versionNo: factEnrichmentVersionsTable.versionNo,
-      status: factEnrichmentVersionsTable.status,
-      source: factEnrichmentVersionsTable.source,
-      sourceReviewId: factEnrichmentVersionsTable.sourceReviewId,
-      note: factEnrichmentVersionsTable.note,
-      createdByDisplayName: createdByUsers.displayName,
-      createdByEmail: createdByUsers.email,
-      createdAt: factEnrichmentVersionsTable.createdAt,
-      promotedAt: factEnrichmentVersionsTable.promotedAt,
-      supersededAt: factEnrichmentVersionsTable.supersededAt,
-      rejectedAt: factEnrichmentVersionsTable.rejectedAt,
-      enrichmentReady: sql<boolean>`(${factEnrichmentVersionsTable.enrichment} IS NOT NULL)`,
-    })
-    .from(factEnrichmentVersionsTable)
-    .leftJoin(createdByUsers, eq(factEnrichmentVersionsTable.createdBy, createdByUsers.id))
-    .where(eq(factEnrichmentVersionsTable.factId, id))
-    .orderBy(desc(factEnrichmentVersionsTable.createdAt));
-
-  res.json({
-    current: {
-      hasEnrichment: fact.enrichment != null,
-      enrichmentStatus: fact.enrichmentStatus ?? null,
-      hasOverrides: Object.keys((fact.enrichmentOverrides ?? {}) as Record<string, unknown>).length > 0,
-    },
-    versions: rows.map((r) => ({
-      ...r,
-      createdAt: r.createdAt.toISOString(),
-      promotedAt: r.promotedAt?.toISOString() ?? null,
-      supersededAt: r.supersededAt?.toISOString() ?? null,
-      rejectedAt: r.rejectedAt?.toISOString() ?? null,
-    })),
-  });
 });
 
 // GET /admin/comments/pending — comments awaiting first moderation
@@ -1657,58 +1384,6 @@ router.post("/admin/facts/backfill-embeddings", requireAdminOrApiKey, async (_re
     res.json({ success: true, ...result });
   } catch (err) {
     logger.error({ err }, "[admin] Backfill embeddings error");
-    res.status(500).json({ error: "Backfill failed", details: String(err) });
-  }
-});
-
-// Backfill visual-taxonomy enrichment onto existing facts (covers bulk-imported
-// facts too). With ?force=true, re-enriches every active fact; otherwise only
-// facts that have no enrichment yet. Runs sequentially in the background to
-// respect OpenAI rate limits.
-router.post("/admin/facts/backfill-enrichment", requireAdminOrApiKey, async (req: Request, res: Response) => {
-  try {
-    const force = String((req.query as Record<string, unknown>)["force"] ?? "") === "true";
-
-    const rows = await db
-      .select({
-        id: factsTable.id,
-        text: factsTable.text,
-        enrichment: factsTable.enrichment,
-        enrichmentAiDerived: factsTable.enrichmentAiDerived,
-      })
-      .from(factsTable)
-      .where(force
-        ? eq(factsTable.isActive, true)
-        : and(eq(factsTable.isActive, true), isNull(factsTable.enrichment)));
-
-    const total = rows.length;
-    res.json({ success: true, queued: total, message: `Enriching ${total} facts sequentially in the background.` });
-
-    void (async () => {
-      logger.info({ total, force }, "[admin] backfill-enrichment: starting");
-      let done = 0;
-      let failed = 0;
-      for (const fact of rows) {
-        try {
-          const enrichment = await enrichFact({
-            factText: fact.text,
-            priorCharacters: fact.enrichmentAiDerived as FactEnrichment | null,
-          });
-          // The fact's gags live in fact_gags (migration 0139): re-classifying
-          // never touches them. Overrides reset, except a moderator's
-          // character correction, re-read under the row lock
-          // (PLAN_BUBBLE_SPEAKERS.md, E).
-          await writeBulkReenrichKeepingCharacterCorrection(fact.id, enrichment);
-          done++;
-        } catch (err) {
-          failed++;
-          logger.warn({ err, factId: fact.id }, "[admin] backfill-enrichment: fact failed");
-        }
-      }
-      logger.info({ total, done, failed }, "[admin] backfill-enrichment: done");
-    })();
-  } catch (err) {
-    logger.error({ err }, "[admin] Backfill enrichment error");
     res.status(500).json({ error: "Backfill failed", details: String(err) });
   }
 });
@@ -2479,7 +2154,7 @@ router.get("/admin/queue-health", requireAdmin, async (req: Request, res: Respon
   try {
     // The page polls this every 5s (see the UAT doc); 60/60s per (ip, admin
     // user) comfortably covers one client's steady polling plus several open
-    // tabs, same shape as the taxonomy-health job-status limiter below.
+    // tabs.
     const rateLimit = await checkSharedRateLimit(
       { endpoint: "admin.queue-health", ip: req.ip ?? null, userId: req.user?.id ?? null },
       { limit: 60, windowMs: 60_000 },

@@ -22,7 +22,6 @@ import {
   factCharactersSchema,
   factCharactersWireSchema,
   type CharactersExtraction,
-  type EnrichmentOverrides,
   type FactCharacter,
   type FactEnrichment,
 } from "@workspace/api-zod";
@@ -187,15 +186,4 @@ function withPriorCharactersOrMissing(enrichment: FactEnrichment, prior: PriorCh
     return { ...rest, characters: prior.characters ?? [], charactersExtraction: prior.charactersExtraction };
   }
   return { ...rest, characters: [] };
-}
-
-/**
- * The part of a fact's override map a bulk re-enrich keeps. Both bulk backfills
- * reset overrides by design, but the oracle promises a moderator's character
- * correction survives re-enrichment (plan E) — so `/characters` alone is kept.
- * Widening this to every field is a separate behaviour change.
- */
-export function charactersOverrideOnly(overrides: EnrichmentOverrides | null | undefined): EnrichmentOverrides {
-  const kept = overrides?.["/characters"];
-  return kept ? { "/characters": kept } : {};
 }

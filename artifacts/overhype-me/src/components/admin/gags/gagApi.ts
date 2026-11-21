@@ -13,7 +13,24 @@ import {
   type GagExampleKind,
   type VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
-import { saveRefusalMessage } from "../useFactEnrichmentEditing";
+
+/**
+ * The text a moderator sees when a gag save is refused. The over-budget refusal
+ * carries a machine code in `error` and the human sentence for each violated
+ * cap in `details[].message`, so the sentences win; any other refusal falls
+ * back to `error` (#685). It lived beside the old taxonomy editor until that
+ * went (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 2A).
+ */
+function saveRefusalMessage(body: unknown): string | undefined {
+  const b = body as { error?: unknown; details?: unknown } | null;
+  if (!b || typeof b !== "object") return undefined;
+  const details = Array.isArray(b.details) ? b.details : [];
+  const sentences = details
+    .map((d) => (d && typeof d === "object" ? (d as { message?: unknown }).message : undefined))
+    .filter((m): m is string => typeof m === "string" && m.trim() !== "");
+  if (sentences.length > 0) return sentences.join(" ");
+  return typeof b.error === "string" && b.error ? b.error : undefined;
+}
 
 export type GagResult = { ok: true; view: FactGagsView } | { ok: false; error: string };
 

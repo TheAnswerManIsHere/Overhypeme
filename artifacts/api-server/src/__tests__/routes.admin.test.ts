@@ -56,9 +56,7 @@ import {
   FACT_TEXT_EDIT_CODES,
   buildPlaceholderFactEnrichment,
   buildPlaceholderGag,
-  computeProcessingSignatureStaleness,
 } from "@workspace/api-zod";
-import { currentProcessingSignatureFromConfig } from "../lib/processingSignature.js";
 import { runGraceSweepOnce } from "../lib/membershipSchedules.js";
 
 

@@ -21,7 +21,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db as defaultDb } from "@workspace/db";
 import { asyncJobsTable, workerLaneHeartbeatsTable } from "@workspace/db/schema";
-import { TAXONOMY_HEALTH_SKIP_REASON_VALUES } from "@workspace/api-zod";
 import {
   ALL_LANES,
   laneIntervalsMs,
@@ -33,6 +32,8 @@ import {
   type JobLane,
 } from "./asyncJobs";
 import { heartbeatTtlMinutes, NOT_A_TASK_ROW } from "./workerHeartbeats";
+import { GAG_FOLD_SKIP_REASONS } from "./gags/foldJob";
+import { RETIRED_SKIP_RESULT } from "./aiMemeBackfillJobs";
 
 /** The five raw statuses `async_jobs.status` can hold (`recovering`: Issue #1000). */
 export const RAW_JOB_STATUSES = ["pending", "recovering", "processing", "done", "failed"] as const;
@@ -64,18 +65,19 @@ export type DisplayStatus = (typeof DISPLAY_STATUSES)[number];
 /**
  * Skip reasons are **sanitized against a closed set**, never passed through raw.
  *
- * Reusing `TAXONOMY_HEALTH_SKIP_REASON_VALUES` rather than declaring a second
- * list: a handler's skip reason already has exactly one canonical enum in this
- * codebase, and a parallel copy here would drift the moment either side gained a
- * value. Anything outside it becomes `other` — a handler is free to put
- * arbitrary text in `result`, and admin surfaces should not echo it back.
+ * The reasons the registered handlers give when they skip a job, as each
+ * handler declares them: the gag fold (`gags/foldJob.ts`) and the retired
+ * AI-meme backfill (`aiMemeBackfillJobs.ts`). Taxonomy Health's list went with
+ * that page (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 2A). Anything outside it
+ * becomes `other` — a handler is free to put arbitrary text in `result`, and
+ * admin surfaces should not echo it back.
  */
-const KNOWN_SKIP_REASONS: readonly string[] = TAXONOMY_HEALTH_SKIP_REASON_VALUES;
-export type SanitizedSkipReason = (typeof TAXONOMY_HEALTH_SKIP_REASON_VALUES)[number] | "other";
+export const KNOWN_SKIP_REASONS = [...GAG_FOLD_SKIP_REASONS, RETIRED_SKIP_RESULT.reason] as const;
+export type SanitizedSkipReason = (typeof KNOWN_SKIP_REASONS)[number] | "other";
 
 export function sanitizeSkipReason(raw: unknown): SanitizedSkipReason | null {
   if (typeof raw !== "string" || raw.length === 0) return null;
-  return KNOWN_SKIP_REASONS.includes(raw) ? (raw as SanitizedSkipReason) : "other";
+  return (KNOWN_SKIP_REASONS as readonly string[]).includes(raw) ? (raw as SanitizedSkipReason) : "other";
 }
 
 /** True when a terminal-ok row's `result` says the handler deliberately did nothing. */

@@ -24,7 +24,6 @@ import { pendingReviewsTable } from "@workspace/db/schema";
 import {
   factEnrichmentWireSchema,
   validateEnrichment,
-  resolveEnrichment,
   TAXONOMY_VERSION,
   CLASSIFICATION_PROMPT_VERSION,
   type FactEnrichment,
@@ -33,8 +32,6 @@ import {
   type OverhypeFit,
   type AdultSuitability,
   type ClassificationPromptDiagnostics,
-  type EnrichmentOverrides,
-  type OverrideSummary,
 } from "@workspace/api-zod";
 import {
   resolveFactEnrichmentSystemPrompt,
@@ -434,65 +431,37 @@ export function buildFactEnrichmentColumns(enrichment: FactEnrichment): {
   };
 }
 
-/** The exact `facts` columns produced by materializing effective enrichment. */
+/** The exact `facts` columns a taxonomy run writes. */
 export interface MaterializedEnrichmentColumns {
   enrichment: FactEnrichment;
   enrichmentAiDerived: FactEnrichment;
-  enrichmentOverrides: EnrichmentOverrides;
-  enrichmentBaselineChanged: boolean;
   primaryArchetype: PrimaryArchetype;
   subtype: FactSubtype;
   overhypeFit: OverhypeFit;
   adultSuitability: AdultSuitability;
 }
 
-export interface MaterializeResult {
-  /** Spread directly into a `facts` update/insert `.set(...)`. */
-  columns: MaterializedEnrichmentColumns;
-  effective: FactEnrichment;
-  summary: OverrideSummary;
-}
-
 /**
- * THE single write-shape for fact enrichment. Assembles the materialized
- * effective blob from the immutable AI baseline + manual overrides, and returns
- * the exact `facts` columns to persist (effective + the three layer columns +
- * the indexed projections). Every write site (PUT/DELETE overrides, PATCH
- * notes, re-enrich, projection repair) funnels through here so preserved
- * fields are never lost and projection columns never drift. A fact's gags are
- * not part of it (fact_gags, migration 0139).
+ * THE single write-shape for a fact's stored taxonomy. The taxonomy is
+ * read-only AI output (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 2A): there are no
+ * manual overrides, so the stored blob is the classifier's own result. It
+ * returns the exact `facts` columns to persist, the indexed projections
+ * included, so they never drift. A fact's gags are not part of it (fact_gags,
+ * migration 0139).
  */
-export function materializeEnrichment(input: {
-  aiDerived: FactEnrichment;
-  overrides: EnrichmentOverrides;
-}): MaterializeResult {
-  // Since migration 0139 a gag lives only in fact_gags: the stored layers never
-  // carry one (CHECK facts_enrichment_holds_no_gag), whatever a caller passed.
-  const aiDerived = stripGag(input.aiDerived);
-  const { effective, summary } = resolveEnrichment({ aiDerived, overrides: input.overrides });
-  const projected = buildFactEnrichmentColumns(effective);
+export function taxonomyColumns(enrichment: FactEnrichment): MaterializedEnrichmentColumns {
+  // Since migration 0139 a gag lives only in fact_gags: the stored taxonomy
+  // never carries one (CHECK facts_enrichment_holds_no_gag), whatever a caller passed.
+  const aiDerived = stripGag(enrichment);
+  const projected = buildFactEnrichmentColumns(aiDerived);
   return {
-    columns: {
-      enrichment: effective,
-      enrichmentAiDerived: aiDerived,
-      enrichmentOverrides: input.overrides,
-      enrichmentBaselineChanged: summary.baselineChangedPaths.length > 0,
-      primaryArchetype: projected.primaryArchetype,
-      subtype: projected.subtype,
-      overhypeFit: projected.overhypeFit,
-      adultSuitability: projected.adultSuitability,
-    },
-    effective,
-    summary,
+    enrichment: aiDerived,
+    enrichmentAiDerived: aiDerived,
+    primaryArchetype: projected.primaryArchetype,
+    subtype: projected.subtype,
+    overhypeFit: projected.overhypeFit,
+    adultSuitability: projected.adultSuitability,
   };
-}
-
-/**
- * Materialize the facts columns for a freshly-AI-derived blob that has no manual
- * overrides yet (review approval, backfill, first write).
- */
-export function materializeFromBaseline(enrichment: FactEnrichment): MaterializeResult {
-  return materializeEnrichment({ aiDerived: enrichment, overrides: {} });
 }
 
 /**

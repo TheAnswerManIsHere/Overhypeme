@@ -82,8 +82,6 @@ export interface AdminFactRow {
   primaryArchetype?: string | null;
   enrichmentStatus?: string | null;
   hasEnrichment?: boolean;
-  hasEnrichmentOverrides?: boolean;
-  enrichmentBaselineChanged?: boolean;
 }
 
 export function adminFactRow(overrides: Partial<AdminFactRow> & Pick<AdminFactRow, "id" | "text">): AdminFactRow {
@@ -104,20 +102,9 @@ export function adminFactRow(overrides: Partial<AdminFactRow> & Pick<AdminFactRo
     primaryArchetype: "superhuman_physical_feat",
     enrichmentStatus: "ok",
     hasEnrichment: true,
-    hasEnrichmentOverrides: false,
-    enrichmentBaselineChanged: false,
     ...overrides,
   };
 }
-
-const EMPTY_OVERRIDE_SUMMARY = {
-  hasOverrides: false,
-  overriddenPaths: [],
-  baselineChangedPaths: [],
-  invalidPaths: [],
-  crossFieldInvalid: false,
-  hasVisualStrategyOverride: false,
-};
 
 /** The stubbed gag's id: one per fact, so a fact's id doubles as it. */
 const gagIdFor = (factId: number) => factId;
@@ -161,9 +148,8 @@ function json(route: Route, body: unknown, status = 200): Promise<void> {
 }
 
 /**
- * Answer the reads behind one editable fact: its admin record, its resolved
- * enrichment, its version history and its public
- * detail. `listed` facts also answer GET /api/admin/facts. Writes pass through.
+ * Answer the reads behind one fact on the Facts page: its admin record (with
+ * its stored taxonomy), its gags and its public detail. `listed` facts also answer GET /api/admin/facts. Writes pass through.
  */
 export async function stubAdminFacts(
   page: Page,
@@ -202,14 +188,6 @@ export async function stubAdminFacts(
         return json(route, { ...row, enrichment, enrichmentStatus: row.enrichmentStatus ?? null });
       case "/gags":
         return json(route, gagsView(row.id, row.isActive, gag, entry.review ?? null));
-      case "/enrichment-resolved":
-        return json(route, { aiDerived: enrichment, overrides: {}, effective: enrichment, overrideSummary: EMPTY_OVERRIDE_SUMMARY });
-      case "/enrichment-versions":
-        return json(route, {
-          current: { hasEnrichment: enrichment != null, enrichmentStatus: row.enrichmentStatus ?? null, hasOverrides: false },
-          inFlight: null,
-          versions: [],
-        });
       default:
         return route.continue();
     }

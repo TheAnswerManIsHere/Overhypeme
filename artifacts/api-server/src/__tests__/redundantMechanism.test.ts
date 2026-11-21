@@ -25,7 +25,6 @@ import {
   getVisualPromptStrategy,
   type PrimaryArchetype,
 } from "@workspace/api-zod";
-import { evaluateFactTaxonomyHealth } from "../lib/taxonomyHealth";
 import { repairRedundantMechanismMisclassification } from "../lib/factEnrichment.js";
 import { FACT_ENRICHMENT_SYSTEM_DEFAULT } from "../lib/factEnrichmentConfig.js";
 
@@ -53,23 +52,11 @@ function buildEnrichment(over: {
   };
 }
 
-function assertHealthy(factText: string, raw: Record<string, unknown>): void {
-  const h = evaluateFactTaxonomyHealth({
-    fact: {
-      factId: 1,
-      factText,
-      enrichment: raw,
-      primaryArchetype: raw.primaryArchetype as string,
-      subtype: raw.subtype as string,
-      overhypeFit: "strong",
-      adultSuitability: "safe",
-    },
-  });
-  assert.equal(
-    h.overallStatus,
-    "healthy",
-    `expected healthy, got ${h.overallStatus}; issues=${JSON.stringify(h.issues)}`,
-  );
+// The stored taxonomy is read-only data (plan PLAN_FACT_LIFECYCLE_REBUILD.md,
+// 2A): what this suite guards is that the classifier's output validates.
+function assertValidates(_factText: string, raw: Record<string, unknown>): void {
+  const result = validateEnrichment(raw);
+  assert.equal(result.ok, true, result.ok ? "" : result.error);
 }
 
 // ─── Part 1: the new modifier exists and is "known" ───────────────────────
@@ -106,7 +93,7 @@ describe("redundant-mechanism classification shape", () => {
     // archetype + subtype belong together
     const allowed = SUBTYPES_BY_ARCHETYPE.superhuman_physical_feat as readonly string[];
     assert.ok(allowed.includes("force_scaled_action"));
-    assertHealthy(factText, raw);
+    assertValidates(factText, raw);
   });
 
   it("Test C — bullet-then-fired enriches as a physical feat with the redundant-mechanism modifier", () => {
@@ -122,7 +109,7 @@ describe("redundant-mechanism classification shape", () => {
     assert.equal(result.ok && result.data.primaryArchetype, "superhuman_physical_feat");
     assert.notEqual(result.ok && result.data.primaryArchetype, "temporal_causality_inversion");
     assert.ok(result.ok && result.data.modifiers.includes("normal_function_rendered_unnecessary"));
-    assertHealthy(factText, raw);
+    assertValidates(factText, raw);
   });
 });
 
@@ -140,7 +127,7 @@ describe("temporal inversion is NOT over-corrected away", () => {
     const result = validateEnrichment(raw);
     assert.equal(result.ok, true, result.ok ? "" : result.error);
     assert.equal(result.ok && result.data.primaryArchetype, "temporal_causality_inversion");
-    assertHealthy(factText, raw);
+    assertValidates(factText, raw);
   });
 });
 

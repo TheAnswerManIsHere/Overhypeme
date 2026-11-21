@@ -43,8 +43,8 @@ Every admin surface that kicks off background work must show status at **two
 altitudes** — per item (this specific fact's row: queued → working →
 done/failed/[skipped](../ai-context/glossary.md#skipped)/still-running) and in aggregate (a running tally like
 "7 of 25 done · 2 failed"). A single spinner with no per-item detail is
-considered a bug, not a valid loading state. **Taxonomy Health
-(`artifacts/overhype-me/src/components/admin/useTaxonomyHealthActions.ts`) is
+considered a bug, not a valid loading state. **The gag-fold panel
+(`artifacts/overhype-me/src/components/admin/GagFoldPanel.tsx`) is
 the reference implementation** — copy its
 pattern rather than inventing a new one. The full contract, including why
 "skipped" and "still running" are first-class states and why the UI never
@@ -236,7 +236,7 @@ elsewhere.
   why the lane split happened and what was deliberately deferred.
 - Code entry points: `lib/db/src/schema/asyncJobs.ts` (the table),
   `artifacts/api-server/src/lib/asyncJobs.ts` (the worker + lanes),
-  `artifacts/overhype-me/src/components/admin/useTaxonomyHealthActions.ts` (the
+  `artifacts/overhype-me/src/components/admin/GagFoldPanel.tsx` (the
   reference UI polling pattern), `artifacts/api-server/src/lib/aiMemeBackfillJobs.ts`
   (the retired `ai_meme_backfill` queue handler),
   `lib/db/src/schema/workerLaneHeartbeats.ts` and

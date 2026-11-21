@@ -38,7 +38,7 @@ import type { FactEnrichment } from "@workspace/api-zod";
 
 import reviewsRouter, { __settleSubmitDuplicateChecksForTest } from "../routes/reviews.js";
 import { __setUtilityLLMClientForTest } from "../lib/utilityLLM.js";
-import { materializeEnrichment } from "../lib/factEnrichment.js";
+import { taxonomyColumns } from "../lib/factEnrichment.js";
 import { FACT_SUBMIT_PENDING_CAP, FACT_SUBMIT_MAX } from "../lib/rateLimit.js";
 import { enrichmentJobHandler, runEnrichmentForFact } from "../lib/enrichmentJobs.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
@@ -911,14 +911,11 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     assert.equal(res.status, 409);
   });
 
-  it("preserves the staging fact's AI baseline + override map through approval", async () => {
-    // A staging fact in full override-tracking shape: materialized baseline plus
-    // one moderator override — exactly what the moderation modal now produces.
+  it("leaves the staging fact's stored taxonomy as it is through approval", async () => {
+    // The taxonomy is read-only stored data (plan PLAN_FACT_LIFECYCLE_REBUILD.md,
+    // 2A): approval neither re-runs nor rewrites it.
     const submitterId = await createTestUser();
-    const overrides = {
-      "/visualComplexity": { value: "high", overriddenFrom: "medium", createdAt: new Date("2026-01-01T00:00:00Z").toISOString(), createdBy: "admin", reason: "test" },
-    };
-    const { columns } = materializeEnrichment({ aiDerived: VALID_APPROVAL_ENRICHMENT, overrides });
+    const columns = taxonomyColumns({ ...VALID_APPROVAL_ENRICHMENT, visualComplexity: "high" });
     const [staging] = await db.insert(factsTable).values({
       text: "{NAME} bench-presses the Earth.", submittedById: submitterId, isActive: false,
       ...columns,
@@ -940,13 +937,8 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
 
     const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
     assert.equal(fact.isActive, true);
-    // Approval must not rewrite ANY enrichment layer: the effective keeps the
-    // override, the baseline keeps the AI value, the override map survives.
     assert.equal((fact.enrichment as FactEnrichment).visualComplexity, "high");
-    assert.equal((fact.enrichmentAiDerived as FactEnrichment).visualComplexity, "medium");
-    const ov = (fact.enrichmentOverrides as Record<string, { value: unknown; overriddenFrom: unknown }>)["/visualComplexity"];
-    assert.equal(ov.value, "high");
-    assert.equal(ov.overriddenFrom, "medium");
+    assert.equal((fact.enrichmentAiDerived as FactEnrichment).visualComplexity, "high");
   });
 
   it("ignores a legacy client enrichment body — the staging fact's stored blob is authoritative", async () => {

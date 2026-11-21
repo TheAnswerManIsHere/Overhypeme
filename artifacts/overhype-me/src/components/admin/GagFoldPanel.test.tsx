@@ -1,6 +1,6 @@
 /**
  * The fold and cast fill panel (plan docs/plans/PLAN_GAG_DIRECT_RENDER.md, E;
- * Admin UX: per-item and aggregate status in the pattern of Taxonomy Health):
+ * Admin UX: per-item and aggregate status):
  * the dry-run counts, the two lists with their reasons, and Run.
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
