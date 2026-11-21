@@ -300,6 +300,32 @@ describe("taxonomy run history (plan item 16; Issue #1018, increment 2.1b)", () 
     assert.equal((row!.enrichment as FactEnrichment).primaryArchetype, VALID.primaryArchetype);
   });
 
+  it("a requester whose account is gone is recorded as nobody, and the result is still stored (Codex 4651288296)", async () => {
+    const id = await insertFact({ enrichmentStatus: "pending", isActive: true, enrichment: VALID });
+    const result = await runEnrichmentForFact(id, { classify: async () => ({ ...OTHER }) }, { origin: "rerun", requestedBy: `${USER_PREFIX}deleted-${randomUUID()}` });
+    assert.equal(result.ok, true);
+    const [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
+    assert.equal(row!.enrichmentStatus, "ok");
+    assert.equal((row!.enrichment as FactEnrichment).primaryArchetype, OTHER.primaryArchetype);
+    const rows = await history(id);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!.outcome, "ok");
+    assert.equal(rows[0]!.requestedBy, null);
+  });
+
+  it("a failed call for a requester whose account is gone records a failed row with nobody, and fails as an ordinary classify failure", async () => {
+    const id = await insertFact({ enrichmentStatus: "pending", isActive: true, enrichment: VALID });
+    const result = await runEnrichmentForFact(id, { classify: async () => { throw new EnrichmentError("boom"); } }, { origin: "rerun", requestedBy: `${USER_PREFIX}deleted-${randomUUID()}` });
+    assert.equal(result.ok, false);
+    assert.match(result.ok ? "" : result.error, /^classify: boom/);
+    const [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
+    assert.equal(row!.enrichmentStatus, "failed");
+    const rows = await history(id);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!.outcome, "failed");
+    assert.equal(rows[0]!.requestedBy, null);
+  });
+
   it("a skipped run (nothing to classify for) calls nothing and writes no row", async () => {
     const id = await insertFact({ enrichmentStatus: "pending", isActive: false });
     let called = false;

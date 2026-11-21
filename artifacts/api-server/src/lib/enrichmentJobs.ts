@@ -15,12 +15,13 @@
  * handler outcome.
  */
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
   pendingReviewsTable,
   factsTable,
   factTaxonomyRunsTable,
+  usersTable,
   type AsyncJobRow,
   type FactTaxonomyRunOrigin,
   type FactTaxonomyRunOutcome,
@@ -142,8 +143,17 @@ export async function runEnrichmentForFact(
 ): Promise<HandlerResult> {
   // Every classifier call leaves one history row (plan item 16, 2B): written in
   // the same transaction as the result it describes, failures included.
+  // The requester is resolved at the write, not trusted from the payload: an
+  // admin whose account was deleted while the run was queued or classifying is
+  // recorded as nobody, so attribution can never refuse the row and roll back a
+  // paid result (Codex 4651288296). No lock on the user: a deletion committing
+  // in the instant between this lookup and the foreign-key check costs one
+  // retry, which then finds nobody (PR #1141, round 1, Fable's tie-break).
+  const requester = request.requestedBy === null
+    ? null
+    : sql<string | null>`(SELECT ${usersTable.id} FROM ${usersTable} WHERE ${usersTable.id} = ${request.requestedBy})`;
   const historyRow = (outcome: FactTaxonomyRunOutcome, output: FactEnrichment | null, error: string | null) => ({
-    factId, outcome, origin: request.origin, requestedBy: request.requestedBy, output, error,
+    factId, outcome, origin: request.origin, requestedBy: requester, output, error,
   });
   // Load the fact text (a fact is classified from its own text only) and the
   // prior run's output, whose character list the classifier carries forward.
