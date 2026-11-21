@@ -517,8 +517,13 @@ describe("GET /api/callback/google — the provider's verified-email claim", () 
     const restoreEnv = applyFakeGoogleEnv();
     _setClientDiscoveryForTest(makeFakeDiscovery());
     const email = `${USER_PREFIX}${randomUUID()}@test.local`;
+    // Upsert, not update: the row may be absent in a test database, and an
+    // update that matches nothing would leave the denylist empty.
     const [prior] = await db.select().from(adminConfigTable).where(eq(adminConfigTable.key, "name_denylist_patterns"));
-    await db.update(adminConfigTable).set({ value: JSON.stringify(["^Forbiddenname$"]) }).where(eq(adminConfigTable.key, "name_denylist_patterns"));
+    const patterns = JSON.stringify(["^Forbiddenname$"]);
+    await db.insert(adminConfigTable)
+      .values({ key: "name_denylist_patterns", value: patterns, dataType: "text", label: "Name Denylist Patterns (JSON)" })
+      .onConflictDoUpdate({ target: adminConfigTable.key, set: { value: patterns } });
     bustConfigCache();
     _resetPersonalNameValidatorCache();
     try {
@@ -531,7 +536,8 @@ describe("GET /api/callback/google — the provider's verified-email claim", () 
       assert.equal(row!.firstName, null, "a denylisted provider name is not stored");
       assert.equal(row!.lastName, "Lovelace", "a name the denylist admits is kept");
     } finally {
-      await db.update(adminConfigTable).set({ value: prior?.value ?? "[]" }).where(eq(adminConfigTable.key, "name_denylist_patterns"));
+      if (prior) await db.update(adminConfigTable).set({ value: prior.value }).where(eq(adminConfigTable.key, "name_denylist_patterns"));
+      else await db.delete(adminConfigTable).where(eq(adminConfigTable.key, "name_denylist_patterns"));
       bustConfigCache();
       _resetPersonalNameValidatorCache();
       restoreEnv();
