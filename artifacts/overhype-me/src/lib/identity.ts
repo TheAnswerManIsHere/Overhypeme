@@ -85,6 +85,26 @@ export interface IdentityDecisionInput {
   actionPending?: boolean;
 }
 
+/**
+ * The identity decision's view of the auth read. A read still loading is
+ * "loading". A read that FAILED is not "signed out" (identity-flow Phase 2:
+ * "unknown is not missing"), so while the browser already holds a complete
+ * identity it stays "loading" and the page shows with that identity. But when
+ * the browser holds no complete identity, waiting on an answer that will not
+ * come leaves the visitor on a spinner with nothing to answer (#866), so the
+ * failed read is treated as signed out: the sheet asks for what is missing,
+ * and the page renders once it is given.
+ */
+export function identityAuthStateFor(
+  status: "loading" | "resolved" | "failed",
+  isAuthenticated: boolean,
+  completeness: IdentityCompleteness,
+): IdentityAuthState {
+  if (status === "loading") return "loading";
+  if (status === "failed") return isIdentityComplete(completeness) ? "loading" : "signedOut";
+  return isAuthenticated ? "signedIn" : "signedOut";
+}
+
 /** Whether the identity sheet should be open right now. */
 export function shouldAskForIdentity(input: IdentityDecisionInput): boolean {
   const { auth, completeness, accountDisplayName, location, landingLocation, landingLapsed } = input;
