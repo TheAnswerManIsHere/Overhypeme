@@ -1,0 +1,15 @@
+-- The idea a gag was pre-filled from (plan docs/plans/PLAN_FACT_LIFECYCLE_REBUILD.md,
+-- item 9 and 1C; Issue #1018, increment 1.3b).
+--
+-- On the Gags step gag 1 is pre-filled from the first gag idea, and a changed
+-- humor note replaces every gag still exactly the idea it was pre-filled
+-- from, keeping gags edited by hand. To tell the two apart a gag records the
+-- idea it was filled from: its scene, its bubbles, and the humor note the idea
+-- was written under, as JSON. A gag whose draft scene and bubbles still equal
+-- it is untouched; any other is the moderator's. Null on every gag a person
+-- wrote or chose.
+--
+-- Additive and nullable: no existing row changes, so there is nothing to
+-- backfill and the old release reads the table unchanged. Rollback: drop the
+-- column.
+ALTER TABLE fact_gags ADD COLUMN IF NOT EXISTS prefilled_from jsonb;

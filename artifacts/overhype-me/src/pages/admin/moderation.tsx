@@ -6,7 +6,7 @@ import {
   CheckCircle, CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight,
   ExternalLink, ClipboardList, Loader2, AlertTriangle,
   MessageSquare, Trash2, User, Rocket,
-  CheckCheck, SlidersHorizontal, Wand2, Search,
+  CheckCheck, Wand2, Search,
 } from "lucide-react";
 import {
   type FactEnrichment,
@@ -29,8 +29,6 @@ import {
   type WizardStep,
 } from "@/components/admin/moderationQueueState";
 import { ReadingStep } from "@/components/admin/ReadingStep";
-import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
-import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { FinalHashtagsEditor } from "@/components/admin/FinalHashtagsEditor";
 import { VisualConceptCandidates } from "@/components/admin/VisualConceptCandidates";
 import { GagsPanel } from "@/components/admin/gags/GagsPanel";
@@ -38,6 +36,9 @@ import { SubmissionWording, type WordingSaved } from "@/components/admin/Submiss
 import { DuplicateMatchPanel, DuplicateVerdictLine, NOT_CHECKED, duplicateMatchShown, useDuplicateCheck, verdictLabel, type DuplicateView } from "@/components/admin/DuplicateVerdict";
 import { useGagIdeaActions } from "@/components/admin/gags/useGagIdeaActions";
 import { DEFAULT_SUBJECT_EXAMPLE_NAMES } from "@/components/admin/subjectExampleNames";
+
+/** Names the Gags panel's tokenizer recognises as the subject. */
+const SUBJECT_NAMES: string[] = [...DEFAULT_SUBJECT_EXAMPLE_NAMES];
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
 
@@ -357,7 +358,7 @@ function ReviewModal({
 
   // The fact's gags, as the Gags panel last loaded them (plan
   // docs/plans/PLAN_THREE_GAGS.md). `gagsReloadKey` reloads the panel after an
-  // idea is used on a gag from the Visual ideas cards.
+  // idea is used on a gag from the Gag ideas cards.
   const [gagsView, setGagsView] = useState<FactGagsView | null>(null);
   // The gags with an edit not yet saved (or still saving) in the Gags panel,
   // named ("Gag 2"): approvals act on the saved gags, so they wait for it
@@ -366,15 +367,6 @@ function ReviewModal({
   const gagsUnsaved = gagsUnsavedNames.length > 0;
   const unsavedGagsWords = joinWithAnd(gagsUnsavedNames) || "your gag";
 
-  // Subject-name hint for the Gags panel's tokenizer: the moderator's active
-  // render-diagnostics preview name (if set) folded in ahead of the shared
-  // defaults, so the tokenizer preferentially recognizes whatever name is
-  // actually being tested right now.
-  const [previewSubjectName, setPreviewSubjectName] = useState("");
-  const subjectNames = useMemo(
-    () => [previewSubjectName.trim(), ...DEFAULT_SUBJECT_EXAMPLE_NAMES].filter((n) => n.length > 0),
-    [previewSubjectName],
-  );
 
   // Moderator-curated FINAL discovery tags — what actually ships on approval.
   // Seeded from the submitter's tags, or the taxonomy's suggestions when the
@@ -468,7 +460,7 @@ function ReviewModal({
     setError("");
     // Optimistic "pending" for instant feedback; loadDetail() in finally
     // reconciles against the real server state, so a rejected POST (409 stale
-    // stage, 400, 5xx) reverts the pending rather than sticking on "Drafting…".
+    // stage, 400, 5xx) reverts the pending rather than sticking on "Writing…".
     setDetail((d) => (d ? { ...d, visualConcepts: { status: "pending", candidates: [], current: false, humorNote: d.visualConcepts?.humorNote ?? null } } : d));
     try {
       const r = await fetch(`/api/admin/reviews/${review.id}/visual-concepts/regenerate`, {
@@ -479,10 +471,10 @@ function ReviewModal({
       });
       if (!r.ok) {
         const d = (await r.json().catch(() => ({}))) as { error?: string };
-        setError(d.error ?? `Could not generate visual ideas (${r.status}).`);
+        setError(d.error ?? `Could not write gag ideas (${r.status}).`);
       }
     } catch {
-      setError("Network error — could not generate visual ideas.");
+      setError("Network error — could not write gag ideas.");
     } finally {
       void loadDetail();
     }
@@ -664,13 +656,11 @@ function ReviewModal({
     && draftReady.ok
     && !gagsUnsaved;
   const ideasPending = visualConceptStatus === "pending";
-  const ideasFailed = visualConceptStatus === "failed";
   const ideasTerminalOk = visualConceptStatus === "ok";
-  // The AI candidate cards are stale relative to the current inputs, but a
-  // SAVED gag is what drives renders — so this is non-blocking.
-  const ideasStaleButSaved = ideasTerminalOk && detail?.visualConcepts?.current === false && hasSavedGag;
   // "Approve the gags": enabled with a saved gag AND terminal-OK ideas.
-  const canApproveGag = hasSavedGag && ideasTerminalOk && !gagsUnsaved;
+  // A fill from the gag ideas still running would be carried past by approving (Codex 4649903956).
+  const gagsFilling = !!gagsView?.filling;
+  const canApproveGag = hasSavedGag && ideasTerminalOk && !gagsUnsaved && !gagsFilling;
   const matchVisible = duplicateMatchShown(wording.duplicate, showClosest);
 
   // ── Sub-renders ────────────────────────────────────────────────────────────
@@ -761,24 +751,6 @@ function ReviewModal({
     </div>
   );
 
-  // Advanced Options — prompt diagnostics, collapsed by default. Shared by the
-  // Gags and Test Renders steps. The taxonomy is not here: it is stored data
-  // beside moderation (Issue #1018, increment 1.2c-ii).
-  const AdvancedOptions = stagingFactId > 0 ? (
-    <CollapsibleSection
-      title="Advanced Options"
-      icon={<SlidersHorizontal className="w-4 h-4 text-muted-foreground" />}
-      description="Prompt diagnostics: the image prompt a gag would compile to."
-      storageKey={`overhype:moderation:advanced:${review.id}`}
-    >
-      <RuntimePromptPreview
-        factId={stagingFactId}
-        reviewIdForRender={review.id}
-        onPreviewNameChange={setPreviewSubjectName}
-      />
-    </CollapsibleSection>
-  ) : null;
-
   // Reject past triage, confirmed first.
   const RejectConfirm = confirmReject && (
     <div className="rounded-sm border-2 border-destructive/60 bg-destructive/10 p-4 space-y-3" data-testid="reject-confirm">
@@ -844,13 +816,6 @@ function ReviewModal({
             <div className="space-y-4">
               {SubmittedFactCard}
 
-              <p className="text-xs text-muted-foreground" data-testid="gags-step-hint">
-                Write, edit or use an idea for each gag: the plain-language description of how the joke works
-                visually. A fact can have up to three. Each save draws one paid male test render of that gag,
-                shown in the next step, where you judge it; once it works, render its female and pet versions
-                and approve all three as its examples.
-              </p>
-
               {/* The fact's gags (plan docs/plans/PLAN_THREE_GAGS.md): each one's
                   scene, bubbles and art direction, saved as that gag's change. */}
               {stagingFactId > 0 && (
@@ -859,15 +824,17 @@ function ReviewModal({
                   characters={classification?.characters}
                   reviewId={review.id}
                   rendersEnabled={false}
-                  subjectNames={subjectNames}
+                  subjectNames={SUBJECT_NAMES}
                   reloadKey={gagsReloadKey}
                   onView={setGagsView}
                   onUnsavedChange={setGagsUnsavedNames}
                   disabled={loading || ideaSaving}
+                  startWithGag1
+                  awaitingIdeas={ideasPending}
                 />
               )}
 
-              {/* Visual ideas — REQUIRED gate on Gags: each card offers the
+              {/* Gag ideas — REQUIRED gate on Gags: each card offers the
                   ways to use it on a gag. */}
               <VisualConceptCandidates
                 visualConcepts={detail?.visualConcepts}
@@ -878,34 +845,6 @@ function ReviewModal({
                 onSaveNote={onSaveHumorNote}
               />
 
-              {/* Blocking-gate status for the Visual Ideas prep artifact. */}
-              {ideasPending && (
-                <p className="text-xs text-muted-foreground flex items-center gap-1.5" data-testid="ideas-pending-note">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                  Visual ideas are still generating from the humor note. This updates live; wait for them to finish.
-                </p>
-              )}
-              {ideasFailed && (
-                <p className="text-xs text-destructive flex items-center gap-1.5" data-testid="ideas-failed-note">
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                  Visual-ideas generation failed. Regenerate them (above), or reject.
-                </p>
-              )}
-              {visualConceptStatus == null && (
-                <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5" data-testid="ideas-missing-note">
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                  Visual ideas haven't been generated for this cycle. Generate them (above) before approving the gag.
-                </p>
-              )}
-              {ideasStaleButSaved && (
-                <p className="text-xs text-muted-foreground flex items-center gap-1.5" data-testid="ideas-stale-note">
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-500" />
-                  Visual ideas were generated before your latest gag edit. You can regenerate them, but the saved
-                  gags above are what will drive renders.
-                </p>
-              )}
-
-              {AdvancedOptions}
             </div>
           )}
 
@@ -936,15 +875,13 @@ function ReviewModal({
                   reviewId={review.id}
                   rendersEnabled
                   rendersExpected
-                  subjectNames={subjectNames}
+                  subjectNames={SUBJECT_NAMES}
                   reloadKey={gagsReloadKey}
                   onView={setGagsView}
                   onUnsavedChange={setGagsUnsavedNames}
                   disabled={loading}
                 />
               )}
-
-              {AdvancedOptions}
             </div>
           )}
 
@@ -1055,8 +992,10 @@ function ReviewModal({
                       : !hasSavedGag
                       ? "Approve is locked until a gag is saved. Write one above (or use an idea) and save it."
                       : ideasPending
-                      ? "Approve is locked while visual ideas are still generating — this updates live."
-                      : "Approve is locked until visual ideas have been generated. Regenerate them above."}
+                      ? "Approve is locked while the gag ideas are being written."
+                      : gagsFilling
+                      ? "Approve is locked while the gags are filled from the gag ideas."
+                      : "Approve is locked until the gag ideas have been written. Regenerate them above."}
                   </p>
                 )}
               </div>
@@ -1300,10 +1239,10 @@ function FactReviewsPanel() {
                       {r.workflowStage === "reading" && (
                         <PrepStepPill icon={Wand2} label="Reading" status={r.readingStatus ?? null} attentionWhenNull />
                       )}
-                      {/* Gags: Visual ideas are the required gate. A null status
+                      {/* Gags: Gag ideas are the required gate. A null status
                           reads as "not generated", never a spinner. */}
                       {r.workflowStage === "gags" && (
-                        <PrepStepPill icon={Wand2} label="Visual ideas" status={r.stagingFact.visualConceptStatus} attentionWhenNull />
+                        <PrepStepPill icon={Wand2} label="Gag ideas" status={r.stagingFact.visualConceptStatus} attentionWhenNull />
                       )}
                       {/* Test Renders: renders in flight (re-run, or the forced batch). */}
                       {r.workflowStage === "test_renders" && r.rendersRunning && (

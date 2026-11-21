@@ -145,6 +145,7 @@ export function gagsView(factId: number, isActive: boolean, gag: VisualPromptStr
         pendingContent: isActive ? null : gag,
         pendingExamples: { male: null, female: null, pet: null },
         draftRemoved: false,
+        prefilledUntouched: false,
         renders: { male: null, female: null, pet: null },
       }]
     : [];
@@ -152,7 +153,7 @@ export function gagsView(factId: number, isActive: boolean, gag: VisualPromptStr
   const draftReady = isActive && gag
     ? { ok: true, reason: null }
     : { ok: false, reason: gag ? "Gag 1 needs male, female and pet renders approved." : "A fact needs at least one gag before it can go live." };
-  return { factId, isActive, review, gags, maxGags: 3, draftReady };
+  return { factId, isActive, review, gags, maxGags: 3, draftReady, filling: false, fillFailed: false };
 }
 
 function json(route: Route, body: unknown, status = 200): Promise<void> {

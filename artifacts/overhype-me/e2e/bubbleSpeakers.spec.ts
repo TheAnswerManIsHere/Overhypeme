@@ -75,7 +75,7 @@ test.describe("Bubble speakers", () => {
   test("the moderation screen shows neither the fact's characters nor the taxonomy editor: both are the Facts editor's (Issue #1018, increment 1.2c-ii)", async ({ page }) => {
     await stubConceptReview(page, { id: 96803, submittedText: TEXT, stagingFactId: 96804, enrichment: hospitalEnrichment(), cast: [MOM] });
     await openReview(page);
-    await page.getByRole("button", { name: /Advanced Options/ }).click();
+    await expect(page.getByRole("button", { name: /Advanced Options/ }), "Advanced Options left moderation (increment 1.3b)").toHaveCount(0);
     await expect(page.getByTestId("characters-editor")).toHaveCount(0);
     await expect(page.getByTestId("enrichment-editor")).toHaveCount(0);
     await expect(page.getByText(/Primary archetype/i)).toHaveCount(0);

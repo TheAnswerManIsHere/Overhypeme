@@ -38,6 +38,7 @@ const REGISTERED_QUEUES = [
   "fact_reading",
   "fact_visual_concepts",
   "gag_fold",
+  "gag_prefill",
   "image_generation",
   "image_prompt_generation",
   "operations_drill",

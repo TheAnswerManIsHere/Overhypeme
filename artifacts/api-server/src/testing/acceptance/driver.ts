@@ -331,48 +331,22 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
     // The count stays in the journey's evidence.
     const withBubbles = (prepared.visualConcepts.candidates as any[]).filter((c) => (c.bubbles ?? []).length > 0).length;
 
-    const vso: Record<string, any> = {
-      version: 1,
-      requiredVisualDetails: [],
-      forbiddenVisualDetails: [],
-      roleBindings: [],
-      compositionGuidance: [],
-      styleAgnosticPromptAdditions: [],
-      negativePromptAdditions: [],
-      coreSceneOverride: candidate.sceneDescription,
-      bubbles: (candidate.bubbles ?? []).map(({ type, entity, text }: any) => ({ type, entity, text })),
-    };
-    // Tokenise the saved prose, as the editor does before it saves.
-    const entries = [
-      { path: "coreSceneOverride", value: vso.coreSceneOverride, kind: "prose" },
-      ...vso.bubbles.flatMap((b: any, i: number) => [
-        { path: `bubbles[${i}].text`, value: b.text, kind: "prose" },
-        ...(b.entity ? [{ path: `bubbles[${i}].entity`, value: b.entity, kind: "entity" }] : []),
-      ]),
-    ];
-    const tokenised = await admin.json<{ results: Array<{ path: string; value: string; error?: string }> }>(
+    // Gag 1 is pre-filled from the first usable idea, its cast read by the
+    // server (plan PLAN_FACT_LIFECYCLE_REBUILD.md, item 9; Issue #1018,
+    // increment 1.3b): the journey waits for it instead of saving one.
+    const filled = await poll(
       "3",
-      "POST",
-      "/api/ai/tokenize-enrichment",
-      { entries, subjectContext: { names: [] } },
+      "gag 1, filled from the first idea",
+      () => admin.json<{ gags: Array<{ id: number; slot: number; pendingContent: { coreSceneOverride?: string } | null }> }>("3", "GET", `/api/admin/facts/${stagingFactId}/gags`),
+      (v) => v.gags.some((g) => g.slot === 1),
+      () => null,
+      10 * 60_000,
     );
-    for (const r of tokenised.results) {
-      if (r.error) throw new JourneyError("3", "tokenise the Visual Concept", `${r.path}: ${r.error}`);
-      const m = /^bubbles\[(\d+)\]\.(text|entity)$/.exec(r.path);
-      if (r.path === "coreSceneOverride") vso.coreSceneOverride = r.value;
-      else if (m) vso.bubbles[Number(m[1])][m[2]] = r.value;
+    const gag1 = filled.gags.find((g) => g.slot === 1)!;
+    if (gag1.pendingContent?.coreSceneOverride !== candidate.sceneDescription) {
+      throw new JourneyError("3", "gag 1 filled from the first idea", "gag 1's scene is not the first usable idea's");
     }
-    // Read who is in the scene before saving, as the editor does (PLAN_GAG_DIRECT_RENDER.md, F): every save carries its cast.
-    const castRead = await admin.json<{ cast: unknown[]; castExtraction: unknown; unboundSpeakers: string[] }>(
-      "3", "POST", `/api/admin/facts/${stagingFactId}/gags/cast`, { scene: vso.coreSceneOverride, bubbles: vso.bubbles },
-    );
-    if (castRead.unboundSpeakers.length) throw new JourneyError("3", "read the gag's cast", `the scene does not show ${castRead.unboundSpeakers.join(", ")}`);
-    vso.cast = castRead.cast;
-    vso.castExtraction = castRead.castExtraction;
-    // The picked candidate becomes the fact's first gag (fact_gags, migration 0139).
-    const created = await admin.json<{ gags: Array<{ id: number; slot: number }> }>("3", "POST", `/api/admin/facts/${stagingFactId}/gags`, { content: vso, reviewId });
-    const gagId = created.gags.find((g) => g.slot === 1)?.id;
-    if (gagId == null) throw new JourneyError("3", "save the gag", "the gags view names no gag in slot 1");
+    const gagId = gag1.id;
     await admin.json("3", "POST", `/api/admin/reviews/${reviewId}/approve-visual-concept`, {});
     log("journey 3: the gag saved and the gags step approved; its male iteration render running");
 

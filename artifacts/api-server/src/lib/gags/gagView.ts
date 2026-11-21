@@ -17,6 +17,7 @@ import {
 import { GAG_EXAMPLE_KINDS, MAX_GAGS_PER_FACT, mapKinds, type FactGagsView, type GagExample, type GagView, type PerKind } from "@workspace/api-zod";
 import { buildGagKindCards, gagRenderImageUrl } from "../reviewRenderScenarios";
 import { loadGags, normaliseGagContent, openReviewForFact } from "./resolver";
+import { fillState, isUntouchedPrefill } from "./prefill";
 import { examplesFor, isGrandfathered, loadExamples, type GagExamples } from "./examples";
 import { checkGoLive, describeGoLive } from "./goLive";
 
@@ -37,11 +38,26 @@ async function examples(ids: number[], gagIdOf: Map<number, number>): Promise<Ma
   return out;
 }
 
+let fillStateReader: typeof fillState = fillState;
+/** Test seam: wrap the fill-status read (to land a fill while it runs). Returns the restore function. */
+export function __setFillStateReaderForTest(fn: typeof fillState): () => void {
+  const prev = fillStateReader;
+  fillStateReader = fn;
+  return () => { fillStateReader = prev; };
+}
+
 export async function buildFactGagsView(factId: number): Promise<FactGagsView | null> {
   const [fact] = await db.select({ id: factsTable.id, isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, factId)).limit(1);
   if (!fact) return null;
-  const gags = await loadGags(factId);
   const review = await openReviewForFact(factId);
+  // The fill status is worked out first, from its own read of the gags, and
+  // the gags this answer carries are read after it. Run together, or in the
+  // other order, a fill whose write and "done" land between the two reads
+  // would answer "finished" beside the gags from before it, and the screen
+  // would stop watching with the old gag on it (Codex 4650051101, PR #1136
+  // round 2). Not in parallel, deliberately.
+  const filling = review?.workflowStage === "gags" ? await fillStateReader(factId, review, await loadGags(factId)) : "none";
+  const gags = await loadGags(factId);
 
   const byGag = await loadExamples(gags.map((g) => g.id));
   const exampleIds: number[] = [];
@@ -70,6 +86,8 @@ export async function buildFactGagsView(factId: number): Promise<FactGagsView | 
     gags: views,
     maxGags: MAX_GAGS_PER_FACT,
     draftReady: { ok: ready.ok, reason: ready.ok ? null : describeGoLive(ready) },
+    filling: filling === "filling",
+    fillFailed: filling === "failed",
   };
 }
 
@@ -99,6 +117,7 @@ async function viewOf(
     pendingContent: normaliseGagContent(g.pendingContent),
     pendingExamples: perKind(set.pending, ex),
     draftRemoved: g.draftRemoved,
+    prefilledUntouched: isUntouchedPrefill(g),
     renders: await buildGagKindCards(g.id),
   };
 }

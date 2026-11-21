@@ -112,8 +112,18 @@ export async function driveCaptures(base: string, opts: { doc: CaptureDoc; out: 
       const castRead = await admin.json<any>("pr229", "POST", `/api/admin/facts/${stagingFactId}/gags/cast`, { scene: vso.coreSceneOverride, bubbles: vso.bubbles });
       if (castRead.unboundSpeakers?.length) throw new JourneyError("pr229", "read the gag's cast", `the scene does not show ${castRead.unboundSpeakers.join(", ")}`);
       Object.assign(vso, { cast: castRead.cast, castExtraction: castRead.castExtraction });
-      // Saved as the fact's first gag (fact_gags, migration 0139).
-      await admin.json("pr229", "POST", `/api/admin/facts/${stagingFactId}/gags`, { content: vso, reviewId });
+      // Saved over gag 1, which the first idea fills on arrival at Gags (Issue
+      // #1018, increment 1.3b): the mailman bubble replaces its content.
+      const filled = await poll(
+        "pr229",
+        "gag 1, filled from the first idea",
+        () => admin.json<{ gags: Array<{ id: number; slot: number }> }>("pr229", "GET", `/api/admin/facts/${stagingFactId}/gags`),
+        (v) => v.gags.some((g) => g.slot === 1),
+        () => null,
+        10 * 60_000,
+      );
+      const gag1 = filled.gags.find((g) => g.slot === 1)!;
+      await admin.json("pr229", "PUT", `/api/admin/facts/${stagingFactId}/gags/${gag1.id}`, { content: vso, reviewId });
       Object.assign(pr229, { stagingFactId, savedBubble: vso.bubbles[0], roleBindings: vso.roleBindings ?? [] });
       log("pr229: the mailman bubble saved; approving the concept");
 

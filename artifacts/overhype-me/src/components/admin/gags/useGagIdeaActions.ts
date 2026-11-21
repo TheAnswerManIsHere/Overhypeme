@@ -55,18 +55,18 @@ export function useGagIdeaActions(args: {
     const first = live.find((g) => g.isDefault) ?? live[0];
     const out: ConceptAction[] = [];
     if (!first) {
-      out.push({ key: "first", label: "Use as the first gag", run: (c) => apply(() => withCastRead(factId, withCandidateConceptDraft(EMPTY_VISUAL_STRATEGY_OVERRIDE, c), (p) => gagApi.create(factId, p, reviewId))) });
+      out.push({ key: "first", label: "Use as visual gag 1", run: (c) => apply(() => withCastRead(factId, withCandidateConceptDraft(EMPTY_VISUAL_STRATEGY_OVERRIDE, c), (p) => gagApi.create(factId, p, reviewId))) });
       return out;
     }
     out.push({
       key: "default",
-      label: "Use this instead of the current default gag",
+      label: `Replace visual gag ${first.slot}`,
       run: (c) => apply(() => withCastRead(factId, withCandidateConceptDraft(contentOf(first), c), (p) => gagApi.save(factId, first.id, p, reviewId))),
     });
     if (gagsView.gags.length < gagsView.maxGags) {
       out.push({
         key: "additional",
-        label: "Use as an additional gag",
+        label: "Use as another visual gag",
         run: (c) => apply(() => withCastRead(factId, withCandidateConceptDraft(EMPTY_VISUAL_STRATEGY_OVERRIDE, c), (p) => gagApi.create(factId, p, reviewId))),
       });
     }
@@ -74,7 +74,7 @@ export function useGagIdeaActions(args: {
       if (g.id === first.id) continue;
       out.push({
         key: `replace-${g.slot}`,
-        label: `Replace gag ${g.slot}`,
+        label: `Replace visual gag ${g.slot}`,
         run: (c) => apply(() => withCastRead(factId, withCandidateConceptDraft(contentOf(g), c), (p) => gagApi.save(factId, g.id, p, reviewId))),
       });
     }

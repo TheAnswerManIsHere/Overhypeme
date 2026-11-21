@@ -157,6 +157,12 @@ export interface GagView {
   /** A published gag the draft removes: still offered until the draft is published. */
   draftRemoved: boolean;
   /**
+   * The gag is still exactly the gag idea it was filled from (lib/gags/prefill.ts):
+   * a change to it the moderator did not make. The editor keeps unsaved typing
+   * over such a change rather than discarding it (Codex 4649903945, PR #1136).
+   */
+  prefilledUntouched: boolean;
+  /**
    * This gag's render of its current content, per kind: the attempt the
    * scheduler reused or drew for that content (null when none was drawn).
    * Renders of other content are history and are not listed.
@@ -177,6 +183,14 @@ export interface FactGagsView {
    * accepted now, and if not, why in words.
    */
   draftReady: { ok: boolean; reason: string | null };
+  /**
+   * The gags are about to be filled from the fact's gag ideas (gag 1 from the
+   * first idea, or untouched pre-filled gags after a changed note;
+   * lib/gags/prefill.ts). The screen shows it and polls until it lands.
+   */
+  filling: boolean;
+  /** The latest fill from the gag ideas failed for good, and the gags still wait for it: use an idea, or write the gag. */
+  fillFailed: boolean;
 }
 
 // ─── The fold and cast fill (plan PLAN_GAG_DIRECT_RENDER.md, E) ─────────────

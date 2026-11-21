@@ -60,6 +60,8 @@ import {
 import { checkGoLive, describeGoLive, GoLiveError, type GoLiveCheck } from "../lib/gags/goLive";
 import { publishDraft } from "../lib/gags/publish";
 import { enqueueVisualConceptsForReview, buildVisualConceptsResponse } from "../lib/visualConceptJobs";
+import { enqueueGagPrefill, fillState } from "../lib/gags/prefill";
+import { loadGags } from "../lib/gags/resolver";
 import {
   buildAndEnqueueImagePromptAttempt,
   buildRenderStatusPayload,
@@ -764,6 +766,9 @@ router.post("/admin/reviews/:id/approve-reading", requireAdmin, async (req: Auth
       const usedNote = ((fact?.candidates as { humorNoteUsed?: string | null } | null)?.humorNoteUsed ?? "").trim();
       const rewrite = fact?.status !== "pending" && (fact?.status !== "ok" || usedNote !== text);
       if (rewrite) await enqueueVisualConceptsForReview({ reviewId: id, factId }, tx);
+      // Gag 1 from the first idea (Issue #1018, increment 1.3b): now, when the
+      // ideas already stand; ideas still being written ask for it themselves.
+      else await enqueueGagPrefill({ reviewId: id, factId, adminId: req.user.id }, tx);
       return { kind: "approved" as const, approvedAt, ideasRewritten: rewrite };
     });
     if (outcome.kind === "not_found") { res.status(404).json({ error: "Review not found" }); return; }
@@ -973,11 +978,18 @@ router.post("/admin/reviews/:id/approve-visual-concept", requireAdmin, async (re
     .from(factsTable).where(eq(factsTable.id, review.stagingFactId)).limit(1);
   const conceptStatus = conceptFact?.visualConceptStatus ?? null;
   if (conceptStatus === "pending") {
-    res.status(409).json({ error: "Visual ideas are still generating. Wait for them to finish, then approve.", code: "IDEAS_PENDING" });
+    res.status(409).json({ error: "The gag ideas are still being written. Wait for them to finish, then approve.", code: "IDEAS_PENDING" });
     return;
   }
   if (conceptStatus !== "ok") {
-    res.status(409).json({ error: "Visual ideas were never generated (or failed). Regenerate them before approving the gag.", code: "IDEAS_NOT_GENERATED" });
+    res.status(409).json({ error: "The gag ideas were never written (or failed). Regenerate them before approving the gags.", code: "IDEAS_NOT_GENERATED" });
+    return;
+  }
+  // A fill from the gag ideas still running (lib/gags/prefill.ts): approving
+  // now would carry the gag it is about to replace into Test Renders (Codex
+  // 4649903956, PR #1136). Read from the fill's job, so it ends when the job does.
+  if ((await fillState(review.stagingFactId, review, await loadGags(review.stagingFactId))) === "filling") {
+    res.status(409).json({ error: "The gags are still being filled from the gag ideas. Wait for it to finish, then approve.", code: "GAGS_FILLING" });
     return;
   }
 
@@ -1026,6 +1038,9 @@ router.post("/admin/reviews/:id/back-to-visual-concept", requireAdmin, async (re
       if (!review) return false;
       await tx.update(pendingReviewsTable).set({ workflowStage: "gags" }).where(eq(pendingReviewsTable.id, id));
       await recordAdminAction({ reviewId: id, factId: review.stagingFactId }, req.user.id, "back_to_gags", {}, tx);
+      // Ideas written from a note changed on Test Renders replace untouched
+      // pre-filled gags only on Gags (lib/gags/prefill.ts): ask now.
+      if (review.stagingFactId != null) await enqueueGagPrefill({ reviewId: id, factId: review.stagingFactId, adminId: req.user.id }, tx);
       return true;
     });
     if (!moved) { res.status(404).json({ error: "Review not found" }); return; }
@@ -1365,7 +1380,7 @@ router.post("/admin/reviews/:id/visual-concepts/regenerate", requireAdmin, async
     });
     if (outcome === "ideas_pending") {
       res.status(409).json({
-        error: "Visual ideas are still generating. Wait for them to finish, then regenerate.",
+        error: "The gag ideas are still being written. Wait for them to finish, then regenerate.",
         code: "IDEAS_PENDING",
       });
       return;
@@ -1381,8 +1396,8 @@ router.post("/admin/reviews/:id/visual-concepts/regenerate", requireAdmin, async
 // PUT /admin/reviews/:id/humor-note — a moderator corrects the fact's approved
 // humor note on the Gags or Test Renders step (it is first approved at the
 // Reading step: approve-reading). Generation, the reading job and the taxonomy
-// never write it. The moderator and the time are recorded. Ideas written from
-// the previous note read as out of date until regenerated.
+// never write it. The moderator and the time are recorded. A changed note
+// writes fresh ideas at once (plan item 7).
 router.put("/admin/reviews/:id/humor-note", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
@@ -1397,6 +1412,7 @@ router.put("/admin/reviews/:id/humor-note", requireAdmin, async (req: Authentica
       if (!review || review.stagingFactId == null) return { kind: "not_found" as const };
       const factId = review.stagingFactId;
       await lockFactRow(tx, factId);
+      const [before] = await tx.select({ humorNote: factsTable.humorNote }).from(factsTable).where(eq(factsTable.id, factId)).limit(1);
       const rows = await tx
         .update(factsTable)
         .set({ humorNote: parsed.data.text, humorNoteApprovedBy: req.user.id, humorNoteApprovedAt: approvedAt })
@@ -1404,11 +1420,20 @@ router.put("/admin/reviews/:id/humor-note", requireAdmin, async (req: Authentica
         .returning({ humorNote: factsTable.humorNote });
       if (rows.length === 0) return { kind: "not_found" as const };
       await recordAdminAction({ reviewId: id, factId }, req.user.id, "humor_note_save", { text: parsed.data.text }, tx);
-      return { kind: "saved" as const, text: rows[0]!.humorNote, factId };
+      // A changed note writes fresh ideas by itself (plan item 7; Issue #1018,
+      // increment 1.3b), in this commit. When they land, gags still exactly the
+      // idea they were pre-filled from are replaced (lib/gags/prefill.ts). A
+      // generation already running stops owning the fact and writes nothing.
+      const changed = (before?.humorNote ?? "").trim() !== rows[0]!.humorNote?.trim();
+      if (changed) {
+        await enqueueVisualConceptsForReview({ reviewId: id, factId }, tx);
+        await recordAdminAction({ reviewId: id, factId }, req.user.id, "gag_ideas_requested", { withDraft: false, noteChanged: true }, tx);
+      }
+      return { kind: "saved" as const, text: rows[0]!.humorNote, factId, ideasRewritten: changed };
     });
     if (saved.kind === "not_found") { res.status(404).json({ error: "Review not found" }); return; }
     logger.info({ reviewId: id, factId: saved.factId, adminId: req.user.id }, "[moderation] humor note saved");
-    res.json({ humorNote: { text: saved.text, approvedBy: req.user.id, approvedAt: approvedAt.toISOString() } });
+    res.json({ humorNote: { text: saved.text, approvedBy: req.user.id, approvedAt: approvedAt.toISOString() }, ideasRewritten: saved.ideasRewritten });
   } catch (err) {
     if (!sendIfReviewMoved(err, res)) throw err;
     return;

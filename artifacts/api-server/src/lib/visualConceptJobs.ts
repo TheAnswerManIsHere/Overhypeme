@@ -68,6 +68,7 @@ import {
 } from "./asyncJobs";
 import { logger } from "./logger";
 import { assertJobOwnership, fencedTransaction } from "./jobFence";
+import { enqueueGagPrefill, isUntouchedPrefill } from "./gags/prefill";
 
 export const FACT_VISUAL_CONCEPTS_QUEUE = "fact_visual_concepts";
 
@@ -198,11 +199,16 @@ export async function humorNoteFor(factId: number, executor: Executor = db): Pro
  * PLAN_THREE_GAGS.md, increment 2): slot order, each gag's working version
  * (its pending change, else its approved version). The request and its input hash use one call's result, so they
  * describe the same frozen list.
+ *
+ * A gag still exactly the idea it was pre-filled from is left out (Issue
+ * #1018, increment 1.3b): it is one of the ideas, not the moderator's, so it
+ * neither marks those ideas out of date nor steers the next ones away from
+ * itself; a changed note replaces it (lib/gags/prefill.ts).
  */
 export async function contextGagsFor(factId: number): Promise<ContextGag[]> {
   const out: ContextGag[] = [];
   for (const g of await loadGags(factId)) {
-    if (g.draftRemoved) continue;
+    if (g.draftRemoved || isUntouchedPrefill(g)) continue;
     const content = normaliseGagContent(g.pendingContent ?? g.approvedContent);
     const scene = content?.coreSceneOverride?.trim() ?? "";
     if (!scene) continue;
@@ -335,7 +341,11 @@ export async function runVisualConceptsJob(
       .set({ visualConceptCandidates: blob, visualConceptStatus: "ok" })
       .where(ownedFact(factId, owner))
       .returning({ id: factsTable.id });
-    return rows.length > 0 ? "written" as const : "not_owner" as const;
+    if (rows.length === 0) return "not_owner" as const;
+    // Gag 1 from the first idea, or untouched pre-filled gags replaced after a
+    // changed note (lib/gags/prefill.ts); a no-op off the Gags step.
+    await enqueueGagPrefill({ reviewId, factId }, tx);
+    return "written" as const;
   });
   if (outcome === "note_changed") {
     return { ok: false, error: "the humor note changed while the ideas were being written; writing them again from the new note" };

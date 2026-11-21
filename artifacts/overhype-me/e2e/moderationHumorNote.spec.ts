@@ -104,8 +104,8 @@ test.describe("Admin · moderation · the humor note on the Gags step", () => {
     await input.fill("The door is the victim; Alex is merely punctual.");
 
     await page.getByRole("button", { name: /^regenerate$/i }).click();
-    await expect(page.getByText(/Drafting three ideas/i), "Regenerate passes through drafting").toBeVisible();
-    await expect(page.getByText(/Drafting three ideas/i), "and the new generation lands").toBeHidden({ timeout: 15_000 });
+    await expect(page.getByText(/Writing three gag ideas/i), "Regenerate passes through drafting").toBeVisible();
+    await expect(page.getByText(/Writing three gag ideas/i), "and the new generation lands").toBeHidden({ timeout: 15_000 });
     expect(server.regenerated()).toBe(1);
 
     await expect(input, "the typed note survived Regenerate").toHaveValue("The door is the victim; Alex is merely punctual.");

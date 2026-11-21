@@ -36,9 +36,9 @@ export interface ConceptAction {
 }
 
 const STALE_COPY: Record<VisualConceptStaleReason, string> = {
-  review_mismatch: "These ideas were drafted for a different review.",
-  input_hash_mismatch: "The fact, its gags or the gag writer changed since these ideas were drafted.",
-  humor_note_changed: "These ideas were drafted for a different reading of the joke than the humor note now says.",
+  review_mismatch: "These ideas were written for a different review.",
+  input_hash_mismatch: "The fact, its gags or the gag writer changed since these ideas were written.",
+  humor_note_changed: "These ideas were written for a different reading of the joke than the humor note now says.",
 };
 
 /**
@@ -86,7 +86,7 @@ function HumorNoteCard({
           <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground flex items-center gap-1"><Laugh className="w-3.5 h-3.5" /> Humor note (approved)</p>
           <p className="text-sm text-foreground whitespace-pre-wrap" data-testid="humor-note-text">{humorNote.text}</p>
           <p className="text-[11px] text-muted-foreground">
-            Approved {new Date(humorNote.approvedAt).toLocaleString()}. The gag writer uses it on every regeneration.{" "}
+            Approved {new Date(humorNote.approvedAt).toLocaleString()}.{" "}
             <button type="button" disabled={disabled} onClick={() => setEditing(humorNote.text)} className="text-primary hover:underline disabled:opacity-40" data-testid="humor-note-edit">Edit</button>
           </p>
         </div>
@@ -270,25 +270,20 @@ export function VisualConceptCandidates({
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
           <Lightbulb className="w-4 h-4 text-muted-foreground" />
-          <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Visual ideas</p>
-          <span className="text-[10px] font-mono text-muted-foreground">optional</span>
+          <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Gag ideas</p>
         </div>
         {(status === "ok" || status === "failed") && <GenerateButton label="Regenerate" />}
       </div>
 
       {status == null && (
         <div className="space-y-2" data-testid="visual-concepts-idle">
-          <p className="text-xs text-muted-foreground">
-            The gag writer can draft three distinct concepts to start from — use one on a gag, edit it there, or
-            ignore them and write your own.
-          </p>
-          <GenerateButton label="Generate visual ideas" />
+          <GenerateButton label="Write gag ideas" />
         </div>
       )}
 
       {status === "pending" && (
         <p className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1.5" data-testid="visual-concepts-pending">
-          <Loader2 className="w-3.5 h-3.5 animate-spin" /> Drafting three ideas… this view updates live.
+          <Loader2 className="w-3.5 h-3.5 animate-spin" /> Writing three gag ideas…
         </p>
       )}
 
@@ -296,7 +291,7 @@ export function VisualConceptCandidates({
         <p className="text-xs text-muted-foreground flex items-center gap-1.5" data-testid="visual-concepts-failed">
           <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
           {visualConcepts?.failureReason
-            ?? "Couldn't draft ideas this time. Press Regenerate to try again; the gag can't be approved until ideas are drafted."}
+            ?? "Couldn't write gag ideas this time. Press Regenerate to try again."}
         </p>
       )}
 
@@ -328,9 +323,6 @@ export function VisualConceptCandidates({
           {candidates.map((c, i) => (
             <ConceptCard key={i} concept={c} index={i} disabled={disabled} pickBlockedReason={pickBlockedReason} actions={actions} />
           ))}
-          <p className="text-[11px] text-muted-foreground">
-            Using an idea saves it as that gag's change. It reaches users only once a test render of it is approved as the gag's example.
-          </p>
         </div>
       )}
     </div>
