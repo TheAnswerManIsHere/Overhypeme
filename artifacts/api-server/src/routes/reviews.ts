@@ -516,15 +516,11 @@ async function approveForProduction(
   const enrichment = classification.ok ? classification.data : null;
 
   // The go-live rule (blocking; plan PLAN_FACT_LIFECYCLE_REBUILD.md, oracle
-  // item 12): between one and three gags, every one with an approved male,
-  // female and pet render of its current content. Evaluated on the draft as an
-  // advisory pre-check for a clean 409; publishDraft re-checks it inside the
-  // transaction, and activateFact checks the published set it produced.
-  const preCheck = await checkGoLive(stagingFact.id, "draft");
-  if (!preCheck.ok) {
-    refuseGoLive(res, preCheck);
-    return;
-  }
+  // item 12) is checked only inside the approving transaction, after the
+  // review's lock: publishDraft refuses a draft that fails it, and
+  // activateFact checks the published set it produced. A check before the
+  // lock would read a review a concurrent Reject is moving, and answer
+  // "a gag is missing" where the truth is "the review moved".
 
   // Final discovery tags. The moderator's curated list from the approve body is
   // authoritative; absent that, fall back to the submitter's tags (else the
