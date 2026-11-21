@@ -1,6 +1,6 @@
 import express, { Router, type IRouter, type Request, type Response } from "express";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
-import { Readable } from "stream";
+import { sendStorageBody } from "../lib/sendStorageBody";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import { ObjectPermission } from "../lib/objectAcl";
 import { contentRowOfObject, userCanReadObject } from "../lib/objectAccess";
@@ -126,12 +126,7 @@ router.get("/storage/public-objects/*filePath", async (req: Request, res: Respon
     setPublicCache(res, CACHE.PUBLIC_OBJECT);
     setPublicCors(res);
 
-    if (response.body) {
-      const nodeStream = Readable.fromWeb(response.body as ReadableStream<Uint8Array>);
-      nodeStream.pipe(res);
-    } else {
-      res.end();
-    }
+    await sendStorageBody(res, response.body, { route: req.path });
   } catch (error) {
     req.log.error({ err: error }, "Error serving public object");
     res.status(500).json({ error: "Failed to serve public object" });
@@ -200,12 +195,7 @@ router.get("/storage/objects/*path", async (req: AuthenticatedRequest, res: Resp
       res.setHeader("Cache-Control", CACHE.PRIVATE_OBJECT);
     }
 
-    if (response.body) {
-      const nodeStream = Readable.fromWeb(response.body as ReadableStream<Uint8Array>);
-      nodeStream.pipe(res);
-    } else {
-      res.end();
-    }
+    await sendStorageBody(res, response.body, { route: req.path });
   } catch (error) {
     if (error instanceof ObjectNotFoundError) {
       req.log.warn({ err: error }, "Object not found");
