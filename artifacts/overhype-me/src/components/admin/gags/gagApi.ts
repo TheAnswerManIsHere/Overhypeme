@@ -21,7 +21,7 @@ import {
  * back to `error` (#685). It lived beside the old taxonomy editor until that
  * went (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 2A).
  */
-export function saveRefusalMessage(body: unknown): string | undefined {
+function saveRefusalMessage(body: unknown): string | undefined {
   const b = body as { error?: unknown; details?: unknown } | null;
   if (!b || typeof b !== "object") return undefined;
   const details = Array.isArray(b.details) ? b.details : [];

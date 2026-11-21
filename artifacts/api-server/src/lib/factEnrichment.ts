@@ -449,20 +449,18 @@ export interface MaterializedEnrichmentColumns {
  * included, so they never drift. A fact's gags are not part of it (fact_gags,
  * migration 0139).
  */
-export function materializeFromBaseline(enrichment: FactEnrichment): { columns: MaterializedEnrichmentColumns } {
+export function taxonomyColumns(enrichment: FactEnrichment): MaterializedEnrichmentColumns {
   // Since migration 0139 a gag lives only in fact_gags: the stored taxonomy
   // never carries one (CHECK facts_enrichment_holds_no_gag), whatever a caller passed.
   const aiDerived = stripGag(enrichment);
   const projected = buildFactEnrichmentColumns(aiDerived);
   return {
-    columns: {
-      enrichment: aiDerived,
-      enrichmentAiDerived: aiDerived,
-      primaryArchetype: projected.primaryArchetype,
-      subtype: projected.subtype,
-      overhypeFit: projected.overhypeFit,
-      adultSuitability: projected.adultSuitability,
-    },
+    enrichment: aiDerived,
+    enrichmentAiDerived: aiDerived,
+    primaryArchetype: projected.primaryArchetype,
+    subtype: projected.subtype,
+    overhypeFit: projected.overhypeFit,
+    adultSuitability: projected.adultSuitability,
   };
 }
 

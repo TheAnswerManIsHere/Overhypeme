@@ -23,7 +23,7 @@ import {
   type AsyncJobRow,
 } from "@workspace/db/schema";
 import { validateEnrichment, type FactEnrichment } from "@workspace/api-zod";
-import { enrichFact, materializeFromBaseline } from "./factEnrichment";
+import { enrichFact, taxonomyColumns } from "./factEnrichment";
 import { assertJobOwnership, fencedTransaction } from "./jobFence";
 import { renderCanonical } from "./renderCanonical";
 import { resolveGenericFactEnrichmentDecision } from "./moderationStaging";
@@ -62,10 +62,9 @@ async function loadPendingReviewEnrichment(reviewId: number): Promise<FactEnrich
 // ─── "enrichment" handler — classify only ──────────────────────────────────
 
 async function runEnrichmentForReview(reviewId: number): Promise<HandlerResult> {
-  // Load the submitted text so we can classify (+ the prior enrichment so a
-  // moderator's visual-strategy override survives re-classification).
+  // Load the submitted text so we can classify it.
   const [reviewRow] = await db
-    .select({ submittedText: pendingReviewsTable.submittedText, enrichment: pendingReviewsTable.enrichment })
+    .select({ submittedText: pendingReviewsTable.submittedText })
     .from(pendingReviewsTable)
     .where(eq(pendingReviewsTable.id, reviewId))
     .limit(1);
@@ -131,9 +130,7 @@ export async function runEnrichmentForFact(
 
   // GENERIC-JOB GUARD (cost + isolation): run only for a live fact or a
   // first-time staging cycle past triage. Skips are retired as successful no-ops
-  // and touch NOTHING — in particular `refresh_candidate_in_review`, where a
-  // stale generic job writing facts.* would corrupt an in-flight refresh whose
-  // enrichment lives in the candidate VERSION row.
+  // and touch nothing.
   const decision = await resolveGenericFactEnrichmentDecision(factId);
   if (decision.action === "skip") {
     logger.info({ factId, reason: decision.reason }, "[enrichment] generic fact job skipped");
@@ -168,28 +165,26 @@ export async function runEnrichmentForFact(
     return { ok: false, error: `classify: ${msg}` };
   }
 
-  // Transactional RE-check before the write (mirrors the candidate job's
-  // phase 3): the pre-classify guard can't cover state that changed DURING the
-  // LLM call — most importantly a send-back committing mid-classify, which
-  // must freeze facts.* for its refresh cycle. The fact row lock serializes
-  // with sendFactBackToReview (which locks the fact first), so the recheck
-  // either sees the new candidate (→ discard this stale result) or the
-  // send-back waits and seeds its candidate from the freshly-written active.
-  const wrote = await fencedTransaction(db, async (tx) => {
+  // Transactional re-check before the write: the pre-classify guard can't cover
+  // state that changed during the (slow) classifier call, so the result is
+  // discarded if the fact left the eligible state or its text changed. The fact
+  // row lock gives that re-check a consistent read against concurrent writers.
+  // A discarded result is retired as a successful no-op.
+  await fencedTransaction(db, async (tx) => {
     const [locked] = await tx
       .select({ id: factsTable.id, text: factsTable.text })
       .from(factsTable)
       .where(eq(factsTable.id, factId))
       .for("no key update") // the lock rule's strength (lib/reviewLocks.ts)
       .limit(1);
-    if (!locked) return false;
+    if (!locked) return;
     const recheck = await resolveGenericFactEnrichmentDecision(factId, tx);
     if (recheck.action === "skip") {
       logger.info(
         { factId, reason: recheck.reason },
         "[enrichment] generic fact result discarded at recheck (state changed mid-classify)",
       );
-      return false;
+      return;
     }
 
     // Full-input drift guard: re-derive the classifier input from the LOCKED
@@ -202,18 +197,15 @@ export async function runEnrichmentForFact(
         { factId },
         "[enrichment] generic fact result discarded at recheck (classifier input drifted mid-classify)",
       );
-      return false;
+      return;
     }
-    const { columns } = materializeFromBaseline(freshAiDerived);
     await tx
       .update(factsTable)
-      .set({ ...columns, enrichmentStatus: "ok" })
+      .set({ ...taxonomyColumns(freshAiDerived), enrichmentStatus: "ok" })
       .where(eq(factsTable.id, factId));
     // The taxonomy never moves a review or starts idea writing: it is stored
     // data beside moderation (Issue #1018, increment 1.2c-ii).
-    return true;
   });
-  if (!wrote) return { ok: true }; // retired as a successful no-op — the new owner (e.g. a refresh cycle) has the fact
   return { ok: true };
 }
 

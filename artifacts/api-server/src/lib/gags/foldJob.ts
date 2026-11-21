@@ -192,7 +192,9 @@ export async function startGagFold(): Promise<GagFoldStartResponse> {
 
 /** The column a stage's content lives in. */
 const contentKey = (stage: GagFoldStage): "approvedContent" | "pendingContent" => (stage === "approved" ? "approvedContent" : "pendingContent");
-const skipped = (reason: string): HandlerResult => ({ ok: true, result: { skipped: true, reason } });
+/** Every reason the fold skips a version; Queue Health shows exactly these. */
+export const GAG_FOLD_SKIP_REASONS = ["gag_removed", "no_version", "content_invalid", "already_current"] as const;
+const skipped = (reason: (typeof GAG_FOLD_SKIP_REASONS)[number]): HandlerResult => ({ ok: true, result: { skipped: true, reason } });
 
 export async function runGagFold(payload: unknown, deps: GagFoldDeps = realDeps): Promise<HandlerResult> {
   const p = payload as GagFoldPayload;

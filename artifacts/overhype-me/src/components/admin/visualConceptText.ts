@@ -66,8 +66,7 @@ export const CORE_SCENE_MAX_CHARS = SCENE_RAW_MAX_CHARS;
 
 /**
  * Apply a moderator-typed visual concept (core scene) to the gag's content.
- * Canonicalizes name tokens. The scene applies whenever it is non-empty, so
- * there is no side effect to flip — every other field is preserved untouched.
+ * Canonicalizes name tokens; every other field is preserved untouched.
  */
 export function withCoreSceneOverride(
   ov: VisualPromptStrategyOverride | undefined,

@@ -38,7 +38,7 @@ function PromptProvenanceLine({ diagnostics }: { diagnostics?: FactEnrichment["c
 }
 
 /** The stored taxonomy, as the classifier wrote it. */
-export function TaxonomySummary({ e }: { e: FactEnrichment }) {
+function TaxonomySummary({ e }: { e: FactEnrichment }) {
   const rows: [string, string][] = [
     ["Archetype", e.primaryArchetype],
     ["Subtype", e.subtype],
@@ -91,6 +91,9 @@ export function TaxonomySummary({ e }: { e: FactEnrichment }) {
   );
 }
 
+/** Nothing on this panel is edited, so a server sync never clobbers local work. */
+const NEVER_DIRTY = () => false;
+
 interface FactDetail {
   enrichment?: FactEnrichment | null;
   enrichmentStatus?: string | null;
@@ -124,7 +127,8 @@ export function FactTaxonomyPanel({ factId, initialStatus }: { factId: number; i
     if (next) setEnrichment(next);
     setStatus(nextStatus);
   }, []);
-  const jobs = useEnrichmentJobs({ resource: "facts", id: factId, status, isDirty: () => false, applyServerState });
+  // Polling waits for the first load, so a run already pending is read once, not twice.
+  const jobs = useEnrichmentJobs({ resource: "facts", id: factId, status: loading ? null : status, isDirty: NEVER_DIRTY, applyServerState });
 
   const rerun = useCallback(async () => {
     if (!window.confirm("Re-run the AI taxonomy for this fact? It is a paid AI call. The new result replaces the stored one when it finishes; nothing members see changes.")) return;

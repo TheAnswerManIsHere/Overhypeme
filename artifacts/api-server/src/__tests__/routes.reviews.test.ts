@@ -38,7 +38,7 @@ import type { FactEnrichment } from "@workspace/api-zod";
 
 import reviewsRouter, { __settleSubmitDuplicateChecksForTest } from "../routes/reviews.js";
 import { __setUtilityLLMClientForTest } from "../lib/utilityLLM.js";
-import { materializeFromBaseline } from "../lib/factEnrichment.js";
+import { taxonomyColumns } from "../lib/factEnrichment.js";
 import { FACT_SUBMIT_PENDING_CAP, FACT_SUBMIT_MAX } from "../lib/rateLimit.js";
 import { enrichmentJobHandler, runEnrichmentForFact } from "../lib/enrichmentJobs.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
@@ -915,7 +915,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     // The taxonomy is read-only stored data (plan PLAN_FACT_LIFECYCLE_REBUILD.md,
     // 2A): approval neither re-runs nor rewrites it.
     const submitterId = await createTestUser();
-    const { columns } = materializeFromBaseline({ ...VALID_APPROVAL_ENRICHMENT, visualComplexity: "high" });
+    const columns = taxonomyColumns({ ...VALID_APPROVAL_ENRICHMENT, visualComplexity: "high" });
     const [staging] = await db.insert(factsTable).values({
       text: "{NAME} bench-presses the Earth.", submittedById: submitterId, isActive: false,
       ...columns,

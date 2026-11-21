@@ -7,7 +7,7 @@
 > backfill, the manual-override system (layers, history writer, the override
 > merge on write, the editor and its badges and filters), the version-history
 > panel and the hashtag edit. The taxonomy is now read-only stored AI output:
-> a run writes the classifier's own result through `materializeFromBaseline`
+> a run writes the classifier's own result through `taxonomyColumns`
 > (`artifacts/api-server/src/lib/factEnrichment.ts`), and the Facts editor
 > shows it with only "Re-run" (`FactTaxonomyPanel.tsx`). The override,
 > signature and version columns stay in the schema, unread, until increment

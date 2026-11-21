@@ -39,7 +39,7 @@ sensitive row:
 - **The tokenizer, the grammar, and `render-fact`**
   (`artifacts/overhype-me/src/lib/render-fact.ts`).
 - **Enrichment and moderation source-of-truth** — `facts.*` and the one
-  taxonomy write-shape, `materializeFromBaseline` (the override layers went in
+  taxonomy write-shape, `taxonomyColumns` (the override layers went in
   increment 2.1a of `PLAN_FACT_LIFECYCLE_REBUILD.md`). See
   [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md) and
   [`moderation-workflow.md`](./moderation-workflow.md).
@@ -93,7 +93,7 @@ goes unflagged.
 A reviewer should ask whether a change reuses these rather than reimplementing
 them:
 
-- **`materializeFromBaseline`** — the one shape a fact's stored taxonomy is
+- **`taxonomyColumns`** — the one shape a fact's stored taxonomy is
   written in, projections included.
 - **`render-fact`** — fact rendering.
 - **`compileForSubjectRenderMode`** — the visual-pipeline compile path.
