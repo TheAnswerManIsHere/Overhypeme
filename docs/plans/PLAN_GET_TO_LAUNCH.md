@@ -227,7 +227,8 @@ content formats; multi-role RBAC; new vendors beyond PostHog and Turnstile.
 4. Spend controls demonstrated under concurrency, pricing failure, restart
    and ledger-write failure; a launch capacity and an emergency stop.
 5. `/security-review` on the launch scope with no open highs; `ADMIN_API_KEY`
-   scoped (no password reset through it) or gone; `sharp` upgraded or
+   scoped (no password reset through it) or gone (gone since #455,
+   `docs/ai-context/decisions.md#2026-11-21--admin_api_key-is-deleted-not-scoped-admin-actions-need-a-signed-in-admin`); `sharp` upgraded or
    mitigated; CSP enforced on the API and on the web app (after a
    report-only period); HSTS sent once, by Cloudflare; `pnpm audit --prod`
    shows no High or Critical; the old prod dump's exposure closed —
@@ -357,9 +358,10 @@ scope:
   report endpoint — report-only first, enforced once the reports are clean
   — and the API's existing policy is enforced; Cloudflare is the one
   source of the HSTS header and the API's duplicate is dropped;
-  `ADMIN_API_KEY` is scoped, not deleted (David, 2026-10-13): it can no
-  longer set a password, it reaches only backfills, Stripe sync and import,
-  each with a confirm and a limit, and it is compared in constant time; the
+  `ADMIN_API_KEY` is deleted (David, 2026-11-21, superseding the
+  2026-10-13 "scoped, not deleted"; done in #455, `decisions.md`): every
+  admin route takes an admin session, and the stored secret is removed with
+  the credential rotation below; the
   dependency gate is `pnpm audit --prod` showing no High or Critical, with
   the `/maintenance` sweep doing the rest.
 - **Phase 16:** one alert for any background job that has stopped running
@@ -367,7 +369,9 @@ scope:
   that could not be recorded.
 - **Phase 18:** David decides whether production keeps any admin override
   at all (David, 2026-10-13: "in a live environment we need to be hyper
-  sensitive to backdoors of any kind").
+  sensitive to backdoors of any kind"). The static `ADMIN_API_KEY` is
+  already gone (#455, `docs/ai-context/decisions.md#2026-11-21--admin_api_key-is-deleted-not-scoped-admin-actions-need-a-signed-in-admin`); the
+  decision covers whatever other override remains.
 - **Phase 20:** whether the domain joins the HSTS preload list.
 - **Stripe sync mode-scoping:** fixed — #577 and #653, single-flight
   construction by #657 (amendment v7: it merged as v6 was placing it).
@@ -750,7 +754,7 @@ multi-step thing by definition). Phase 6's settled scope is on #873.*
 - **Scope:** the dev-admin-login backdoor and its wordmark triple-tap
   redesigned as a safe, easy admin entry (David, 2026-10-21: *"I still want an
   easy way to get in and see admin screens without having to log in the
-  standard way"*; `decisions.md`); `ADMIN_API_KEY` scoped (#455; the shape is in *Placements*);
+  standard way"*; `decisions.md`); `ADMIN_API_KEY` deleted (#455, done 2026-11-21; *Placements*);
   `sharp` upgrade (done in Phase 7) confirmed; the web app's CSP added and
   enforced after report-only observation, the API's enforced; HSTS from
   Cloudflare alone; `pnpm audit --prod` with no High or Critical; secrets
@@ -823,7 +827,8 @@ multi-step thing by definition). Phase 6's settled scope is on #873.*
   (retired, not rotated — Turnstile replaces it in Phase 5 with fresh
   keys), `PEXELS_API_KEY` (retired with Pexels, Phase 4), `CRON_SECRET`,
   `IP_HASH_SALT` (a new salt invalidates old IP hashes, which is fine on a
-  fresh database), `ADMIN_API_KEY` (rotated if scoped, gone if deleted),
+  fresh database), `ADMIN_API_KEY` (deleted from the code in #455; the stored secret is
+  removed, not rotated),
   `SENTRY_AUTH_TOKEN` and both DSNs, `PROJECTS_TOKEN` in CI, the Cloudflare
   API token behind the Worker deploy, and any PostHog project key once
   Phase 16 issues one. Object storage needs no key: it authenticates through
@@ -836,8 +841,8 @@ multi-step thing by definition). Phase 6's settled scope is on #873.*
   at the vendor, not merely replaced.
 - **Depends on:** Phase 4 (smaller surface); Phase 3 (fresh database,
   which does the session revocation).
-- **David's batch:** `ADMIN_API_KEY` fate settled — scoped (David,
-  2026-10-13), with removal in production decided at Phase 18; Mythos lane
+- **David's batch:** `ADMIN_API_KEY` fate settled — deleted (David,
+  2026-11-21, superseding "scoped" of 2026-10-13; done in #455); Mythos lane
   shape — a session he switches (recommended: a dispatched role inherits
   whatever safeguards the dispatching tier has) or a dispatched role.
   Rotation itself is his action
@@ -1001,7 +1006,7 @@ stays visibly outstanding and never becomes an earlier stage's pass.
 - **Phase 12:** cadence; welcome copy.
 - **Phase 13:** dashboard contents (from a mock-up).
 - **Phase 14:** NCMEC path; retention; counsel's returns (S9 settled: block only GDPR territories and OFAC countries).
-- **Phase 15:** `ADMIN_API_KEY` fate; Mythos lane shape (session vs dispatch); turning every vendor-held key on the rotation checklist.
+- **Phase 15:** ~~`ADMIN_API_KEY` fate~~ (deleted, 2026-11-21); Mythos lane shape (session vs dispatch); turning every vendor-held key on the rotation checklist.
 - **Phase 18–21:** invite lists; go/no-go per stage; the US date; the Global region order and the EU-representative decision.
 
 ## 7. Risks and accepted trade-offs
