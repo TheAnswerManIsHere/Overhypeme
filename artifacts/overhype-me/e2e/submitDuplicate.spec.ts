@@ -4,7 +4,9 @@
  * increment 1.4): on the server's "duplicate" verdict the form shows the
  * matching fact in an on-brand warning and offers "Submit anyway" and a way
  * back; identical wording is refused, before the click when the preview's exact
- * check found it and after it when the server does.
+ * check found it and after it when the server does, and a refused fact's
+ * greyed button never reads "Submit anyway". Wording of a fact that was
+ * approved and later deactivated is refused as retired, with no link.
  *
  * The AI conversion and the duplicate verdict are stubbed (vendor calls); the
  * server's identical-text refusal is tested against the real database in the
@@ -47,6 +49,23 @@ test.describe("Submit · the duplicate message", () => {
     await expect(page.getByTestId("identical-refusal")).toContainText("Even legends can't happen twice.");
     await expect(page.getByTestId("duplicate-warning")).toHaveCount(0);
     await expect(page.getByTestId("submit-fact")).toBeDisabled();
+    await expect(page.getByTestId("submit-fact"), "a refused fact offers no Submit anyway").not.toHaveText(/Submit anyway/);
+  });
+
+  test("identical wording of a retired fact says it was retired, and links nothing", async ({ page }) => {
+    await page.route("**/api/facts/submit-review", (route) => route.fulfill({
+      status: 409,
+      json: { error: "This exact fact was on Overhype.me once and has been retired.", code: "IDENTICAL_FACT", matchingFactRetired: true, matchingCanonicalText: MATCH },
+    }));
+    await preview(page, { outcome: "distinct", isDuplicate: false, confidence: 10, llmChecked: true });
+    await page.getByTestId("submit-fact").click();
+    const refusal = page.getByTestId("identical-refusal");
+    await expect(refusal).toContainText("retired");
+    await expect(refusal).not.toContainText("already on Overhype.me");
+    await expect(refusal.getByTestId("duplicate-match-text")).toHaveText(`"${MATCH}"`);
+    await expect(refusal.getByRole("link")).toHaveCount(0);
+    await expect(page.getByTestId("submit-fact")).toBeDisabled();
+    await expect(page.getByTestId("submit-fact")).not.toHaveText(/Submit anyway/);
   });
 
   test("the server's identical-text refusal replaces the form's submit with the matching fact", async ({ page }) => {

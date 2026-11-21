@@ -255,7 +255,7 @@ export default function SubmitFact() {
         setSubmitted(true);
         window.scrollTo({ top: 0, behavior: "smooth" });
       } else {
-        const d = await r.json() as { error?: string; code?: string; matchingFactId?: number; matchingReviewId?: number; matchingCanonicalText?: string };
+        const d = await r.json() as { error?: string; code?: string; matchingFactId?: number; matchingReviewId?: number; matchingFactRetired?: boolean; matchingCanonicalText?: string };
         if (d.code === "ONBOARDING_REQUIRED") {
           setOnboardingRequired(true);
         } else if (d.code === "IDENTICAL_FACT") {
@@ -708,6 +708,9 @@ export default function SubmitFact() {
                 >
                   {submitting
                     ? <><Loader2 className="w-5 h-5 animate-spin mr-2" /> Submitting…</>
+                    : identicalShown
+                    // Refused: the greyed button offers nothing to do anyway.
+                    ? <><CheckCircle2 className="w-5 h-5 mr-2" /> Submit</>
                     : shownDuplicate
                     ? <><CheckCircle2 className="w-5 h-5 mr-2" /> Submit anyway</>
                     : <><CheckCircle2 className="w-5 h-5 mr-2" /> Looks Great — Submit</>

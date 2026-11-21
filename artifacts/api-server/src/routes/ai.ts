@@ -2,7 +2,7 @@ import { can, principalFromRequest } from "../lib/featureAccess";
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db } from "@workspace/db";
 import { factsTable, commentsTable, pendingReviewsTable } from "@workspace/db/schema";
-import { eq, sql, and, ne, or, isNotNull } from "drizzle-orm";
+import { eq, sql, and, ne, or, isNotNull, desc } from "drizzle-orm";
 import { callUtilityLLM, JUDGEMENT_REASONING_EFFORT } from "../lib/utilityLLM";
 import { z } from "zod";
 import { createRateLimiter, RATE_WINDOW_MS } from "../lib/rateLimit";
@@ -284,7 +284,14 @@ export async function findPendingReviewWithText(text: string, excludeReviewId?: 
  * of a submission that was never approved (a rejected one's) is not one.
  */
 export interface IdenticalMatch {
+  /** A live fact: the one the refusal may link to. */
   matchingFactId?: number;
+  /**
+   * An approved fact that is no longer live (deactivated). Its id is not
+   * returned, so no screen links to a page nobody can see (Issue #1018, the
+   * 1.4 follow-up).
+   */
+  matchingFactRetired?: true;
   matchingReviewId?: number;
   /** The match's wording, rendered for a reader. */
   matchingCanonicalText: string;
@@ -292,14 +299,21 @@ export interface IdenticalMatch {
 
 export async function findIdenticalSubmission(text: string): Promise<IdenticalMatch | null> {
   const [fact] = await db
-    .select({ id: factsTable.id, text: factsTable.text, canonicalText: factsTable.canonicalText })
+    .select({ id: factsTable.id, isActive: factsTable.isActive, text: factsTable.text, canonicalText: factsTable.canonicalText })
     .from(factsTable)
     .where(and(
       or(eq(factsTable.isActive, true), isNotNull(factsTable.approvedAt)),
       sql`${duplicateMatchText(factsTable.text)} = ${duplicateMatchText(text)}`,
     ))
+    // A live match is named ahead of a retired one with the same wording.
+    .orderBy(desc(factsTable.isActive))
     .limit(1);
-  if (fact) return { matchingFactId: fact.id, matchingCanonicalText: fact.canonicalText ?? renderCanonical(fact.text) };
+  if (fact) {
+    const matchingCanonicalText = fact.canonicalText ?? renderCanonical(fact.text);
+    return fact.isActive
+      ? { matchingFactId: fact.id, matchingCanonicalText }
+      : { matchingFactRetired: true, matchingCanonicalText };
+  }
   const review = await findPendingReviewWithText(text);
   if (review) return { matchingReviewId: review.id, matchingCanonicalText: renderCanonical(review.submittedText) };
   return null;

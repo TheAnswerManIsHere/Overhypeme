@@ -303,10 +303,24 @@ describe("the routes", () => {
     assert.equal(refusedLive.body.error, "This exact fact is already on Overhype.me.");
     assert.equal(await pendingBefore(), before, "nothing was queued");
 
-    // A deactivated fact that was once approved still counts.
+    // A deactivated fact that was once approved still counts, but is not
+    // reported as on Overhype.me and is not offered as a link (Issue #1018,
+    // the 1.4 follow-up): it says the fact was retired, and names no fact id.
     const deactivated = await fact(`{NAME} identical deactivated ${RUN}`, undefined, false);
     await db.update(factsTable).set({ approvedAt: new Date() }).where(eq(factsTable.id, deactivated));
-    assert.equal((await submit(`{NAME} identical deactivated ${RUN}`)).body.matchingFactId, deactivated);
+    const refusedRetired = await submit(`{NAME} identical deactivated ${RUN}`);
+    assert.equal(refusedRetired.status, 409, JSON.stringify(refusedRetired.body));
+    assert.equal(refusedRetired.body.code, "IDENTICAL_FACT");
+    assert.equal(refusedRetired.body.matchingFactRetired, true);
+    assert.equal(refusedRetired.body.matchingFactId, undefined, "a retired fact is never linked");
+    assert.doesNotMatch(refusedRetired.body.error, /already on Overhype\.me/);
+    assert.match(refusedRetired.body.matchingCanonicalText, /identical deactivated/);
+
+    // When a live fact and a retired one share the wording, the live one is named.
+    const liveTwin = await fact(`{NAME} identical deactivated ${RUN}.`);
+    const refusedTwin = await submit(`{NAME} identical deactivated ${RUN}`);
+    assert.equal(refusedTwin.body.matchingFactId, liveTwin);
+    assert.equal(refusedTwin.body.matchingFactRetired, undefined);
 
     // A fact never approved (a rejected submission's) does not.
     const [never] = await db.insert(factsTable).values({ text: `{NAME} identical never approved ${RUN}`, isActive: false }).returning({ id: factsTable.id });
