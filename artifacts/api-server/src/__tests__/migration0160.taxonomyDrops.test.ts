@@ -70,12 +70,9 @@ describe("migration 0160: today's taxonomy into history, then the taxonomy drops
   let first: string[] = [];
   let second: string[] = [];
   before(async () => {
-    // The schema 0160 runs against: what it drops, put back (with the two
-    // tables the helper does not need elsewhere), and the setting it deletes.
+    // The schema 0160 runs against: what it drops, put back, and the setting it deletes.
     await restorePre0160Schema();
     await db.execute(sql.raw(`
-      CREATE TABLE IF NOT EXISTS enrichment_override_history (id bigserial PRIMARY KEY, fact_id integer REFERENCES facts(id) ON DELETE CASCADE);
-      CREATE TABLE IF NOT EXISTS engine_revision_bumps (id serial PRIMARY KEY);
       INSERT INTO engine_revision_bumps DEFAULT VALUES;
       INSERT INTO admin_config (key, value, data_type, label) VALUES ('engine_revision', '3', 'integer', 'Engine Revision')
         ON CONFLICT (key) DO NOTHING;

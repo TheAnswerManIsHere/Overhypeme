@@ -22,7 +22,7 @@ export const MIGRATION_0160 = readFileSync(
   "utf8",
 );
 
-/** Put back the columns and the table 0160 dropped. Idempotent. */
+/** Put back the columns and the tables 0160 dropped (the two unread ones in outline only). Idempotent. */
 export async function restorePre0160Schema(): Promise<void> {
   await db.execute(sql.raw(`
     ALTER TABLE facts ADD COLUMN IF NOT EXISTS enrichment_overrides jsonb NOT NULL DEFAULT '{}'::jsonb;
@@ -55,6 +55,9 @@ export async function restorePre0160Schema(): Promise<void> {
     );
     CREATE UNIQUE INDEX IF NOT EXISTS "UQ_fev_fact_version_no" ON fact_enrichment_versions (fact_id, version_no);
     CREATE UNIQUE INDEX IF NOT EXISTS "UQ_fev_one_candidate_per_fact" ON fact_enrichment_versions (fact_id) WHERE ((status)::text = 'candidate'::text);
+    -- The two other tables 0160 drops, in the columns no test reads beyond their rows.
+    CREATE TABLE IF NOT EXISTS enrichment_override_history (id bigserial PRIMARY KEY, fact_id integer REFERENCES facts(id) ON DELETE CASCADE);
+    CREATE TABLE IF NOT EXISTS engine_revision_bumps (id serial PRIMARY KEY);
   `));
 }
 

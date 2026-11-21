@@ -416,7 +416,7 @@ async function exportWithin(client: pg.Client, opts: ExportOptions): Promise<Exp
     const value = row[column];
     if (rule.startsWith("shape:")) {
       const shape = SHAPES[rule.slice("shape:".length) as ShapeName];
-      return shape.transform(value, { ...ctx, where: `${table}.${column} row ${ctx.row}` }, {});
+      return shape.transform(value, { ...ctx, where: `${table}.${column} row ${ctx.row}` });
     }
     if (rule.startsWith("ref:")) return value;
     switch (rule as ScalarRule) {
@@ -684,8 +684,8 @@ function parityChecks(source: Map<string, Row[]>, out: Map<string, Row[]>, stops
     for (const src of source.get(table) ?? []) {
       const o = outRows.get(keyOf(table, src));
       if (!o || src[column] == null) continue;
-      const beforeIssues = shape.validate(src[column], {});
-      const afterIssues = shape.validate(o[column], {});
+      const beforeIssues = shape.validate(src[column]);
+      const afterIssues = shape.validate(o[column]);
       const before = beforeIssues === null;
       const after = afterIssues === null;
       if (before !== after) {

@@ -62,16 +62,6 @@ BEGIN
   SELECT count(*) INTO v_facts FROM facts;
   SELECT count(*) INTO v_skipped FROM facts WHERE enrichment IS NULL;
 
-  -- "Held": a re-run's own row, or the fact's newest stored run is already it.
-  SELECT count(*) INTO v_held
-    FROM facts f
-   WHERE f.enrichment IS NOT NULL
-     AND (EXISTS (SELECT 1 FROM fact_taxonomy_runs r
-                   WHERE r.fact_id = f.id AND r.origin = 'legacy_current')
-          OR (SELECT r.output FROM fact_taxonomy_runs r
-               WHERE r.fact_id = f.id AND r.outcome = 'ok'
-               ORDER BY r.created_at DESC, r.id DESC LIMIT 1) = f.enrichment);
-
   INSERT INTO fact_taxonomy_runs (fact_id, outcome, origin, output)
   SELECT f.id, 'ok', 'legacy_current', f.enrichment
     FROM facts f
@@ -82,6 +72,9 @@ BEGIN
            WHERE r.fact_id = f.id AND r.outcome = 'ok'
            ORDER BY r.created_at DESC, r.id DESC LIMIT 1) IS DISTINCT FROM f.enrichment;
   GET DIAGNOSTICS v_seeded = ROW_COUNT;
+  -- Every other fact with a taxonomy is "held": a re-run's own row, or its
+  -- newest stored run is already its taxonomy (the complement of the WHERE above).
+  v_held := v_facts - v_skipped - v_seeded;
 
   RAISE NOTICE '[0160] facts %: taxonomy seeded into history %, already held (no-op) %, skipped (no taxonomy) %, failed 0',
     v_facts, v_seeded, v_held, v_skipped;

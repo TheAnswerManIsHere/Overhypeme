@@ -41,8 +41,7 @@ import { logger } from "./logger";
 // ─── Payload shapes ─────────────────────────────────────────────────────────
 
 // The enrichment job classifies a fact: at provisional approval, or on an
-// admin's Re-run. (A review-keyed job is no longer queued by anything, since
-// 1.2c-ii; 2.1c removed its handler, and migration 0160 deleted any left.)
+// admin's Re-run. Every job is keyed by factId.
 /** The origins a job can carry; the legacy ones are 0159's, "unrecorded" a pre-2.1b job's. */
 const REQUESTED_ORIGINS = ["provisional_approval", "rerun"] as const;
 type RequestedOrigin = (typeof REQUESTED_ORIGINS)[number];

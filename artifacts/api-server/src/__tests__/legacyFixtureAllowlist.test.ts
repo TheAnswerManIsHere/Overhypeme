@@ -134,7 +134,7 @@ describe("the scrub primitives", () => {
   it("keeps a blank core scene and a half-filled bubble as they are (Astra round 2)", () => {
     const e = buildPlaceholderFactEnrichment();
     const partial = { ...e, visualPromptStrategyOverride: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "", bubbles: [{ type: "speech", entity: "subject", text: "" }] } };
-    const out = SHAPES.factEnrichment.transform(partial, ctx(), {}) as typeof partial;
+    const out = SHAPES.factEnrichment.transform(partial, ctx()) as typeof partial;
     assert.equal(out.visualPromptStrategyOverride.coreSceneOverride, "");
     assert.deepEqual(out.visualPromptStrategyOverride.bubbles, [{ type: "speech", entity: "subject", text: "" }]);
   });
@@ -144,13 +144,13 @@ describe("the scrub primitives", () => {
     const vso = (entity: string) => ({ ...e, visualPromptStrategyOverride: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, roleBindings: [{ entity, visualRole: "zqx role" }] } });
     for (const entity of ["{NAME}", "z".repeat(61)]) {
       const src = vso(entity);
-      assert.notEqual(SHAPES.factEnrichment.validate!(src, {}), null, `the source with ${entity.slice(0, 8)} is refused`);
-      const out = SHAPES.factEnrichment.transform(src, ctx(), {});
-      assert.notEqual(SHAPES.factEnrichment.validate!(out, {}), null, "and so is its output");
+      assert.notEqual(SHAPES.factEnrichment.validate!(src), null, `the source with ${entity.slice(0, 8)} is refused`);
+      const out = SHAPES.factEnrichment.transform(src, ctx());
+      assert.notEqual(SHAPES.factEnrichment.validate!(out), null, "and so is its output");
       assert.ok(!JSON.stringify(out).includes("zzzz") && !JSON.stringify(out).includes("NAME"), "the value itself does not survive");
     }
-    const ok = SHAPES.factEnrichment.transform(vso("mother"), ctx(), {});
-    assert.equal(SHAPES.factEnrichment.validate!(ok, {}), null, "an accepted label stays accepted");
+    const ok = SHAPES.factEnrichment.transform(vso("mother"), ctx());
+    assert.equal(SHAPES.factEnrichment.validate!(ok), null, "an accepted label stays accepted");
   });
 
   it("scrubs a humor note to the same placeholder as an equal joke read in its gags' blob, so freshness survives (Codex, PR #936 round 2)", () => {
@@ -163,7 +163,7 @@ describe("the scrub primitives", () => {
       provenance: { engineId: "openai-gag-writer", model: "gpt-6-astra", reasoningEffort: "high", timeoutMs: 1, promptVersion: 3 },
       jokeRead: read, humorNoteUsed: "The note it was written under.",
     };
-    const out = SHAPES.visualConceptCandidatesBlob.transform(blob, ctx(), {}) as { jokeRead: string; humorNoteUsed: string };
+    const out = SHAPES.visualConceptCandidatesBlob.transform(blob, ctx()) as { jokeRead: string; humorNoteUsed: string };
     assert.equal(scrubber.prose(read), out.jokeRead, "a note equal to the joke read stays equal to it");
     assert.equal(scrubber.prose("The note it was written under."), out.humorNoteUsed, "and to the note the gags were written under");
     assert.notEqual(scrubber.prose("A different note."), out.jokeRead, "a different note stays different");
@@ -172,13 +172,13 @@ describe("the scrub primitives", () => {
   it("stops on a key the shape does not describe, naming the path and never the value", () => {
     const e = { ...buildPlaceholderFactEnrichment(), zqxUnknownField: "zqx private value" };
     assert.throws(
-      () => SHAPES.factEnrichment.transform(e, ctx(), {}),
+      () => SHAPES.factEnrichment.transform(e, ctx()),
       (err: unknown) => err instanceof ShapeStop && /zqxUnknownField/.test(err.message) && !/zqx private value/.test(err.message),
     );
   });
 
   it("replaces a frozen user name and a typed subject name, and keeps the product's preset names (Codex round 1)", () => {
-    const rc = (extra: object) => SHAPES.renderControls.transform({ aspectRatio: "landscape", contentMode: "sfw", ...extra }, ctx(), {}) as {
+    const rc = (extra: object) => SHAPES.renderControls.transform({ aspectRatio: "landscape", contentMode: "sfw", ...extra }, ctx()) as {
       promptIdentity?: { name: string; source: string };
       reviewRenderSubject?: { name: string; pronouns: string | null };
     };

@@ -62,23 +62,16 @@ export type ShapeName =
   | "framingTransform"
   | "reviewHashtags";
 
-/**
- * Extra row-level inputs a shape may need beyond the walk context. None does
- * today: the one that did (an override-history value, keyed by its row's path)
- * went with the override system's tables (migration 0160).
- */
-export type ShapeRow = Record<string, never>;
-
 export interface ShapeDef {
   /** Walk the stored value and return the transformed value. */
-  transform(value: unknown, ctx: WalkContext, row: ShapeRow): unknown;
+  transform(value: unknown, ctx: WalkContext): unknown;
   /**
    * The validator the output must satisfy, as an error string or null. A shape
    * whose SOURCE value fails its validator must fail it on the output too and
    * vice versa — the exporter compares the two outcomes, so a legacy row that
    * never validated is not "fixed" and a valid one is not broken.
    */
-  validate?(value: unknown, row: ShapeRow): string | null;
+  validate?(value: unknown): string | null;
 }
 
 const issues = (r: { success: boolean; error?: { issues: Array<{ path: (string | number)[]; message: string }> } }) =>
