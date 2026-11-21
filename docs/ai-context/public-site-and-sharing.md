@@ -168,14 +168,14 @@ no public profile for it to leak through) — it gates `/library`'s "My
 Memes" tab implicitly (a user only ever sees their own), and it's enforced
 via one shared check, `canViewMeme()`
 (`lib/memeVisibility.ts:27-33`), on every meme-resolving surface: the meme
-detail JSON, the rendered image, the OG shell, and share-copy/share-intents.
-**One exception, not yet using that check:**
-`POST /memes/:id/heart` (`memes.ts:532-546`) only verifies the meme
-exists and isn't soft-deleted — it never calls `canViewMeme()` — so an
-authenticated non-owner who has (or guesses) a private meme's numeric id
-can toggle a heart on it despite not being able to view it anywhere else.
-Worth fixing to match the settled owner/admin-only contract for private
-memes; flagged here rather than fixed, since this spec is documentation.
+detail JSON, the rendered image, the OG shell, share-copy/share-intents,
+and the heart toggle `POST /memes/:id/heart` (it was the one exception
+until #375, fixed by PR #1143). The meme detail JSON is the one surface
+that tells a non-viewer anything: a live private meme answers 403
+`{ private: true }`, and the meme page shows "This meme is private", with
+a Sign in button for a signed-out visitor in case the meme is theirs
+(#591; David, 2026-11-21). Every other surface still answers a non-viewer
+as if the meme did not exist.
 
 ## OG cards
 

@@ -218,10 +218,18 @@ router.get("/memes/:slug", async (req: Request, res: Response) => {
     .where(eq(memesTable.permalinkSlug, slug))
     .limit(1);
   if (!meme) { res.status(404).json({ error: "Meme not found" }); return; }
-  // Owner-only enforcement for private memes — 404 (not 403), and BEFORE the
-  // not-live 410 below, so a non-owner cannot distinguish a private meme
-  // (live or deleted) from one that never existed. See lib/memeVisibility.ts.
-  if (!canViewMeme(meme, req)) { res.status(404).json({ error: "Meme not found" }); return; }
+  // Owner-only enforcement for private memes, BEFORE the not-live 410 below.
+  // A live private meme tells a non-viewer it is private (403 `private`), so
+  // its link reads as real rather than broken (#591; David, 2026-11-21, Q2).
+  // A deleted private meme stays a plain 404 to a non-viewer, as does every
+  // other surface (image, OG, share copy, heart): only this detail route says
+  // "private", and it says nothing more. See lib/memeVisibility.ts.
+  if (!canViewMeme(meme, req)) {
+    setNoStore(res);
+    if (meme.isLive) { res.status(403).json({ error: "This meme is private", private: true }); return; }
+    res.status(404).json({ error: "Meme not found" });
+    return;
+  }
   if (!meme.isLive) { res.status(410).json({ error: "This meme has been removed by its creator.", deleted: true }); return; }
   // A private meme visible to its owner must never be cached publicly.
   if (!meme.isPublic) setNoStore(res);

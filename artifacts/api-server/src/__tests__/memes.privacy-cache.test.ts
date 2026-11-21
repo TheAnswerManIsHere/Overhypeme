@@ -126,13 +126,23 @@ describe("GET /memes/:slug — private-meme owner-only enforcement", () => {
     assert.match(String(res.headers["cache-control"] ?? ""), /no-store/);
   });
 
-  it("a different authenticated user gets 404 (no existence disclosure)", async () => {
+  // #591 (David, 2026-11-21): a live private meme tells a non-viewer it is
+  // private, and nothing else about it, so its link reads as real.
+  it("a different authenticated user gets 403 private, with no meme data", async () => {
     const res = await get(PRIV_SLUG, { kind: "authenticated", userId: otherId });
-    assert.equal(res.status, 404);
+    assert.equal(res.status, 403);
+    assert.deepEqual(res.body, { error: "This meme is private", private: true });
+    assert.match(String(res.headers["cache-control"] ?? ""), /no-store/);
   });
 
-  it("an unauthenticated caller gets 404", async () => {
+  it("an unauthenticated caller gets 403 private, with no meme data", async () => {
     const res = await get(PRIV_SLUG, { kind: "unauthenticated" });
+    assert.equal(res.status, 403);
+    assert.deepEqual(res.body, { error: "This meme is private", private: true });
+  });
+
+  it("a slug that does not exist is still a plain 404", async () => {
+    const res = await get(`${SLUG_PREFIX}missing-${randomUUID().slice(0, 8)}`, { kind: "unauthenticated" });
     assert.equal(res.status, 404);
   });
 
