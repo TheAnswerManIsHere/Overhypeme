@@ -11,6 +11,9 @@
  * - a version with no output at all: skipped, counted, no row;
  * - a second run: no new row (already converted, counted);
  * - a candidate row, which 0151 deleted: the migration aborts and names it.
+ *
+ * Migration 0160 dropped the source table, so the file puts it back first and
+ * runs 0160 again at the end (helpers/pre0160Schema.ts).
  */
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -21,10 +24,15 @@ import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db, pool } from "@workspace/db";
 import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import { restorePre0160Schema, rerun0160 } from "./helpers/pre0160Schema.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../../../..");
-const MIGRATION_SQL = readFileSync(path.join(ROOT, "lib/db/migrations/0159_fact_taxonomy_runs.sql"), "utf8");
+// 0159 looks for its source table in `public`, where production keeps it; the
+// test schema is another, and since 0160 the table exists only where this file
+// puts it back, so the test reads 0159's guard against the current schema.
+const MIGRATION_SQL = readFileSync(path.join(ROOT, "lib/db/migrations/0159_fact_taxonomy_runs.sql"), "utf8")
+  .replace("to_regclass('public.fact_enrichment_versions')", "to_regclass('fact_enrichment_versions')");
 const P = `t_0159_${randomUUID().slice(0, 8)}`;
 
 type RunRow = { origin: string; outcome: string; output: Record<string, unknown> | null; at: string; legacy: string };
@@ -67,6 +75,7 @@ describe("migration 0159: legacy enrichment versions become taxonomy run history
   let first = "";
   let second = "";
   before(async () => {
+    await restorePre0160Schema();
     f.promoted = await fact("promoted");
     v.promoted = await version(f.promoted, {
       status: "promoted", enrichment: stored, aiDerived: baseline,
@@ -81,6 +90,7 @@ describe("migration 0159: legacy enrichment versions become taxonomy run history
   });
   after(async () => {
     await db.execute(sql`DELETE FROM facts WHERE text LIKE ${`%${P}%`}`); // cascades to both tables
+    await rerun0160();
   });
 
   it("converts a promoted version at its promotion time, from its AI baseline", async () => {

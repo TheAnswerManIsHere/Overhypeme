@@ -32,7 +32,6 @@ import {
 import {
   MAX_GAGS_PER_FACT,
   kindForScenario,
-  overrideValuesEqual,
   castIsCurrent,
   retiredArtDirectionFields,
   unboundSpeakers,
@@ -93,12 +92,29 @@ export interface GagActor {
  * defaulted lists, a retired `enabled` key), while a render's snapshot holds the
  * schema-normalised render input, so a raw comparison calls an unchanged gag
  * changed (Codex, PR #956 round 2). Content the schema refuses is never equal.
- * `overrideValuesEqual` itself stays raw: the enrichment audit shares it.
  */
 export function gagContentEqual(a: unknown, b: unknown): boolean {
   const pa = visualPromptStrategyOverrideSchema.safeParse(a);
   const pb = visualPromptStrategyOverrideSchema.safeParse(b);
-  return pa.success && pb.success && overrideValuesEqual(pa.data, pb.data);
+  return pa.success && pb.success && canonicalJson(pa.data) === canonicalJson(pb.data);
+}
+
+/**
+ * Deterministic JSON for comparing two parsed gags: object keys sorted, a key
+ * whose value is `undefined` left out (so an absent optional field and one
+ * parsed as `undefined` compare equal), array order kept. It moved here from
+ * the override module when that module was deleted (Issue #1018, 2.1c), with
+ * its behaviour unchanged; `stableStringify` differs on `undefined` keys.
+ */
+function canonicalJson(value: unknown): string {
+  if (value === null || value === undefined) return "null";
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    const keys = Object.keys(obj).filter((k) => obj[k] !== undefined).sort();
+    return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 /**

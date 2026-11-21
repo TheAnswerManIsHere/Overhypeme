@@ -133,10 +133,6 @@ for (const item of SEED_FACTS) {
     canonicalText,
     hasPronouns,
     enrichment: RESEED_ENRICHMENT,
-    primaryArchetype: RESEED_ENRICHMENT.primaryArchetype,
-    subtype: RESEED_ENRICHMENT.subtype,
-    overhypeFit: RESEED_ENRICHMENT.overhypeFit,
-    adultSuitability: RESEED_ENRICHMENT.adultSuitability,
   }, buildPlaceholderGag());
 
   for (const tag of item.hashtags) {

@@ -19,6 +19,7 @@ import { sql } from "drizzle-orm";
 import { db, pool } from "@workspace/db";
 import { sqlAsOf0155 } from "../testing/stageLabelsAsOf0155.js";
 import { publishedGagRuleOff, publishedGagRuleOn } from "./helpers/publishedGagRule.js";
+import { restorePre0160Schema, rerun0160 } from "./helpers/pre0160Schema.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../../../..");
@@ -111,6 +112,8 @@ async function cleanup() {
 
 describe("migration 0139: every gag in one place", () => {
   before(async () => {
+    // The tables 0160 later dropped, as 0139 read them (helpers/pre0160Schema.ts).
+    await restorePre0160Schema();
     // Data in its own era's shape: no approval record yet, no 0157 rule.
     await publishedGagRuleOff();
     await cleanup();
@@ -155,6 +158,7 @@ describe("migration 0139: every gag in one place", () => {
     await db.execute(sql`ALTER TABLE fact_gags DROP COLUMN IF EXISTS pending_review_id`);
     // Back on last, once this file's era-shaped rows are gone.
     await publishedGagRuleOn();
+    await rerun0160();
   });
 
   it("a live fact's gag becomes an approved, carried-over slot-1 gag, byte for byte", async () => {

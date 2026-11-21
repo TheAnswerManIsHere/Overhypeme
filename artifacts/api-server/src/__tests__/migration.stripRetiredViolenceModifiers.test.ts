@@ -7,6 +7,10 @@
  * SQL and asserts: retired terms stripped, non-retired order preserved,
  * all-removed arrays collapse to [], and a /modifiers override that matches the
  * cleaned AI baseline is dropped.
+ *
+ * Migration 0160 dropped `facts.enrichment_overrides`, which 0073 reads and
+ * writes, so the file puts it back first and runs 0160 again at the end
+ * (helpers/pre0160Schema.ts); the overrides are written and read in raw SQL.
  */
 
 import { describe, it, before, after } from "node:test";
@@ -21,6 +25,7 @@ import { factsTable, pendingReviewsTable } from "@workspace/db/schema";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { withoutDebugValueStatements } from "./helpers/withoutDebugValueStatements.js";
+import { restorePre0160Schema, rerun0160 } from "./helpers/pre0160Schema.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATION_SQL = withoutDebugValueStatements(readFileSync(
@@ -32,12 +37,18 @@ const TEXT_PREFIX = "t_strip0073 ";
 const factIds: number[] = [];
 const reviewIds: number[] = [];
 
-async function insertFact(values: Record<string, unknown>): Promise<number> {
+async function insertFact(values: Record<string, unknown>, overrides?: Record<string, unknown>): Promise<number> {
   const [row] = await db.insert(factsTable)
     .values({ text: `${TEXT_PREFIX}${randomUUID()}`, ...values } as typeof factsTable.$inferInsert)
     .returning({ id: factsTable.id });
   factIds.push(row.id);
+  if (overrides) await db.execute(sql`UPDATE facts SET enrichment_overrides = ${JSON.stringify(overrides)}::jsonb WHERE id = ${row.id}`);
   return row.id;
+}
+
+async function overridesOf(id: number): Promise<Record<string, { value: string[]; overriddenFrom: string[] }>> {
+  const { rows } = await db.execute(sql`SELECT enrichment_overrides AS o FROM facts WHERE id = ${id}`);
+  return (rows[0] as { o: Record<string, { value: string[]; overriddenFrom: string[] }> }).o;
 }
 
 async function cleanup(): Promise<void> {
@@ -45,8 +56,8 @@ async function cleanup(): Promise<void> {
   if (reviewIds.length) { await db.delete(pendingReviewsTable).where(inArray(pendingReviewsTable.id, reviewIds)); reviewIds.length = 0; }
 }
 
-before(cleanup);
-after(cleanup);
+before(async () => { await restorePre0160Schema(); await cleanup(); });
+after(async () => { await cleanup(); await rerun0160(); });
 
 describe("migration 0073 — strip retired violence modifiers", () => {
   it("cleans every runtime source, preserves order, and drops a now-redundant /modifiers override", async () => {
@@ -63,20 +74,18 @@ describe("migration 0073 — strip retired violence modifiers", () => {
     // AI baseline → the override entry should be removed entirely.
     const cId = await insertFact({
       enrichmentAiDerived: { modifiers: ["projectile_impact_power"] },
-      enrichmentOverrides: {
-        "/modifiers": {
-          value: ["projectile_impact_power", "avoid_gore"],
-          overriddenFrom: ["projectile_impact_power", "non_graphic_action"],
-          createdAt: "2026-06-21T00:00:00.000Z",
-        },
+    }, {
+      "/modifiers": {
+        value: ["projectile_impact_power", "avoid_gore"],
+        overriddenFrom: ["projectile_impact_power", "non_graphic_action"],
+        createdAt: "2026-06-21T00:00:00.000Z",
       },
     });
     // Fact D: a /modifiers override that still diverges after cleaning → kept.
     const dId = await insertFact({
       enrichmentAiDerived: { modifiers: ["projectile_impact_power"] },
-      enrichmentOverrides: {
-        "/modifiers": { value: ["avoid_gore", "wholesome"], overriddenFrom: ["projectile_impact_power"], createdAt: "2026-06-21T00:00:00.000Z" },
-      },
+    }, {
+      "/modifiers": { value: ["avoid_gore", "wholesome"], overriddenFrom: ["projectile_impact_power"], createdAt: "2026-06-21T00:00:00.000Z" },
     });
     // Pending review.
     const [pr] = await db.insert(pendingReviewsTable)
@@ -97,9 +106,9 @@ describe("migration 0073 — strip retired violence modifiers", () => {
     // B: all-retired → [].
     assert.deepEqual(mods(byId.get(bId)), []);
     // C: redundant override dropped.
-    assert.deepEqual(byId.get(cId)!.enrichmentOverrides, {});
+    assert.deepEqual(await overridesOf(cId), {});
     // D: still-divergent override kept but cleaned (value + overriddenFrom).
-    const dOv = byId.get(dId)!.enrichmentOverrides as Record<string, { value: string[]; overriddenFrom: string[] }>;
+    const dOv = await overridesOf(dId);
     assert.deepEqual(dOv["/modifiers"].value, ["wholesome"]);
     assert.deepEqual(dOv["/modifiers"].overriddenFrom, ["projectile_impact_power"]);
 
@@ -110,7 +119,7 @@ describe("migration 0073 — strip retired violence modifiers", () => {
     const probe = await db.select({ id: factsTable.id }).from(factsTable).where(
       and(
         inArray(factsTable.id, factIds),
-        sql`(${factsTable.enrichment}::text LIKE '%avoid_gore%' OR ${factsTable.enrichment}::text LIKE '%non_graphic_action%' OR coalesce(${factsTable.enrichmentAiDerived}::text,'') LIKE '%avoid_gore%' OR ${factsTable.enrichmentOverrides}::text LIKE '%avoid_gore%' OR ${factsTable.enrichmentOverrides}::text LIKE '%non_graphic_action%')`,
+        sql`(${factsTable.enrichment}::text LIKE '%avoid_gore%' OR ${factsTable.enrichment}::text LIKE '%non_graphic_action%' OR coalesce(${factsTable.enrichmentAiDerived}::text,'') LIKE '%avoid_gore%' OR enrichment_overrides::text LIKE '%avoid_gore%' OR enrichment_overrides::text LIKE '%non_graphic_action%')`,
       ),
     );
     assert.equal(probe.length, 0);

@@ -16,8 +16,7 @@ import { usersTable } from "./auth";
  * (from the locked row and the write, respectively), never the raw client
  * draft; `performedBy` is the authenticated admin, never trusted from the body.
  *
- * `performedBy` is nullable with `onDelete: "set null"` (mirroring
- * `enrichment_override_history`): the repo hard-deletes users, and the audit
+ * `performedBy` is nullable with `onDelete: "set null"`: the repo hard-deletes users, and the audit
  * history must survive an admin's account deletion rather than block it.
  *
  * See migration 0089.

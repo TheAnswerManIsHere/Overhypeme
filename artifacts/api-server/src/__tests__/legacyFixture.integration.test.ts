@@ -166,7 +166,6 @@ describe("the legacy fixture", { skip: skipReason }, () => {
     assert.deepEqual(manifest.excludedByPredicate, { membership_entitlements: 2, membership_history: 1 }, "live-mode and unsynced payment rows must be excluded");
     assert.deepEqual(manifest.predicateCounts, {
       renderAttempts: { current: 1, stale: 1 },
-      candidateTextHash: { current: 1 },
       conceptBlobs: { current: 1, "stale:input_hash_mismatch": 1 },
     });
 

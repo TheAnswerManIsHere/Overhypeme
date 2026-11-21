@@ -36,6 +36,7 @@ import { sql } from "drizzle-orm";
 import { db, imagePromptAttemptsTable } from "@workspace/db";
 import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
+import { restorePre0160Schema, rerun0160 } from "./helpers/pre0160Schema.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../../../..");
@@ -148,23 +149,39 @@ async function seed(): Promise<Seed> {
   };
 }
 
-// The schema 0151 ran against: the columns 0153 drops, as 0139 and 0143 left them.
+// The schema 0151 ran against: the columns 0153 drops, as 0139 and 0143 left
+// them, and the enrichment versions table 0160 drops (helpers/pre0160Schema.ts).
+const PRE_0153_COLUMNS = `
+  ALTER TABLE pending_reviews ADD COLUMN IF NOT EXISTS candidate_version_id bigint;
+  ALTER TABLE fact_gags ADD COLUMN IF NOT EXISTS pending_review_id integer REFERENCES pending_reviews(id) ON DELETE SET NULL;
+  ALTER TABLE fact_gags ADD COLUMN IF NOT EXISTS pending_remove boolean NOT NULL DEFAULT false;
+  ALTER TABLE fact_gags DROP CONSTRAINT IF EXISTS fact_gags_pending_ops_owned;
+  ALTER TABLE fact_gags ADD CONSTRAINT fact_gags_pending_ops_owned CHECK (NOT pending_remove OR pending_review_id IS NOT NULL);
+`;
 before(async () => {
-  await db.execute(sql.raw(`
-    ALTER TABLE pending_reviews ADD COLUMN IF NOT EXISTS candidate_version_id bigint;
-    ALTER TABLE fact_gags ADD COLUMN IF NOT EXISTS pending_review_id integer REFERENCES pending_reviews(id) ON DELETE SET NULL;
-    ALTER TABLE fact_gags ADD COLUMN IF NOT EXISTS pending_remove boolean NOT NULL DEFAULT false;
-    ALTER TABLE fact_gags DROP CONSTRAINT IF EXISTS fact_gags_pending_ops_owned;
-    ALTER TABLE fact_gags ADD CONSTRAINT fact_gags_pending_ops_owned CHECK (NOT pending_remove OR pending_review_id IS NOT NULL);
-  `));
+  await restorePre0160Schema();
+  await db.execute(sql.raw(PRE_0153_COLUMNS));
 });
 // Whatever happens above, leave the schema as the migrations build it.
-after(async () => { await db.execute(sql.raw(CONTRACT_SQL)); });
+// These file-level hooks run around the whole test process when files share
+// one (--test-isolation=none, as each CI shard does), so another file's
+// teardown may already have dropped what 0153's closing pass reads (0139's drops
+// the gag columns, 0160 the versions table): put it all back first.
+after(async () => {
+  await restorePre0160Schema();
+  await db.execute(sql.raw(PRE_0153_COLUMNS));
+  await db.execute(sql.raw(CONTRACT_SQL));
+  await rerun0160();
+});
 
 describe("migration 0151: refresh and resubmission reviews are retired", () => {
   let s: Seed;
   let untouchedBefore: Row | undefined;
   before(async () => {
+    // Again here: under one test process another file's teardown can run after
+    // the file-level hook above (0139's drops the gag columns, 0160 the table).
+    await restorePre0160Schema();
+    await db.execute(sql.raw(PRE_0153_COLUMNS));
     s = await seed();
     untouchedBefore = await gag(s.liveUntouched);
     await db.execute(sql.raw(MIGRATION_SQL));
@@ -246,6 +263,8 @@ describe("migration 0153: a late refresh is closed, then the columns are dropped
   let lateGag: number;
   let live: number;
   before(async () => {
+    await restorePre0160Schema();
+    await db.execute(sql.raw(PRE_0153_COLUMNS));
     const f = await insertLiveFact({ text: `{NAME} ${P} late`, enrichment: buildPlaceholderFactEnrichment() }, { ...buildPlaceholderGag(), coreSceneOverride: "{NAME} late." });
     live = f.id;
     lateGag = f.gags[0]!.id;

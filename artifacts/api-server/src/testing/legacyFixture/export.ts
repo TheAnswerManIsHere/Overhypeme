@@ -15,14 +15,6 @@ import fs from "node:fs";
 import path from "node:path";
 import pg from "pg";
 
-import {
-  hasRenderableVisualStrategyOverrideContent,
-  resolveEnrichment,
-  validateEnrichment,
-  type EnrichmentOverrides,
-  type FactEnrichment,
-} from "@workspace/api-zod";
-
 import { hasUnresolvedFactTokens, renderPersonalized } from "../../lib/renderCanonical";
 import { isValidPromptIdentitySnapshot } from "../../lib/imagePrompt/promptIdentity";
 import { includedTables, primaryKey, quoteIdent, sqlColumnRules, sqlName, type IncludedTable, type JsonRule, type ScalarRule } from "./allowlist";
@@ -424,7 +416,7 @@ async function exportWithin(client: pg.Client, opts: ExportOptions): Promise<Exp
     const value = row[column];
     if (rule.startsWith("shape:")) {
       const shape = SHAPES[rule.slice("shape:".length) as ShapeName];
-      return shape.transform(value, { ...ctx, where: `${table}.${column} row ${ctx.row}` }, { overridePath: row.path as string | undefined });
+      return shape.transform(value, { ...ctx, where: `${table}.${column} row ${ctx.row}` }, {});
     }
     if (rule.startsWith("ref:")) return value;
     switch (rule as ScalarRule) {
@@ -659,18 +651,9 @@ function checkRefs(out: Map<string, Row[]>, source: Map<string, Row[]>, mapUser:
 const VALIDATED_SHAPE_COLUMNS: Array<[string, string, ShapeName]> = [
   ["facts", "enrichment", "factEnrichment"],
   ["facts", "enrichment_ai_derived", "factEnrichment"],
-  ["facts", "enrichment_overrides", "enrichmentOverrides"],
   ["facts", "visual_concept_candidates", "visualConceptCandidatesBlob"],
-  ["facts", "last_processed_signature", "processingSignature"],
   ["pending_reviews", "enrichment", "factEnrichment"],
   ["pending_reviews", "visual_render_approval_waiver", "visualRenderApprovalWaiver"],
-  ["fact_enrichment_versions", "enrichment", "factEnrichment"],
-  ["fact_enrichment_versions", "enrichment_ai_derived", "factEnrichment"],
-  ["fact_enrichment_versions", "enrichment_overrides", "enrichmentOverrides"],
-  ["fact_enrichment_versions", "visual_override", "visualStrategyOverride"],
-  ["fact_enrichment_versions", "signature", "processingSignature"],
-  ["enrichment_override_history", "old_value", "overrideValue"],
-  ["enrichment_override_history", "new_value", "overrideValue"],
   ["image_prompt_attempts", "fact_enrichment_snapshot", "factEnrichment"],
   ["image_prompt_attempts", "visual_plan", "visualPlan"],
   ["image_prompt_attempts", "compiled_prompt", "compiledPrompt"],
@@ -701,48 +684,14 @@ function parityChecks(source: Map<string, Row[]>, out: Map<string, Row[]>, stops
     for (const src of source.get(table) ?? []) {
       const o = outRows.get(keyOf(table, src));
       if (!o || src[column] == null) continue;
-      const row = { overridePath: src.path as string | undefined };
-      const beforeIssues = shape.validate(src[column], row);
-      const afterIssues = shape.validate(o[column], row);
+      const beforeIssues = shape.validate(src[column], {});
+      const afterIssues = shape.validate(o[column], {});
       const before = beforeIssues === null;
       const after = afterIssues === null;
       if (before !== after) {
         stops.push(`${table}.${column} row ${keyOf(table, src)}: validates ${before ? "on the source but not" : "on the output but not"} on the ${before ? "output" : "source"} (failing at ${issuePaths((beforeIssues ?? afterIssues)!)})`);
       }
       else count(`validator:${table}.${column}`);
-    }
-  }
-
-  // The override resolver, the concept gate and the renderable-override signal (enrichmentOverrides.ts:195; moderationStaging.ts:237; visualStrategyOverride.ts:535).
-  const readerOutcome = (aiDerived: unknown, overrides: unknown, effective: unknown) => {
-    const ai = validateEnrichment(aiDerived);
-    const eff = validateEnrichment(effective);
-    const vso = eff.ok ? eff.data.visualPromptStrategyOverride : undefined;
-    const resolved = ai.ok
-      ? resolveEnrichment({ aiDerived: ai.data as FactEnrichment, overrides: (overrides ?? {}) as EnrichmentOverrides, visualPromptStrategyOverride: vso })
-      : null;
-    return JSON.stringify({
-      invalidPaths: resolved?.summary.invalidPaths ?? null,
-      baselineChangedPaths: resolved?.summary.baselineChangedPaths ?? null,
-      crossFieldInvalid: resolved?.summary.crossFieldInvalid ?? null,
-      hasVso: resolved?.summary.hasVisualStrategyOverride ?? null,
-      conceptPresent: Boolean(vso?.coreSceneOverride?.trim()),
-      renderable: vso ? hasRenderableVisualStrategyOverrideContent(vso) : null,
-    });
-  };
-  for (const table of ["facts", "fact_enrichment_versions"]) {
-    const outRows = indexed(table, out.get(table) ?? []);
-    for (const src of source.get(table) ?? []) {
-      const o = outRows.get(keyOf(table, src));
-      if (!o) continue;
-      const a = readerOutcome(src.enrichment_ai_derived, src.enrichment_overrides, src.enrichment);
-      const b = readerOutcome(o.enrichment_ai_derived, o.enrichment_overrides, o.enrichment);
-      if (a !== b) {
-        const [pa, pb] = [JSON.parse(a) as Record<string, unknown>, JSON.parse(b) as Record<string, unknown>];
-        const differ = Object.keys(pa).filter((k) => JSON.stringify(pa[k]) !== JSON.stringify(pb[k]));
-        stops.push(`${table} row ${keyOf(table, src)}: the override resolver or concept gate answers differently on the output (${differ.join(", ")})`);
-      }
-      else count(`reader:${table}.resolveEnrichment`);
     }
   }
 

@@ -4,10 +4,10 @@
  * One queue registered on the shared async-jobs worker (see lib/asyncJobs.ts):
  *
  *   "enrichment"  — classify-only: runs the taxonomy classifier (+ cultural
- *                   refs + semantic entities) and writes the enrichment blob to
- *                   the pending review OR the live fact.
+ *                   refs + semantic entities) on a fact and stores the result,
+ *                   with a history row per call (fact_taxonomy_runs).
  *
- * The handler updates `enrichment_status` on the target so the admin UI
+ * The handler updates the fact's `enrichment_status` so the admin UI
  * surfaces accurate state. There is NO render-time visual-preview phase here:
  * the render-time visualPlan + Nano Banana compiler (surfaced by the
  * RuntimePromptPreview) is the single source of truth for the visual. The
@@ -18,7 +18,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
-  pendingReviewsTable,
   factsTable,
   factTaxonomyRunsTable,
   usersTable,
@@ -26,7 +25,7 @@ import {
   type FactTaxonomyRunOrigin,
   type FactTaxonomyRunOutcome,
 } from "@workspace/db/schema";
-import { validateEnrichment, type FactEnrichment } from "@workspace/api-zod";
+import type { FactEnrichment } from "@workspace/api-zod";
 import { enrichFact, taxonomyColumns } from "./factEnrichment";
 import { assertJobOwnership, fencedTransaction } from "./jobFence";
 import { renderCanonical } from "./renderCanonical";
@@ -41,15 +40,14 @@ import { logger } from "./logger";
 
 // ─── Payload shapes ─────────────────────────────────────────────────────────
 
-// The enrichment job classifies either a pending review (submission flow +
-// admin re-run) or a live fact (admin re-run on the Facts page). Exactly one of
-// reviewId / factId is set.
+// The enrichment job classifies a fact: at provisional approval, or on an
+// admin's Re-run. (A review-keyed job is no longer queued by anything, since
+// 1.2c-ii; 2.1c removed its handler, and migration 0160 deleted any left.)
 /** The origins a job can carry; the legacy ones are 0159's, "unrecorded" a pre-2.1b job's. */
 const REQUESTED_ORIGINS = ["provisional_approval", "rerun"] as const;
 type RequestedOrigin = (typeof REQUESTED_ORIGINS)[number];
 
 type EnrichmentJobPayload = {
-  reviewId?: number;
   factId?: number;
   /** Why the fact's run was asked for; absent on a job queued before 2.1b. */
   origin?: RequestedOrigin;
@@ -74,58 +72,7 @@ export function factEnrichmentPayload(
   return { factId, origin, requestedBy };
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-async function loadPendingReviewEnrichment(reviewId: number): Promise<FactEnrichment | null> {
-  const [row] = await db
-    .select({ enrichment: pendingReviewsTable.enrichment, submittedText: pendingReviewsTable.submittedText })
-    .from(pendingReviewsTable)
-    .where(eq(pendingReviewsTable.id, reviewId))
-    .limit(1);
-  if (!row) return null;
-  const validated = validateEnrichment(row.enrichment);
-  return validated.ok ? validated.data : null;
-}
-
-
 // ─── "enrichment" handler — classify only ──────────────────────────────────
-
-async function runEnrichmentForReview(reviewId: number): Promise<HandlerResult> {
-  // Load the submitted text so we can classify it.
-  const [reviewRow] = await db
-    .select({ submittedText: pendingReviewsTable.submittedText })
-    .from(pendingReviewsTable)
-    .where(eq(pendingReviewsTable.id, reviewId))
-    .limit(1);
-  if (!reviewRow) {
-    return { ok: false, error: `pending review ${reviewId} not found` };
-  }
-
-  // Render template tokens ({NAME}/{SUBJ}/…) to the canonical identity ("Alex",
-  // they/them) before passing to the classifier. The LLM expects plain English,
-  // not raw template syntax.
-  const renderedText = renderCanonical(reviewRow.submittedText);
-
-  let enrichment: FactEnrichment;
-  try {
-    await assertJobOwnership(); // paid classifier call (Issue #1000)
-    enrichment = await enrichFact({ factText: renderedText });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    await fencedTransaction(db, (tx) => tx
-      .update(pendingReviewsTable)
-      .set({ enrichmentStatus: "failed" })
-      .where(eq(pendingReviewsTable.id, reviewId)));
-    return { ok: false, error: `classify: ${msg}` };
-  }
-
-  await fencedTransaction(db, (tx) => tx
-    .update(pendingReviewsTable)
-    .set({ enrichment, enrichmentStatus: "ok" })
-    .where(eq(pendingReviewsTable.id, reviewId)));
-
-  return { ok: true };
-}
 
 /**
  * Dependency seam for runEnrichmentForFact: classification is a network call,
@@ -265,17 +212,14 @@ export async function runEnrichmentForFact(
 
 export const enrichmentJobHandler: JobHandler = {
   async run(payload: unknown): Promise<HandlerResult> {
-    const { reviewId, factId, origin, requestedBy } = payload as EnrichmentJobPayload;
+    const { factId, origin, requestedBy } = payload as EnrichmentJobPayload;
     if (typeof factId === "number") {
       const request: TaxonomyRunRequest = origin && (REQUESTED_ORIGINS as readonly string[]).includes(origin)
         ? { origin, requestedBy: typeof requestedBy === "string" ? requestedBy : null }
         : UNRECORDED_REQUEST;
       return runEnrichmentForFact(factId, { classify: enrichFact }, request);
     }
-    if (typeof reviewId === "number") {
-      return runEnrichmentForReview(reviewId);
-    }
-    return { ok: false, error: "enrichmentJob payload missing reviewId/factId" };
+    return { ok: false, error: "enrichmentJob payload missing factId" };
   },
   // Terminal failure (retries exhausted): the taxonomy is recorded as failed
   // and blocks nothing; a review carries on without it.
@@ -293,6 +237,3 @@ export function registerEnrichmentJobHandlers(): void {
   // Execution limit (Issue #1000): two classifier calls, each up to 3 tries of 120 s (about 12 min), then database work, plus margin.
   registerJobHandler("enrichment", enrichmentJobHandler, { executionLimitMs: 20 * 60_000, ...RESUMES_FROM_CHECKPOINTS });
 }
-
-// Exported for callers (the routes file consumes the registerer + this helper).
-export { loadPendingReviewEnrichment };

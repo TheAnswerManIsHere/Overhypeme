@@ -16,19 +16,8 @@ import { CODE_OWNED_AI_SETTING_REFUSAL, isCodeOwnedAiConfigKey, withoutCodeOwned
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
 import { revokeUserSessions } from "../lib/auth";
 import {
-  validateEnrichment,
-  computeBaselineChangedPaths,
-  overrideValuesEqual,
-  isOverridablePath,
-  OVERRIDABLE_PATHS,
-  OVERRIDABLE_PATH_KEYS,
-  pathToField,
   checkPersonalName,
   FACT_TEXT_EDIT_CODES,
-  type FactEnrichment,
-  type ManualOverride,
-  type OverridablePath,
-  type VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { normalizeFactTemplateForStorage } from "../lib/normalizeFactTemplateForStorage";

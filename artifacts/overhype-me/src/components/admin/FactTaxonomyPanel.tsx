@@ -97,7 +97,7 @@ function TaxonomySummary({ e }: { e: FactEnrichment }) {
 export interface TaxonomyRun {
   id: number;
   outcome: "ok" | "failed" | "discarded";
-  origin: "provisional_approval" | "rerun" | "unrecorded" | "legacy_promoted" | "legacy_superseded";
+  origin: "provisional_approval" | "rerun" | "unrecorded" | "legacy_promoted" | "legacy_superseded" | "legacy_current";
   output: FactEnrichment | null;
   error: string | null;
   requestedByName: string | null;
@@ -115,6 +115,7 @@ const ORIGIN_LABEL: Record<TaxonomyRun["origin"], string> = {
   unrecorded: "reason not recorded",
   legacy_promoted: "an earlier version, made current",
   legacy_superseded: "an earlier version, replaced (time archived; run time not recorded)",
+  legacy_current: "the taxonomy held before run history began (time kept; run time not recorded)",
 };
 
 function RunRow({ run }: { run: TaxonomyRun }) {

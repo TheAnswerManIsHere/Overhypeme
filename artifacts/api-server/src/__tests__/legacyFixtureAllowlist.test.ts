@@ -139,13 +139,6 @@ describe("the scrub primitives", () => {
     assert.deepEqual(out.visualPromptStrategyOverride.bubbles, [{ type: "speech", entity: "subject", text: "" }]);
   });
 
-  it("keeps an override's enum value valid for its path's own schema (Astra round 1)", () => {
-    const overrides = { "/overhypeFit": { value: "strong", overriddenFrom: "questionable", createdAt: "2026-01-01T00:00:00Z", createdBy: "u1" } };
-    const out = SHAPES.enrichmentOverrides.transform(overrides, ctx(), {}) as Record<string, { value: unknown; createdBy: string }>;
-    assert.equal(out["/overhypeFit"]!.value, "strong");
-    assert.equal(out["/overhypeFit"]!.createdBy, scrubber.userId("u1"));
-  });
-
   it("keeps a legacy row the validator refuses refused: an over-long label and a token in a label (dev dry run, 2026-10-13)", () => {
     const e = buildPlaceholderFactEnrichment();
     const vso = (entity: string) => ({ ...e, visualPromptStrategyOverride: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, roleBindings: [{ entity, visualRole: "zqx role" }] } });
