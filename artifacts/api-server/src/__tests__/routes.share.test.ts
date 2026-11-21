@@ -75,7 +75,9 @@ async function cleanup(): Promise<void> {
 const validBody = () => ({
   recipientEmail: `${RECIPIENT_PREFIX}${randomUUID()}@test.local`,
   recipientName: "Pat",
-  shareUrl: "https://example.com/share/abc",
+  // The shape ShareModal really sends (#374): the visitor's own origin, a fact
+  // page, and the two personalisation fields.
+  shareUrl: "https://whatever.replit.dev/facts/12?displayName=Pat&pronouns=they%2Fthem",
   formStartedAt: Date.now() - 5000,
   captchaToken: "captcha-token",
 });
@@ -144,12 +146,46 @@ describe("POST /share/invite", () => {
     assert.deepEqual(res.body, { error: "CAPTCHA required" });
   });
 
-  it("returns 400 when shareUrl host/path is not allowlisted", async () => {
-    const res = await request(makeApp())
-      .post("/share/invite")
-      .send({ ...validBody(), shareUrl: "https://evil.example.net/phish" });
-    assert.equal(res.status, 400);
-    assert.deepEqual(res.body, { error: "shareUrl host/path not allowed" });
+  it("returns 400 when shareUrl names a page a share may not point at", async () => {
+    for (const shareUrl of [
+      "https://evil.example.net/phish",
+      "https://overhype.me/share/abc",
+      "https://overhype.me/facts/12/extra",
+      "https://overhype.me/facts/0",
+      "javascript:alert(1)",
+      "not a url",
+    ]) {
+      __resetShareInviteGuardsForTests();
+      const res = await request(makeApp())
+        .post("/share/invite")
+        .send({ ...validBody(), shareUrl });
+      assert.equal(res.status, 400, shareUrl);
+      assert.deepEqual(res.body, { error: "shareUrl host/path not allowed" }, shareUrl);
+    }
+  });
+
+  // #374: the link is rebuilt on our own address. The client's host, extra
+  // parameters and fragment never reach the email, and the name is the
+  // validated recipient name, not the URL's.
+  it("rebuilds the emailed link on the site's own address from the page and the two fields", async () => {
+    const body = {
+      ...validBody(),
+      shareUrl: "https://evil.example.net/facts/7/?displayName=Mallory&pronouns=she%2Fher&next=https%3A%2F%2Fevil.example.net#x",
+    };
+    const res = await request(makeApp()).post("/share/invite").send(body);
+    assert.equal(res.status, 200);
+    const [row] = await db.select().from(asyncJobsTable).where(whereEmailTo(body.recipientEmail));
+    const text = emailPayload(row!).text ?? "";
+    assert.match(text, /https:\/\/overhype\.me\/facts\/7\?displayName=Pat&pronouns=she%2Fher/);
+    assert.doesNotMatch(text, /evil\.example\.net|Mallory|next=/);
+  });
+
+  it("accepts the home page as a share target", async () => {
+    const body = { ...validBody(), shareUrl: "https://overhype.me/?displayName=Pat&pronouns=he%2Fhim" };
+    const res = await request(makeApp()).post("/share/invite").send(body);
+    assert.equal(res.status, 200);
+    const [row] = await db.select().from(asyncJobsTable).where(whereEmailTo(body.recipientEmail));
+    assert.match(emailPayload(row!).text ?? "", /https:\/\/overhype\.me\/\?displayName=Pat&pronouns=he%2Fhim/);
   });
 
   it("returns 429 when route-level rate limit is exceeded", async () => {
@@ -159,7 +195,7 @@ describe("POST /share/invite", () => {
       const response = await request(app).post("/share/invite").send({
         ...validBody(),
         recipientEmail: `${RECIPIENT_PREFIX}${randomUUID()}@test.local`,
-        shareUrl: `https://example.com/share/${randomUUID()}`,
+        shareUrl: `https://overhype.me/facts/${1 + Math.floor(Math.random() * 1e6)}`,
       });
       lastStatus = response.status;
     }
@@ -179,7 +215,9 @@ describe("POST /share/invite", () => {
     const p = emailPayload(row);
     assert.match(p.subject, /Someone thinks/);
     assert.match(p.text ?? "", /SOMEONE THINKS/);
-    assert.match(p.text ?? "", /https:\/\/example\.com\/share\/abc/);
+    // Rebuilt on the site's own address, whatever host the client sent.
+    assert.match(p.text ?? "", /https:\/\/overhype\.me\/facts\/12\?displayName=Pat&pronouns=they%2Fthem/);
+    assert.doesNotMatch(p.text ?? "", /replit\.dev/);
   });
 
   it("uses authed displayName as sender", async () => {
@@ -220,7 +258,7 @@ describe("POST /share/invite", () => {
       ...validBody(),
       recipientEmail: `   ${recipient}   `,
       recipientName: "  Casey  ",
-      shareUrl: "https://example.com/share/xyz",
+      shareUrl: "https://overhype.me/facts/12?displayName=Pat",
     });
     assert.equal(res.status, 200);
 
