@@ -429,7 +429,8 @@ actually run.
 **Nothing is deleted when a run completes.** Until 2026-10-21 the file was
 deleted on David's confirmation, so a surviving file meant a run still owed;
 the workstream's `stage:uat` label carries that state now, and `/uat`
-discovers runs from it. A legacy doc still in `docs/tests/UAT/` keeps the
+discovers runs from it — after the work its own session just finished,
+which it checks first (the `uat` skill, section 1). A legacy doc still in `docs/tests/UAT/` keeps the
 old rule — driven from the file, deleted by `/uat` when its run completes
 — and the guard no longer reads that directory. Its `ci` steps were
 guarded when their PR merged, so they are settled at merge like any other

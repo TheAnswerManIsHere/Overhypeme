@@ -1,6 +1,6 @@
 ---
 name: uat
-description: Run a UAT session with David step by step, in chat, instead of handing him a markdown file to read alone. Use when he says /uat, "let's test PR N", "walk me through the UAT", "I'm ready to test this", or "resume the UAT". I do the setup, settle every machine-lane step first — citing what the lifecycle already ran (the PR gate's `ci` checks, the PR's `scripted` record, close-out's `live` checks) and running only what nothing ran (a screen fact whose action I can perform is mine to check in a browser, whatever the script labels it; one only his own account or device can perform stays his; what an AI-generated image shows, beyond what anyone would verify the same way, is always his), present only the judgement steps to him one at a time, record Pass/Fail/Blocked/Skipped per step, capture evidence on anything that isn't a clean pass, file the bug and the way back the moment something breaks, and leave a durable run record any session can resume from. NOT for writing a UAT script — that's `pr-docs`.
+description: Run a UAT session with David step by step, in chat, instead of handing him a markdown file to read alone. Use when he says /uat, "let's test PR N", "walk me through the UAT", "I'm ready to test this", or "resume the UAT". Starts from this session's own context — work it just merged or delivered that owes a run is the run, and only a session with nothing to test searches the repository for every run owed. I do the setup, settle every machine-lane step first — citing what the lifecycle already ran (the PR gate's `ci` checks, the PR's `scripted` record, close-out's `live` checks) and running only what nothing ran (a screen fact whose action I can perform is mine to check in a browser, whatever the script labels it; one only his own account or device can perform stays his; what an AI-generated image shows, beyond what anyone would verify the same way, is always his), present only the judgement steps to him one at a time, record Pass/Fail/Blocked/Skipped per step, capture evidence on anything that isn't a clean pass, file the bug and the way back the moment something breaks, and leave a durable run record any session can resume from. NOT for writing a UAT script — that's `pr-docs`.
 ---
 
 <!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
@@ -32,8 +32,44 @@ session replaced it. If he ever wants one for a solo run he asks.
 
 ## 1. Find the run, confirm it, preview it
 
-An invocation may name a PR, an issue, or nothing.
+An invocation may name a PR, an issue, or nothing. One that names a PR or
+an issue is the run, whatever this session did. One that names nothing
+starts with this session, and only reaches the repository-wide search when
+the session holds nothing to test (David, 2026-11-21: *"The very first
+thing it should do is check to see if there is work that has just been
+completed that needs to be tested, rather than going and searching for
+every possible thing that could be tested … If it's activated in a new
+session, then it should do what it does today."*).
 
+0. **First, the work this session just finished.** Before any search, read
+   my own context for the units of work this session took to a merge or
+   delivered — the PRs whose merge report I wrote here, and a workstream
+   handed to this session by a `/handoff` prompt, which is this session's
+   work by inheritance. Context compaction keeps the summary of them, and
+   the summary is enough to name them; nothing else is read for this step.
+   A PR of this session's that has not merged is not finished work — the
+   Repl tracks `main`, so there is nothing of it for him to click — and is
+   named in one line as untestable until its merge, never run.
+   For each, the same script lookup item 1 makes — the PR body's `## UAT`
+   section, else a legacy doc on current `origin/main`. Then:
+   - **None of them owes a run** — no such unit, every one already has a
+     finished run record (section 5), or every one had no script
+     (an internal, Trivial, Documentation or bugfix change with no UAT
+     section; a prototype version, whose verification is his feedback, not a
+     run) → **the session is new as far as UAT is concerned**: say so in one
+     line and continue at item 1, unchanged.
+   - **At least one owes a run** → **those are the only candidates.** I do
+     not run item 1's repository-wide search, and I do not list other
+     workstreams' runs or held runs; item 2's interrupted-run check reads
+     only these workstreams, and item 3 picks among them. One at
+     `stage:uat` is startable. One still short of `stage:uat` is this
+     session's own unfinished close-out, not someone else's held run: what
+     is mine to move it — the Repl sync, the Post-merge verification, the
+     label — I finish now (`pr-watch`), then start the run; one the
+     lifecycle is holding on a failed check is reported as held, with what
+     failed, and never started, and I do not substitute another
+     workstream's run for it. If he wants a different run he names it, and
+     that override goes in the run record like item 1's.
 1. **Find the candidates from the lifecycle, not from a directory.** The
    runs owed are the workstream issues at `stage:uat` (`list_issues` by
    label): that label is what `pr-watch` sets once the merge's sync is
