@@ -110,6 +110,12 @@ with a leftover plain pronoun skip re-tokenization forever).
 `applyDeterministicGrammar(template)` (in `templateGrammar.ts`) is the one
 canonical grammar-only cleanup, run in this exact order:
 
+0. `repairGluedConjugationSuffixes` — `{adds|add}s` → `{adds|add}` (#1131).
+   The tokenizer sometimes wraps a verb and leaves the word's ending glued
+   after the pair, which renders "addss". Letters glued after a pair are dropped
+   only when they repeat the end of its singular branch; any other glued shape
+   is left, and `validateTemplate` refuses a pair followed directly by a letter,
+   so it is never stored.
 1. `collapseNameSubjectConjugationPairs` — `{NAME} {gives|give}` → `{NAME} gives`
    (a name is a singular literal for every pronoun set, so a pair after `{NAME}`
    is wrong by construction). Covers adjacent coordinated verbs AND a pair

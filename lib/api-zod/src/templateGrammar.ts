@@ -62,6 +62,9 @@ export function validateTemplate(template: string): GrammarValidationResult {
       if (!parts[0] || !parts[1]) {
         return { valid: false, error: `Conjugation pair "${inner}" must have non-empty alternatives` };
       }
+      if (/[A-Za-z]/.test(template[closeIdx + 1] ?? "")) {
+        return { valid: false, error: `Conjugation pair "{${inner}}" is joined to the letters after it; each alternative must be the whole word` };
+      }
       i = closeIdx + 1;
       continue;
     }
@@ -213,6 +216,31 @@ const IDENTICAL_CONJUGATION_PAIR_RE = /\{([^|{}]+)\|\1\}/g;
 export function collapseIdenticalConjugationBranches(template: string): string {
   if (!template) return template;
   return template.replace(IDENTICAL_CONJUGATION_PAIR_RE, "$1");
+}
+
+// ---------------------------------------------------------------------------
+// Glued-suffix repair (#1131)
+//
+// The tokenizer sometimes wraps a verb as a pair and leaves the original word's
+// ending in place after it: "adds" becomes "{adds|add}s", which renders "addss"
+// (or "adds" for they/them by luck). When the letters glued after the pair are
+// already the end of the singular branch, they are a leftover of that word, and
+// dropping them is the only reading that yields real words in both branches.
+// Any other glued shape is left alone for validateTemplate to refuse.
+// ---------------------------------------------------------------------------
+
+const GLUED_SUFFIX_PAIR_RE = /\{([^|{}]+)\|([^|{}]+)\}([A-Za-z]+)/g;
+
+/**
+ * Drop letters glued directly after a conjugation pair when they repeat the
+ * end of its singular branch: `{adds|add}s` → `{adds|add}`,
+ * `{watches|watch}es` → `{watches|watch}`. Pure and idempotent.
+ */
+export function repairGluedConjugationSuffixes(template: string): string {
+  if (!template) return template;
+  return template.replace(GLUED_SUFFIX_PAIR_RE, (whole, singular: string, plural: string, glued: string) =>
+    singular.endsWith(glued) ? `{${singular}|${plural}}` : whole,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -383,7 +411,7 @@ export function expandSubjectContractions(template: string): string {
  * idempotent.
  */
 export function applyDeterministicGrammar(template: string): string {
-  const nameCollapsed = collapseNameSubjectConjugationPairs(template);
+  const nameCollapsed = collapseNameSubjectConjugationPairs(repairGluedConjugationSuffixes(template));
   const contractionExpanded = expandSubjectContractions(nameCollapsed);
   const conjugated = autoConjugatePersonSubjectVerbs(contractionExpanded);
   return collapseIdenticalConjugationBranches(conjugated);
