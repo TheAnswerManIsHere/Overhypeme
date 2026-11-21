@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  identityAuthStateFor,
   canShowPersonalizedContent,
   canStartBuilder,
   isIdentityComplete,
@@ -192,5 +193,28 @@ describe("canShowPersonalizedContent (Phase 4: a fact never renders as \"__\")",
   });
   it("shows for an account onboarding has not finished, which the sheet never asks", () => {
     expect(canShowPersonalizedContent({ ...base, auth: "signedIn", accountEligible: false })).toBe(true);
+  });
+});
+
+describe("identityAuthStateFor (#866: a failed sign-in check never strands a fact page)", () => {
+  it("is loading while the read is in flight, whatever the browser holds", () => {
+    for (const c of [NONE, NAME_ONLY, COMPLETE]) expect(identityAuthStateFor("loading", false, c)).toBe("loading");
+  });
+  it("treats a failed read as signed out when the browser identity is incomplete, so the sheet asks", () => {
+    for (const c of [NONE, NAME_ONLY, PRONOUNS_ONLY]) {
+      const auth = identityAuthStateFor("failed", false, c);
+      expect(auth).toBe("signedOut");
+      const decision = { auth, completeness: c, location: "/facts/7", landingLocation: "/", landingLapsed: true };
+      expect(shouldAskForIdentity({ ...decision, actionPending: false })).toBe(true);
+    }
+  });
+  it("keeps a failed read unknown when the browser identity is complete, and the page shows", () => {
+    const auth = identityAuthStateFor("failed", false, COMPLETE);
+    expect(auth).toBe("loading");
+    expect(canShowPersonalizedContent({ auth, completeness: COMPLETE, location: "/facts/7", landingLocation: "/", landingLapsed: true })).toBe(true);
+  });
+  it("follows the answer once the read resolves", () => {
+    expect(identityAuthStateFor("resolved", true, NONE)).toBe("signedIn");
+    expect(identityAuthStateFor("resolved", false, COMPLETE)).toBe("signedOut");
   });
 });

@@ -19,8 +19,10 @@ export interface MemeVisibility {
  * The single source of truth for meme visibility, shared by every surface that
  * resolves a meme by slug/id (detail JSON, rendered image, OG shell, share
  * copy/intents). Callers MUST:
- *   - return **404** (not 403) to non-viewers, so a private meme's existence is
- *     not disclosed, and
+ *   - return **404** to non-viewers, so the meme's content and state are not
+ *     disclosed — with one exception: the meme detail route (`GET /memes/:slug`)
+ *     answers a live private meme with 403 `{ private: true }`, so its page can
+ *     say "this meme is private" (#591; David, 2026-11-21), and nothing more, and
  *   - keep private responses out of the public/edge cache (`no-store`), so the
  *     Cloudflare worker cannot cache them publicly.
  */

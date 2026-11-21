@@ -70,22 +70,23 @@ export function graphemeSafeTruncate(s: string, max: number): string {
 }
 
 /**
- * Reduce a validated identity to a prompt-safe short name: prefer `firstName`
- * when present; else the FIRST whitespace-delimited token of `displayName`
- * (never a raw slice of the whole name — "Alexandra Smith-Jones" reduces to
- * "Alexandra", not a truncated fragment of the full string); else the
- * canonical fallback name. Always grapheme-safe-bounded to
- * RENDERED_IDENTITY_NAME_MAX. Pure.
+ * Reduce a validated identity to a prompt-safe short name: the FIRST
+ * whitespace-delimited token of `displayName` — the name the member chose at
+ * onboarding (never a raw slice of the whole name — "Alexandra Smith-Jones"
+ * reduces to "Alexandra", not a truncated fragment of the full string); else
+ * `firstName`, which a Google or Apple sign-in may have filled (#709: the name
+ * the member chose wins over the one their provider holds); else the canonical
+ * fallback name. Always grapheme-safe-bounded to RENDERED_IDENTITY_NAME_MAX. Pure.
  */
 export function reducePromptName(identity: { firstName?: string | null; displayName?: string | null }): string {
-  const first = (identity.firstName ?? "").trim();
-  if (first) return graphemeSafeTruncate(first, RENDERED_IDENTITY_NAME_MAX);
-
   const display = (identity.displayName ?? "").trim();
   if (display) {
     const firstToken = display.split(/\s+/)[0] ?? display;
     return graphemeSafeTruncate(firstToken, RENDERED_IDENTITY_NAME_MAX);
   }
+
+  const first = (identity.firstName ?? "").trim();
+  if (first) return graphemeSafeTruncate(first, RENDERED_IDENTITY_NAME_MAX);
 
   return CANONICAL_NAME;
 }

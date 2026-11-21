@@ -110,6 +110,14 @@ with a leftover plain pronoun skip re-tokenization forever).
 `applyDeterministicGrammar(template)` (in `templateGrammar.ts`) is the one
 canonical grammar-only cleanup, run in this exact order:
 
+0. `repairGluedConjugationSuffixes` — `{adds|add}s` → `{adds|add}` (#1131).
+   The tokenizer sometimes wraps a verb and leaves the word's ending glued
+   after the pair, which renders "addss". Letters glued after a pair are dropped
+   only when they repeat the end of its singular branch; any other glued shape
+   is left, and `validateTemplate` refuses a pair followed directly by a letter,
+   so it is never stored. The one join allowed is a negative contraction,
+   `{does|do}n't` (doesn't / don't): it is valid, the repair leaves it, and the
+   name collapse turns `{NAME} {does|do}n't` into `{NAME} doesn't`.
 1. `collapseNameSubjectConjugationPairs` — `{NAME} {gives|give}` → `{NAME} gives`
    (a name is a singular literal for every pronoun set, so a pair after `{NAME}`
    is wrong by construction). Covers adjacent coordinated verbs AND a pair
@@ -117,7 +125,10 @@ canonical grammar-only cleanup, run in this exact order:
    coordinating conjunction (`{NAME} eats cake and {drinks|drink} soda` → `…
    and drinks soda`); the object-separated reach stops at any brace or
    clause-boundary punctuation (`. , ; : ? ! newline "`), so it can't cross a
-   different subject token or into a new clause.
+   different subject token or into a new clause. A pair with a letter joined
+   directly after it is never collapsed here (#1131, PR #1145 round 1): it keeps
+   its braces so `validateTemplate` refuses it, instead of becoming a non-word
+   such as "addses" that nothing could catch.
 2. `expandSubjectContractions` — `{Subj}'s`/`{SUBJ}'s` → `{Subj} {is|are}` (see
    "Retiring `They's`" below).
 3. `autoConjugatePersonSubjectVerbs` — wraps pronoun-subject verbs into pairs.

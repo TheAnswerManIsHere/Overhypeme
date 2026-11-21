@@ -286,6 +286,7 @@ re-gather it when the work is scheduled.
   - **Revisit trigger.** All `*.overhype.me` subdomains are HTTPS.
 
 - **`ADMIN_API_KEY` scoping + `confirm`/`limit` gates on the API-key backfill launchers.**
+  - **CLOSED (David, 2026-11-21): the key is deleted, not scoped (#455; `decisions.md`).** Every route below now takes an admin session only, so the key-specific gates have nothing left to guard. Kept as history:
   - **Launch plan placement (David, 2026-10-13): blocking, Phase 15 — scope, not delete.** Checked at `main`: the key unlocks `set-password`, the backfill launchers, Stripe sync, import and job status, and is compared with `!==`. Phase 15: no password set through the key; it reaches only backfills, Stripe sync and import, each with a confirm and a limit; constant-time comparison. Whether production keeps any admin override at all is David's decision at Phase 18 ("in a live environment we need to be hyper sensitive to backdoors of any kind").
   - **Why deferred.** The backfill-launcher gates depend on the `ADMIN_API_KEY`
     scoping decision, which isn't made yet.
@@ -293,6 +294,19 @@ re-gather it when the work is scheduled.
     confirm/limit guard (they are admin-gated already).
   - **Revisit trigger.** The `ADMIN_API_KEY` scoping decision is made — then
     wire the gates.
+
+- **`confirm`/`limit` gates on the admin backfill and Stripe-sync launchers.**
+  - **Split out of the closed entry above (2026-11-21).** With the key gone, a
+    signed-in admin can still start a full backfill or a full Stripe sync in one
+    request. The 2026-10-13 placement asked for a confirm and a limit only on
+    the key's routes; whether an admin session wants them too was never asked,
+    so it is recorded here rather than closed with the key (build report on
+    PR #1147; the key's deletion is [`decisions.md`](../ai-context/decisions.md#2026-11-21--admin_api_key-is-deleted-not-scoped-admin-actions-need-a-signed-in-admin)).
+  - **Why deferred.** Admin-only, and every launcher is idempotent or
+    resumable; the risk is a mis-click by the one admin, not an outsider.
+  - **Cost of waiting.** A mistaken click starts a long or paid run.
+  - **Revisit trigger.** Phase 13's admin-input pass, or the first mistaken
+    launch.
 
 - **Admin field-length validation tidying.**
   - **CLOSED into the launch plan (David, 2026-10-13):** Phase 13 validates every admin input with explicit bounds.

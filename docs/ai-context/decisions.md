@@ -13,6 +13,18 @@
 
 ---
 
+### 2026-11-21 · A private meme's link says "this meme is private"; it is no longer a 404
+- **Decision:** `GET /memes/:slug` answers a non-viewer of a **live** private meme with 403 `{ error: "This meme is private", private: true }`, and the meme page shows "This Meme Is Private", with a Sign in button (returning to the meme) for a signed-out visitor. There is no "request access" button. A deleted private meme, and every other surface (the image, the OG card, share copy and intents, the heart), still answers a non-viewer as if the meme did not exist. This supersedes the 2026-07 entry below in one respect only: the detail route now confirms that a live private meme exists.
+- **Why:** David's answer to Q2 of the backlog plan (Issue #628, 2026-11-21: *"q2 1"*, choosing "say 'this meme is private' (it reveals the meme exists)", no request-access button), after his note on Issue #591: *"I'm not sure I want it to say 'Meme not found' as that hints at an error as opposed to 'This is a private meme' which lets the user know it's a real link but they don't have access."* Anyone holding the link already knows something is there; the content and its state stay hidden.
+- **Reference:** Issue #591; launch inventory A16.
+- **Revisit if:** private memes ever need to be undiscoverable even to someone holding the link.
+
+### 2026-11-21 · ADMIN_API_KEY is deleted, not scoped; admin actions need a signed-in admin
+- **Decision:** the static `ADMIN_API_KEY` header no longer opens any admin route; `set-password`, the backfill launchers, `enable-notifications` and both Stripe sync routes take an admin session like every other admin route (#455). This supersedes the 2026-10-13 placement "scoped, not deleted" in `PLAN_GET_TO_LAUNCH.md` (Phase 15) and `deferred-work.md`.
+- **Why:** David's answer to Q4 of the backlog plan (Issue #628, 2026-11-21: *"q4 1"*, choosing "delete the key, so admin actions need a signed-in admin"). The recommendation was the same: a shared master key that can set any account's password is the largest single standing risk on the list, and no tooling in the repository called these routes with it (`grep -rn "x-api-key"` outside tests and the route found none).
+- **Reference:** Issue #455; the bugfix PR that removed `requireAdminOrApiKey`.
+- **Revisit if:** an operational task genuinely needs an unattended admin call; then it gets its own narrowly scoped credential, never a general key.
+
 ### 2026-11-17 to 2026-11-20 · Phase 14 (Compliance): the operator, 18+, the NCMEC path, the published texts and how long data is kept
 - **Decision:** David's answers on Issue #1030 — Launch Phase 14 — Compliance, under `PLAN_PHASE14_COMPLIANCE.md` (approved 2026-11-17):
   - **Q2, the NCMEC path:** David files reports by hand; automated filing is built only once there are more than five distinct cases in any 90 days. The trigger starts the build and never delays a manual report.
@@ -42,7 +54,7 @@
 - **Revisit if:** counsel's review asks for a mailbox retention period or a provider's ceiling; PostHog moves off the Free plan; NCMEC cases pass five in 90 days; a firm is chosen (Q5).
 
 ### 2026-11-21 · The submission form is the only way a fact enters, and identical wording is refused
-- **Decision:** the three imports are removed — the Facts page's Bulk Import (lines, CSV, JSON), `POST /admin/facts/import`, `POST /admin/facts/import-csv`, the API-key `POST /admin/import/facts` with its `requireApiKey` middleware and OpenAPI operation, and `docs/llm-import-prompt.md` (PLAN_FACT_LIFECYCLE_REBUILD.md, item 1 and 1G, Q6; Issue #1018, increment 1.4; ledger row `pre-cut/fact-imports`). `ADMIN_API_KEY` stays: other admin routes still accept it.
+- **Decision:** the three imports are removed — the Facts page's Bulk Import (lines, CSV, JSON), `POST /admin/facts/import`, `POST /admin/facts/import-csv`, the API-key `POST /admin/import/facts` with its `requireApiKey` middleware and OpenAPI operation, and `docs/llm-import-prompt.md` (PLAN_FACT_LIFECYCLE_REBUILD.md, item 1 and 1G, Q6; Issue #1018, increment 1.4; ledger row `pre-cut/fact-imports`). `ADMIN_API_KEY` stays: other admin routes still accept it. *(Superseded 2026-11-21: the key is deleted, entry above.)*
   - **Identical wording is refused at submission** (`POST /facts/submit-review`, 409 `IDENTICAL_FACT`, naming the match). Identical means equal under `duplicateMatchText` (case, whitespace and punctuation ignored, the "exact" the duplicate check already uses), against a fact that is live or was ever approved (`approved_at`), or a submission still awaiting a decision. A rejected submission's never-approved fact does not count, so its wording may be sent again.
   - **Anything less than identical goes in**, and the duplicate verdict after the commit flags it for triage (Issue #1003). The form shows the server's "duplicate" verdict as an on-brand warning with the matching fact, a way back and "Submit anyway"; a preview whose exact pre-check matched shows the refusal before any click.
   - **Past imports stay readable**: the admin-action value `import` is kept for the records already written.

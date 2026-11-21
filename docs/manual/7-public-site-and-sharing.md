@@ -123,12 +123,11 @@ in launch Phase 4 (ledger: [`docs/retired/README.md`](../retired/README.md)).
   one: hashtag browsing happens through search or the home page's own
   filtering. An unreachable page that once existed in the code was deleted
   before launch (the record is in [`docs/retired/`](../retired/README.md)).
-- **The "Send via Email" share option doesn't currently work.** The
-  button is there and looks functional, but the request behind it fails
-  every time in production due to a configuration mismatch — this reads
-  like unfinished setup rather than an intentional limitation. **Needs
-  David confirmation** on whether this is known and whether fixing it is
-  planned.
+- **"Send via Email" sends a link on Overhype.me's own address.** Until
+  2026-11-21 every email invite failed because of placeholder settings
+  (#374). Now the email always points at the home page or the fact being
+  shared, personalised with the friend's name, on the site's own address,
+  whatever page address the sender's browser was on.
 - **There's no public profile page for any user** — nowhere can you see a
   rounded-up view of everything a particular person has made, yours
   included. This doesn't mean everyone's content is invisible to

@@ -196,8 +196,12 @@ traps in [`known-failure-patterns.md`](./known-failure-patterns.md)).
   **`isPublic === false` means owner-only/secret** (David's product call, C3 —
   see [`decisions.md`](./decisions.md)). Every slug-resolving surface gates on it
   *before* the `deletedAt` 410 branch, so a deleted private meme is a **404**
-  (not 410) to non-owners — no existence disclosure. Surfaces: `GET /memes/:slug`
-  + `/image`, the OG shell (`og.ts`), and share-copy/share-intents. (The
+  (not 410) to non-owners. One deliberate disclosure: `GET /memes/:slug`
+  answers a **live** private meme with **403 `{ private: true }`** and nothing
+  else, so its page reads "this meme is private" rather than as an error (#591;
+  David, 2026-11-21, superseding the 2026-07 "404, not 403" — `decisions.md`).
+  Surfaces: `GET /memes/:slug` + `/image`, the OG shell (`og.ts`),
+  share-copy/share-intents, and `POST /memes/:id/heart` (#375, PR #1143). (The
   Zazzle export and redirect went with merch in launch Phase 4; ledger
   [`docs/retired/README.md`](../retired/README.md).)
 - **Non-owner response is 404, not 403** — for owner-only content, so its
@@ -458,24 +462,27 @@ with no secret configured.
 
 ## Admin surface (C9)
 
-Admin handlers sit behind `requireAdmin`, except 9 behind `requireAdminOrApiKey`
-— which accepts a **single static `ADMIN_API_KEY`** header *or* an admin session.
-That static key is the broadest admin auth surface (it reaches `set-password`
-and the bulk backfill launchers); **scoping/rotating it is an open item**
-([`current-roadmap.md`](./current-roadmap.md)). Input validation uses the repo's
+Every admin handler sits behind `requireAdmin`: an admin session, and nothing
+else. The static `ADMIN_API_KEY` header that once also opened `set-password`,
+the backfill launchers and Stripe sync is **gone** (#455; David, 2026-11-21,
+superseding the 2026-10-13 "scope, not delete";
+[`decisions.md`](./decisions.md)); a request carrying it is refused like any
+other request without a session. Input validation uses the repo's
 `z.object` + `safeParse` idiom (from `routes/reviews.ts`); the sweep hardened the
 genuinely-risky inputs (a **path-traversal** in the video-style preview-gif
 storage key — sanitized via `safeStylePreviewKey`, not rejected, so legacy ids
 weren't orphaned; that surface went with video in launch Phase 4, ledger
 [`docs/retired/README.md`](../retired/README.md); bulk-import size caps; the API-key `set-password` email). Lower-
-risk field-length tidying and `confirm`/`limit` gates on the backfill launchers
-are deferred follow-ups (the latter would break existing API-key automation).
+risk field-length tidying (folded into launch Phase 13) and `confirm`/`limit`
+gates on the admin-session backfill and Stripe-sync launchers are deferred
+follow-ups ([`deferred-work.md`](../engineering/deferred-work.md)); nothing
+calls those launchers with a key any more.
 
 ## Deliberately out of scope / deferred
 
 Enumerated so a later reader knows what this review did *not* do: a full auth
 rewrite, live pentest, Cloudflare WAF/dashboard actions, CSP *enforcement*
-(report-only first), HSTS preload/subdomains, the `ADMIN_API_KEY` scoping, the
+(report-only first), HSTS preload/subdomains, the `ADMIN_API_KEY` scoping (since removed, #455), the
 git-history purge, and the admin field-bounding follow-up. The live list of
 these deferrals is tracked in
 [`docs/engineering/deferred-work.md`](../engineering/deferred-work.md#security--patching). (The C1 dev-admin-login hardening — deferred when this doc was

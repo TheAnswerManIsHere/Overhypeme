@@ -94,9 +94,10 @@ target, not an auth provider, here.
   prompt-injection steering generation, SSRF-shaped fetches of
   attacker-controlled URLs, and private images leaving through vendor CDNs
   without an ownership check first.
-- **Admin session / `ADMIN_API_KEY` → admin routes** — a second, static-secret
-  auth path (`requireAdminOrApiKey`) alongside admin sessions. Broadest
-  standing credential in the system; scoping/rotating it is a tracked
+- **Admin session → admin routes** — the static-secret second path
+  (`ADMIN_API_KEY`, `requireAdminOrApiKey`) was removed (#455, 2026-11-21);
+  every admin route takes an admin session only. Previously the broadest
+  standing credential in the system; its removal closes what was a tracked
   deferral.
 - **Supply chain → build/runtime** — pnpm workspace with pinned
   payment-critical deps, Dependabot across all workspace manifests,
@@ -135,8 +136,8 @@ reporting even at Medium confidence:
   `tierMiddleware`), `routes/auth.ts`, `routes/localAuth.ts`
   (esp. the fail-closed `dev-admin-login` predicate), session lifecycle,
   password reset.
-- **Admin surface** — `routes/admin*.ts`, anything reachable via
-  `requireAdminOrApiKey`.
+- **Admin surface** — `routes/admin*.ts`, everything behind `requireAdmin`
+  (the only admin gate since #455 removed the static-key path).
 - **Object/media authorization** — storage ACL helpers, meme visibility
   (`canViewMeme`), any handler that resolves a storage path or slug to bytes.
   The historical bug class here is authorize-by-URL-shape instead of
@@ -210,15 +211,17 @@ Already known, tracked in
 [`deferred-work.md`](engineering/deferred-work.md#security--patching) and the
 roadmap — report regressions against them, but they are not new findings:
 
-- `ADMIN_API_KEY` is a single static key with broad admin reach (scoping and
-  rotation is the open item).
+- ~~`ADMIN_API_KEY` is a single static key with broad admin reach~~ — removed
+  (#455, 2026-11-21); the Replit secret itself is retired with the launch
+  credential rotation.
 - CSP is Report-Only pending UAT; HSTS ships without preload/subdomains.
 - The global rate limiter is per-instance and in-memory by design (a
   blast-radius backstop, not the narrow control).
 - A historical secret exposure was remediated by rotation, not git-history
   purge.
-- Admin field-length bounding and backfill `confirm`/`limit` gates are
-  deferred follow-ups.
+- Admin field-length bounding (launch Phase 13) and `confirm`/`limit` gates
+  on the admin-session backfill and Stripe-sync launchers are deferred
+  follow-ups (`docs/engineering/deferred-work.md`).
 - The AI tokenizing/hashtag and fact-submission rate limiters (`createRateLimiter`,
   `createFactSubmitRateLimiter`) key on `req.ip`, not the spoof-resistant
   `CF-Connecting-IP` path the login/registration limiters use — a caller can

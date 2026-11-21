@@ -432,3 +432,11 @@ describe("factTokenizer — hasNoLikelySubjectReference", () => {
     assert.equal(hasNoLikelySubjectReference("a hershey bar on the counter", []), true); // "her" is not a whole word here
   });
 });
+
+// PR #1145 round 1: the tokenizer path refuses the unrepairable glued shape too.
+describe("factTokenizer — an unrepairable glued pair after {NAME} is refused (#1131)", () => {
+  it("postProcessTokenizedTemplate keeps the braces, so the template fails validation", () => {
+    const { template } = postProcessTokenizedTemplate("{NAME} calmly {adds|add}es the final check mark");
+    assert.equal(validateTemplate(template).valid, false, `kept as "${template}"`);
+  });
+});

@@ -2,7 +2,7 @@ import { requireFeature } from "../lib/featureAccess";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { createHash } from "crypto";
-import { Readable } from "stream";
+import { sendStorageBody } from "../lib/sendStorageBody";
 import { customAlphabet } from "nanoid";
 import { db } from "@workspace/db";
 import { memesTable, factsTable, usersTable, lookStylesTable } from "@workspace/db/schema";
@@ -218,10 +218,18 @@ router.get("/memes/:slug", async (req: Request, res: Response) => {
     .where(eq(memesTable.permalinkSlug, slug))
     .limit(1);
   if (!meme) { res.status(404).json({ error: "Meme not found" }); return; }
-  // Owner-only enforcement for private memes — 404 (not 403), and BEFORE the
-  // not-live 410 below, so a non-owner cannot distinguish a private meme
-  // (live or deleted) from one that never existed. See lib/memeVisibility.ts.
-  if (!canViewMeme(meme, req)) { res.status(404).json({ error: "Meme not found" }); return; }
+  // Owner-only enforcement for private memes, BEFORE the not-live 410 below.
+  // A live private meme tells a non-viewer it is private (403 `private`), so
+  // its link reads as real rather than broken (#591; David, 2026-11-21, Q2).
+  // A deleted private meme stays a plain 404 to a non-viewer, as does every
+  // other surface (image, OG, share copy, heart): only this detail route says
+  // "private", and it says nothing more. See lib/memeVisibility.ts.
+  if (!canViewMeme(meme, req)) {
+    setNoStore(res);
+    if (meme.isLive) { res.status(403).json({ error: "This meme is private", private: true }); return; }
+    res.status(404).json({ error: "Meme not found" });
+    return;
+  }
   if (!meme.isLive) { res.status(410).json({ error: "This meme has been removed by its creator.", deleted: true }); return; }
   // A private meme visible to its owner must never be cached publicly.
   if (!meme.isPublic) setNoStore(res);
@@ -370,11 +378,13 @@ router.post("/memes/:id/heart", async (req: AuthenticatedRequest, res: Response)
   const memeId = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(memeId)) { res.status(400).json({ error: "Invalid id" }); return; }
 
-  const [exists] = await db.select({ id: memesTable.id })
+  const [meme] = await db.select({ isPublic: memesTable.isPublic, createdById: memesTable.createdById })
     .from(memesTable)
     .where(and(eq(memesTable.id, memeId), liveContent(memesTable)))
     .limit(1);
-  if (!exists) { res.status(404).json({ error: "Meme not found" }); return; }
+  // A private meme the caller may not view answers exactly like a missing one
+  // (lib/memeVisibility.ts), so an id guess can neither heart it nor learn it exists.
+  if (!meme || !canViewMeme(meme, req)) { res.status(404).json({ error: "Meme not found" }); return; }
 
   const result = await toggleHeart(req.user.id, "meme", memeId);
   res.json(result);
@@ -422,13 +432,7 @@ router.get("/memes/ai-user/image", async (req: Request, res: Response) => {
       if (key.toLowerCase() !== "content-type" && key.toLowerCase() !== "cache-control") res.setHeader(key, value);
     });
     res.status(200);
-    if (response.body) {
-      const { Readable } = await import("stream");
-      const nodeStream = Readable.fromWeb(response.body as import("stream/web").ReadableStream<Uint8Array>);
-      nodeStream.pipe(res);
-    } else {
-      res.end();
-    }
+    await sendStorageBody(res, response.body, { storagePath });
   } catch (err) {
     req.log.error({ err, storagePath }, "Failed to serve user AI reference image");
     res.status(404).json({ error: "Image not found" });
@@ -475,11 +479,7 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
         setPublicCache(res, CACHE.MEME_IMAGE, etag);
         setPublicCors(res);
       }
-      if (response.body) {
-        Readable.fromWeb(response.body as ReadableStream<Uint8Array>).pipe(res);
-      } else {
-        res.end();
-      }
+      await sendStorageBody(res, response.body, { slug });
       return;
     }
     if (!meme.imageSource) {

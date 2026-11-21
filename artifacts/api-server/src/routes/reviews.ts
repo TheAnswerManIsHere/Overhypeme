@@ -3,7 +3,7 @@ import { Router, type IRouter, type Request, type Response, type NextFunction } 
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
-import { Readable } from "node:stream";
+import { sendStorageBody } from "../lib/sendStorageBody";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import { db } from "@workspace/db";
 import {
@@ -1314,11 +1314,7 @@ router.get("/admin/reviews/:id/renders/:renderJobId/image", requireAdmin, async 
       if (key.toLowerCase() !== "cache-control") res.setHeader(key, value);
     });
     res.setHeader("Cache-Control", "private, no-store");
-    if (response.body) {
-      Readable.fromWeb(response.body as ReadableStream<Uint8Array>).pipe(res);
-    } else {
-      res.end();
-    }
+    await sendStorageBody(res, response.body, { reviewId: id, renderJobId });
   } catch (err) {
     if (err instanceof ObjectNotFoundError) { res.status(404).json({ error: "image_not_found" }); return; }
     logger.error({ err, reviewId: id, renderJobId }, "[moderation] render image stream failed");

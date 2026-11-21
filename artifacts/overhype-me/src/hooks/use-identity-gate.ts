@@ -6,7 +6,7 @@ import { useCallback, useEffect, useLayoutEffect, useSyncExternalStore } from "r
 import { useAuth } from "@workspace/replit-auth-web";
 import { useLocation } from "wouter";
 import { LANDING_LOCATION, usePersonName } from "@/hooks/use-person-name";
-import { canShowPersonalizedContent, canStartBuilder, isAccountComplete, mustWaitForIdentity, shouldAskForIdentity, type IdentityAuthState, type IdentityDecisionInput } from "@/lib/identity";
+import { canShowPersonalizedContent, canStartBuilder, identityAuthStateFor, isAccountComplete, mustWaitForIdentity, shouldAskForIdentity, type IdentityAuthState, type IdentityDecisionInput } from "@/lib/identity";
 
 export interface IdentityGate {
   /** The identity sheet should be open on this page now. */
@@ -120,11 +120,11 @@ function useGateState(): GateState {
   const { name, pronouns, pronounsSupplied, shareLinkResolved } = usePersonName();
   const [location] = useLocation();
   if (location !== LANDING_LOCATION) landingLapsed = true;
-  // A failed auth read is not "signed out": nobody knows who this is yet, so
-  // the decision is "not yet" (identity-flow Phase 2, "unknown is not missing").
-  const auth: IdentityAuthState =
-    isLoading || status === "failed" ? "loading" : isAuthenticated ? "signedIn" : "signedOut";
   const completeness = { hasName: !!name.trim(), pronounsSupplied };
+  // A failed auth read is not "signed out", except where waiting would leave
+  // the visitor on a spinner with nothing to answer (#866): see
+  // identityAuthStateFor.
+  const auth: IdentityAuthState = identityAuthStateFor(isLoading ? "loading" : status, isAuthenticated, completeness);
   const account = user as { displayName?: string | null; pronouns?: string | null; eligibility?: string } | null;
   const accountComplete = isAccountComplete(account?.displayName, account?.pronouns);
   return {

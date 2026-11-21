@@ -1,4 +1,4 @@
-import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
@@ -1334,26 +1334,16 @@ router.get("/admin/users/:id/spend", requireAdmin, async (req: Request, res: Res
   res.json({ current, history, lifetimeTotal });
 });
 
-// POST /admin/facts/backfill-embeddings
-// One-shot endpoint to generate pgvector embeddings for all facts that don't have one yet.
-// Accepts either an authenticated admin session OR the ADMIN_API_KEY header.
-export async function requireAdminOrApiKey(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const apiKey = req.headers["x-api-key"];
-  const adminApiKey = process.env.ADMIN_API_KEY;
-  if (adminApiKey && apiKey === adminApiKey) {
-    next();
-    return;
-  }
-  return requireAdmin(req, res, next) as unknown as void;
-}
+// The static ADMIN_API_KEY that once also opened the routes below is gone
+// (#455; David, 2026-11-21: admin actions need a signed-in admin). Every one
+// of them takes an admin session, like the rest of this router.
 
-// POST /admin/users/set-password — reset a user's password by email (API key auth)
-router.post("/admin/users/set-password", requireAdminOrApiKey, async (req: Request, res: Response) => {
+// POST /admin/users/set-password — reset a user's password by email
+router.post("/admin/users/set-password", requireAdmin, async (req: Request, res: Response) => {
   const { email, password } = req.body as { email?: string; password?: string };
   if (!email || typeof email !== "string") { res.status(400).json({ error: "email is required" }); return; }
   const normalizedEmail = email.trim().toLowerCase();
-  // Reachable with only the static ADMIN_API_KEY (no admin session), so require
-  // a well-formed, length-bounded email in addition to the password rules.
+  // Require a well-formed, length-bounded email in addition to the password rules.
   if (!z.string().email().max(320).safeParse(normalizedEmail).success) {
     res.status(400).json({ error: "a valid email is required" });
     return;
@@ -1377,7 +1367,7 @@ router.post("/admin/users/set-password", requireAdminOrApiKey, async (req: Reque
   res.json({ success: true, email: user.email });
 });
 
-router.post("/admin/users/enable-notifications", requireAdminOrApiKey, async (_req: Request, res: Response) => {
+router.post("/admin/users/enable-notifications", requireAdmin, async (_req: Request, res: Response) => {
   // The canonical reachable-admin predicate, not the raw is_admin column —
   // an env- or bootstrap-only admin was silently skipped by this bulk
   // opt-in. Round 2 of PR #425's review caught this.
@@ -1392,11 +1382,11 @@ router.post("/admin/users/enable-notifications", requireAdminOrApiKey, async (_r
 // POST /admin/facts/backfill-ai-memes — retired with the legacy AI-background
 // generator (compiler review, Phase 2: every picture starts from a photo). It
 // answers 410 and starts nothing; the pictures it stored stay readable.
-router.post("/admin/facts/backfill-ai-memes", requireAdminOrApiKey, (_req: Request, res: Response) => {
+router.post("/admin/facts/backfill-ai-memes", requireAdmin, (_req: Request, res: Response) => {
   res.status(410).json({ error: "The legacy AI-background generator is retired: every picture starts from a photo.", code: "AI_MEME_BACKFILL_RETIRED" });
 });
 
-router.post("/admin/facts/backfill-embeddings", requireAdminOrApiKey, async (_req: Request, res: Response) => {
+router.post("/admin/facts/backfill-embeddings", requireAdmin, async (_req: Request, res: Response) => {
   try {
     const result = await backfillEmbeddings();
     res.json({ success: true, ...result });
@@ -1788,7 +1778,7 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
 //
 // This is the same backfill that runs automatically after a live/test mode
 // toggle, exposed here so admins can run it on demand without toggling modes.
-router.post("/admin/stripe/full-sync", requireAdminOrApiKey, async (_req: Request, res: Response) => {
+router.post("/admin/stripe/full-sync", requireAdmin, async (_req: Request, res: Response) => {
   try {
     const { getStripeSync } = await import("../lib/stripeClient");
     const { runFullSync } = await import("../lib/stripeSyncRunner");
@@ -1823,7 +1813,7 @@ router.post("/admin/stripe/full-sync", requireAdminOrApiKey, async (_req: Reques
 //
 // If a sync is already running, this returns HTTP 409 + alreadyRunning:true
 // rather than starting a duplicate concurrent sync.
-router.post("/admin/stripe/sync", requireAdminOrApiKey, async (_req: Request, res: Response) => {
+router.post("/admin/stripe/sync", requireAdmin, async (_req: Request, res: Response) => {
   try {
     const { getStripeSync } = await import("../lib/stripeClient");
     const { runScopedSync } = await import("../lib/stripeSyncRunner");

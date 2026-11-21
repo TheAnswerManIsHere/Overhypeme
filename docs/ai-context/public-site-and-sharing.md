@@ -168,14 +168,14 @@ no public profile for it to leak through) — it gates `/library`'s "My
 Memes" tab implicitly (a user only ever sees their own), and it's enforced
 via one shared check, `canViewMeme()`
 (`lib/memeVisibility.ts:27-33`), on every meme-resolving surface: the meme
-detail JSON, the rendered image, the OG shell, and share-copy/share-intents.
-**One exception, not yet using that check:**
-`POST /memes/:id/heart` (`memes.ts:532-546`) only verifies the meme
-exists and isn't soft-deleted — it never calls `canViewMeme()` — so an
-authenticated non-owner who has (or guesses) a private meme's numeric id
-can toggle a heart on it despite not being able to view it anywhere else.
-Worth fixing to match the settled owner/admin-only contract for private
-memes; flagged here rather than fixed, since this spec is documentation.
+detail JSON, the rendered image, the OG shell, share-copy/share-intents,
+and the heart toggle `POST /memes/:id/heart` (it was the one exception
+until #375, fixed by PR #1143). The meme detail JSON is the one surface
+that tells a non-viewer anything: a live private meme answers 403
+`{ private: true }`, and the meme page shows "This meme is private", with
+a Sign in button for a signed-out visitor in case the meme is theirs
+(#591; David, 2026-11-21). Every other surface still answers a non-viewer
+as if the meme did not exist.
 
 ## OG cards
 
@@ -228,19 +228,16 @@ left with no writer, went in removal 11 (migration 0110; same ledger).
    `${origin}${path}?displayName=...&pronouns=...`). Offers copy-link,
    social popups, and "Send via Email."
 
-   **The email-invite path does not work in production.** `POST
-   /share/invite` (`routes/share.ts:71-196`) validates the client-supplied
-   `shareUrl` against an allowlist requiring the hostname to be
-   `example.com`/`www.example.com` (`ALLOWED_SHARE_HOSTS`, line 18) and
-   the path to match `/^\/share\/[A-Za-z0-9_-]+$/` (line 19). But
-   `ShareModal`'s `buildShareUrl` always builds a URL on the real site
-   origin with a path like `/` or `/facts/123` — never `/share/...` (no
-   such route exists anywhere in the app). Every real share-invite request
-   therefore 400s with "shareUrl host/path not allowed." The only place a
-   URL matching the allowlist is ever constructed is the route's own test
-   fixture. This reads as an unfinished placeholder-domain configuration,
-   not a documented product limitation — **Needs David confirmation** on
-   whether it's known and whether a fix is planned.
+   **The email invite rebuilds its link on the site's own address** (#374,
+   fixed 2026-11-21). `POST /share/invite` (`routes/share.ts`,
+   `canonicalShareUrl`) accepts a `shareUrl` whose path is the home page or
+   `/facts/<id>`, and sends `getSiteBaseUrl()` + that path +
+   `?displayName=<the validated recipient name>&pronouns=<as sent, capped>`.
+   The client's host, other query parameters and fragment never reach the
+   email, so it cannot carry someone else's link; any other path is refused
+   with "shareUrl host/path not allowed". (Until then the allowlist named a
+   placeholder `example.com` host and a `/share/` path no page has, so every
+   real invite was refused.)
 
    Every share action also fires `POST /facts/:id/share` to bump
    `factsTable.shareCount` (rate-limited).
