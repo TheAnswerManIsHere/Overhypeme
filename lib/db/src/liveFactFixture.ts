@@ -37,7 +37,14 @@ export async function insertLiveFacts(
   const run = async (tx: Executor) => {
     const out: Array<Fact & { gags: FactGag[] }> = [];
     for (const row of rows) {
-      const [fact] = await tx.insert(factsTable).values({ ...row.fact, isActive: true }).returning();
+      // A gag may hold published content only on a fact approved for
+      // production (migration 0157), so a fixture's live fact carries a
+      // legacy approval unless the caller says otherwise (a test of an older
+      // migration passes approvedAt: null, with that rule's trigger off).
+      const approval = "approvedAt" in row.fact
+        ? {}
+        : { approvedAt: new Date(), approvalSource: "legacy" as const };
+      const [fact] = await tx.insert(factsTable).values({ ...row.fact, ...approval, isActive: true }).returning();
       const contents = [row.gag, ...(row.moreGags ?? [])];
       const gags = await tx
         .insert(factGagsTable)

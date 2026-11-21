@@ -4,10 +4,9 @@ import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
 import { Button } from "@/components/ui/Button";
 import { Textarea, Input } from "@/components/ui/Input";
 import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, Brain, EyeOff, Loader2, Sparkles, ChevronRight, ChevronDown } from "lucide-react";
-import type { FactEnrichment, FactGagsView } from "@workspace/api-zod";
+import type { FactEnrichment } from "@workspace/api-zod";
 import { EnrichmentEditor } from "@/components/admin/EnrichmentEditor";
 import { GagsPanel } from "@/components/admin/gags/GagsPanel";
-import { LiveGagIdeas } from "@/components/admin/gags/LiveGagIdeas";
 import { DEFAULT_SUBJECT_EXAMPLE_NAMES } from "@/components/admin/subjectExampleNames";
 import { FactEnrichmentVersionHistory, type EnrichmentVersionInfo } from "@/components/admin/FactEnrichmentVersionHistory";
 import { useDraftForm, CommitInterruption } from "@/components/admin/useDraftForm";
@@ -146,18 +145,6 @@ function FactEnrichmentPanel({
 
   const busy = draft.loading || draft.committing || jobs.loading || jobs.rerunBusy || disabled;
   const [expanded, setExpanded] = useState(false);
-  // The Gags panel and Draft more gags (plan PLAN_THREE_GAGS.md, increment 2):
-  // the panel reports its view and unsaved edits; an idea used on a gag
-  // reloads the panel, and the panel waits while it saves.
-  const [gagsView, setGagsView] = useState<FactGagsView | null>(null);
-  const [gagsReloadKey, setGagsReloadKey] = useState(0);
-  const [gagsUnsaved, setGagsUnsaved] = useState(false);
-  const [ideaSaving, setIdeaSaving] = useState(false);
-  const onIdeaApplied = useCallback((view: FactGagsView) => {
-    setGagsView(view);
-    setGagsReloadKey((k) => k + 1);
-  }, []);
-
   return (
     <div className="rounded-sm border border-border bg-muted/20" data-testid="fact-enrichment-panel">
       <button
@@ -224,30 +211,21 @@ function FactEnrichmentPanel({
               <Loader2 className="w-3 h-3 animate-spin" /> Loading enrichment…
             </div>
           )}
-          {/* The fact's gags (plans PLAN_THREE_GAGS.md and PLAN_GAG_EXAMPLES.md):
-              each with its examples, editor and male, female and pet test
-              renders; a change reaches users once all three are approved.
-              Read-only while a refresh is open. */}
+          {/* The fact's gags, read-only: a live fact's gags are not edited
+              between Phase 1 and Phase 3 of the fact lifecycle rebuild (plan
+              PLAN_FACT_LIFECYCLE_REBUILD.md, 1F); the fact sheet brings
+              editing back, through a draft and "Publish changes". */}
+          <p className="text-xs text-muted-foreground" data-testid="gags-read-only-note">
+            Gags can't be changed here. A fact in moderation is edited from its review; editing a live fact's gags comes with the new fact page.
+          </p>
           <GagsPanel
             factId={fact.id}
             characters={enrichment?.characters}
             reviewId={null}
-            rendersEnabled
+            rendersEnabled={false}
             subjectNames={[...DEFAULT_SUBJECT_EXAMPLE_NAMES]}
-            reloadKey={gagsReloadKey}
-            onView={setGagsView}
-            onUnsavedChange={(names) => setGagsUnsaved(names.length > 0)}
-            disabled={disabled || ideaSaving}
-          />
-          {/* Draft more gags (plan increment 2): the gag writer on a live
-              fact, outside any review; hidden while a review is open. */}
-          <LiveGagIdeas
-            factId={fact.id}
-            gagsView={gagsView}
-            onApplied={onIdeaApplied}
-            unsavedGagEdits={gagsUnsaved}
-            onSavingChange={setIdeaSaving}
-            disabled={disabled}
+            reloadKey={0}
+            disabled
           />
           {/* The taxonomy lives here only (plan PLAN_GAG_DIRECT_RENDER.md, F;
               David, Q2: 1): the AI's classification of the fact, kept for AI

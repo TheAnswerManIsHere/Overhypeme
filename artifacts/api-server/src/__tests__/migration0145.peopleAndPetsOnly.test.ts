@@ -36,9 +36,10 @@ async function exists(table: string, id: number): Promise<boolean> {
   return (await db.execute(sql`SELECT 1 FROM ${sql.raw(table)} WHERE id = ${id}`)).rows.length > 0;
 }
 
+/** A deactivated fact once approved for production: its gags may hold published content (0157). */
 async function fact(name: string): Promise<number> {
   return (await one<{ id: number }>(sql`
-    INSERT INTO facts (text, is_active, enrichment) VALUES (${`${P}${RUN} ${name}`}, false, '{}'::jsonb) RETURNING id`)).id;
+    INSERT INTO facts (text, is_active, enrichment, approved_at, approval_source) VALUES (${`${P}${RUN} ${name}`}, false, '{}'::jsonb, now(), 'legacy') RETURNING id`)).id;
 }
 
 interface AttemptOpts { scenarioKey?: string | null; evalScenarioKey?: string | null; identityType?: string | null; subjectKind?: string; planKind?: string }

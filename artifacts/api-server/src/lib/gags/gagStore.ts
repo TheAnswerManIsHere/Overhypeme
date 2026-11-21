@@ -1,24 +1,28 @@
 /**
- * @purpose Every write to a gag: create, save a change, discard it, approve one of its test renders as its example, and remove it.
+ * @purpose Every write to a gag, all of it to the fact's draft set: create, save a change, discard it, approve one of its test renders as its example, and remove it.
  * @subsystem visual-pipeline
  *
- * Plans docs/plans/PLAN_THREE_GAGS.md (sections C and D) and
- * docs/plans/PLAN_GAG_EXAMPLES.md (sections A and B). One lifecycle for every
- * gag, whatever its slot:
- *   - a saved change becomes the gag's pending change; it never alters the
- *     approved version users get, and it drops picks made for other content;
+ * Plans docs/plans/PLAN_THREE_GAGS.md (sections C and D),
+ * docs/plans/PLAN_GAG_EXAMPLES.md (sections A and B) and
+ * docs/plans/PLAN_FACT_LIFECYCLE_REBUILD.md (1F). Every write here changes the
+ * fact's DRAFT set only (lib/db/src/schema/factGags.ts); nothing a member is
+ * offered changes until the draft is published (./publish.ts):
+ *   - a saved change becomes the gag's pending content and drops picks made
+ *     for other content;
  *   - a gag's examples are one per subject kind (male, female, pet). Approving
  *     a finished, unstyled render of exactly the content being worked on
- *     records it as that kind's pick; the third pick applies the change: the
- *     content becomes the approved version and the picks its approved set
- *     (Q8). There is no waiver and no other way to approve.
+ *     records it as that kind's draft pick, and never publishes anything;
+ *   - removing a gag removes it from the draft; a published gag stays
+ *     offered until the draft is published.
+ * A gag has no approved or hidden state of its own: whether a fact may go
+ * live is one rule over its whole set (./goLive.ts).
  *
  * Every function locks the fact row first, then its gags, and a fact in
  * moderation has its review locked before the fact: the one lock rule every
  * moderation transition, activation and the live-fact trigger follow
  * (lib/reviewLocks.ts), so they serialise and never deadlock.
  */
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import {
   db,
   factGagsTable,
@@ -27,9 +31,7 @@ import {
 } from "@workspace/db";
 import {
   MAX_GAGS_PER_FACT,
-  joinWithAnd,
   kindForScenario,
-  missingKinds,
   overrideValuesEqual,
   castIsCurrent,
   retiredArtDirectionFields,
@@ -44,7 +46,7 @@ import { stableStringify } from "../factRenderScenarios";
 import { openReviewForFact, type GagContent } from "./resolver";
 import { CANONICAL_SUBJECT_NAME_FORMS_LC } from "../renderCanonical";
 import { lockFactRow, lockReview } from "../reviewLocks";
-import { applyPendingSetIfComplete, clearPendingExamples, endGrandfatheringIfComplete, examplesFor, loadExamples, putExample } from "./examples";
+import { clearPendingExamples, copyPublishedExamplesToDraft, putExample } from "./examples";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -60,8 +62,6 @@ export type GagErrorCode =
   | "REVIEW_NOT_EDITABLE"
   | "RENDER_NOT_APPROVABLE"
   | "CONTENT_CHANGED"
-  | "LAST_APPROVED_GAG"
-  | "NOTHING_PENDING"
   | "CAST_MISSING"
   | "CAST_STALE"
   | "CAST_INVALID"
@@ -115,6 +115,11 @@ export function sameRenderedGag(drew: unknown, target: unknown): boolean {
   const pb = visualPromptStrategyOverrideSchema.safeParse(target);
   return pa.success && pb.success
     && stableStringify(renderedGagProjection(pa.data)) === stableStringify(renderedGagProjection(pb.data));
+}
+
+/** The gag a render drew: the gag content frozen in its attempt's snapshot. */
+export function drewGagOf(snapshot: unknown): unknown {
+  return (snapshot as { visualPromptStrategyOverride?: unknown } | null)?.visualPromptStrategyOverride;
 }
 
 /**
@@ -267,9 +272,10 @@ export async function createGag(factId: number, rawContent: unknown, actor: GagA
 }
 
 /**
- * Save content to a gag as its pending change. Replaces any earlier pending
- * change and cancels a pick made for the content it replaces. Content equal to
- * the approved version clears the pending change instead.
+ * Save content to a gag in the draft. Replaces any earlier draft change and
+ * cancels picks made for the content it replaces. Content equal to the
+ * published version clears the draft change instead. Saving a gag the draft
+ * removed puts it back.
  */
 export async function saveGagContent(factId: number, gagId: number, rawContent: unknown, actor: GagActor): Promise<FactGag> {
   const content = validateGagContent(rawContent);
@@ -277,15 +283,22 @@ export async function saveGagContent(factId: number, gagId: number, rawContent: 
     await lockFact(tx, factId);
     await resolveScope(tx, factId, actor);
     const gag = await lockGag(tx, factId, gagId);
-    // Saving what is already pending changes nothing (no spurious timestamp bump).
+    // Saving what the draft already holds changes nothing (no spurious timestamp bump).
     if (gag.pendingContent != null && gagContentEqual(gag.pendingContent, content)) return gag;
-    const sameAsApproved = gag.approvedContent != null && gagContentEqual(gag.approvedContent, content);
+    const sameAsPublished = gag.approvedContent != null && gagContentEqual(gag.approvedContent, content);
+    if (sameAsPublished && gag.pendingContent == null && !gag.draftRemoved) return gag;
     // Picks were made for the content being replaced: they no longer show the gag.
     await clearPendingExamples(tx, [gagId]);
-    const [updated] = await tx.update(factGagsTable).set(sameAsApproved
-      ? { pendingContent: null, pendingBy: null, pendingAt: null, updatedAt: new Date() }
-      : { pendingContent: content, pendingBy: actor.adminId, pendingAt: new Date(), updatedAt: new Date() },
-    ).where(eq(factGagsTable.id, gagId)).returning();
+    // Content equal to the published version returns the gag to it in the
+    // draft, published examples included; anything else is a draft change.
+    const now = new Date();
+    const [updated] = await tx.update(factGagsTable).set({
+      draftRemoved: false,
+      updatedAt: now,
+      ...(sameAsPublished
+        ? { pendingContent: null, pendingBy: null, pendingAt: null }
+        : { pendingContent: content, pendingBy: actor.adminId, pendingAt: now }),
+    }).where(eq(factGagsTable.id, gagId)).returning();
     if (!updated!.approvedContent && !updated!.pendingContent) {
       throw new GagError("SCENE_REQUIRED", "A gag needs content.", 400);
     }
@@ -294,37 +307,15 @@ export async function saveGagContent(factId: number, gagId: number, rawContent: 
 }
 
 /**
- * Drop a gag's pending change (and its picked example); the approved version
- * is untouched. A gag with nothing approved is removed instead.
- */
-export async function discardGagChange(factId: number, gagId: number, actor: GagActor): Promise<FactGag> {
-  return db.transaction(async (tx) => {
-    await lockFact(tx, factId);
-    await resolveScope(tx, factId, actor);
-    const gag = await lockGag(tx, factId, gagId);
-    if (gag.pendingContent == null) throw new GagError("NOTHING_PENDING", "This gag has no pending change.");
-    await clearPendingExamples(tx, [gagId]);
-    const now = new Date();
-    const [updated] = await tx.update(factGagsTable).set(gag.approvedContent == null
-      ? { removedAt: now, removedBy: actor.adminId, updatedAt: now }
-      : { pendingContent: null, pendingBy: null, pendingAt: null, updatedAt: now },
-    ).where(eq(factGagsTable.id, gagId)).returning();
-    return updated!;
-  });
-}
-
-/**
- * Approve one of a gag's test renders as its example for the subject kind the
- * render drew (male, female or pet). Accepted only for a finished, unstyled
- * render of THIS gag, of one of those kinds, whose frozen snapshot holds
- * exactly the content being worked on (the pending change if there is one,
- * else the approved version).
+ * Approve one of a gag's test renders as its draft example for the subject
+ * kind the render drew (male, female or pet). Accepted only for a finished,
+ * unstyled render of THIS gag, of one of those kinds, whose frozen snapshot
+ * holds exactly the gag's draft content.
  *
- * - A pending change: the pick is recorded, and the third pick applies the
- *   change (the content becomes approved, the picks its set).
- * - No pending change: the content is already approved, so the pick replaces
- *   that kind's approved example; a grandfathered gag whose set this completes
- *   stops being grandfathered.
+ * The pick is recorded in the draft and publishes nothing. A published gag
+ * with no draft change gets one first: its published content and examples
+ * are copied into the draft, and the pick replaces that kind's copy, so what
+ * members are offered changes only at the next publish.
  */
 export async function approveGagRender(factId: number, gagId: number, attemptId: number, actor: GagActor): Promise<FactGag> {
   return db.transaction(async (tx) => {
@@ -346,77 +337,41 @@ export async function approveGagRender(factId: number, gagId: number, attemptId:
     if (!kind) {
       throw new GagError("RENDER_NOT_APPROVABLE", "A gag's examples are its male, female and pet renders.");
     }
+    if (gag.draftRemoved) throw new GagError("GAG_NOT_FOUND", "This gag is removed in the draft. Save it to put it back first.", 409);
     const target = (gag.pendingContent ?? gag.approvedContent) as GagContent | null;
-    const drew = (attempt.factEnrichmentSnapshot as { visualPromptStrategyOverride?: unknown } | null)?.visualPromptStrategyOverride;
+    const drew = drewGagOf(attempt.factEnrichmentSnapshot);
     if (!target || drew == null || !sameRenderedGag(drew, target)) {
       throw new GagError("CONTENT_CHANGED", "This render was made from different content than the gag holds now. Run its test renders again.");
     }
     const now = new Date();
     if (gag.pendingContent == null) {
-      // The approved version itself: the pick is its example for this kind.
-      await putExample(tx, gagId, kind, "approved", attemptId, actor.adminId);
-      return endGrandfatheringIfComplete(tx, gag);
+      // A published gag unchanged in the draft: open its draft from the published version.
+      await copyPublishedExamplesToDraft(tx, gagId);
     }
     await putExample(tx, gagId, kind, "pending", attemptId, actor.adminId);
-    const [touched] = await tx.update(factGagsTable).set({ pendingBy: actor.adminId, pendingAt: now, updatedAt: now })
+    const [touched] = await tx.update(factGagsTable).set({ pendingContent: target, pendingBy: actor.adminId, pendingAt: now, updatedAt: now })
       .where(eq(factGagsTable.id, gagId)).returning();
-    return (await applyPendingSetIfComplete(tx, touched!, actor.adminId)) ?? touched!;
+    return touched!;
   });
 }
 
 /**
- * Remove a gag. Refused for the last approved gag of a live fact (the database
- * refuses it too).
+ * Remove a gag from the draft. Allowed for any gag, the last one included:
+ * the go-live rule then refuses to publish an empty set. A gag with nothing
+ * published is removed outright; a published gag is marked removed in the
+ * draft and stays offered until the draft is published.
  */
 export async function removeGag(factId: number, gagId: number, actor: GagActor): Promise<FactGag> {
   return db.transaction(async (tx) => {
-    const fact = await lockFact(tx, factId);
+    await lockFact(tx, factId);
     await resolveScope(tx, factId, actor);
     const gag = await lockGag(tx, factId, gagId);
     const now = new Date();
-    if (fact.isActive && gag.approvedContent != null) {
-      const others = await tx.select({ id: factGagsTable.id }).from(factGagsTable).where(and(
-        eq(factGagsTable.factId, factId), isNull(factGagsTable.removedAt), sql`${factGagsTable.id} <> ${gagId}`,
-        sql`${factGagsTable.approvedContent} IS NOT NULL`,
-      ));
-      if (others.length === 0) throw new GagError("LAST_APPROVED_GAG", "A live fact keeps at least one approved gag.");
-    }
-    const [updated] = await tx.update(factGagsTable).set({
-      removedAt: now, removedBy: actor.adminId, updatedAt: now,
-    }).where(eq(factGagsTable.id, gagId)).returning();
+    await clearPendingExamples(tx, [gagId]);
+    const [updated] = await tx.update(factGagsTable).set(gag.approvedContent == null
+      ? { removedAt: now, removedBy: actor.adminId, updatedAt: now }
+      : { draftRemoved: true, pendingContent: null, pendingBy: null, pendingAt: null, updatedAt: now },
+    ).where(eq(factGagsTable.id, gagId)).returning();
     return updated!;
   });
-}
-
-/** A gag that would not be offered after approval, and the kinds its set still lacks. */
-export interface ExampleSetGap {
-  slot: number;
-  missing: GagExampleKind[];
-}
-
-/**
- * The gags that will not be offered after this approval, with the kinds each
- * still needs (plan PLAN_GAG_EXAMPLES.md, section D): every surviving gag with
- * no approved version.
- * The production gate names these when no gag would be offered.
- */
-export async function exampleSetGaps(factId: number, executor: typeof db | Tx = db): Promise<ExampleSetGap[]> {
-  const gags = await executor.select().from(factGagsTable)
-    .where(and(eq(factGagsTable.factId, factId), isNull(factGagsTable.removedAt)))
-    .orderBy(asc(factGagsTable.slot));
-  const examples = await loadExamples(gags.map((g) => g.id), executor);
-  const gaps: ExampleSetGap[] = [];
-  for (const g of gags) {
-    if (g.approvedContent != null) continue;
-    const set = examplesFor(examples, g.id).pending;
-    const missing = missingKinds(set);
-    if (missing.length) gaps.push({ slot: g.slot, missing });
-  }
-  return gaps;
-}
-
-/** The gaps in words, for a refused approval: "Gag 1 needs female and pet examples." */
-export function describeExampleSetGaps(gaps: ExampleSetGap[]): string {
-  if (gaps.length === 0) return "Approve each gag's male, female and pet examples before approving for production.";
-  return gaps.map((g) => `Gag ${g.slot} needs ${joinWithAnd(g.missing)} example${g.missing.length > 1 ? "s" : ""}.`).join(" ");
 }

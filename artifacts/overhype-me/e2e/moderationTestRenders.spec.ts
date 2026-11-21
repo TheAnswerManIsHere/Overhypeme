@@ -26,13 +26,16 @@ const tile = (key: RenderScenarioCard["key"], attemptId: number): RenderScenario
 });
 const example = (attemptId: number) => ({ attemptId, imageUrl: null });
 
+/** A submission's gag: in the draft, with its male, female and pet renders picked. */
 function gag(id: number, slot: number): GagView {
   return {
-    id, slot, state: "approved", availableToUsers: false, isDefault: slot === 1,
-    approvedContent: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: `{NAME} outlifts a forklift, take ${slot}.` },
-    approvedExamples: { male: example(id * 10 + 1), female: example(id * 10 + 2), pet: example(id * 10 + 3) },
-    grandfathered: false, approvedAt: CREATED, pendingContent: null,
-    pendingExamples: { male: null, female: null, pet: null },
+    id, slot, state: "new", availableToUsers: false, isDefault: false,
+    approvedContent: null,
+    approvedExamples: { male: null, female: null, pet: null },
+    grandfathered: false, approvedAt: null,
+    pendingContent: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: `{NAME} outlifts a forklift, take ${slot}.` },
+    pendingExamples: { male: example(id * 10 + 1), female: example(id * 10 + 2), pet: example(id * 10 + 3) },
+    draftRemoved: false,
     renders: { male: tile("i2i_male_default", id * 10 + 1), female: tile("i2i_female_default", id * 10 + 2), pet: tile("i2i_nonhuman_animal", id * 10 + 3) },
   };
 }
@@ -48,7 +51,7 @@ async function stubReview(page: Page, stage: "gags" | "test_renders" = "test_ren
     rendersRunning: false, renderReviewState: null,
   };
   const { visualPromptStrategyOverride: _gag, ...classification } = enrichmentWithConcept("{NAME} outlifts a forklift.");
-  const view: FactGagsView = { factId: FACT_ID, isActive: false, review: { id: REVIEW_ID, stage }, gags: [gag(1, 1), gag(2, 2)], maxGags: 3 };
+  const view: FactGagsView = { factId: FACT_ID, isActive: false, review: { id: REVIEW_ID, stage }, gags: [gag(1, 1), gag(2, 2)], maxGags: 3, draftReady: { ok: true, reason: null } };
 
   await page.route(/\/api\/admin\/reviews(\?.*)?$/, (route: Route) =>
     route.fulfill({ json: { reviews: [row], total: 1, page: 1, limit: 20 } }));

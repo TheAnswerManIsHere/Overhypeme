@@ -415,13 +415,30 @@ function vso(extra: Partial<Vso> = {}, coreSceneOverride = "{NAME} hoists a barb
   } as Vso;
 }
 
-/** Save a fact's slot-1 gag through the gag routes: add it, or save a change to it. */
+/**
+ * Save a fact's slot-1 gag through the gag routes: add it, or save a change
+ * to it. A gag write comes from a review (plan PLAN_FACT_LIFECYCLE_REBUILD.md,
+ * 1F), so a fact with none gets one at the Gags step, opened here once.
+ */
 async function patchVso(id: number, override: Vso, reviewId?: number) {
   const [existing] = await db.select({ id: factGagsTable.id }).from(factGagsTable).where(eq(factGagsTable.factId, id));
-  const body = { content: withCast(override), ...(reviewId != null ? { reviewId } : {}) };
+  const scope = reviewId ?? await openReviewFor(id);
+  const body = { content: withCast(override), reviewId: scope };
   return existing
     ? request(gagApp).put(`/api/admin/facts/${id}/gags/${existing.id}`).send(body)
     : request(gagApp).post(`/api/admin/facts/${id}/gags`).send(body);
+}
+
+/** The fact's open review, opened at the Gags step when it has none. */
+async function openReviewFor(id: number): Promise<number> {
+  const [open] = await db.select({ id: pendingReviewsTable.id }).from(pendingReviewsTable)
+    .where(and(eq(pendingReviewsTable.stagingFactId, id), eq(pendingReviewsTable.status, "pending")));
+  if (open) return open.id;
+  const [fact] = await db.select({ text: factsTable.text }).from(factsTable).where(eq(factsTable.id, id));
+  const [review] = await db.insert(pendingReviewsTable).values({
+    submittedText: fact!.text, status: "pending", workflowStage: "gags", stagingFactId: id,
+  }).returning({ id: pendingReviewsTable.id });
+  return review!.id;
 }
 
 /** The fact's slot-1 gag as a render would draw it (the pending change, else the approved version). */

@@ -1,17 +1,17 @@
 /**
- * @purpose The admin Gags panel: every gag of one fact, each with its state in words, its male, female and pet examples, its editor, its test renders and its actions. Used by the moderation review (Gags and Test Renders steps) and the Facts editor.
+ * @purpose The admin Gags panel: every gag of one fact, each with its state in words, its male, female and pet examples, its editor, its test renders and its actions. Used by the moderation review (Gags and Test Renders steps) and, read-only, by the Facts editor.
  * @subsystem visual-pipeline
  *
- * Plans docs/plans/PLAN_THREE_GAGS.md and PLAN_GAG_EXAMPLES.md. Every gag
- * follows the same rules: a saved change waits as the gag's pending version,
- * and it reaches users only once a male, a female and a pet render of it are
- * approved as its examples. Saving draws one male render to iterate on; "Render
- * female and pet" draws the other two once the gag works. Inside a refresh, the
- * panel is scoped to that refresh's review and its picks apply at promotion;
- * outside one, a fact with an open refresh is read-only here.
+ * Plans docs/plans/PLAN_THREE_GAGS.md, PLAN_GAG_EXAMPLES.md and
+ * PLAN_FACT_LIFECYCLE_REBUILD.md (1F). Every change here is to the fact's
+ * draft set, and nothing reaches users until the whole draft is published
+ * (for a submission, by "Approve for production"), which needs every gag to
+ * have an approved male, female and pet render. Saving draws one male render
+ * to iterate on; "Render female and pet" draws the other two once the gag
+ * works. The Facts editor shows a live fact's gags read-only.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, Loader2, Plus, Play, RefreshCw, RotateCcw, Save, Trash2, Users } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, Plus, Play, RefreshCw, Save, Trash2, Users } from "lucide-react";
 import {
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
   GAG_EXAMPLE_KINDS,
@@ -425,9 +425,10 @@ function useGagSave(factId: number, subjectNames: string[]) {
 }
 
 function stateWords(g: GagView): string {
-  if (g.state === "new") return "New: hidden from users until its male, female and pet examples are approved";
-  if (g.state === "approved_with_change") return "Approved, with a change waiting for its male, female and pet examples";
-  return "Approved";
+  if (g.state === "new") return "Not offered to users yet: goes live with the fact, once every gag has its male, female and pet renders approved";
+  if (g.draftRemoved) return "Removed in the unpublished changes; still offered to users until they are published";
+  if (g.state === "approved_with_change") return "Offered to users as published; this gag has an unpublished change";
+  return "Published";
 }
 
 /**
@@ -513,12 +514,10 @@ function GagCard({
   const done = (r: GagResult | null) => { if (r?.ok) onView(r.view); };
 
   const save = async () => done(await s.run(draft, working, (c) => gagApi.save(factId, gag.id, c, reviewId), setDraft));
-  const discard = async () => done(await s.act(() => gagApi.discard(factId, gag.id, reviewId)));
   const remove = async () => {
-    if (!window.confirm(`Remove gag ${gag.slot}? Users will no longer be offered it.`)) return;
+    if (!window.confirm(`Remove gag ${gag.slot}?`)) return;
     done(await s.act(() => gagApi.remove(factId, gag.id, reviewId)));
   };
-  // Cancel a refresh's removal of this gag: only the mark goes; its change and pick stay.
   const runRenders = async (kinds: GagExampleKind[], redraw = false) => done(await s.act(() => gagApi.runRenders(factId, gag.id, reviewId, kinds, redraw)));
   const approve = async (card: RenderScenarioCard) => {
     if (card.latestAttemptId == null) return;
@@ -527,7 +526,7 @@ function GagCard({
 
   const locked = readOnly || s.busy;
   const drawing = GAG_EXAMPLE_KINDS.some((k) => IN_FLIGHT.has(gag.renders[k]?.status ?? ""));
-  // The set being built: picks for the pending change, else the approved version's.
+  // The draft's picks for this gag: its draft change's, else its published version's.
   const building = gag.pendingContent != null;
   const picks = building ? gag.pendingExamples : gag.approvedExamples;
   const notDrawn = (k: GagExampleKind) => gag.renders[k] == null || gag.renders[k]!.status === "missing";
@@ -559,8 +558,7 @@ function GagCard({
         </p>
       )}
       <p className="text-xs text-foreground" data-testid="gag-example-words">
-        {building ? `This change: ${exampleWords(gag.pendingExamples, "picked")}.` : `${exampleWords(gag.approvedExamples)}.`}
-        {building && " The change reaches users when all three are approved."}
+        {`${exampleWords(picks)}.`}
       </p>
 
       {GAG_EXAMPLE_KINDS.some((k) => gag.approvedExamples[k]?.imageUrl) && (
@@ -590,12 +588,6 @@ function GagCard({
             <button type="button" onClick={() => setDraft(working)} disabled={locked} data-testid="gag-undo"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border border-border rounded-sm hover:bg-muted text-foreground disabled:opacity-40">
               Undo edits
-            </button>
-          )}
-          {gag.pendingContent != null && gag.approvedContent != null && (
-            <button type="button" onClick={() => void discard()} disabled={locked} data-testid="gag-discard"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border border-border rounded-sm hover:bg-muted text-foreground disabled:opacity-40">
-              <RotateCcw className="w-3.5 h-3.5" /> Discard the saved change
             </button>
           )}
           <button type="button" onClick={() => void remove()} disabled={locked} data-testid="gag-remove"

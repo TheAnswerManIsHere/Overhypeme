@@ -129,7 +129,7 @@ function splitGag(enrichment: FactEnrichment | null): { classification: FactEnri
   return { classification: rest as FactEnrichment, gag: visualPromptStrategyOverride?.coreSceneOverride?.trim() ? visualPromptStrategyOverride : null };
 }
 
-/** GET /api/admin/facts/:id/gags for a fact with at most one gag: approved on a live fact, new on a staging one. */
+/** GET /api/admin/facts/:id/gags for a fact with at most one gag: published on a live fact, in the draft on a staging one. */
 export function gagsView(factId: number, isActive: boolean, gag: VisualPromptStrategyOverride | null, review: FactGagsView["review"] = null): FactGagsView {
   const gags: GagView[] = gag
     ? [{
@@ -144,10 +144,15 @@ export function gagsView(factId: number, isActive: boolean, gag: VisualPromptStr
         approvedAt: isActive ? CREATED : null,
         pendingContent: isActive ? null : gag,
         pendingExamples: { male: null, female: null, pet: null },
+        draftRemoved: false,
         renders: { male: null, female: null, pet: null },
       }]
     : [];
-  return { factId, isActive, review, gags, maxGags: 3 };
+  // A live fact's published gag is ready as it stands; a staging gag has no renders approved yet.
+  const draftReady = isActive && gag
+    ? { ok: true, reason: null }
+    : { ok: false, reason: gag ? "Gag 1 needs male, female and pet renders approved." : "A fact needs at least one gag before it can go live." };
+  return { factId, isActive, review, gags, maxGags: 3, draftReady };
 }
 
 function json(route: Route, body: unknown, status = 200): Promise<void> {

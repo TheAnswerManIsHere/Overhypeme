@@ -116,6 +116,11 @@ export async function loadFixtureRows(
     }
 
     await client.query("BEGIN");
+    // The fixture predates the approval record (0152) and the published and
+    // draft sets (0157): its rows load in their own era's shape, with 0157's
+    // rule off, and the two migrations run over them below, as a migrated
+    // database's history did. Re-running 0157 re-creates its trigger, on.
+    await client.query("ALTER TABLE fact_gags DISABLE TRIGGER fact_gags_published_needs_approved_fact");
     for (const entry of includedTables()) {
       const table = sqlName(entry.table);
       // A setting a migration retired is not restored over its deletion (0149),
@@ -168,6 +173,9 @@ export async function loadFixtureRows(
     // loaded queued the deferred live-fact trigger: those checks run first.
     await client.query("SET CONSTRAINTS ALL IMMEDIATE");
     await client.query(sqlAsOf0155(migrationSql("0152_admin_actions_and_ever_approved")));
+    // 0157 again, whole: a never-approved fact's approved gag versions become
+    // its draft, as on a migrated database (the fixture predates it).
+    await client.query(migrationSql("0157_published_and_draft_gags"));
     await client.query(
       `SELECT setval('membership_source_state_seq', GREATEST(COALESCE((SELECT max(source_state_as_of) FROM public.membership_entitlements), 0), 1), (SELECT count(*) > 0 FROM public.membership_entitlements))`,
     );

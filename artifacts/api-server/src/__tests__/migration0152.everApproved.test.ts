@@ -25,6 +25,7 @@ import { eq } from "drizzle-orm";
 import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import { sqlAsOf0155 } from "../testing/stageLabelsAsOf0155.js";
+import { publishedGagRuleOff, publishedGagRuleOn } from "./helpers/publishedGagRule.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../../../..");
@@ -55,10 +56,12 @@ describe("migration 0152: facts that were ever approved", () => {
   let liveCreated: string;
   let notice = "";
   before(async () => {
+    // Data in its own era's shape: no approval record yet, no 0157 rule.
+    await publishedGagRuleOff();
     await db.insert(usersTable).values({ id: ADMIN }).onConflictDoNothing();
     f.approvedThenDeactivated = await inactiveFact("approved-then-deactivated");
     await review(f.approvedThenDeactivated, "approved", "approved", "2026-03-04T05:06:07Z");
-    const live = await insertLiveFact({ text: `{NAME} ${P} live`, enrichment: buildPlaceholderFactEnrichment() }, { ...buildPlaceholderGag(), coreSceneOverride: "{NAME} live." });
+    const live = await insertLiveFact({ text: `{NAME} ${P} live`, enrichment: buildPlaceholderFactEnrichment(), approvedAt: null }, { ...buildPlaceholderGag(), coreSceneOverride: "{NAME} live." });
     f.liveNoReview = live.id;
     liveCreated = (await one<{ c: string }>(sql`SELECT created_at::text AS c FROM facts WHERE id = ${live.id}`))!.c;
     f.inModeration = await inactiveFact("in-moderation");
@@ -77,6 +80,8 @@ describe("migration 0152: facts that were ever approved", () => {
     await db.execute(sql`DELETE FROM pending_reviews WHERE submitted_text LIKE ${`%${P}%`}`);
     await db.execute(sql`DELETE FROM facts WHERE text LIKE ${`%${P}%`}`);
     await db.delete(usersTable).where(eq(usersTable.id, ADMIN));
+    // Back on last, once this file's era-shaped rows are gone.
+    await publishedGagRuleOn();
   });
 
   it("records a production approval on record as legacy, at the review's time, with no approver", async () => {

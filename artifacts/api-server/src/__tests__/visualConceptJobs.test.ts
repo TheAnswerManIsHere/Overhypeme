@@ -417,8 +417,15 @@ describe("the gag writer: humor note, joke read and freshness", () => {
   });
 
   it("sends each gag's version being worked on: its pending change over the approved one (plan PLAN_THREE_GAGS.md, increment 2)", async () => {
-    // The gag holds an approved version A and a pending change B.
+    // The gag holds a published version A and a draft change B; a gag
+    // removed in the draft is not sent (migration 0157). Published content
+    // needs a fact approved for production on record.
     const { reviewId, factId } = await seedReview(adminId, "gags");
+    await db.update(factsTable).set({ approvedAt: new Date(), approvalSource: "legacy" }).where(eq(factsTable.id, factId));
+    await db.insert(factGagsTable).values({
+      factId, slot: 2, approvedContent: { version: 1, coreSceneOverride: "{NAME} removed in the draft." } as never,
+      approvedCarriedOver: true, draftRemoved: true,
+    });
     await db.insert(factGagsTable).values({
       factId, slot: 1,
       approvedContent: { version: 1, coreSceneOverride: "{NAME} approved gag A." } as never, approvedCarriedOver: true,

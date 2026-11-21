@@ -11,13 +11,11 @@ import {
   type FactGagsView,
   type GagCastView,
   type GagExampleKind,
-  type VisualConceptsResponse,
   type VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
 import { saveRefusalMessage } from "../useFactEnrichmentEditing";
 
 export type GagResult = { ok: true; view: FactGagsView } | { ok: false; error: string };
-export type IdeasResult = { ok: true; ideas: VisualConceptsResponse } | { ok: false; error: string };
 
 async function request(method: "GET" | "POST" | "PUT", url: string, body?: unknown): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
   let r: Response;
@@ -43,11 +41,6 @@ async function call(method: "GET" | "POST" | "PUT", url: string, body?: unknown)
   return r.ok ? { ok: true, view: r.data as FactGagsView } : r;
 }
 
-async function ideas(method: "GET" | "POST", factId: number): Promise<IdeasResult> {
-  const r = await request(method, `${base(factId)}/ideas`);
-  return r.ok ? { ok: true, ideas: r.data as VisualConceptsResponse } : r;
-}
-
 const base = (factId: number) => `/api/admin/facts/${factId}/gags`;
 /** The review an action comes from; omitted from the body outside one. */
 const scope = (reviewId: number | null) => (reviewId != null ? { reviewId } : {});
@@ -58,14 +51,8 @@ export const gagApi = {
     call("POST", base(factId), { content, ...(slot != null ? { slot } : {}), ...scope(reviewId) }),
   save: (factId: number, gagId: number, content: VisualPromptStrategyOverride, reviewId: number | null) =>
     call("PUT", `${base(factId)}/${gagId}`, { content, ...scope(reviewId) }),
-  discard: (factId: number, gagId: number, reviewId: number | null) =>
-    call("POST", `${base(factId)}/${gagId}/discard`, scope(reviewId)),
   remove: (factId: number, gagId: number, reviewId: number | null) =>
     call("POST", `${base(factId)}/${gagId}/remove`, scope(reviewId)),
-  /** A live fact's drafted ideas (Draft more gags). */
-  ideas: (factId: number) => ideas("GET", factId),
-  /** Draft more gags on a live fact: starts the gag writer, answers with the ideas (working). */
-  draftIdeas: (factId: number) => ideas("POST", factId),
   approve: (factId: number, gagId: number, attemptId: number, reviewId: number | null) =>
     call("POST", `${base(factId)}/${gagId}/approve`, { attemptId, ...scope(reviewId) }),
   /**

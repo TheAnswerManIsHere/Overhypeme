@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { sql } from "drizzle-orm";
 import { db, pool } from "@workspace/db";
 import { sqlAsOf0155 } from "../testing/stageLabelsAsOf0155.js";
+import { publishedGagRuleOff, publishedGagRuleOn } from "./helpers/publishedGagRule.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../../../..");
@@ -110,6 +111,8 @@ async function cleanup() {
 
 describe("migration 0139: every gag in one place", () => {
   before(async () => {
+    // Data in its own era's shape: no approval record yet, no 0157 rule.
+    await publishedGagRuleOff();
     await cleanup();
     // The pre-0139 shape: no live-fact trigger yet (the migration recreates it).
     await db.execute(sql`DROP TRIGGER IF EXISTS facts_live_requires_approved_gag ON facts`);
@@ -150,6 +153,8 @@ describe("migration 0139: every gag in one place", () => {
     await db.execute(sql`ALTER TABLE fact_gags DROP CONSTRAINT IF EXISTS fact_gags_pending_ops_owned`);
     await db.execute(sql`ALTER TABLE fact_gags DROP COLUMN IF EXISTS pending_remove`);
     await db.execute(sql`ALTER TABLE fact_gags DROP COLUMN IF EXISTS pending_review_id`);
+    // Back on last, once this file's era-shaped rows are gone.
+    await publishedGagRuleOn();
   });
 
   it("a live fact's gag becomes an approved, carried-over slot-1 gag, byte for byte", async () => {

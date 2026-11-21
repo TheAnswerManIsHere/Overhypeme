@@ -44,13 +44,14 @@ function gag(over: Partial<GagView> & Pick<GagView, "id" | "slot">): GagView {
     approvedAt: "2026-11-01T00:00:00.000Z",
     pendingContent: null,
     pendingExamples: NONE,
+    draftRemoved: false,
     renders: NONE,
     ...over,
   };
 }
 
 function view(gags: GagView[], over: Partial<FactGagsView> = {}): FactGagsView {
-  return { factId: 5, isActive: true, review: null, gags, maxGags: 3, ...over };
+  return { factId: 5, isActive: true, review: null, gags, maxGags: 3, draftReady: { ok: false, reason: null }, ...over };
 }
 
 type Call = { url: string; method: string; body: unknown };
@@ -99,7 +100,7 @@ describe("GagsPanel", () => {
     expect(within(cards[0]!).getByTestId("gag-grandfathered")).toBeTruthy();
     expect(within(cards[0]!).getByTestId("gag-example-words").textContent).toBe("No examples approved yet: male, female and pet to approve.");
     expect(within(cards[1]!).getByTestId("gag-availability").textContent).toBe("Hidden from users");
-    expect(within(cards[1]!).getByTestId("gag-state").textContent).toMatch(/^New: hidden from users until its male, female and pet examples are approved/);
+    expect(within(cards[1]!).getByTestId("gag-state").textContent).toMatch(/^Not offered to users yet: goes live with the fact/);
   });
 
   it("saves a change through the tokenizer, then PUTs the tokenized gag with the review it comes from", async () => {
@@ -115,7 +116,7 @@ describe("GagsPanel", () => {
     expect(put.url).toBe("/api/admin/facts/5/gags/1");
     expect(put.body).toMatchObject({ reviewId: 77, content: { coreSceneOverride: "{NAME} lifts the sun." } });
     expect(calls.findIndex((c) => c.url === "/api/ai/tokenize-enrichment")).toBeLessThan(calls.indexOf(put));
-    await waitFor(() => expect(screen.getByTestId("gag-state").textContent).toBe("Approved, with a change waiting for its male, female and pet examples"));
+    await waitFor(() => expect(screen.getByTestId("gag-state").textContent).toBe("Offered to users as published; this gag has an unpublished change"));
   });
 
   it("REGRESSION #685: an over-budget gag shows the server's budget sentences, not its code, and keeps the edit", async () => {
@@ -168,7 +169,7 @@ describe("GagsPanel", () => {
     expect(within(tiles[0]!).getByTestId("gag-render-picked")).toBeTruthy();
     expect(within(tiles[0]!).queryByTestId("gag-approve-render")).toBeNull();
     expect(within(tiles[2]!).getByTestId("gag-render-status").textContent).toMatch(/Not drawn yet/);
-    expect(screen.getByTestId("gag-example-words").textContent).toMatch(/^This change: Male picked; female and pet to approve\./);
+    expect(screen.getByTestId("gag-example-words").textContent).toMatch(/^Male approved; female and pet to approve\./);
 
     fireEvent.click(within(tiles[1]!).getByTestId("gag-approve-render"));
     await waitFor(() => expect(calls.some((c) => c.url.endsWith("/approve"))).toBe(true));

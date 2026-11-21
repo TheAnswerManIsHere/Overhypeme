@@ -123,15 +123,24 @@ export interface AvailableGag {
 
 /**
  * The gags a caller without moderator rights may be offered, default first:
- * the approved versions of a LIVE fact's non-removed gags, in slot order. A
- * pending change is never offered; the approved version keeps being served
- * while one waits. Empty for an inactive fact.
+ * the PUBLISHED versions of a LIVE fact's non-removed gags, in slot order
+ * (migration 0157). A draft change, a draft-only gag and a draft removal are
+ * never seen here; the published set keeps being served until the draft is
+ * published. Empty for an inactive fact.
  *
  * Phase 7's contract (plan PLAN_THREE_GAGS.md, decisions 13 and 15): its
  * picker lists exactly these, offers a choice wherever there is more than
  * one, and draws through `resolveOfferedGag`. Tested in availableGags.test.ts.
  */
-export async function availableGags(factId: number, executor: Executor = db): Promise<AvailableGag[]> {
+export async function availableGags(factId: number, executor?: Executor): Promise<AvailableGag[]> {
+  // Content and examples are two reads. A publish swaps both in one
+  // transaction, so they are read from one snapshot: a member gets the whole
+  // previous published set or the whole new one, never a mixture (plan
+  // PLAN_FACT_LIFECYCLE_REBUILD.md, Runtime Behavior). A caller's own
+  // transaction is its snapshot already.
+  if (!executor) {
+    return db.transaction((tx) => availableGags(factId, tx), { isolationLevel: "repeatable read", accessMode: "read only" });
+  }
   const rows = await executor
     .select({ gag: factGagsTable })
     .from(factGagsTable)
