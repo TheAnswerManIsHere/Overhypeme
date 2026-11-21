@@ -530,7 +530,7 @@ export const HELP_SEARCH_INDEX: HelpSearchEntry[] = [
     "doc": "8-community-and-engagement",
     "section": "boundaries--known-limitations",
     "sectionTitle": "Boundaries & known limitations",
-    "text": "Boundaries & known limitations You can't edit or delete your own comment once it's posted. If you need to correct or remove one, there's currently no self-service way. Hearting a meme doesn't currently check whether you're allowed to see it first — a private meme's heart button isn't gated the way every other private-meme surface is. Already filed as a known bug ( #375 ), not something to rely on as a real access boundary today. There's no notification for reactions you receive. Your activity feed tells you about your own submissions' review status, never about a rating or heart someone else gave your content. Comments don't get any automated pre-screening — every approval or rejection is a human admin decision, with no AI assist in the loop the way fact submissions have."
+    "text": "Boundaries & known limitations You can't edit or delete your own comment once it's posted. If you need to correct or remove one, there's currently no self-service way. There's no notification for reactions you receive. Your activity feed tells you about your own submissions' review status, never about a rating or heart someone else gave your content. Comments don't get any automated pre-screening — every approval or rejection is a human admin decision, with no AI assist in the loop the way fact submissions have."
   },
   {
     "doc": "8-community-and-engagement",

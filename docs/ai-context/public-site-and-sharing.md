@@ -277,7 +277,7 @@ the link."
 - `artifacts/overhype-me/src/components/ShareModal.tsx`,
   `components/share/MemeShareModal.tsx`.
 - `artifacts/api-server/src/routes/facts.ts` (hero, list/search, share
-  count), `hashtags.ts`, `og.ts`, `share.ts` (broken email invite),
+  count), `hashtags.ts`, `og.ts`, `share.ts`,
   `shareCopy.ts`, `shareIntents.ts`.
 - `artifacts/api-server/src/lib/memeVisibility.ts` (`canViewMeme`, the
   one shared gate behind OG/share/library-memes).

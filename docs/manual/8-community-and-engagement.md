@@ -84,11 +84,6 @@ next-page/previous-page navigation rather than a single fixed list.
 
 - **You can't edit or delete your own comment once it's posted.** If you
   need to correct or remove one, there's currently no self-service way.
-- **Hearting a meme doesn't currently check whether you're allowed to
-  see it first** — a private meme's heart button isn't gated the way
-  every other private-meme surface is. Already filed as a known bug
-  ([#375](https://github.com/TheAnswerManIsHere/Overhypeme/issues/375)),
-  not something to rely on as a real access boundary today.
 - **There's no notification for reactions you receive.** Your activity
   feed tells you about your own submissions' review status, never about
   a rating or heart someone else gave your content.
