@@ -295,6 +295,19 @@ re-gather it when the work is scheduled.
   - **Revisit trigger.** The `ADMIN_API_KEY` scoping decision is made — then
     wire the gates.
 
+- **`confirm`/`limit` gates on the admin backfill and Stripe-sync launchers.**
+  - **Split out of the closed entry above (2026-11-21).** With the key gone, a
+    signed-in admin can still start a full backfill or a full Stripe sync in one
+    request. The 2026-10-13 placement asked for a confirm and a limit only on
+    the key's routes; whether an admin session wants them too was never asked,
+    so it is recorded here rather than closed with the key (build report on
+    PR #1147).
+  - **Why deferred.** Admin-only, and every launcher is idempotent or
+    resumable; the risk is a mis-click by the one admin, not an outsider.
+  - **Cost of waiting.** A mistaken click starts a long or paid run.
+  - **Revisit trigger.** Phase 13's admin-input pass, or the first mistaken
+    launch.
+
 - **Admin field-length validation tidying.**
   - **CLOSED into the launch plan (David, 2026-10-13):** Phase 13 validates every admin input with explicit bounds.
   - **Why deferred.** Cleanup, not a live risk; validation exists, this is

@@ -473,8 +473,10 @@ genuinely-risky inputs (a **path-traversal** in the video-style preview-gif
 storage key — sanitized via `safeStylePreviewKey`, not rejected, so legacy ids
 weren't orphaned; that surface went with video in launch Phase 4, ledger
 [`docs/retired/README.md`](../retired/README.md); bulk-import size caps; the API-key `set-password` email). Lower-
-risk field-length tidying and `confirm`/`limit` gates on the backfill launchers
-are deferred follow-ups (the latter would break existing API-key automation).
+risk field-length tidying (folded into launch Phase 13) and `confirm`/`limit`
+gates on the admin-session backfill and Stripe-sync launchers are deferred
+follow-ups ([`deferred-work.md`](../engineering/deferred-work.md)); nothing
+calls those launchers with a key any more.
 
 ## Deliberately out of scope / deferred
 
