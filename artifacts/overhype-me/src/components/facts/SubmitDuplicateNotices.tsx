@@ -13,13 +13,20 @@ import { ChevronLeft, Copy, GitBranch } from "lucide-react";
 export interface DuplicateMatch {
   matchingFactId?: number;
   matchingReviewId?: number;
+  /** An approved fact that is no longer live: the server names no id, so nothing links to it. */
+  retired?: boolean;
   /** The match's wording, rendered for a reader. */
   text: string;
 }
 
 /** A server answer naming a match (the duplicate preview, or the identical-text refusal), as a notice shows it. */
-export function toDuplicateMatch(src: { matchingFactId?: number; matchingReviewId?: number; matchingCanonicalText?: string; matchingFactText?: string }): DuplicateMatch {
-  return { matchingFactId: src.matchingFactId, matchingReviewId: src.matchingReviewId, text: src.matchingCanonicalText ?? src.matchingFactText ?? "" };
+export function toDuplicateMatch(src: { matchingFactId?: number; matchingReviewId?: number; matchingFactRetired?: boolean; matchingCanonicalText?: string; matchingFactText?: string }): DuplicateMatch {
+  return {
+    matchingFactId: src.matchingFactId,
+    matchingReviewId: src.matchingReviewId,
+    retired: src.matchingFactRetired === true || undefined,
+    text: src.matchingCanonicalText ?? src.matchingFactText ?? "",
+  };
 }
 
 function MatchedFact({ match }: { match: DuplicateMatch }) {
@@ -79,6 +86,8 @@ export function IdenticalRefusal({ match, onBackOut }: { match: DuplicateMatch; 
       <p className="text-muted-foreground mb-4">
         {match.matchingReviewId != null
           ? "This exact fact is already waiting in line for review, word for word:"
+          : match.retired
+          ? "This exact fact already had its moment on Overhype.me, word for word, and it's been retired. Legends don't get a second act:"
           : "This exact fact is already on Overhype.me, word for word:"}
       </p>
       <MatchedFact match={match} />
