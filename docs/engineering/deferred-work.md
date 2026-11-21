@@ -286,6 +286,7 @@ re-gather it when the work is scheduled.
   - **Revisit trigger.** All `*.overhype.me` subdomains are HTTPS.
 
 - **`ADMIN_API_KEY` scoping + `confirm`/`limit` gates on the API-key backfill launchers.**
+  - **CLOSED (David, 2026-11-21): the key is deleted, not scoped (#455; `decisions.md`).** Every route below now takes an admin session only, so the key-specific gates have nothing left to guard. Kept as history:
   - **Launch plan placement (David, 2026-10-13): blocking, Phase 15 — scope, not delete.** Checked at `main`: the key unlocks `set-password`, the backfill launchers, Stripe sync, import and job status, and is compared with `!==`. Phase 15: no password set through the key; it reaches only backfills, Stripe sync and import, each with a confirm and a limit; constant-time comparison. Whether production keeps any admin override at all is David's decision at Phase 18 ("in a live environment we need to be hyper sensitive to backdoors of any kind").
   - **Why deferred.** The backfill-launcher gates depend on the `ADMIN_API_KEY`
     scoping decision, which isn't made yet.

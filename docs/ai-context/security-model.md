@@ -458,11 +458,12 @@ with no secret configured.
 
 ## Admin surface (C9)
 
-Admin handlers sit behind `requireAdmin`, except 9 behind `requireAdminOrApiKey`
-— which accepts a **single static `ADMIN_API_KEY`** header *or* an admin session.
-That static key is the broadest admin auth surface (it reaches `set-password`
-and the bulk backfill launchers); **scoping/rotating it is an open item**
-([`current-roadmap.md`](./current-roadmap.md)). Input validation uses the repo's
+Every admin handler sits behind `requireAdmin`: an admin session, and nothing
+else. The static `ADMIN_API_KEY` header that once also opened `set-password`,
+the backfill launchers and Stripe sync is **gone** (#455; David, 2026-11-21,
+superseding the 2026-10-13 "scope, not delete";
+[`decisions.md`](./decisions.md)); a request carrying it is refused like any
+other request without a session. Input validation uses the repo's
 `z.object` + `safeParse` idiom (from `routes/reviews.ts`); the sweep hardened the
 genuinely-risky inputs (a **path-traversal** in the video-style preview-gif
 storage key — sanitized via `safeStylePreviewKey`, not rejected, so legacy ids
@@ -475,7 +476,7 @@ are deferred follow-ups (the latter would break existing API-key automation).
 
 Enumerated so a later reader knows what this review did *not* do: a full auth
 rewrite, live pentest, Cloudflare WAF/dashboard actions, CSP *enforcement*
-(report-only first), HSTS preload/subdomains, the `ADMIN_API_KEY` scoping, the
+(report-only first), HSTS preload/subdomains, the `ADMIN_API_KEY` scoping (since removed, #455), the
 git-history purge, and the admin field-bounding follow-up. The live list of
 these deferrals is tracked in
 [`docs/engineering/deferred-work.md`](../engineering/deferred-work.md#security--patching). (The C1 dev-admin-login hardening — deferred when this doc was

@@ -27,7 +27,6 @@ import { providerEmailVerified } from "../routes/auth.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 
 const USER_PREFIX = "t_pwhard_";
-const API_KEY = "test-admin-key-pwhard-only";
 
 function makeApp(): Express {
   const app = express();
@@ -196,18 +195,15 @@ describe("POST /api/auth/set-password — keeps exactly the session that authent
 });
 
 describe("POST /admin/users/set-password — ends every session of the user", () => {
-  const saved = process.env.ADMIN_API_KEY;
-  before(() => { process.env.ADMIN_API_KEY = API_KEY; });
-  after(() => { if (saved === undefined) delete process.env.ADMIN_API_KEY; else process.env.ADMIN_API_KEY = saved; });
-
   it("an operator-set password signs the user out everywhere", async () => {
     const userId = await createUser();
     await sessionFor(userId);
     await sessionFor(userId);
-    const app = buildTestApp({ kind: "unauthenticated" }, adminRouter);
+    const adminId = `${USER_PREFIX}${randomUUID()}`;
+    await db.insert(usersTable).values({ id: adminId, email: `${adminId}@test.local`, isActive: true, isAdmin: true });
+    const app = buildTestApp({ kind: "authenticated", userId: adminId }, adminRouter);
     const res = await request(app)
       .post("/api/admin/users/set-password")
-      .set("x-api-key", API_KEY)
       .send({ email: `${userId}@test.local`, password: "operator-set-1" });
     assert.equal(res.status, 200, JSON.stringify(res.body));
     assert.deepEqual(await sessionsOf(userId), []);

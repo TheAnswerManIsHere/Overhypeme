@@ -147,32 +147,31 @@ describe("C8: password reset invalidates every session", () => {
 });
 
 describe("C7: admin set-password minimum length", () => {
-  const TEST_KEY = "tsec-admin-key-la-do-not-reuse";
-  let prevKey: string | undefined;
-  before(() => { prevKey = process.env.ADMIN_API_KEY; process.env.ADMIN_API_KEY = TEST_KEY; });
-  after(() => { if (prevKey === undefined) delete process.env.ADMIN_API_KEY; else process.env.ADMIN_API_KEY = prevKey; });
+  let adminId: string;
+  before(async () => {
+    adminId = `${PREFIX}${randomUUID()}`;
+    await db.insert(usersTable).values({ id: adminId, email: `${adminId}@nope.test`, isActive: true, isAdmin: true });
+  });
 
   it("rejects a 7-char password and accepts 8", async () => {
-    const app = buildTestApp({ kind: "unauthenticated" }, adminRouter);
+    const app = buildTestApp({ kind: "authenticated", userId: adminId }, adminRouter);
     const id = `${PREFIX}${randomUUID()}`;
     await db.insert(usersTable).values({ id, email: `${id}@nope.test`, isActive: true });
 
     const short = await request(app)
       .post("/api/admin/users/set-password")
-      .set("x-api-key", TEST_KEY)
       .send({ email: `${id}@nope.test`, password: "7chars!" });
     assert.equal(short.status, 400);
     assert.match(String(short.body.error ?? ""), /at least 8/);
 
     const ok = await request(app)
       .post("/api/admin/users/set-password")
-      .set("x-api-key", TEST_KEY)
       .send({ email: `${id}@nope.test`, password: "8char-ok" });
     assert.equal(ok.status, 200);
   });
 
   it("stores a hash that verifies the new password after a 200", async () => {
-    const app = buildTestApp({ kind: "unauthenticated" }, adminRouter);
+    const app = buildTestApp({ kind: "authenticated", userId: adminId }, adminRouter);
     const id = `${PREFIX}${randomUUID()}`;
     const email = `${id}@nope.test`;
     await db.insert(usersTable).values({
@@ -184,7 +183,6 @@ describe("C7: admin set-password minimum length", () => {
 
     const res = await request(app)
       .post("/api/admin/users/set-password")
-      .set("x-api-key", TEST_KEY)
       .send({ email, password: "fresh-password-9" });
     assert.equal(res.status, 200);
 
@@ -195,10 +193,9 @@ describe("C7: admin set-password minimum length", () => {
   });
 
   it("rejects a malformed email with 400 'a valid email is required'", async () => {
-    const app = buildTestApp({ kind: "unauthenticated" }, adminRouter);
+    const app = buildTestApp({ kind: "authenticated", userId: adminId }, adminRouter);
     const res = await request(app)
       .post("/api/admin/users/set-password")
-      .set("x-api-key", TEST_KEY)
       .send({ email: "notanemail", password: "long-enough-pw" });
     assert.equal(res.status, 400);
     assert.equal(res.body.error, "a valid email is required");
