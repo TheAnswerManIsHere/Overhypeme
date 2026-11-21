@@ -123,7 +123,10 @@ canonical grammar-only cleanup, run in this exact order:
    coordinating conjunction (`{NAME} eats cake and {drinks|drink} soda` → `…
    and drinks soda`); the object-separated reach stops at any brace or
    clause-boundary punctuation (`. , ; : ? ! newline "`), so it can't cross a
-   different subject token or into a new clause.
+   different subject token or into a new clause. A pair with a letter joined
+   directly after it is never collapsed here (#1131, PR #1145 round 1): it keeps
+   its braces so `validateTemplate` refuses it, instead of becoming a non-word
+   such as "addses" that nothing could catch.
 2. `expandSubjectContractions` — `{Subj}'s`/`{SUBJ}'s` → `{Subj} {is|are}` (see
    "Retiring `They's`" below).
 3. `autoConjugatePersonSubjectVerbs` — wraps pronoun-subject verbs into pairs.

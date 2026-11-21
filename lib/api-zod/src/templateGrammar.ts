@@ -257,8 +257,14 @@ export function repairGluedConjugationSuffixes(template: string): string {
 // the same guarantee.
 // ---------------------------------------------------------------------------
 
-// A conjugation pair, e.g. "{gives|give}".
-const PAIR_RE_SRC = "\\{[^|{}]+\\|[^|{}]+\\}";
+// A conjugation pair, e.g. "{gives|give}" — never one with a letter joined
+// directly after it. A pair still glued to letters after the repair pass
+// (`{adds|add}es`) is left with its braces, so validateTemplate sees it and
+// refuses it; collapsing it here would turn it into an unrefusable non-word
+// ("addses"), the hole Codex found on PR #1145 (#1131). The lookahead is part
+// of the pattern both name-collapse expressions share, so it is evaluated
+// against the template itself, not a captured substring.
+const PAIR_RE_SRC = "\\{[^|{}]+\\|[^|{}]+\\}(?![A-Za-z])";
 // One verb unit in a coordination chain: a plain word (contractions allowed) or
 // a conjugation pair. "{...}" simple tokens like {Subj} match neither, which is
 // what stops the chain before a new subject.

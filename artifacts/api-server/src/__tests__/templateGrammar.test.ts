@@ -324,3 +324,35 @@ describe("validateTemplate — a pair joined to the letters after it (#1131)", (
     assert.deepEqual(validateTemplate("{NAME}s"), { valid: true });
   });
 });
+
+// PR #1145 round 1 (Codex 4655277100): a glued ending the repair cannot explain
+// must still reach the validator with its braces. The {NAME}-subject collapse
+// used to strip them first, so "{adds|add}es" was stored as "addses".
+describe("applyDeterministicGrammar then validateTemplate — an unrepairable glued pair is refused, never stored", () => {
+  for (const raw of [
+    "{NAME} calmly {adds|add}es the final check mark",
+    "{NAME} {runs|run} and {hides|hide}ing",
+    "{NAME} eats cake and {drinks|drink}ing soda",
+    "{NAME} {adds|add}S",
+  ]) {
+    it(raw, () => {
+      const out = applyDeterministicGrammar(raw);
+      const r = validateTemplate(out);
+      assert.equal(r.valid, false, `stored as "${out}"`);
+      assert.match(r.error ?? "", /joined to the letters after it/);
+    });
+  }
+
+  it("a repairable glued pair after a name still becomes the plain word", () => {
+    assert.equal(applyDeterministicGrammar("{NAME} calmly {adds|add}s the mark"), "{NAME} calmly adds the mark");
+  });
+
+  it("well-formed name-subject pairs collapse exactly as before", () => {
+    assert.equal(applyDeterministicGrammar("{NAME} {runs|run} and {hides|hide}."), "{NAME} runs and hides.");
+    assert.equal(applyDeterministicGrammar("{NAME} eats cake and {drinks|drink} soda"), "{NAME} eats cake and drinks soda");
+  });
+
+  it("identical branches glued to letters still collapse to the word (cannot)", () => {
+    assert.equal(applyDeterministicGrammar("{Subj} {can|can}not stop"), "{Subj} cannot stop");
+  });
+});
