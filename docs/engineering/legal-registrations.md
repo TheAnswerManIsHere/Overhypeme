@@ -9,17 +9,25 @@ intent 11). This is a walk-through, not a legal page. It lives outside
 The sources were read on 2026-11-21. The quotations below are from those
 pages. Re-read them if a step no longer matches what you see.
 
-## 1. The copyright agent (US Copyright Office) — $6, about 15 minutes
+## 1. The copyright agent (US Copyright Office) — $6
 
 **Why:** the DMCA safe harbour covers a site only once it has a designated
 agent on file with the Copyright Office. The Copyright page says the filing
 has "not yet been filed".
 
-**Where:** <https://dmca.copyright.gov/osp/login.html> ("Login/Register" on
-<https://www.copyright.gov/dmca-directory/>). The Office takes designations
-online only: "the Office no longer accepts paper designations" (DMCA FAQ).
+**Where:** <https://dmca.copyright.gov/osp/login.html>, the "Login/Register"
+link on <https://www.copyright.gov/dmca-directory/>: "Click below to sign in to
+your registration account or to create a new account." It adds that "the
+Office no longer accepts paper designations"; the FAQ says designations are
+made "through the online system".
 
 **What it asks** (DMCA FAQ, <https://www.copyright.gov/dmca-directory/faq.html>):
+"its full legal name, physical street address (not a post office box), any
+alternate names used by the service provider, and the name, organization,
+physical mail address (street address or post office box), telephone number,
+and email address of its designated agent", and "The first name, last name,
+telephone number, and email address of a representative" as the primary
+contact.
 
 | Field | What we enter |
 | --- | --- |
@@ -29,18 +37,20 @@ online only: "the Office no longer accepts paper designations" (DMCA FAQ).
 | Designated agent: name or a position, organization, mailing address, telephone, email | "Copyright Agent", Availeron Consulting, Inc., the address above, **a phone number you choose**, `copyright@overhype.me` |
 | A primary contact (representative's name, phone, email), and the provider's phone and email | you |
 
-The agent may be "a specific position or title", so "Copyright Agent" keeps
-your name off the public directory. A P.O. box is allowed for the agent's
-address ("A waiver is not necessary"), but the provider's own address must be
-a street address.
+The agent may be "a specific position or title" (FAQ), so the agent entry
+can read "Copyright Agent" rather than a person's name. For the agent's
+address, "A waiver is not necessary to provide a post office box" (FAQ); the
+provider's own address must be a street address.
 
 **Cost and term:** "$6 per designation, amendment, or resubmission". A
 designation "will expire and become invalid three years after it is
-registered … unless the service provider renews". The system emails reminders
-at 90, 60 and 30 days and one week before the deadline.
+registered … unless the service provider renews". Reminders go out "at 90
+days, 60 days, 30 days, and 1 week prior to each service provider's renewal
+deadline" (FAQ).
 
-**When it is filed, tell Claude the phone number and the filing date.** The
-Office requires the same agent details "on its website". Our Copyright page
+**When it is filed, tell Claude the phone number and the filing date.** A
+provider must "make certain contact information for the agent available to
+the public on its website" (<https://www.copyright.gov/dmca-directory/>). Our Copyright page
 then gains the telephone number and loses the "not yet been filed" sentence,
 under a new version. That edit is Claude's; the number is not.
 
@@ -52,12 +62,13 @@ increment 7 builds the manual path (Q2), and filing through it needs NCMEC
 credentials. Due before Seed (plan, *Implementation Steps*). Increment 7 does
 not wait for it.
 
-**Where:** email **espteam@ncmec.org**. Source:
+**Where:** email **espteam@ncmec.org**. On
 <https://www.missingkids.org/theissues/csam>, "Are you an ESP who would like
-to register with NCMEC? Click here", which links to that address. That page
-says "over 1,400 companies are registered". No registration form, list of
-questions or fee is published. `unable to verify: what NCMEC asks for; its
-reply to the first email settles it.`
+to register with NCMEC? Click here" is a `mailto:` link to that address. The
+pages read on 2026-11-21 (that page, <https://www.missingkids.org/gethelpnow/cybertipline>
+and <https://report.cybertip.org/faqs>) show no registration form, no list of
+questions and no fee. `unable to verify: what NCMEC asks for; its reply to the
+first email settles it.`
 
 **A first email that covers what they will need:**
 
@@ -69,17 +80,23 @@ reply to the first email settles it.`
 > electronic service provider to report to the CyberTipline under 18 U.S.C.
 > § 2258A. We expect to report manually through the web form at first. Please
 > also send credentials for the reporting web service and its test
-> environment. Our contact for reports is [your name, phone], and
+> environment. Two questions before we finalise our procedure: (1) does the
+> registered web form accept a report without the image or video file
+> attached, and (2) how do you want a small registered provider to send a
+> file when you need it? Our contact for reports is [your name, phone], and
 > `legal@overhype.me`.
 
-**What we get:** "A username and password must be requested from and supplied
-by NCMEC". A report goes either through the web form
-(<https://report.cybertip.org/cybertip/>) or through the web service at
-`https://report.cybertip.org/ispws`, which has a test environment at
-`https://exttest.cybertip.org/ispws` (<https://report.cybertip.org/ispws/documentation>).
-We file by hand until more than five distinct cases arrive in any 90 days
-(Q2).
+**What we get** (<https://report.cybertip.org/ispws/documentation>): "A
+username and password must be requested from and supplied by NCMEC". Providers
+"can submit a report using a web form or using this web service API" (the
+form is <https://report.cybertip.org/cybertip/>), and "For testing, NCMEC provides a testing
+environment with base URI https://exttest.cybertip.org/ispws." We report by
+hand (Q2). More than five distinct cases in any 90 days starts the build of
+automated filing, and manual reporting continues meanwhile.
 
-**When NCMEC replies, tell Claude it is done.** Keep the credentials out of
-chat and out of this repository. If they are ever needed by the app, they go
-into Replit's Secrets pane.
+**When NCMEC replies, tell Claude two things: that registration is done, and
+NCMEC's answers to the two questions.** Those answers are a completion gate
+for increment 7 (plan, settled decision S-f): if NCMEC needs the file inside
+the report, the plan is amended before Seed. Registration alone does not
+settle them. Keep the credentials out of chat and out of this repository. If
+the app ever needs them, they go into Replit's Secrets pane.

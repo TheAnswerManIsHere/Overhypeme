@@ -30,12 +30,13 @@
   - **Q13:** the four legal texts as drafted are approved.
   - **Q14:** the analytics notice informs and is not a consent switch.
   - **Q15:** picture costs are deleted at purge and after 13 months; a photo's description is cleared at purge; the payment webhook audit is kept 90 days.
-  - **Q16:** each increment is published once ready.
+  - **Q16:** one publish, made once three things were true: the mail forwarding (Q9) was set up, the moderation work of PR #1041 was cleared to go live, and PR #1050 had merged.
   - **Q17:** the content purge clears the member's name too.
   - **Q18:** processed Stripe event ids are kept 90 days.
   - **Q19:** made moot by Q21.
   - **Q22:** publish first, then deploy the country rule (done 2026-11-19).
-  - **2026-11-20, the Privacy page read at version 2026-11-20.3 (PR #1123's UAT step 1):** approved as it stands. A member's mail in the support mailbox, contact-page copies included, is "kept until we delete it", with no deletion step at account deletion. PostHog is printed as "up to 2 years", the figure for the plan in use, while the line under the table says each figure is the longest the provider allows.
+  - **2026-11-20, the Privacy page read at version 2026-11-20.3 (PR #1123's UAT step 1):** approved as it stands. A member's mail in the support mailbox, contact-page copies included, is "kept until we delete it", with no deletion step at account deletion. PostHog stays printed as "up to 2 years", while the line under the table says each figure is the longest the provider allows (the internal list records 1 year on the Free plan this project is on and 2 years on pay-as-you-go: `privacyRetention.ts`).
+- **Built or not:** these are decisions. As of 2026-11-21, Q3 (18+) waits for increment 4, and Q2 and Q8 (the NCMEC path and its evidence period) wait for increment 7. Both increments wait on Issue #1018, and the code still refuses only under 13.
 - **Why:** each was David's call on a legal or product consequence no earlier decision covered. The recommendations and their reasoning are in the plan's *Questions for David* and on the issue. The 2026-11-20 read keeps two softer points public rather than adding a mailbox deletion step before Seed.
 - **Dissent:** none recorded. Two build reports on the issue (PR #1093, PR #1101) flagged the mailbox's missing end date and the PostHog figure; David read both and kept them.
 - **Revisit if:** counsel's review asks for a mailbox retention period or a provider's ceiling; PostHog moves off the Free plan; NCMEC cases pass five in 90 days; a firm is chosen (Q5).
