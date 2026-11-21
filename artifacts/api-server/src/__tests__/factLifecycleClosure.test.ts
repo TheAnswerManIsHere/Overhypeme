@@ -28,6 +28,7 @@ import {
   ActivationConflictError,
 } from "../lib/factActivation.js";
 
+import { giveExampleSet } from "./helpers/gagExampleSets";
 const PREFIX = "t_lifecycle_closure_";
 const ids: number[] = [];
 
@@ -49,22 +50,28 @@ after(async () => {
 });
 
 /**
- * An inactive fact, with an approved gag unless `gag` says otherwise: "approved"
- * (the default), "pending" (saved, never approved) or null (none).
+ * An inactive fact, with a published gag unless `gag` says otherwise:
+ * "approved" (the default: a published gag with its male, female and pet
+ * examples, on a fact approved for production, which is what Approve for
+ * production leaves before it activates), "pending" (a draft only) or null.
  */
 async function insertInactive(text: string, opts: { gag?: "approved" | "pending" | null } = {}): Promise<number> {
   const gag = opts.gag === undefined ? "approved" : opts.gag;
-  const [row] = await db
-    .insert(factsTable)
-    .values({ text, isActive: false, enrichment: buildPlaceholderFactEnrichment() })
-    .returning({ id: factsTable.id });
-  ids.push(row.id);
-  if (gag === "approved") {
-    await db.insert(factGagsTable).values({ factId: row.id, slot: 1, approvedContent: buildPlaceholderGag("A hero stands tall."), approvedCarriedOver: true });
-  } else if (gag === "pending") {
-    await db.insert(factGagsTable).values({ factId: row.id, slot: 1, pendingContent: buildPlaceholderGag("A hero stands tall.") });
-  }
-  return row.id;
+  const content = buildPlaceholderGag("A hero stands tall.");
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(factsTable)
+      .values({ text, isActive: false, enrichment: buildPlaceholderFactEnrichment(), ...(gag === "approved" ? { approvedAt: new Date(), approvalSource: "legacy" as const } : {}) })
+      .returning({ id: factsTable.id });
+    ids.push(row.id);
+    if (gag === "approved") {
+      const [g] = await tx.insert(factGagsTable).values({ factId: row.id, slot: 1, approvedContent: content }).returning({ id: factGagsTable.id });
+      await giveExampleSet(row.id, g!.id, content, "approved", tx);
+    } else if (gag === "pending") {
+      await tx.insert(factGagsTable).values({ factId: row.id, slot: 1, pendingContent: content });
+    }
+    return row.id;
+  });
 }
 
 describe("activateFact — the sole activation chokepoint", () => {
@@ -80,6 +87,10 @@ describe("activateFact — the sole activation chokepoint", () => {
     const text = `${PREFIX}approval-record`;
     const id = await insertInactive(text);
     await db.transaction(async (tx) => {
+      // As Approve for production meets it: no approval on record yet (the
+      // fixture's legacy one is cleared), recorded in the activating
+      // transaction, before the deferred published-content check at commit.
+      await tx.update(factsTable).set({ approvedAt: null, approvalSource: null }).where(eq(factsTable.id, id));
       await activateFact(tx, { factId: id, expectedText: text });
       await recordFirstApproval(tx, id, ADMIN);
     });

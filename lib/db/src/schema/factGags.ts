@@ -18,18 +18,20 @@ import { imagePromptAttemptsTable } from "./imagePromptAttempts";
  * from a fact's classification and one gag version at the moment a render is
  * built (artifacts/api-server/src/lib/gags/resolver.ts).
  *
- * Two versions per gag:
- *   - approved: what users get, with three approved examples, one per subject
- *     kind (male, female, pet), in `fact_gag_examples` (migration 0143, plan
- *     docs/plans/PLAN_GAG_EXAMPLES.md). A gag approved before example sets is
- *     grandfathered (`approved_before_example_sets`) and stays offered with
- *     fewer (David, 2026-11-15, Q11).
- *   - pending: content saved and not yet approved, with its example picks as
- *     pending rows in `fact_gag_examples`.
- *
- * `pending_review_id` and `pending_remove` held a refresh review's operations;
- * refresh reviews were removed (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1H), the
- * code no longer declares them, and the next increment's migration drops them.
+ * Two versions per gag, which are a fact's two gag sets (migration 0157, plan
+ * docs/plans/PLAN_FACT_LIFECYCLE_REBUILD.md, 1F):
+ *   - approved = PUBLISHED: what members are offered, with three examples,
+ *     one per subject kind (male, female, pet), in `fact_gag_examples` at
+ *     stage "approved" (migration 0143, plan docs/plans/PLAN_GAG_EXAMPLES.md).
+ *     Written only by a publish (lib/gags/publish.ts), and only on a fact
+ *     approved for production (`fact_gags_published_needs_approved_fact`). A
+ *     gag approved before example sets is grandfathered
+ *     (`approved_before_example_sets`) and stays offered with fewer (Q11).
+ *   - pending = DRAFT: the content being worked on, with its example picks at
+ *     stage "pending". A gag with no pending content is unchanged in the draft
+ *     (its draft is its published version and examples); a published gag
+ *     with `draft_removed` leaves at the next publish. A fact in moderation
+ *     has only a draft.
  *
  * `approved_example_attempt_id` and `pending_example_attempt_id` are recovery
  * snapshots of the selections 0143 copied: nothing reads or writes them, and a
@@ -68,6 +70,9 @@ export const factGagsTable = pgTable("fact_gags", {
   pendingBy: varchar("pending_by").references(() => usersTable.id, { onDelete: "set null" }),
   pendingAt: timestamp("pending_at", { withTimezone: true }),
 
+  /** A published gag the draft removes: still offered until the draft is published (0157). */
+  draftRemoved: boolean("draft_removed").notNull().default(false),
+
   removedAt: timestamp("removed_at", { withTimezone: true }),
   removedBy: varchar("removed_by").references(() => usersTable.id, { onDelete: "set null" }),
   createdBy: varchar("created_by").references(() => usersTable.id, { onDelete: "set null" }),
@@ -81,6 +86,10 @@ export const factGagsTable = pgTable("fact_gags", {
   check(
     "fact_gags_has_a_version",
     sql`${t.removedAt} IS NOT NULL OR ${t.approvedContent} IS NOT NULL OR ${t.pendingContent} IS NOT NULL`,
+  ),
+  check(
+    "fact_gags_draft_removed_is_published",
+    sql`NOT ${t.draftRemoved} OR (${t.approvedContent} IS NOT NULL AND ${t.pendingContent} IS NULL)`,
   ),
   check(
     "fact_gags_approved_scene_nonempty",

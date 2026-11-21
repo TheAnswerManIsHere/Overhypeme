@@ -1,23 +1,23 @@
 /**
- * @purpose The admin routes for a fact's gags: read the Gags panel, add or change a gag, discard a change, run its test renders, approve one of its renders as its example, remove it, and stream its render images.
+ * @purpose The admin routes for a fact's gags: read the Gags panel, add or change a gag in the draft, run its test renders, approve one of its renders as its example, remove it, and stream its render images.
  * @subsystem visual-pipeline
  *
- * Plan docs/plans/PLAN_THREE_GAGS.md (migration 0139). Every route is admin
- * only and validated here; the rules live in lib/gags/gagStore.ts. An action
- * from a review screen names the review (`reviewId`); the Facts editor sends
- * none. While a refresh is open the fact's gags are changed only from its
- * review, and its picks and removals land when it is approved.
+ * Plans docs/plans/PLAN_THREE_GAGS.md (migration 0139) and
+ * docs/plans/PLAN_FACT_LIFECYCLE_REBUILD.md (1F). Every route is admin only
+ * and validated here; the rules live in lib/gags/gagStore.ts. Every write
+ * changes the fact's draft set and comes from a review screen, which names
+ * its review (`reviewId`). A live fact's gags cannot be changed between
+ * Phase 1 and Phase 3 (plan, 1F): its old Facts-page editing is removed, and
+ * its replacement is the fact sheet.
  *
  *   GET  /api/admin/facts/:factId/gags                         the panel's view
- *   POST /api/admin/facts/:factId/gags                         add a gag (pending)
- *   PUT  /api/admin/facts/:factId/gags/:gagId                  save a change (pending)
- *   POST /api/admin/facts/:factId/gags/:gagId/discard          drop the pending change
+ *   POST /api/admin/facts/:factId/gags                         add a gag (draft)
+ *   POST /api/admin/facts/:factId/gags/cast                    read a draft's cast
+ *   PUT  /api/admin/facts/:factId/gags/:gagId                  save a change (draft)
  *   POST /api/admin/facts/:factId/gags/:gagId/renders          run its test renders
- *   POST /api/admin/facts/:factId/gags/:gagId/approve          approve a render as its example
- *   POST /api/admin/facts/:factId/gags/:gagId/remove           remove it
+ *   POST /api/admin/facts/:factId/gags/:gagId/approve          approve a render as its draft example
+ *   POST /api/admin/facts/:factId/gags/:gagId/remove           remove it from the draft
  *   GET  /api/admin/gags/:gagId/renders/:renderJobId/image     a render's image
- *   GET  /api/admin/facts/:factId/gags/ideas                   a live fact's drafted ideas
- *   POST /api/admin/facts/:factId/gags/ideas                   Draft more gags (live fact)
  */
 import { Readable } from "node:stream";
 import { Router, type IRouter, type Request, type Response } from "express";
@@ -40,7 +40,6 @@ import {
   approveGagRender,
   assertCanRunGagRenders,
   createGag,
-  discardGagChange,
   removeGag,
   saveGagContent,
 } from "../lib/gags/gagStore";
@@ -48,7 +47,6 @@ import { buildFactGagsView } from "../lib/gags/gagView";
 import { CastPreparationError, prepareDraftCast } from "../lib/gags/castPreparation";
 import { createRateLimiter } from "../lib/rateLimit";
 import { drawGagKinds, enqueueGagIterationRender } from "../lib/reviewRenderScenarios";
-import { enqueueLiveVisualConcepts, liveVisualConcepts, LiveDraftRefused } from "../lib/visualConceptJobs";
 import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
 import { logger } from "../lib/logger";
 
@@ -71,6 +69,22 @@ function parse<T extends z.ZodTypeAny>(schema: T, req: Request, res: Response): 
     return null;
   }
   return r.data;
+}
+
+/**
+ * A write names the review it comes from. A live fact's gags are not edited
+ * between phases (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1F), so a write with no
+ * review is refused before anything runs.
+ */
+function reviewScope(reviewId: number | null | undefined, res: Response): number | null {
+  if (reviewId == null) {
+    res.status(409).json({
+      error: "A live fact's gags can't be changed yet: the new fact page brings that back. A fact in moderation is edited from its review.",
+      code: "LIVE_GAG_EDITING_UNAVAILABLE",
+    });
+    return null;
+  }
+  return reviewId;
 }
 
 async function respond(res: Response, factId: number, run: () => Promise<unknown>): Promise<void> {
@@ -105,10 +119,12 @@ router.post("/admin/facts/:factId/gags", requireAdmin, async (req: Authenticated
   if (!p) { res.status(400).json({ error: "Invalid id" }); return; }
   const body = parse(gagCreateBodySchema, req, res);
   if (!body) return;
+  const reviewId = reviewScope(body.reviewId, res);
+  if (reviewId == null) return;
   await respond(res, p.factId, async () => {
-    const gag = await createGag(p.factId, body.content, { adminId: req.user.id, reviewId: body.reviewId ?? null }, body.slot);
-    await recordAdminAction({ factId: p.factId, reviewId: body.reviewId ?? null }, req.user.id, "gag_create", { gagId: gag.id, content: body.content });
-    await enqueueGagIterationRender(p.factId, gag.id, { adminId: req.user.id, reviewId: body.reviewId ?? null });
+    const gag = await createGag(p.factId, body.content, { adminId: req.user.id, reviewId }, body.slot);
+    await recordAdminAction({ factId: p.factId, reviewId }, req.user.id, "gag_create", { gagId: gag.id, content: body.content });
+    await enqueueGagIterationRender(p.factId, gag.id, { adminId: req.user.id, reviewId });
   });
 });
 
@@ -136,22 +152,12 @@ router.put("/admin/facts/:factId/gags/:gagId", requireAdmin, async (req: Authent
   if (!p) { res.status(400).json({ error: "Invalid id" }); return; }
   const body = parse(gagSaveBodySchema, req, res);
   if (!body) return;
+  const reviewId = reviewScope(body.reviewId, res);
+  if (reviewId == null) return;
   await respond(res, p.factId, async () => {
-    await saveGagContent(p.factId, p.gagId, body.content, { adminId: req.user.id, reviewId: body.reviewId ?? null });
-    await recordAdminAction({ factId: p.factId, reviewId: body.reviewId ?? null }, req.user.id, "gag_save", { gagId: p.gagId, content: body.content });
-    await enqueueGagIterationRender(p.factId, p.gagId, { adminId: req.user.id, reviewId: body.reviewId ?? null });
-  });
-});
-
-router.post("/admin/facts/:factId/gags/:gagId/discard", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
-  const p = ids(req);
-  if (!p) { res.status(400).json({ error: "Invalid id" }); return; }
-  const body = parse(gagScopeBodySchema, req, res);
-  if (!body) return;
-  await respond(res, p.factId, async () => {
-    const gag = await discardGagChange(p.factId, p.gagId, { adminId: req.user.id, reviewId: body.reviewId ?? null });
-    await recordAdminAction({ factId: p.factId, reviewId: body.reviewId ?? null }, req.user.id, "gag_discard", { gagId: p.gagId });
-    if (gag.removedAt == null) await enqueueGagIterationRender(p.factId, p.gagId, { adminId: req.user.id, reviewId: body.reviewId ?? null });
+    await saveGagContent(p.factId, p.gagId, body.content, { adminId: req.user.id, reviewId });
+    await recordAdminAction({ factId: p.factId, reviewId }, req.user.id, "gag_save", { gagId: p.gagId, content: body.content });
+    await enqueueGagIterationRender(p.factId, p.gagId, { adminId: req.user.id, reviewId });
   });
 });
 
@@ -160,9 +166,11 @@ router.post("/admin/facts/:factId/gags/:gagId/remove", requireAdmin, async (req:
   if (!p) { res.status(400).json({ error: "Invalid id" }); return; }
   const body = parse(gagScopeBodySchema, req, res);
   if (!body) return;
+  const reviewId = reviewScope(body.reviewId, res);
+  if (reviewId == null) return;
   await respond(res, p.factId, async () => {
-    await removeGag(p.factId, p.gagId, { adminId: req.user.id, reviewId: body.reviewId ?? null });
-    await recordAdminAction({ factId: p.factId, reviewId: body.reviewId ?? null }, req.user.id, "gag_remove", { gagId: p.gagId });
+    await removeGag(p.factId, p.gagId, { adminId: req.user.id, reviewId });
+    await recordAdminAction({ factId: p.factId, reviewId }, req.user.id, "gag_remove", { gagId: p.gagId });
   });
 });
 
@@ -171,39 +179,12 @@ router.post("/admin/facts/:factId/gags/:gagId/approve", requireAdmin, async (req
   if (!p) { res.status(400).json({ error: "Invalid id" }); return; }
   const body = parse(gagApproveBodySchema, req, res);
   if (!body) return;
+  const reviewId = reviewScope(body.reviewId, res);
+  if (reviewId == null) return;
   await respond(res, p.factId, async () => {
-    await approveGagRender(p.factId, p.gagId, body.attemptId, { adminId: req.user.id, reviewId: body.reviewId ?? null });
-    await recordAdminAction({ factId: p.factId, reviewId: body.reviewId ?? null }, req.user.id, "gag_render_approval", { gagId: p.gagId, attemptId: body.attemptId });
+    await approveGagRender(p.factId, p.gagId, body.attemptId, { adminId: req.user.id, reviewId });
+    await recordAdminAction({ factId: p.factId, reviewId }, req.user.id, "gag_render_approval", { gagId: p.gagId, attemptId: body.attemptId });
   });
-});
-
-// Draft more gags on a live fact (plan docs/plans/PLAN_THREE_GAGS.md,
-// increment 2): the gag writer outside a review. The drafted ideas are read
-// here and used on a gag through the routes above, as in a review.
-
-router.get("/admin/facts/:factId/gags/ideas", requireAdmin, async (req: Request, res: Response) => {
-  const p = ids(req);
-  if (!p) { res.status(400).json({ error: "Invalid id" }); return; }
-  const ideas = await liveVisualConcepts(p.factId);
-  if (!ideas) { res.status(404).json({ error: "Fact not found" }); return; }
-  res.json(ideas);
-});
-
-// Spends money (one gag-writer call), so only ever on this explicit request.
-router.post("/admin/facts/:factId/gags/ideas", requireAdmin, async (req: Request, res: Response) => {
-  const p = ids(req);
-  if (!p) { res.status(400).json({ error: "Invalid id" }); return; }
-  try {
-    await enqueueLiveVisualConcepts(p.factId);
-    await recordAdminAction({ factId: p.factId }, req.user?.id, "gag_ideas_requested", {});
-  } catch (err) {
-    if (err instanceof LiveDraftRefused) {
-      res.status(err.code === "FACT_NOT_FOUND" ? 404 : 409).json({ error: err.message, code: err.code });
-      return;
-    }
-    throw err;
-  }
-  res.status(202).json(await liveVisualConcepts(p.factId));
 });
 
 // Run a gag's test renders: the default batch, or the named scenarios again.
@@ -213,11 +194,13 @@ router.post("/admin/facts/:factId/gags/:gagId/renders", requireAdmin, async (req
   if (!p) { res.status(400).json({ error: "Invalid id" }); return; }
   const body = parse(gagRendersBodySchema, req, res);
   if (!body) return;
+  const reviewId = reviewScope(body.reviewId, res);
+  if (reviewId == null) return;
   await respond(res, p.factId, async () => {
-    await assertCanRunGagRenders(p.factId, p.gagId, { adminId: req.user.id, reviewId: body.reviewId ?? null });
+    await assertCanRunGagRenders(p.factId, p.gagId, { adminId: req.user.id, reviewId });
     const result = await drawGagKinds(p.gagId, body.kinds, { adminUserId: req.user.id, redraw: body.redraw === true });
     if ("error" in result) throw new GagError("REVIEW_NOT_EDITABLE", `The renders could not start: ${result.error}.`);
-    await recordAdminAction({ factId: p.factId, reviewId: body.reviewId ?? null }, req.user.id, "gag_renders_requested", { gagId: p.gagId, kinds: body.kinds ?? null, redraw: body.redraw === true });
+    await recordAdminAction({ factId: p.factId, reviewId }, req.user.id, "gag_renders_requested", { gagId: p.gagId, kinds: body.kinds ?? null, redraw: body.redraw === true });
   });
 });
 

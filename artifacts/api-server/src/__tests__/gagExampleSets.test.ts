@@ -5,9 +5,11 @@
  * in routes.reviews.test.ts, the migration of item 7 in
  * migration0143.gagExampleSets.test.ts):
  *
- *   - two concurrent completions of a set apply the change once;
- *   - a grandfathered gag stays offered while it gains examples, and stops
- *     being grandfathered when its set completes;
+ *   - a pick is a draft pick and never publishes: two concurrent picks of
+ *     one kind leave one pick, and what users are offered does not change
+ *     (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1F);
+ *   - a grandfathered gag stays offered while its draft gains examples, and
+ *     stops being grandfathered when that draft is published;
  *   - renders are counted per action: one male render per content, reused for
  *     the same content (A, then B, then back to A draws nothing new), one for
  *     two overlapping requests, a new one on an explicit redraw; "render female
@@ -41,6 +43,8 @@ import { availableGags } from "../lib/gags/resolver.js";
 import { buildGagKindCards, drawGagKinds, reviewRenderScenariosPrepareHandler } from "../lib/reviewRenderScenarios.js";
 import { pendingReviewsTable } from "@workspace/db/schema";
 import { withCast } from "./helpers/gagCast.js";
+import { approveGagRender, saveGagContent } from "../lib/gags/gagStore.js";
+import { publishDraft } from "../lib/gags/publish.js";
 
 const RUN = randomUUID().slice(0, 8);
 const START = new Date();
@@ -79,7 +83,11 @@ async function render(factId: number, gagId: number, content: VisualPromptStrate
 }
 
 const url = (factId: number, rest = "") => `/api/admin/facts/${factId}/gags${rest}`;
-const approve = (factId: number, gagId: number, attemptId: number) => request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId });
+// A live fact's gags are worked on through the store (the routes refuse a
+// write with no review between phases; the fact sheet brings them back).
+const live = () => ({ adminId, reviewId: null });
+const approve = (factId: number, gagId: number, attemptId: number) => approveGagRender(factId, gagId, attemptId, live());
+const save = (factId: number, gagId: number, content: VisualPromptStrategyOverride) => saveGagContent(factId, gagId, content, live());
 const gagRow = async (gagId: number) => (await db.select().from(factGagsTable).where(eq(factGagsTable.id, gagId)))[0]!;
 const examples = async (gagId: number, stage: "approved" | "pending") =>
   db.select().from(factGagExamplesTable).where(and(eq(factGagExamplesTable.gagId, gagId), eq(factGagExamplesTable.stage, stage)));
@@ -116,48 +124,49 @@ after(async () => {
   await db.delete(asyncJobsTable).where(gte(asyncJobsTable.createdAt, START));
 });
 
-describe("completing a set", () => {
-  it("two concurrent completions apply the change once, with one approved set", async () => {
+describe("a pick is a draft pick", () => {
+  it("two concurrent picks of one kind leave one pick, and never change what users are offered", async () => {
     const { factId, gagId } = await liveFact();
     const change = scene("{NAME} lifts the sun (concurrent).");
-    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: change })).status, 200);
-    for (const kind of ["male", "female"] as const) assert.equal((await approve(factId, gagId, await render(factId, gagId, change, kind))).status, 200);
+    await save(factId, gagId, change);
+    for (const kind of ["male", "female"] as const) await approve(factId, gagId, await render(factId, gagId, change, kind));
 
     const [p1, p2] = await Promise.all([render(factId, gagId, change, "pet"), render(factId, gagId, change, "pet")]);
-    const results = await Promise.all([approve(factId, gagId, p1), approve(factId, gagId, p2)]);
-    assert.ok(results.some((r) => r.status === 200), JSON.stringify(results.map((r) => r.body)));
-    for (const r of results) assert.ok([200, 409].includes(r.status), JSON.stringify(r.body));
+    await Promise.all([approve(factId, gagId, p1), approve(factId, gagId, p2)]);
 
     const row = await gagRow(gagId);
-    assert.deepEqual(row.approvedContent, change, "the change applied");
-    assert.equal(row.pendingContent, null);
-    const approved = await examples(gagId, "approved");
-    assert.deepEqual(approved.map((e) => e.subjectKind).sort(), ["female", "male", "pet"], "one approved example per kind");
-    assert.equal((await examples(gagId, "pending")).length, 0);
-    assert.deepEqual((await availableGags(factId)).map((g) => g.content.coreSceneOverride), [change.coreSceneOverride]);
+    assert.deepEqual(row.approvedContent, A, "the published version is untouched");
+    assert.deepEqual(row.pendingContent, change, "the change waits in the draft");
+    const pending = await examples(gagId, "pending");
+    assert.deepEqual(pending.map((e) => e.subjectKind).sort(), ["female", "male", "pet"], "one draft pick per kind");
+    assert.equal((await examples(gagId, "approved")).length, 0, "nothing was published");
+    assert.deepEqual((await availableGags(factId)).map((g) => g.content.coreSceneOverride), [A.coreSceneOverride]);
   });
 });
 
 describe("grandfathering (Q11)", () => {
-  it("a grandfathered gag stays offered while it gains examples, and stops being grandfathered at its first complete set", async () => {
+  it("a grandfathered gag stays offered while its draft gains examples, and stops being grandfathered when the draft is published", async () => {
     const { factId, gagId } = await liveFact();
     assert.equal((await gagRow(gagId)).approvedCarriedOver, true);
 
     for (const kind of ["male", "female"] as const) {
-      const r = await approve(factId, gagId, await render(factId, gagId, A, kind));
-      assert.equal(r.status, 200, JSON.stringify(r.body));
+      await approve(factId, gagId, await render(factId, gagId, A, kind));
       const row = await gagRow(gagId);
-      assert.equal(row.approvedCarriedOver || row.approvedBeforeExampleSets, true, `after the ${kind} example it is still grandfathered`);
+      assert.equal(row.approvedCarriedOver || row.approvedBeforeExampleSets, true, `after the ${kind} pick it is still grandfathered`);
+      assert.deepEqual(row.pendingContent, A, "the pick opened a draft of the same content");
       assert.deepEqual((await availableGags(factId)).map((g) => g.gagId), [gagId], "still offered");
     }
     const view = (await request(app).get(url(factId))).body.gags.find((g: { id: number }) => g.id === gagId);
     assert.equal(view.grandfathered, true);
-    assert.notEqual(view.approvedExamples.male, null);
-    assert.equal(view.approvedExamples.pet, null);
+    assert.equal(view.approvedExamples.male, null, "the published version has no examples yet");
+    assert.notEqual(view.pendingExamples.male, null);
+    assert.equal(view.pendingExamples.pet, null);
 
-    assert.equal((await approve(factId, gagId, await render(factId, gagId, A, "pet"))).status, 200);
+    await approve(factId, gagId, await render(factId, gagId, A, "pet"));
+    assert.equal((await gagRow(gagId)).approvedCarriedOver, true, "a complete draft publishes nothing by itself");
+    await db.transaction((tx) => publishDraft(tx, factId, adminId));
     const row = await gagRow(gagId);
-    assert.equal(row.approvedCarriedOver, false, "the marker ends with the first complete set");
+    assert.equal(row.approvedCarriedOver, false, "the marker ends with the first published complete set");
     assert.equal(row.approvedBeforeExampleSets, false);
     assert.deepEqual(row.approvedContent, A, "the content users get never changed");
     const offered = await availableGags(factId);
@@ -174,10 +183,11 @@ describe("renders, counted per action", () => {
     assert.equal(drawn(await drawGagKinds(gagId, ["male"], { adminUserId: adminId })).length, 0, "the same content reuses its render");
 
     const B = scene("{NAME} lifts the sun (B).");
-    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: B })).status, 200);
+    await save(factId, gagId, B);
     assert.equal(drawn(await drawGagKinds(gagId, ["male"], { adminUserId: adminId })).length, 1, "B gets its own render");
 
-    assert.equal((await request(app).post(url(factId, `/${gagId}/discard`)).send({})).status, 200);
+    // Saving A again returns the gag to its published version in the draft.
+    await save(factId, gagId, A);
     assert.equal(drawn(await drawGagKinds(gagId, ["male"], { adminUserId: adminId })).length, 0, "back to A: A's render is reused");
     const cards = await buildGagKindCards(gagId);
     assert.equal(cards.male!.latestAttemptId, forA[0]!.attemptId, "the tile shows A's render");
@@ -187,8 +197,7 @@ describe("renders, counted per action", () => {
     // A's render, once finished, is approvable as the male example.
     await db.update(imagePromptAttemptsTable).set({ generatedImageObjectPath: `/objects/ai-bg-v2/${factId}/a.png` })
       .where(eq(imagePromptAttemptsTable.id, forA[0]!.attemptId));
-    const ok = await approve(factId, gagId, forA[0]!.attemptId);
-    assert.equal(ok.status, 200, JSON.stringify(ok.body));
+    await approve(factId, gagId, forA[0]!.attemptId);
 
     assert.equal(drawn(await drawGagKinds(gagId, ["male"], { adminUserId: adminId, redraw: true })).length, 1, "an explicit redraw draws a new one");
   });
@@ -275,12 +284,24 @@ describe("renders, counted per action", () => {
     await db.delete(pendingReviewsTable).where(eq(pendingReviewsTable.id, review!.id));
   });
 
-  it("the renders route draws the kinds asked for, and refuses an unknown kind", async () => {
-    const { factId, gagId } = await liveFact();
-    const ok = await request(app).post(url(factId, `/${gagId}/renders`)).send({ kinds: ["female", "pet"] });
+  it("the renders route draws the kinds asked for from a review, refuses an unknown kind, and refuses a live fact", async () => {
+    const [f] = await db.insert(factsTable).values({ text: `{NAME} renders route ${RUN} ${randomUUID().slice(0, 6)}`, isActive: false, enrichment: buildPlaceholderFactEnrichment() as never }).returning({ id: factsTable.id });
+    factIds.push(f!.id);
+    const factId = f!.id;
+    const [g] = await db.insert(factGagsTable).values({ factId, slot: 1, pendingContent: A }).returning({ id: factGagsTable.id });
+    const gagId = g!.id;
+    const [review] = await db.insert(pendingReviewsTable).values({
+      submittedText: "renders", submittedById: adminId, status: "pending", workflowStage: "test_renders",
+      stagingFactId: factId, enrichment: buildPlaceholderFactEnrichment() as never, enrichmentStatus: "ok",
+    }).returning({ id: pendingReviewsTable.id });
+    const ok = await request(app).post(url(factId, `/${gagId}/renders`)).send({ kinds: ["female", "pet"], reviewId: review!.id });
     assert.ok([200, 202].includes(ok.status), JSON.stringify(ok.body));
     assert.deepEqual((await attemptsOf(gagId)).map((a) => a.key).sort(), ["i2i_female_default", "i2i_nonhuman_animal"]);
-    const bad = await request(app).post(url(factId, `/${gagId}/renders`)).send({ kinds: ["vehicle"] });
+    const liveOne = await liveFact();
+    const refusedLive = await request(app).post(url(liveOne.factId, `/${liveOne.gagId}/renders`)).send({ kinds: ["male"] });
+    assert.equal(refusedLive.status, 409);
+    assert.equal(refusedLive.body.code, "LIVE_GAG_EDITING_UNAVAILABLE");
+    const bad = await request(app).post(url(factId, `/${gagId}/renders`)).send({ kinds: ["vehicle"], reviewId: review!.id });
     assert.equal(bad.status, 400);
     const generic = await request(app).post(url(factId, `/${gagId}/renders`)).send({ scenarios: ["generic_t2i"] });
     assert.equal(generic.status, 400, "the retired scenario list is not accepted");
@@ -288,10 +309,11 @@ describe("renders, counted per action", () => {
 });
 
 describe("the rules the database enforces at commit (7a)", () => {
-  /** A live, no-longer-grandfathered gag with a complete approved set. */
+  /** A live, no-longer-grandfathered gag with a complete published set. */
   async function completeGag() {
     const { factId, gagId } = await liveFact();
-    for (const kind of GAG_EXAMPLE_KINDS) assert.equal((await approve(factId, gagId, await render(factId, gagId, A, kind))).status, 200);
+    for (const kind of GAG_EXAMPLE_KINDS) await approve(factId, gagId, await render(factId, gagId, A, kind));
+    await db.transaction((tx) => publishDraft(tx, factId, adminId));
     assert.equal((await gagRow(gagId)).approvedCarriedOver, false);
     return { factId, gagId };
   }

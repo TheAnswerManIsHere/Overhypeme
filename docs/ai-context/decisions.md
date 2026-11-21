@@ -13,6 +13,18 @@
 
 ---
 
+### 2026-11-21 · A fact's gags are two sets, published and draft, and only a publish changes what members get
+- **Decision:** a fact's gags are one **published set**, which members are offered, and one **draft**, which moderators work on (PLAN_FACT_LIFECYCLE_REBUILD.md, 1F; migration 0157; Issue #1018, increment 1.3a).
+  - **The storage reuses the two versions `fact_gags` already held:** `approved_*` with stage `approved` examples is the published set, `pending_*` with stage `pending` examples is the draft, and `draft_removed` marks a published gag the draft removes. A gag with no pending content is unchanged in the draft. No third state exists.
+  - **Every gag write goes to the draft:** a save, an add, a render approval (a draft pick, never a publish) and a removal. Approving the third render no longer publishes a gag (this supersedes that part of 2026-11-15's example-set decision below); any gag can be removed, the last one included.
+  - **One rule decides going live** (`lib/gags/goLive.ts`): between one and three gags, each with approved male, female and pet renders of its current content, checked against each render's own frozen input. It runs on the draft at Approve for production, which publishes the whole draft in the same transaction, and on the published set at activation.
+  - **Published content needs a fact approved for production** (`fact_gags_published_needs_approved_fact`, deferred to commit), so a submission can never hold a published gag.
+  - **A live fact's gags cannot be edited until Phase 3's fact sheet:** the Facts page shows them read-only, a gag write with no review is refused (`LIVE_GAG_EDITING_UNAVAILABLE`), and Draft more gags is removed with its routes, its job branch and its stored state (this supersedes that part of the 2026-11-14 three-gags decision below).
+  - **Members read one snapshot:** content and examples come from one repeatable-read transaction, so a publish is seen whole or not at all.
+- **Why:** the plan makes the fact the unit of publication, so approving a render must not change what members get; reusing the two columns kept the change to one additive column and a data move, rather than a rename across every reader.
+- **Reference:** Issue #1018; the 1.3a PR.
+- **Revisit if:** Phase 3's "Publish changes" needs a draft state these columns cannot hold.
+
 ### 2026-11-20 · The gag writer is relocked: no joke read, no classification, a checklist, and the world keeps its real scale
 - **Decision:** the gag writer's locked prompt (`docs/plans/gag-prompt-LOCKED.md`) is relocked with plan 1C's revision (PLAN_FACT_LIFECYCLE_REBUILD.md, increment 1.2d).
   - **Its request** is the fact, the approved humor note, the limits and the fact's gags.

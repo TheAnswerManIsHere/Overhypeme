@@ -51,7 +51,6 @@ import { lockFactRow } from "./reviewLocks";
 import { loadGags, normaliseGagContent, openReviewForFact, primaryWorkingGag, type GagContent } from "./gags/resolver";
 import { type Executor,
   claimConceptsForReview,
-  liveConceptOwner,
   ownedFact,
   reviewConceptOwner,
 } from "./visualConceptOwner";
@@ -73,11 +72,11 @@ import { assertJobOwnership, fencedTransaction } from "./jobFence";
 export const FACT_VISUAL_CONCEPTS_QUEUE = "fact_visual_concepts";
 
 export interface FactVisualConceptsJobPayload {
-  /** The review cycle; null for a live draft (Draft more gags). */
-  reviewId: number | null;
+  /** The review cycle. */
+  reviewId: number;
   factId: number;
   /**
-   * The generation's owner ('review:<id>' or 'live:<id>', migration 0140). A
+   * The generation's owner ('review:<id>:<generation>', migration 0140). A
    * job queued before owners existed has none and is its review's.
    */
   owner?: string | null;
@@ -111,8 +110,8 @@ export async function enqueueVisualConceptsForReview(args: {
   moderatorDraftScene?: string | null;
   moderatorDraftBubbles?: Array<Pick<VisualStrategyBubble, "type" | "entity" | "text">> | null;
 }, executor: Executor = db): Promise<EnqueueJobResult> {
-  // The review takes the fact's candidate state (a live draft's is cleared)
-  // and marks it working, in one write. Given a transaction, both the claim
+  // The review takes the fact's candidate state and marks it working, in one
+  // write. Given a transaction, both the claim
   // and the job commit with the caller's write or not at all (Issue #1000 §F).
   const owner = reviewConceptOwner(args.reviewId, randomUUID());
   await claimConceptsForReview(executor, args.factId, args.reviewId, { markPending: true, owner });
@@ -129,87 +128,18 @@ export async function enqueueVisualConceptsForReview(args: {
   }, executor);
 }
 
-/** Why a Draft more gags request is refused. */
-export class LiveDraftRefused extends Error {
-  constructor(readonly code: "FACT_NOT_FOUND" | "FACT_NOT_LIVE" | "REVIEW_OPEN" | "IDEAS_PENDING", message: string) {
-    super(message);
-    this.name = "LiveDraftRefused";
-  }
-}
-
-/** One live draft, one job: keyed by the draft's owner, never shared across drafts (Codex, PR #958 round 1). */
-export function liveConceptsDedupeKey(owner: string): string {
-  return `fact_visual_concepts:${owner}`;
-}
-
-/**
- * Draft more gags on a live fact (plan PLAN_THREE_GAGS.md, increment 2): the
- * same gag writer, engine, prompt, validation and latest-only store, run
- * outside a review. Refused while a review is open (its own generation owns
- * the fact's ideas then) and while a generation is still working. The
- * request takes ownership; a review opened before it finishes takes it back,
- * and the draft then writes nothing.
- */
-export async function enqueueLiveVisualConcepts(factId: number): Promise<EnqueueJobResult> {
-  // One compare-and-set: the fact is live, no review is open and no live
-  // draft is working, and this request takes ownership, all in a single write, so a
-  // review opened or another draft started in between cannot be overwritten.
-  // The claim and its job commit together, so a claim never stands without
-  // the job that can end it (Codex, PR #958 round 2). The job's key is this
-  // draft's own, so its insert cannot meet the queue's dedupe path, whose
-  // conflict would abort the transaction.
-  const owner = liveConceptOwner(randomUUID());
-  const job = await db.transaction(async (tx) => {
-    const [claimed] = await tx
-      .update(factsTable)
-      .set({ visualConceptOwner: owner, visualConceptStatus: "pending" })
-      .where(and(
-        eq(factsTable.id, factId),
-        eq(factsTable.isActive, true),
-        // Only a live draft's "working" blocks another: a review's leftover
-        // has no job that will ever end it, and no review is open to own it.
-        sql`(${factsTable.visualConceptStatus} IS DISTINCT FROM 'pending' OR ${factsTable.visualConceptOwner} IS NULL OR ${factsTable.visualConceptOwner} NOT LIKE 'live:%')`,
-        sql`NOT EXISTS (SELECT 1 FROM ${pendingReviewsTable} WHERE ${pendingReviewsTable.stagingFactId} = ${factsTable.id} AND ${pendingReviewsTable.status} = 'pending')`,
-      ))
-      .returning({ id: factsTable.id });
-    if (!claimed) return null;
-    return enqueueJob({
-      queue: FACT_VISUAL_CONCEPTS_QUEUE,
-      payload: { reviewId: null, factId, owner, moderatorDraftScene: null, moderatorDraftBubbles: null },
-      dedupeKey: liveConceptsDedupeKey(owner),
-    }, tx);
-  });
-  if (!job) throw await liveDraftRefusal(factId);
-  return job;
-}
-
-/** Why a live draft could not take the fact, read after the refused claim. */
-async function liveDraftRefusal(factId: number): Promise<LiveDraftRefused> {
-  const [fact] = await db
-    .select({ isActive: factsTable.isActive, status: factsTable.visualConceptStatus })
-    .from(factsTable)
-    .where(eq(factsTable.id, factId))
-    .limit(1);
-  if (!fact) return new LiveDraftRefused("FACT_NOT_FOUND", "Fact not found.");
-  if (!fact.isActive) return new LiveDraftRefused("FACT_NOT_LIVE", "Draft more gags is for a live fact. A fact in moderation gets its ideas in its review.");
-  if (await openReviewForFact(factId)) return new LiveDraftRefused("REVIEW_OPEN", "This fact has an open review. Draft its gags in the review.");
-  return new LiveDraftRefused("IDEAS_PENDING", "Gag ideas are already being drafted for this fact.");
-}
-
 // ─── Review-cycle resolution (shared by handler + endpoint staleness) ────────
 
 export interface ResolvedConceptCycle {
-  /** Null for a live draft. */
-  reviewId: number | null;
-  /** Null for a live draft. */
-  stage: ReviewWorkflowStage | null;
+  reviewId: number;
+  stage: ReviewWorkflowStage;
   stagingFactId: number;
   factText: string;
   source: VisualConceptSource;
   /**
    * The review's primary working gag (lib/gags/resolver.ts), whose violence and
-   * text policy the writer is held to, as the render is. Null for a live draft
-   * and for a review with no gag yet (the defaults apply).
+   * text policy the writer is held to, as the render is. Null for a review with
+   * no gag yet (the defaults apply).
    */
   primaryGag: GagContent | null;
 }
@@ -245,25 +175,6 @@ export async function resolveVisualConceptCycle(reviewId: number): Promise<Conce
 }
 
 /**
- * A live fact's text for Draft more gags: the fact must be live with no open
- * review (a review's own cycle owns its ideas). Pure read.
- */
-export async function resolveLiveConceptCycle(factId: number): Promise<ConceptCycleResult> {
-  const [fact] = await db
-    .select({ id: factsTable.id, text: factsTable.text, isActive: factsTable.isActive })
-    .from(factsTable)
-    .where(eq(factsTable.id, factId))
-    .limit(1);
-  if (!fact) return { ok: false, reason: "fact_not_found" };
-  if (!fact.isActive) return { ok: false, reason: "fact_not_live" };
-  if (await openReviewForFact(factId)) return { ok: false, reason: "review_open" };
-  return {
-    ok: true,
-    cycle: { reviewId: null, stage: null, stagingFactId: factId, factText: fact.text, source: "live_fact", primaryGag: null },
-  };
-}
-
-/**
  * The humor note the gag writer is given for a fact: the approved note, else
  * the latest finished reading's draft (Issue #1018, increment 1.2c-ii: ideas
  * are written from the draft as soon as it exists, and again from the approved
@@ -291,6 +202,7 @@ export async function humorNoteFor(factId: number, executor: Executor = db): Pro
 export async function contextGagsFor(factId: number): Promise<ContextGag[]> {
   const out: ContextGag[] = [];
   for (const g of await loadGags(factId)) {
+    if (g.draftRemoved) continue;
     const content = normaliseGagContent(g.pendingContent ?? g.approvedContent);
     const scene = content?.coreSceneOverride?.trim() ?? "";
     if (!scene) continue;
@@ -334,21 +246,14 @@ export async function runVisualConceptsJob(
 ): Promise<HandlerResult> {
   const { reviewId, factId } = payload;
   const owner = jobOwner(payload);
-  if (typeof factId !== "number" || owner == null) {
-    return { ok: false, error: "fact_visual_concepts payload missing its fact or owner" };
+  if (typeof factId !== "number" || typeof reviewId !== "number" || owner == null) {
+    return { ok: false, error: "fact_visual_concepts payload missing its review, fact or owner" };
   }
-  const live = reviewId == null;
 
-  const resolved = live ? await resolveLiveConceptCycle(factId) : await resolveVisualConceptCycle(reviewId);
+  const resolved = await resolveVisualConceptCycle(reviewId);
   if (!resolved.ok) {
-    // COST GUARD / no-op: review resolved or has no usable enrichment. Write
-    // nothing and retire the job successfully (mirrors enrichment). A live
-    // draft whose fact went out of reach (deactivated, or a review opened)
-    // clears its own "pending", if it still owns it, so nothing reads as
-    // working with no job behind it.
-    if (live) {
-      await fencedTransaction(db, (tx) => tx.update(factsTable).set({ visualConceptStatus: null }).where(ownedFact(factId, owner)));
-    }
+    // COST GUARD / no-op: review resolved or gone. Write nothing and retire
+    // the job successfully (mirrors enrichment).
     logger.info({ reviewId, factId, reason: resolved.reason }, "[fact_visual_concepts] no-op (unresolvable cycle)");
     return { ok: true };
   }
@@ -357,7 +262,7 @@ export async function runVisualConceptsJob(
   // COST GUARD: only draft while the review is still unresolved (Reading, Gags
   // or Test Renders). Once approved/rejected, concepts are useless — no-op.
   // Gags is where these Visual Ideas actually gate.
-  if (cycle.stage != null && !isUnresolvedSubmissionStage(cycle.stage)) {
+  if (!isUnresolvedSubmissionStage(cycle.stage)) {
     logger.info({ reviewId, factId, stage: cycle.stage }, "[fact_visual_concepts] no-op (review resolved)");
     return { ok: true };
   }
@@ -413,9 +318,9 @@ export async function runVisualConceptsJob(
     humorNoteUsed: humorNote,
   };
 
-  // Written only while this generation still owns the fact: a live draft
-  // that finishes after a review opened, or a review's generation after a
-  // later one took over, writes nothing (plan section F). Ideas written from a
+  // Written only while this generation still owns the fact: a review's
+  // generation that finishes after a later one took over writes nothing
+  // (plan section F). Ideas written from a
   // note the moderator has since replaced (approving an edited draft while
   // they were being written) are not stored: the job runs again, from the
   // note as it is now (Issue #1018, increment 1.2c-ii).
@@ -492,10 +397,8 @@ export interface ConceptsRow {
 }
 
 /**
- * The `visualConcepts` block, shared by a review and by a live fact's Draft
- * more gags: everything but the one question that differs between them,
- * whether the stored candidates were drafted for this cycle and its inputs,
- * which `staleness` answers.
+ * The `visualConcepts` block: everything but whether the stored candidates
+ * were drafted for this cycle and its inputs, which `staleness` answers.
  */
 async function assembleConceptsResponse(
   row: ConceptsRow,
@@ -550,41 +453,4 @@ export async function buildVisualConceptsResponse(review: ConceptsRow & { id: nu
     if (!resolved.ok || blob.inputHash !== (await computeCurrentInputHash(resolved.cycle))) return "input_hash_mismatch";
     return undefined;
   });
-}
-
-/**
- * The `visualConcepts` block for a live fact's Draft more gags (plan
- * PLAN_THREE_GAGS.md, increment 2). Candidates are current only when a live
- * draft wrote them and its inputs (the fact, every gag, the engine) are
- * unchanged; a review's leftover candidates read as stale.
- */
-export async function buildLiveVisualConceptsResponse(fact: ConceptsRow & { id: number; visualConceptOwner: string | null }): Promise<VisualConceptsResponse> {
-  // "Working" on the live fact means a live draft is: a review's leftover
-  // pending has no job that will end it (Codex, PR #958 round 1).
-  const liveWorking = fact.visualConceptStatus !== "pending" || (fact.visualConceptOwner?.startsWith("live:") ?? false);
-  const row = liveWorking ? fact : { ...fact, visualConceptStatus: null };
-  return assembleConceptsResponse(row, async (blob) => {
-    if (blob.source !== "live_fact" || blob.reviewId != null) return "review_mismatch";
-    const resolved = await resolveLiveConceptCycle(fact.id);
-    if (!resolved.ok || blob.inputHash !== (await computeCurrentInputHash(resolved.cycle))) return "input_hash_mismatch";
-    return undefined;
-  });
-}
-
-/** A live fact's drafted ideas, or null when the fact does not exist. */
-export async function liveVisualConcepts(factId: number): Promise<VisualConceptsResponse | null> {
-  const [fact] = await db
-    .select({
-      id: factsTable.id,
-      visualConceptStatus: factsTable.visualConceptStatus,
-      visualConceptCandidates: factsTable.visualConceptCandidates,
-      visualConceptOwner: factsTable.visualConceptOwner,
-      humorNote: factsTable.humorNote,
-      humorNoteApprovedBy: factsTable.humorNoteApprovedBy,
-      humorNoteApprovedAt: factsTable.humorNoteApprovedAt,
-    })
-    .from(factsTable)
-    .where(eq(factsTable.id, factId))
-    .limit(1);
-  return fact ? buildLiveVisualConceptsResponse(fact) : null;
 }

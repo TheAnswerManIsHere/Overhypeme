@@ -1,17 +1,20 @@
 /**
- * The gag lifecycle through its routes (plan docs/plans/PLAN_THREE_GAGS.md,
- * Testing Plan items 5, 6, 7, 9 and 10):
+ * The gag lifecycle through its routes (plans docs/plans/PLAN_THREE_GAGS.md,
+ * Testing Plan items 5, 6, 7, 9 and 10, and PLAN_FACT_LIFECYCLE_REBUILD.md,
+ * 1E and 1F):
  *
- *   - a saved change is hidden: users keep the approved version until its
- *     male, female and pet renders are approved as its examples (plan
- *     PLAN_GAG_EXAMPLES.md);
+ *   - every write is to the fact's draft and comes from its review; a write
+ *     with no review is refused (a live fact's gags are not edited between
+ *     phases);
  *   - approval refuses another gag's render, an unfinished or failed one, a
- *     styled one and one drawn from other content, and accepts the rest;
+ *     styled one and one drawn from other content, and records the rest as
+ *     draft picks; the draft meets the go-live rule once every gag has its
+ *     male, female and pet picks;
  *   - every slot follows the same rules;
- *   - discard and remove, and the last approved gag of a live fact kept;
- *   - while a review is open, gags change only inside it;
- *   - saving, adding and discarding enqueue one iteration render job each;
- *     removing enqueues nothing.
+ *   - any gag can be removed, the last one included; a published gag is only
+ *     removed in the draft;
+ *   - saving and adding enqueue one iteration render job each; removing
+ *     enqueues nothing.
  */
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -35,7 +38,7 @@ import gagsRouter from "../routes/gags.js";
 import { __setReferenceFalUploadForTest } from "../lib/defaultReferenceResolver.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import { availableGags, normaliseGagContent, primaryGag } from "../lib/gags/resolver.js";
-import { gagContentEqual } from "../lib/gags/gagStore.js";
+import { GagError, approveGagRender, gagContentEqual, removeGag } from "../lib/gags/gagStore.js";
 import { loadGagRenderTarget, ensureReviewIterationRenders, reviewRenderStates } from "../lib/reviewRenderScenarios.js";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -54,6 +57,21 @@ const LISTS = ["requiredVisualDetails", "forbiddenVisualDetails", "roleBindings"
 let adminId = "";
 let app: ReturnType<typeof buildTestApp>;
 const factIds: number[] = [];
+
+/**
+ * A submission at the Gags step: an inactive fact never approved for
+ * production, its review open at `stage`, and gag A in its draft.
+ */
+async function submission(stage: "gags" | "test_renders" = "gags"): Promise<{ factId: number; gagId: number; reviewId: number }> {
+  const [f] = await db.insert(factsTable).values({ text: `{NAME} gags submission ${RUN} ${randomUUID().slice(0, 6)}`, isActive: false, enrichment: buildPlaceholderFactEnrichment() as never }).returning({ id: factsTable.id });
+  factIds.push(f!.id);
+  const [g] = await db.insert(factGagsTable).values({ factId: f!.id, slot: 1, pendingContent: A as never }).returning({ id: factGagsTable.id });
+  const [review] = await db.insert(pendingReviewsTable).values({
+    submittedText: "submission", submittedById: adminId, status: "pending", workflowStage: stage,
+    stagingFactId: f!.id, enrichment: buildPlaceholderFactEnrichment() as never, enrichmentStatus: "ok",
+  }).returning({ id: pendingReviewsTable.id });
+  return { factId: f!.id, gagId: g!.id, reviewId: review!.id };
+}
 
 async function liveFact(): Promise<{ factId: number; gagId: number }> {
   const f = await insertLiveFact({ text: `{NAME} gags test ${RUN} ${randomUUID().slice(0, 6)}`, enrichment: buildPlaceholderFactEnrichment() }, A);
@@ -85,11 +103,11 @@ async function render(factId: number, gagId: number, content: VisualPromptStrate
 
 const url = (factId: number, rest = "") => `/api/admin/facts/${factId}/gags${rest}`;
 
-/** Approve a male, female and pet render of `content` as the gag's examples; returns the last response. */
-async function approveSet(factId: number, gagId: number, content: VisualPromptStrategyOverride, reviewId?: number) {
+/** Approve a male, female and pet render of `content` as the gag's draft picks; returns the last response. */
+async function approveSet(factId: number, gagId: number, content: VisualPromptStrategyOverride, reviewId: number) {
   let last: request.Response | null = null;
   for (const kind of GAG_EXAMPLE_KINDS) {
-    last = await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: await render(factId, gagId, content, { kind }), ...(reviewId ? { reviewId } : {}) });
+    last = await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: await render(factId, gagId, content, { kind }), reviewId });
     assert.equal(last.status, 200, `${kind}: ${JSON.stringify(last.body)}`);
   }
   return last!;
@@ -124,25 +142,43 @@ after(async () => {
   await db.delete(asyncJobsTable).where(gte(asyncJobsTable.createdAt, START));
 });
 
-describe("gag routes: a change is hidden until its example is approved", () => {
-  it("a saved change leaves users on the approved version, and enqueues its one iteration render", async () => {
-    const { factId, gagId } = await liveFact();
+describe("gag routes: every write is to the draft, from a review", () => {
+  it("a saved change stays in the draft, enqueues its one iteration render, and the view says what the draft still needs", async () => {
+    const { factId, gagId, reviewId } = await submission();
     const jobsBefore = await jobsForGag(gagId);
-    const res = await request(app).put(url(factId, `/${gagId}`)).send({ content: scene("{NAME} lifts the sun (change).") });
+    const res = await request(app).put(url(factId, `/${gagId}`)).send({ content: scene("{NAME} lifts the sun (change)."), reviewId });
     assert.equal(res.status, 200, JSON.stringify(res.body));
     const view = res.body.gags.find((g: { id: number }) => g.id === gagId);
-    assert.equal(view.state, "approved_with_change");
-    assert.equal(view.availableToUsers, true, "the approved version is still offered");
-    assert.deepEqual(await offeredScenes(factId), [A.coreSceneOverride], "users still get the approved version");
-    assert.equal((await primaryGag(factId))!.content.coreSceneOverride, A.coreSceneOverride);
+    assert.equal(view.state, "new");
+    assert.equal(view.availableToUsers, false);
+    assert.equal(res.body.draftReady.ok, false);
+    assert.match(res.body.draftReady.reason, /Gag 1 needs male, female and pet renders approved/);
+    assert.equal((await gagRow(gagId)).approvedContent, null, "nothing is published");
     assert.equal(await jobsForGag(gagId), jobsBefore + 1, "saving enqueues one iteration render job");
   });
 
-  it("approval refuses another gag's render, an unfinished, a failed or a styled render, and one of other content", async () => {
+  it("refuses a write with no review: a live fact's gags are not edited between phases (plan 1F)", async () => {
     const { factId, gagId } = await liveFact();
+    for (const r of [
+      await request(app).put(url(factId, `/${gagId}`)).send({ content: scene("{NAME} a change.") }),
+      await request(app).post(url(factId)).send({ content: scene("{NAME} a new gag.") }),
+      await request(app).post(url(factId, `/${gagId}/remove`)).send({}),
+      await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: await render(factId, gagId, A) }),
+    ]) {
+      assert.equal(r.status, 409, JSON.stringify(r.body));
+      assert.equal(r.body.code, "LIVE_GAG_EDITING_UNAVAILABLE");
+    }
+    const row = await gagRow(gagId);
+    assert.equal(row.pendingContent, null);
+    assert.equal(row.draftRemoved, false);
+    assert.deepEqual(await offeredScenes(factId), [A.coreSceneOverride]);
+  });
+
+  it("approval refuses another gag's render, an unfinished, a failed or a styled render, and one of other content; three picks make the draft ready and publish nothing", async () => {
+    const { factId, gagId, reviewId } = await submission();
     const change = scene("{NAME} lifts the sun (change).");
-    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: change })).status, 200);
-    const other = await request(app).post(url(factId)).send({ content: scene("{NAME} a second gag.") });
+    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: change, reviewId })).status, 200);
+    const other = await request(app).post(url(factId)).send({ content: scene("{NAME} a second gag."), reviewId });
     assert.equal(other.status, 200, JSON.stringify(other.body));
     const otherId = other.body.gags.find((g: { slot: number }) => g.slot === 2).id as number;
 
@@ -155,75 +191,62 @@ describe("gag routes: a change is hidden until its example is approved", () => {
       ["a render of a retired scenario", await render(factId, gagId, change, { kind: null }), 409, "RENDER_NOT_APPROVABLE"],
     ];
     for (const [name, attemptId, status, code] of cases) {
-      const r = await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId });
+      const r = await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId, reviewId });
       assert.equal(r.status, status, `${name}: ${JSON.stringify(r.body)}`);
       assert.equal(r.body.code, code, name);
     }
-    assert.deepEqual(await offeredScenes(factId), [A.coreSceneOverride], "nothing refused changed what users get");
+    assert.equal(await examplesOf(gagId, "pending"), 0, "nothing refused was picked");
 
-    // One and two picks change nothing users get; the third applies the change.
-    for (const kind of ["male", "female"] as const) {
-      const pick = await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: await render(factId, gagId, change, { kind }) });
-      assert.equal(pick.status, 200, JSON.stringify(pick.body));
-      assert.deepEqual(await offeredScenes(factId), [A.coreSceneOverride], `after the ${kind} pick users keep the approved version`);
-    }
-    const ok = await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: await render(factId, gagId, change, { kind: "pet" }) });
-    assert.equal(ok.status, 200, JSON.stringify(ok.body));
-    const row = await gagRow(gagId);
-    assert.equal(await examplesOf(gagId, "approved"), 3, "the three picks are the gag's examples");
-    assert.equal(await examplesOf(gagId, "pending"), 0);
-    assert.equal(row.approvedCarriedOver, false);
-    assert.equal(row.approvedBeforeExampleSets, false);
-    assert.equal(row.pendingContent, null);
-    assert.deepEqual(await offeredScenes(factId), [change.coreSceneOverride], "users now get the approved change");
+    const last = await approveSet(factId, gagId, change, reviewId);
+    assert.equal(await examplesOf(gagId, "pending"), 3, "the three picks are the gag's draft examples");
+    assert.equal(await examplesOf(gagId, "approved"), 0, "a pick publishes nothing");
+    assert.equal((await gagRow(gagId)).approvedContent, null);
+    assert.equal(last.body.draftReady.ok, false, "gag 2 still lacks its renders");
+    assert.match(last.body.draftReady.reason, /^Gag 2 needs/);
+    const done = await approveSet(factId, otherId, scene("{NAME} a second gag."), reviewId);
+    assert.deepEqual(done.body.draftReady, { ok: true, reason: null }, "every gag has its set: the draft is ready");
   });
 });
 
 describe("gag routes: every slot follows the same rules", () => {
   for (const slot of [2, 3]) {
-    it(`a gag added in slot ${slot} is hidden until its example is approved, then offered in slot order`, async () => {
-      const { factId } = await liveFact();
+    it(`a gag added in slot ${slot} is a draft gag with picks of its own`, async () => {
+      const { factId, reviewId } = await submission();
       if (slot === 3) {
-        const s2 = await request(app).post(url(factId)).send({ content: scene("{NAME} slot two."), slot: 2 });
+        const s2 = await request(app).post(url(factId)).send({ content: scene("{NAME} slot two."), slot: 2, reviewId });
         assert.equal(s2.status, 200, JSON.stringify(s2.body));
       }
       const content = scene(`{NAME} slot ${slot}.`);
-      const res = await request(app).post(url(factId)).send({ content, slot });
+      const res = await request(app).post(url(factId)).send({ content, slot, reviewId });
       assert.equal(res.status, 200, JSON.stringify(res.body));
       const created = res.body.gags.find((g: { slot: number }) => g.slot === slot);
       assert.equal(created.state, "new");
       assert.equal(created.availableToUsers, false);
-      assert.deepEqual(await offeredScenes(factId), [A.coreSceneOverride], "a new gag is hidden");
-
-      await request(app).post(url(factId, `/${created.id}/approve`)).send({ attemptId: await render(factId, created.id, content) });
-      assert.deepEqual(await offeredScenes(factId), [A.coreSceneOverride], "a new gag with one example is still hidden");
-      await approveSet(factId, created.id, content);
-      const offered = await offeredScenes(factId);
-      assert.equal(offered[0], A.coreSceneOverride, "slot 1 stays the default");
-      assert.equal(offered.at(-1), content.coreSceneOverride, "the approved gag is offered, in slot order");
+      await approveSet(factId, created.id, content, reviewId);
+      assert.equal(await examplesOf(created.id, "pending"), 3);
     });
   }
 
   it("refuses a fourth gag", async () => {
-    const { factId } = await liveFact();
-    for (const s of [2, 3]) assert.equal((await request(app).post(url(factId)).send({ content: scene(`{NAME} ${s}.`) })).status, 200);
-    const fourth = await request(app).post(url(factId)).send({ content: scene("{NAME} four.") });
+    const { factId, reviewId } = await submission();
+    for (const s of [2, 3]) assert.equal((await request(app).post(url(factId)).send({ content: scene(`{NAME} ${s}.`), reviewId })).status, 200);
+    const fourth = await request(app).post(url(factId)).send({ content: scene("{NAME} four."), reviewId });
     assert.equal(fourth.status, 409);
     assert.equal(fourth.body.code, "GAG_LIMIT");
   });
 });
 
 describe("the default gag: approved first, across every slot", () => {
-  it("a pending-only gag in a freed lower slot does not displace the approved one above it", async () => {
-    const { factId, gagId } = await liveFact();
+  it("a draft-only gag in a freed lower slot does not displace the published one above it", async () => {
     const content = scene("{NAME} the approved slot-2 gag.");
-    const added = await request(app).post(url(factId)).send({ content });
-    const secondId = added.body.gags.find((g: { slot: number }) => g.slot === 2).id as number;
-    await approveSet(factId, secondId, content);
-    assert.equal((await request(app).post(url(factId, `/${gagId}/remove`)).send({})).status, 200);
-    // A new gag takes the freed slot 1, pending.
-    const fresh = await request(app).post(url(factId)).send({ content: scene("{NAME} pending in slot 1.") });
-    assert.equal(fresh.body.gags.find((g: { slot: number }) => g.slot === 1).state, "new");
+    const f = await insertLiveFact({ text: `{NAME} default ${RUN} ${randomUUID().slice(0, 6)}`, enrichment: buildPlaceholderFactEnrichment() }, A);
+    factIds.push(f.id);
+    const factId = f.id;
+    const [second] = await db.insert(factGagsTable).values({ factId, slot: 2, approvedContent: content as never, approvedCarriedOver: true }).returning({ id: factGagsTable.id });
+    const secondId = second!.id;
+    await db.update(factGagsTable).set({ removedAt: new Date() }).where(eq(factGagsTable.id, f.gags[0]!.id));
+    // A new gag takes the freed slot 1, in the draft only.
+    await db.insert(factGagsTable).values({ factId, slot: 1, pendingContent: scene("{NAME} pending in slot 1.") as never });
 
     const primary = await primaryGag(factId);
     assert.equal(primary!.gag.id, secondId, "the default is the approved gag, not the lower-slot pending one");
@@ -242,7 +265,8 @@ describe("the default gag: approved first, across every slot", () => {
   });
 
   it("the stand-in scene a migration stamped is not a gag to draw: its pending change wins, then a real approved gag (bug: the comparison judged \"stands there confidently\")", async () => {
-    const [fact] = await db.insert(factsTable).values({ text: `{NAME} stand-in ${RUN} ${randomUUID().slice(0, 6)}`, isActive: false, enrichment: buildPlaceholderFactEnrichment() as never }).returning({ id: factsTable.id });
+    // Approved for production on record: its gags hold published content (0157).
+    const [fact] = await db.insert(factsTable).values({ text: `{NAME} stand-in ${RUN} ${randomUUID().slice(0, 6)}`, isActive: false, approvedAt: new Date(), approvalSource: "legacy", enrichment: buildPlaceholderFactEnrichment() as never }).returning({ id: factsTable.id });
     factIds.push(fact!.id);
     const standIn = scene(PLACEHOLDER_CORE_SCENE_OVERRIDE);
     // Fact 41's shape: the only gag's approved version is the stand-in, the real scene is pending.
@@ -261,7 +285,7 @@ describe("the default gag: approved first, across every slot", () => {
 });
 
 describe("a gag the migration carried over can be approved (Codex, PR #956 round 2)", () => {
-  it("a render of a carried-over gag in its legacy shape is approved, and a render of other content is still refused", async () => {
+  it("a render of a carried-over gag in its legacy shape is approved as a draft pick, and a render of other content is still refused", async () => {
     // The shape migration 0139 moves byte for byte: no defaulted lists, a retired key.
     const legacy = { version: 1, enabled: true, coreSceneOverride: "{NAME} lifts the moon (legacy shape)." };
     const f = await insertLiveFact({ text: `{NAME} legacy ${RUN} ${randomUUID().slice(0, 6)}`, enrichment: buildPlaceholderFactEnrichment() }, legacy as never);
@@ -279,13 +303,15 @@ describe("a gag the migration carried over can be approved (Codex, PR #956 round
     }).returning({ id: imagePromptAttemptsTable.id });
     assert.notDeepEqual(drew, legacy, "precondition: the snapshot is the normalised form, not the stored one");
 
-    const other = await request(app).post(url(f.id, `/${gagId}/approve`)).send({ attemptId: await render(f.id, gagId, scene("{NAME} a different scene.")) });
-    assert.equal(other.body.code, "CONTENT_CHANGED", "a render of other content is still refused");
-    const ok = await request(app).post(url(f.id, `/${gagId}/approve`)).send({ attemptId: real!.id });
-    assert.equal(ok.status, 200, JSON.stringify(ok.body));
-    const [ex] = await db.select().from(factGagExamplesTable).where(and(eq(factGagExamplesTable.gagId, gagId), eq(factGagExamplesTable.stage, "approved")));
-    assert.equal(ex?.attemptId, real!.id, "the render is the gag's male example");
-    assert.equal((await gagRow(gagId)).approvedCarriedOver, true, "one example leaves the carried-over gag grandfathered");
+    // A live fact's gag, worked on through the store: the routes refuse a
+    // write with no review between phases.
+    const live = { adminId, reviewId: null };
+    await assert.rejects(approveGagRender(f.id, gagId, await render(f.id, gagId, scene("{NAME} a different scene.")), live),
+      (e: unknown) => e instanceof GagError && e.code === "CONTENT_CHANGED", "a render of other content is still refused");
+    await approveGagRender(f.id, gagId, real!.id, live);
+    const [ex] = await db.select().from(factGagExamplesTable).where(and(eq(factGagExamplesTable.gagId, gagId), eq(factGagExamplesTable.stage, "pending")));
+    assert.equal(ex?.attemptId, real!.id, "the render is the gag's male draft pick");
+    assert.equal((await gagRow(gagId)).approvedCarriedOver, true, "the published gag stays grandfathered");
   });
 
   it("every schema-valid gag in the legacy fixture is equal to its own normalised form", () => {
@@ -345,66 +371,44 @@ describe("a gag the migration carried over can be approved (Codex, PR #956 round
   });
 });
 
-describe("gag routes: discard and remove", () => {
-  it("discarding a change returns the gag to its approved version, and enqueues its iteration render", async () => {
-    const { factId, gagId } = await liveFact();
-    await request(app).put(url(factId, `/${gagId}`)).send({ content: scene("{NAME} a change.") });
-    const jobsBefore = await jobsForGag(gagId);
-    const res = await request(app).post(url(factId, `/${gagId}/discard`)).send({});
-    assert.equal(res.status, 200, JSON.stringify(res.body));
-    assert.equal((await gagRow(gagId)).pendingContent, null);
-    const again = await request(app).post(url(factId, `/${gagId}/discard`)).send({});
-    assert.equal(again.body.code, "NOTHING_PENDING");
-    assert.equal(await jobsForGag(gagId), jobsBefore + 1, "one job: the render is reused when it already exists");
+describe("gag routes: remove", () => {
+  it("removes any gag of a submission, the last one included, and the draft then needs a gag", async () => {
+    const { factId, gagId, reviewId } = await submission();
+    const jobsBefore = await jobsSinceStart();
+    const removed = await request(app).post(url(factId, `/${gagId}/remove`)).send({ reviewId });
+    assert.equal(removed.status, 200, JSON.stringify(removed.body));
+    assert.notEqual((await gagRow(gagId)).removedAt, null);
+    assert.deepEqual(removed.body.draftReady, { ok: false, reason: "A fact needs at least one gag before it can go live." });
+    assert.equal(await jobsSinceStart(), jobsBefore, "removing spends nothing");
   });
 
-  it("refuses removing a live fact's last approved gag, and removes one with another left", async () => {
+  it("removes a published gag only in the draft: it stays offered until the draft is published", async () => {
     const { factId, gagId } = await liveFact();
-    const last = await request(app).post(url(factId, `/${gagId}/remove`)).send({});
-    assert.equal(last.status, 409);
-    assert.equal(last.body.code, "LAST_APPROVED_GAG");
-
-    const content = scene("{NAME} a second approved gag.");
-    const added = await request(app).post(url(factId)).send({ content });
-    const secondId = added.body.gags.find((g: { slot: number }) => g.slot === 2).id as number;
-    await approveSet(factId, secondId, content);
-    const jobsBefore = await jobsSinceStart();
-    const removed = await request(app).post(url(factId, `/${gagId}/remove`)).send({});
-    assert.equal(removed.status, 200, JSON.stringify(removed.body));
-    assert.deepEqual(await offeredScenes(factId), [content.coreSceneOverride], "the remaining gag becomes the default");
-    assert.equal(await jobsSinceStart(), jobsBefore, "removing spends nothing");
+    const row = await removeGag(factId, gagId, { adminId, reviewId: null });
+    assert.equal(row.draftRemoved, true);
+    assert.equal(row.removedAt, null);
+    assert.deepEqual(await offeredScenes(factId), [A.coreSceneOverride]);
   });
 });
 
 describe("gag routes: while a review is open, gags change only inside it", () => {
-  // Refresh reviews are gone (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1H); a
-  // review is opened on the fact directly, as the scope rule holds for any.
-  async function openReview(factId: number): Promise<number> {
-    const [review] = await db.insert(pendingReviewsTable).values({
-      submittedText: "review", submittedById: adminId, status: "pending", workflowStage: "test_renders",
-      stagingFactId: factId, enrichment: buildPlaceholderFactEnrichment() as never, enrichmentStatus: "ok",
-    }).returning({ id: pendingReviewsTable.id });
-    return review!.id;
-  }
-
-  it("refuses a change from outside the review, and accepts it from the review", async () => {
-    const { factId, gagId } = await liveFact();
-    const reviewId = await openReview(factId);
+  it("refuses a change naming another review, and accepts it from the fact's own", async () => {
+    const { factId, gagId, reviewId } = await submission();
+    const other = await submission();
     const change = scene("{NAME} the review's change.");
 
-    const outside = await request(app).put(url(factId, `/${gagId}`)).send({ content: change });
+    const outside = await request(app).put(url(factId, `/${gagId}`)).send({ content: change, reviewId: other.reviewId });
     assert.equal(outside.status, 409);
     assert.equal(outside.body.code, "REVIEW_NOT_EDITABLE");
     assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: change, reviewId })).status, 200);
   });
 
-  it("advancing to Test Renders draws only changed gags' male renders, once: none for an unchanged gag (plan PLAN_GAG_EXAMPLES.md)", async () => {
-    const { factId, gagId } = await liveFact();
-    const added = await request(app).post(url(factId)).send({ content: scene("{NAME} a second gag.") });
+  it("advancing to Test Renders draws each gag's male render once: none for a gag whose current content has one (plan PLAN_GAG_EXAMPLES.md)", async () => {
+    const { factId, gagId, reviewId } = await submission("test_renders");
+    await render(factId, gagId, A);
+    const added = await request(app).post(url(factId)).send({ content: scene("{NAME} a second gag."), reviewId });
     const secondId = added.body.gags.find((g: { slot: number }) => g.slot === 2).id as number;
-    await approveSet(factId, secondId, scene("{NAME} a second gag."));
-    const reviewId = await openReview(factId);
-    assert.equal((await request(app).put(url(factId, `/${secondId}`)).send({ content: scene("{NAME} the second, changed."), reviewId })).status, 200);
+    // The add enqueued its own iteration job; that job has not run, so the gag has no render yet.
     const count = async (gid: number) => (await db.select({ id: imagePromptAttemptsTable.id }).from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.gagId, gid))).length;
     const before = { first: await count(gagId), second: await count(secondId) };
 
@@ -416,15 +420,14 @@ describe("gag routes: while a review is open, gags change only inside it", () =>
     } finally {
       __setReferenceFalUploadForTest(null);
     }
-    assert.equal(await count(gagId), before.first, "an unchanged gag gets no render");
-    assert.equal(await count(secondId), before.second + 1, "the changed gag gets one male render, once");
+    assert.equal(await count(gagId), before.first, "a gag whose content already has its male render gets none");
+    assert.equal(await count(secondId), before.second + 1, "the other gag gets one male render, once");
   });
 
   it("the list's render state counts each gag that is not removed: one finishing never hides another (Codex, PR #956 round 2)", async () => {
-    const { factId, gagId } = await liveFact();
-    const added = await request(app).post(url(factId)).send({ content: scene("{NAME} gag two.") });
+    const { factId, gagId, reviewId } = await submission("test_renders");
+    const added = await request(app).post(url(factId)).send({ content: scene("{NAME} gag two."), reviewId });
     const secondId = added.body.gags.find((g: { slot: number }) => g.slot === 2).id as number;
-    const reviewId = await openReview(factId);
     const attempt = async (gid: number, state: "running" | "failed" | "done", at: string) => {
       await db.insert(imagePromptAttemptsTable).values({
         factId, gagId: gid, reviewId, reviewRenderScenarioKey: "i2i_male_default", renderJobId: randomUUID(),
@@ -453,8 +456,7 @@ describe("gag routes: while a review is open, gags change only inside it", () =>
   });
 
   it("editing after picking cancels the pick", async () => {
-    const { factId, gagId } = await liveFact();
-    const reviewId = await openReview(factId);
+    const { factId, gagId, reviewId } = await submission();
     const change = scene("{NAME} picked.");
     await request(app).put(url(factId, `/${gagId}`)).send({ content: change, reviewId });
     await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: await render(factId, gagId, change), reviewId });
@@ -479,72 +481,72 @@ describe("gag routes: a save carries the cast read from its own scene (plan PLAN
     ({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: text, bubbles });
 
   it("refuses a save with no cast, and stores nothing", async () => {
-    const { factId, gagId } = await liveFact();
-    const res = await request(app).put(url(factId, `/${gagId}`)).send({ content: bare("{NAME} juggles planets.") });
+    const { factId, gagId, reviewId } = await submission();
+    const res = await request(app).put(url(factId, `/${gagId}`)).send({ content: bare("{NAME} juggles planets."), reviewId });
     assert.equal(res.status, 400);
     assert.equal(res.body.code, "CAST_MISSING");
-    assert.equal((await gagRow(gagId)).pendingContent, null);
+    assert.deepEqual((await gagRow(gagId)).pendingContent, A, "the draft is unchanged");
   });
 
   it("refuses a cast read from a different scene", async () => {
-    const { factId, gagId } = await liveFact();
+    const { factId, gagId, reviewId } = await submission();
     const stale = { ...withCast(bare("{NAME} juggles planets.")), coreSceneOverride: "{NAME} juggles moons." };
-    const res = await request(app).put(url(factId, `/${gagId}`)).send({ content: stale });
+    const res = await request(app).put(url(factId, `/${gagId}`)).send({ content: stale, reviewId });
     assert.equal(res.status, 400);
     assert.equal(res.body.code, "CAST_STALE");
   });
 
   it("refuses a bubble whose speaker the cast does not bind, naming the speaker", async () => {
-    const { factId, gagId } = await liveFact();
+    const { factId, gagId, reviewId } = await submission();
     const content = withCast(bare("{NAME} juggles planets alone.", [{ type: "speech", entity: "mom", text: "Careful!" }]));
     const unbound = { ...content, cast: [] };
-    const res = await request(app).put(url(factId, `/${gagId}`)).send({ content: unbound });
+    const res = await request(app).put(url(factId, `/${gagId}`)).send({ content: unbound, reviewId });
     assert.equal(res.status, 400);
     assert.equal(res.body.code, "SPEAKER_NOT_IN_SCENE");
     assert.deepEqual(res.body.details, { speakers: ["mom"] });
   });
 
   it("stores the cast with the change, an empty cast told apart from none", async () => {
-    const { factId, gagId } = await liveFact();
+    const { factId, gagId, reviewId } = await submission();
     const withSpeaker = withCast(bare("{NAME} juggles planets; mom watches.", [{ type: "speech", entity: "mom", text: "Careful!" }]));
-    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: withSpeaker })).status, 200);
+    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: withSpeaker, reviewId })).status, 200);
     const stored = normaliseGagContent((await gagRow(gagId)).pendingContent)!;
     assert.deepEqual(stored.cast, [{ label: "mom", description: "the mom in the scene" }]);
     const empty = withCast(bare("{NAME} juggles planets alone."));
-    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: empty })).status, 200);
+    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: empty, reviewId })).status, 200);
     const storedEmpty = normaliseGagContent((await gagRow(gagId)).pendingContent)!;
     assert.deepEqual(storedEmpty.cast, []);
     assert.ok(storedEmpty.castExtraction, "an empty cast keeps its marker: extracted, nobody else there");
   });
 
   it("approves a render that drew the same scene, bubbles and cast entries, whatever extraction marker it froze; a different cast is a different picture (Codex 4600565971; PLAN_GAG_DIRECT_RENDER.md, D)", async () => {
-    const { factId, gagId } = await liveFact();
+    const { factId, gagId, reviewId } = await submission();
     const change = scene("{NAME} juggles planets (cast era).");
-    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: change })).status, 200);
+    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: change, reviewId })).status, 200);
     const { cast: _c, castExtraction: _m, ...beforeCasts } = change;
     const old = await render(factId, gagId, beforeCasts as VisualPromptStrategyOverride, { kind: "male" });
-    assert.equal((await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: old })).status, 200, "a render from before casts, of a gag whose cast is empty");
+    assert.equal((await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: old, reviewId })).status, 200, "a render from before casts, of a gag whose cast is empty");
     const otherMarker = await render(factId, gagId, { ...change, castExtraction: { ...change.castExtraction!, promptVersion: "older", extractedAt: "2026-11-01T00:00:00.000Z" } }, { kind: "female" });
-    assert.equal((await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: otherMarker })).status, 200, "the same cast read at another time");
+    assert.equal((await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: otherMarker, reviewId })).status, 200, "the same cast read at another time");
     const otherCast = await render(factId, gagId, { ...change, cast: [{ label: "dog", description: "a dog" }] }, { kind: "female" });
-    const castRefused = await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: otherCast });
+    const castRefused = await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: otherCast, reviewId });
     assert.equal(castRefused.status, 409, "a render that drew a different cast is refused: the cast reaches the picture");
     assert.equal(castRefused.body.code, "CONTENT_CHANGED");
     const otherScene = await render(factId, gagId, scene("{NAME} juggles moons."), { kind: "pet" });
-    const refused = await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: otherScene });
+    const refused = await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: otherScene, reviewId });
     assert.equal(refused.status, 409, "a different picture is still refused");
     assert.equal(refused.body.code, "CONTENT_CHANGED");
   });
 
   it("a scene changed and changed back, its cast read again, keeps its render approvable", async () => {
-    const { factId, gagId } = await liveFact();
+    const { factId, gagId, reviewId } = await submission();
     const a = scene("{NAME} juggles planets, round trip.");
-    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: a })).status, 200);
+    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: a, reviewId })).status, 200);
     const drawn = await render(factId, gagId, a, { kind: "male" });
-    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: scene("{NAME} juggles moons, briefly.") })).status, 200);
+    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: scene("{NAME} juggles moons, briefly."), reviewId })).status, 200);
     const reread = { ...a, cast: [], castExtraction: { ...a.castExtraction!, extractedAt: "2026-11-18T09:00:00.000Z" } };
-    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: reread })).status, 200);
-    assert.equal((await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: drawn })).status, 200);
+    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: reread, reviewId })).status, 200);
+    assert.equal((await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: drawn, reviewId })).status, 200);
   });
 });
 

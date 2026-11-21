@@ -22,6 +22,8 @@ import request from "supertest";
 
 import { db, factGagsTable } from "@workspace/db";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
+import { factGagExamplesTable } from "@workspace/db";
+import { giveExampleSet } from "./helpers/gagExampleSets.js";
 import {
   usersTable,
   factsTable,
@@ -67,11 +69,14 @@ const GAG = {
   bubbles: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
 };
 
-/** Give a fact its slot-1 gag: approved (as a fact reaching production approval has) or pending. */
+/**
+ * Give a fact its slot-1 gag, in the draft (plan PLAN_FACT_LIFECYCLE_REBUILD.md,
+ * 1F): "approved" is a draft gag with its male, female and pet renders picked,
+ * as a submission ready for production approval has it; "pending" has none.
+ */
 async function addGag(factId: number, kind: "approved" | "pending" = "approved"): Promise<void> {
-  await db.insert(factGagsTable).values(kind === "approved"
-    ? { factId, slot: 1, approvedContent: GAG, approvedCarriedOver: true }
-    : { factId, slot: 1, pendingContent: GAG });
+  const [gag] = await db.insert(factGagsTable).values({ factId, slot: 1, pendingContent: GAG }).returning({ id: factGagsTable.id });
+  if (kind === "approved") await giveExampleSet(factId, gag!.id, GAG, "pending");
 }
 
 
@@ -832,8 +837,8 @@ describe("approval renderability gating", () => {
 
     assert.equal(res.status, 409, JSON.stringify(res.body));
     assert.equal(res.body.code, "CONCEPT_MISSING");
-    assert.equal(res.body.error, "Gag 1 needs male, female and pet examples.");
-    assert.deepEqual(res.body.gaps, [{ slot: 1, missing: ["male", "female", "pet"] }]);
+    assert.equal(res.body.error, "Gag 1 needs male, female and pet renders approved.");
+    assert.deepEqual(res.body.gaps, [{ slot: 1, missing: ["male", "female", "pet"], outdated: [] }]);
 
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
     assert.equal(r.status, "pending", "a fact without an offered gag must NOT be approved; a waiver flag is ignored");
@@ -1086,7 +1091,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     assert.deepEqual(entry.metadata, { reviewId: review.id, factId: staging.id, adminNote: null });
   });
 
-  it("returns 409 CONCEPT_MISSING at Test Renders with no approved gag, then 200 and an active fact once a gag is approved", async () => {
+  it("returns 409 CONCEPT_MISSING at Test Renders with no gag, then 200, an active fact and its draft published once a gag has its renders approved", async () => {
     const submitterId = await createTestUser();
     const withoutConcept = VALID_APPROVAL_ENRICHMENT;
     const [staging] = await db.insert(factsTable).values({
@@ -1105,7 +1110,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
       .send({});
     assert.equal(blocked.status, 409, JSON.stringify(blocked.body));
     assert.equal(blocked.body.code, "CONCEPT_MISSING");
-    assert.equal(blocked.body.error, "Approve each gag's male, female and pet examples before approving for production.");
+    assert.equal(blocked.body.error, "A fact needs at least one gag before it can go live.");
     const [stillInactive] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
     assert.equal(stillInactive.isActive, false, "a fact with no approved gag must not go live");
 
@@ -1118,6 +1123,44 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     assert.equal(ok.status, 200, JSON.stringify(ok.body));
     const [live] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
     assert.equal(live.isActive, true);
+    const [published] = await db.select().from(factGagsTable).where(eq(factGagsTable.factId, staging.id));
+    assert.deepEqual(published!.approvedContent, GAG, "the draft became the published set");
+    assert.equal(published!.pendingContent, null);
+  });
+
+  it("refuses, publishing nothing, when one of two gags lacks a render, naming it; a render of an older version counts as missing (plan item 12)", async () => {
+    const submitterId = await createTestUser();
+    const [staging] = await db.insert(factsTable).values({
+      text: "{NAME} bench-presses the Moon.", submittedById: submitterId, isActive: false, enrichment: VALID_APPROVAL_ENRICHMENT,
+    }).returning();
+    await addGag(staging.id);
+    const second = { ...GAG, coreSceneOverride: "{NAME} bench-presses the Moon, take two." };
+    const [g2] = await db.insert(factGagsTable).values({ factId: staging.id, slot: 2, pendingContent: second }).returning({ id: factGagsTable.id });
+    const picks = await giveExampleSet(staging.id, g2!.id, { ...second, coreSceneOverride: "{NAME} an older version of take two." }, "pending");
+    const [review] = await db.insert(pendingReviewsTable).values({
+      submittedText: "{NAME} bench-presses the Moon.", submittedById: submitterId, status: "pending",
+      workflowStage: "test_renders", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
+    }).returning();
+    const adminId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+    const approve = () => request(makeApp()).post(`/admin/reviews/${review.id}/approve-for-production`).set("authorization", `Bearer ${sid}`).send({});
+
+    const blocked = await approve();
+    assert.equal(blocked.status, 409, JSON.stringify(blocked.body));
+    assert.equal(blocked.body.code, "CONCEPT_MISSING");
+    assert.match(blocked.body.error, /^Gag 2 has male, female and pet renders of an older version of it/);
+    const rows = await db.select().from(factGagsTable).where(eq(factGagsTable.factId, staging.id));
+    assert.ok(rows.every((r) => r.approvedContent == null), "nothing was published");
+    assert.equal((await db.select().from(factsTable).where(eq(factsTable.id, staging.id)))[0]!.isActive, false);
+
+    // Picks of the current content: the whole set publishes at once.
+    await db.delete(factGagExamplesTable).where(eq(factGagExamplesTable.gagId, g2!.id));
+    assert.ok(Object.values(picks).length === 3);
+    await giveExampleSet(staging.id, g2!.id, second, "pending");
+    const ok = await approve();
+    assert.equal(ok.status, 200, JSON.stringify(ok.body));
+    const after = await db.select().from(factGagsTable).where(eq(factGagsTable.factId, staging.id));
+    assert.deepEqual(after.map((r) => r.approvedContent != null).sort(), [true, true], "both gags are published together");
   });
 });
 

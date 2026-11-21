@@ -6,13 +6,13 @@
  * routes/reviews.ts, whose surrounding logic enforces the rest of the production
  * gate (render-waiver checks, the `pending_reviews` transition, production-approval
  * recording, submitter notification). This helper is the last-line, in-transaction
- * assertion of the invariant that must hold at the instant of activation: an
- * approved gag — the fact has a non-removed gag with an approved version in
- * `fact_gags` (since migration 0139; plan docs/plans/PLAN_THREE_GAGS.md),
- * re-read inside the activating transaction after the fact row is locked, so a
- * concurrent gag change can't race the pre-flight check (and mirrored by the
- * deferred trigger `enforce_live_fact_has_approved_gag`, which holds against raw
- * SQL too).
+ * assertion of the invariant that must hold at the instant of activation: the
+ * go-live rule on the fact's PUBLISHED set (lib/gags/goLive.ts; plan
+ * docs/plans/PLAN_FACT_LIFECYCLE_REBUILD.md, oracle item 12), re-read inside
+ * the activating transaction after the fact row is locked, so a concurrent gag
+ * change can't race the pre-flight check. The deferred trigger
+ * `enforce_live_fact_has_approved_gag` holds the weaker "at least one
+ * published gag" against raw SQL too.
  *
  * It is deliberately NOT a standalone activation API: on its own it would let any
  * inactive row with an approved gag (e.g. a staging fact parked in `test_renders`) go
@@ -21,15 +21,16 @@
  */
 
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { db, factsTable, factGagsTable } from "@workspace/db";
+import { db, factsTable } from "@workspace/db";
 import { lockFactRow } from "./reviewLocks";
+import { checkGoLive } from "./gags/goLive";
 
 type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-/** The fact has no approved gag at activation time. */
+/** The fact's published set fails the go-live rule at activation time. */
 export class ConceptMissingError extends Error {
   constructor(public readonly factId: number) {
-    super(`Fact #${factId} cannot be activated without an approved gag.`);
+    super(`Fact #${factId} cannot be activated: its published gags do not meet the go-live rule.`);
     this.name = "ConceptMissingError";
   }
 }
@@ -44,16 +45,6 @@ export class ActivationConflictError extends Error {
     super(`Activation of fact #${factId} lost the compare-and-set (row changed concurrently).`);
     this.name = "ActivationConflictError";
   }
-}
-
-/** Whether the fact has a non-removed gag with an approved version. Call with the fact row locked. */
-export async function hasApprovedGag(tx: DbExecutor, factId: number): Promise<boolean> {
-  const [row] = await tx
-    .select({ id: factGagsTable.id })
-    .from(factGagsTable)
-    .where(and(eq(factGagsTable.factId, factId), isNull(factGagsTable.removedAt), sql`${factGagsTable.approvedContent} IS NOT NULL`))
-    .limit(1);
-  return !!row;
 }
 
 /**
@@ -73,9 +64,10 @@ export async function activateFact(
   tx: DbExecutor,
   { factId, expectedText }: { factId: number; expectedText: string },
 ): Promise<{ id: number }> {
-  // 1. Lock the row inside the tx, then assert an approved gag.
+  // 1. Lock the row inside the tx, then assert the go-live rule on the
+  //    published set the caller just produced.
   const row = await lockFactRow(tx, factId);
-  if (!row || !(await hasApprovedGag(tx, factId))) {
+  if (!row || !(await checkGoLive(factId, "published", tx)).ok) {
     throw new ConceptMissingError(factId);
   }
 

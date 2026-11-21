@@ -302,46 +302,23 @@ test.describe("Admin described screens", () => {
     await expect(card.getByTestId("visual-concept-textarea")).toHaveValue(OVER_BUDGET_CONCEPT);
   });
 
-  // PR687 step 5 — the Facts page's refusal: its text, its colour, wrapped inside the gag card, and nothing saved.
-  test("an over-budget Visual Concept saved on the Facts page shows a wrapped refusal in the gag card", async ({ page }) => {
+  // Plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1F (increment 1.3a): a live fact's
+  // gags are not edited between Phase 1 and Phase 3, so the Facts page shows
+  // them read-only and says where editing comes back; "Draft more gags" is
+  // gone. The save refusal's wording and wrapping are the moderation test's above.
+  test("the Facts page shows a live fact's gags read-only, with no save and no Draft more gags", async ({ page }) => {
     await stubAdminFacts(page, [{
       row: adminFactRow({ id: 97201, text: "{NAME} leaps canyons." }),
       enrichment: enrichmentWithConcept("{NAME} leaps a canyon in one stride."),
     }]);
     const panel = await openFactEnrichment(page, 97201, "{NAME} leaps canyons.");
+    await expect(panel.getByTestId("gags-read-only-note")).toContainText("Gags can't be changed here.");
     const gag = panel.getByTestId("gag-card").first();
-    await gag.getByTestId("visual-concept-textarea").fill(OVER_BUDGET_CONCEPT);
-
-    const saved = page.waitForResponse((r) => r.request().method() === "PUT" && /\/api\/admin\/facts\/97201\/gags\/\d+$/.test(r.url()));
-    await gag.getByTestId("gag-save").click();
-    const response = await saved;
-    expect(response.status(), "the real server refuses the save").toBe(400);
-
-    const box = gag.getByTestId("gag-error");
-    await expect(box).toHaveText(BUDGET_SENTENCE);
-    await expect(box).toHaveCSS("color", await page.evaluate(() => {
-      const probe = document.createElement("span");
-      probe.className = "text-destructive";
-      document.body.appendChild(probe);
-      const c = getComputedStyle(probe).color;
-      probe.remove();
-      return c;
-    }));
-
-    // It wraps inside the gag card: nothing runs past the card's edge.
-    const [b, c] = await Promise.all([box, gag].map(async (l) => (await l.boundingBox())!));
-    expect(b.x).toBeGreaterThanOrEqual(c.x);
-    expect(b.x + b.width).toBeLessThanOrEqual(c.x + c.width + 0.5);
-    const overflow = await box.evaluate((el) => ({
-      box: el.scrollWidth - el.clientWidth,
-      lines: Math.round(el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight)),
-    }));
-    expect(overflow.box, "the sentence does not overflow its line").toBeLessThanOrEqual(0);
-    expect(overflow.lines, "the sentence wraps onto more than one line rather than running on").toBeGreaterThanOrEqual(2);
-
-    // Nothing saved: the edit is still in the box, and Save is still offered.
-    await expect(gag.getByTestId("visual-concept-textarea")).toHaveValue(OVER_BUDGET_CONCEPT);
-    await expect(gag.getByTestId("gag-save")).toBeEnabled();
+    await expect(gag).toBeVisible();
+    await expect(gag.getByTestId("gag-save")).toHaveCount(0);
+    await expect(gag.getByTestId("gag-remove")).toHaveCount(0);
+    await expect(gag.getByTestId("visual-concept-textarea")).toBeDisabled();
+    await expect(panel.getByText("Draft more gags")).toHaveCount(0);
   });
 
   // Launch Phase 4, removal 7: the orphaned comments page file is deleted;

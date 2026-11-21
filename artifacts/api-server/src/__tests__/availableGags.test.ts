@@ -23,6 +23,9 @@ import { EMPTY_VISUAL_STRATEGY_OVERRIDE, buildPlaceholderFactEnrichment, type Vi
 import { availableGags, GagNotAvailableError, resolveOfferedGag } from "../lib/gags/resolver.js";
 import { removeGag, saveGagContent } from "../lib/gags/gagStore.js";
 import { withCast } from "./helpers/gagCast.js";
+import { giveExampleSet } from "./helpers/gagExampleSets.js";
+import { publishDraft } from "../lib/gags/publish.js";
+import { GoLiveError } from "../lib/gags/goLive.js";
 
 const RUN = randomUUID().slice(0, 8);
 const scene = (text: string): VisualPromptStrategyOverride => withCast({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: text });
@@ -71,7 +74,7 @@ describe("availableGags: what a user may be offered", () => {
     assert.ok(list.every((g) => Array.isArray(g.content.roleBindings)), "content comes through the one normalising reader");
   });
 
-  it("never offers a new gag or a pending change; the approved version keeps being served", async () => {
+  it("never offers a draft-only gag or a draft change; the published version keeps being served", async () => {
     const { factId, gagIds } = await liveFact("{NAME} one.");
     await db.insert(factGagsTable).values({ factId, slot: 2, pendingContent: scene("{NAME} a new gag.") as never });
     await saveGagContent(factId, gagIds[0]!, scene("{NAME} one, changed."), { adminId, reviewId: null });
@@ -80,10 +83,28 @@ describe("availableGags: what a user may be offered", () => {
 
   it("drops a removed gag, and offers nothing for a fact that is not live", async () => {
     const { factId, gagIds } = await liveFact("{NAME} one.", "{NAME} two.");
-    await removeGag(factId, gagIds[0]!, { adminId, reviewId: null });
+    await db.update(factGagsTable).set({ removedAt: new Date() }).where(eq(factGagsTable.id, gagIds[0]!));
     assert.deepEqual(await scenes(factId), ["{NAME} two."]);
     await db.update(factsTable).set({ isActive: false }).where(eq(factsTable.id, factId));
     assert.deepEqual(await availableGags(factId), []);
+  });
+
+  it("a removal and a change in the draft reach users only when the draft is published, all at once (plan 1F)", async () => {
+    const { factId, gagIds } = await liveFact("{NAME} one.", "{NAME} two.");
+    for (const [i, id] of gagIds.entries()) await giveExampleSet(factId, id, scene(["{NAME} one.", "{NAME} two."][i]!), "approved");
+    await removeGag(factId, gagIds[0]!, { adminId, reviewId: null });
+    const changed = scene("{NAME} two, changed.");
+    await saveGagContent(factId, gagIds[1]!, changed, { adminId, reviewId: null });
+    assert.deepEqual(await scenes(factId), ["{NAME} one.", "{NAME} two."], "the published set is still served");
+    // The draft does not meet the go-live rule yet (the change has no renders): nothing is published.
+    await assert.rejects(() => db.transaction((tx) => publishDraft(tx, factId, adminId)), GoLiveError);
+    assert.deepEqual(await scenes(factId), ["{NAME} one.", "{NAME} two."]);
+    const picks = await giveExampleSet(factId, gagIds[1]!, changed, "pending");
+    const result = await db.transaction((tx) => publishDraft(tx, factId, adminId));
+    assert.deepEqual(result, { published: 1, removed: 1, unchanged: 0 });
+    const list = await availableGags(factId);
+    assert.deepEqual(list.map((g) => g.content.coreSceneOverride), ["{NAME} two, changed."]);
+    assert.deepEqual(list[0]!.examples, picks, "the draft's picks are the published examples");
   });
 });
 

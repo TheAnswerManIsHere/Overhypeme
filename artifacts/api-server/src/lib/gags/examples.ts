@@ -1,5 +1,5 @@
 /**
- * @purpose A gag's examples per subject kind: loading them, recording a moderator's pick, and completing a set, which applies the gag's change.
+ * @purpose A gag's examples per subject kind: loading them, recording a moderator's draft pick, and opening a published gag's draft examples.
  * @subsystem visual-pipeline
  *
  * Plan docs/plans/PLAN_GAG_EXAMPLES.md, sections A and B (David, 2026-11-15,
@@ -7,21 +7,17 @@
  * one per kind (male, female, pet) per stage:
  *   - approved rows belong to the approved version users get;
  *   - pending rows are picks for the content being worked on.
- * Outside a refresh, the third pending pick applies the change: the pending
- * content becomes the approved version and its picks the approved set, in
- * the caller's transaction. Inside a refresh, picks wait for promotion.
- *
- * A gag with no pending change that gets picks (a grandfathered gag gaining
- * its set, or an approved gag re-picking an example) records them straight
- * into its approved set: the content is the approved content already, so
- * nothing users get changes except the example shown.
+ * The stages are the fact's two sets (migration 0157): approved rows are the
+ * published set's examples, pending rows the draft's. A pick is always a
+ * draft pick; only a publish (./publish.ts) turns picks into published
+ * examples.
  *
  * The database enforces the set at commit (`enforce_gag_example_set`): every
  * function here runs inside a transaction that holds the fact and gag locks.
  */
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db, factGagsTable, factGagExamplesTable, type FactGag, type FactGagExample } from "@workspace/db";
-import { isCompleteSet, mapKinds, type GagExampleKind, type PerKind } from "@workspace/api-zod";
+import { mapKinds, type GagExampleKind, type PerKind } from "@workspace/api-zod";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Executor = typeof db | Tx;
@@ -81,42 +77,15 @@ export async function clearPendingExamples(tx: Tx, gagIds: number[]): Promise<vo
 }
 
 /**
- * Apply a gag's change once its pending picks form a complete set: the pending
- * content becomes the approved version, the picks become the approved set,
- * the old approved examples go, and the gag is no longer grandfathered.
- * Returns the updated gag, or null when the set is not complete yet.
+ * Open a published gag's draft examples: copy its published examples into the
+ * draft, replacing any draft picks. Used when a published gag unchanged in
+ * the draft gets its first draft change that keeps its content (a re-picked
+ * example), so the draft holds its whole set.
  */
-export async function applyPendingSetIfComplete(tx: Tx, gag: FactGag, adminId: string): Promise<FactGag | null> {
-  if (gag.pendingContent == null) return null;
-  const examples = await loadGagExamples(gag.id, tx);
-  if (!isCompleteSet(examples.pending)) return null;
-  await tx.delete(factGagExamplesTable).where(and(eq(factGagExamplesTable.gagId, gag.id), eq(factGagExamplesTable.stage, "approved")));
-  await tx.update(factGagExamplesTable).set({ stage: "approved" })
-    .where(and(eq(factGagExamplesTable.gagId, gag.id), eq(factGagExamplesTable.stage, "pending")));
-  const now = new Date();
-  const [updated] = await tx.update(factGagsTable).set({
-    approvedContent: gag.pendingContent,
-    approvedBeforeExampleSets: false,
-    approvedCarriedOver: false,
-    approvedBy: gag.pendingBy ?? adminId,
-    approvedAt: now,
-    pendingContent: null,
-    pendingBy: null,
-    pendingAt: null,
-    updatedAt: now,
-  }).where(eq(factGagsTable.id, gag.id)).returning();
-  return updated!;
-}
-
-/**
- * A grandfathered gag whose approved set has just become complete leaves the
- * grandfathered state (Q11: it lasts until the gag's first complete set).
- */
-export async function endGrandfatheringIfComplete(tx: Tx, gag: FactGag): Promise<FactGag> {
-  if (!isGrandfathered(gag)) return gag;
-  const examples = await loadGagExamples(gag.id, tx);
-  if (!isCompleteSet(examples.approved)) return gag;
-  const [updated] = await tx.update(factGagsTable).set({ approvedBeforeExampleSets: false, approvedCarriedOver: false, updatedAt: new Date() })
-    .where(eq(factGagsTable.id, gag.id)).returning();
-  return updated!;
+export async function copyPublishedExamplesToDraft(tx: Tx, gagId: number): Promise<void> {
+  await clearPendingExamples(tx, [gagId]);
+  await tx.execute(sql`
+    INSERT INTO fact_gag_examples (gag_id, subject_kind, stage, attempt_id, approved_by)
+    SELECT gag_id, subject_kind, 'pending', attempt_id, approved_by
+      FROM fact_gag_examples WHERE gag_id = ${gagId} AND stage = 'approved'`);
 }

@@ -652,14 +652,16 @@ function ReviewModal({
   // A fact can't ship without discovery tags (the server refuses it too).
   // ── Gag gates (plans PLAN_THREE_GAGS.md and PLAN_GAG_EXAMPLES.md) ──
   // Approving the Gags step needs a saved gag; approving for production needs
-  // a gag that will be offered once the decision lands: one approved already
-  // (with its male, female and pet examples, or grandfathered). The server
-  // enforces both and names what is missing; these only keep the buttons honest.
+  // the fact's whole draft set to meet the go-live rule: one to three gags,
+  // each with approved male, female and pet renders of its current content
+  // (plan PLAN_FACT_LIFECYCLE_REBUILD.md, item 12). The server evaluates the
+  // rule, here (`draftReady`) and again when approving; this only keeps the
+  // button honest.
   const gagsLive = gagsView?.gags ?? [];
   const hasSavedGag = gagsLive.some((g) => !!(g.pendingContent ?? g.approvedContent)?.coreSceneOverride?.trim());
-  const hasApprovedGag = gagsLive.some((g) => g.approvedContent != null);
+  const draftReady = gagsView?.draftReady ?? { ok: false, reason: null };
   const canApproveProduction = finalHashtags.length > 0
-    && hasApprovedGag
+    && draftReady.ok
     && !gagsUnsaved;
   const ideasPending = visualConceptStatus === "pending";
   const ideasFailed = visualConceptStatus === "failed";
@@ -1086,8 +1088,8 @@ function ReviewModal({
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                     {gagsUnsaved
                       ? `Save or undo your edits to ${unsavedGagsWords} first: approving uses the saved gags.`
-                      : !hasApprovedGag
-                      ? "Approve is locked until a gag has its male, female and pet examples: render them above and approve all three."
+                      : !draftReady.ok
+                      ? `Approve is locked until every gag has its male, female and pet renders approved.${draftReady.reason ? ` ${draftReady.reason}` : ""}`
                       : "Approve is locked until there's at least one hashtag. Add a tag under Final hashtags (above the gags) — clearing them all is usually a mistake."}
                   </p>
                 )}

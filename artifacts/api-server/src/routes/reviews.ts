@@ -56,9 +56,9 @@ import {
   recordFirstApproval,
   ConceptMissingError,
   ActivationConflictError,
-  hasApprovedGag,
 } from "../lib/factActivation";
-import { exampleSetGaps, describeExampleSetGaps } from "../lib/gags/gagStore";
+import { checkGoLive, describeGoLive, GoLiveError, type GoLiveCheck } from "../lib/gags/goLive";
+import { publishDraft } from "../lib/gags/publish";
 import { enqueueVisualConceptsForReview, buildVisualConceptsResponse } from "../lib/visualConceptJobs";
 import {
   buildAndEnqueueImagePromptAttempt,
@@ -469,6 +469,11 @@ async function attachHashtags(tx: DbExecutor, factId: number, tags: string[]): P
  * (another moderator rejected or approved it first) is refused with
  * REVIEW_MOVED.
  */
+/** The go-live rule's refusal: what is missing, in words and per gag. */
+function refuseGoLive(res: Response, check: GoLiveCheck): void {
+  res.status(409).json({ error: describeGoLive(check), code: "CONCEPT_MISSING", gaps: check.gaps, gagCount: check.gagCount });
+}
+
 async function approveForProduction(
   req: AuthenticatedRequest,
   res: Response,
@@ -510,20 +515,12 @@ async function approveForProduction(
   const classification = validateEnrichment(stagingFact.enrichment);
   const enrichment = classification.ok ? classification.data : null;
 
-  // An approved gag (blocking): a fact goes live only with at least one gag
-  // whose male, female and pet examples a moderator approved (plans
-  // PLAN_THREE_GAGS.md and PLAN_GAG_EXAMPLES.md, section D). Advisory pre-check for a clean 409;
-  // activateFact re-checks in the activating transaction, and the live-fact
-  // trigger at commit. Gags still pending stay hidden and can be finished later.
-  if (!(await hasApprovedGag(db, stagingFact.id))) {
-    const gaps = await exampleSetGaps(stagingFact.id);
-    res.status(409).json({
-      error: describeExampleSetGaps(gaps),
-      code: "CONCEPT_MISSING",
-      gaps,
-    });
-    return;
-  }
+  // The go-live rule (blocking; plan PLAN_FACT_LIFECYCLE_REBUILD.md, oracle
+  // item 12) is checked only inside the approving transaction, after the
+  // review's lock: publishDraft refuses a draft that fails it, and
+  // activateFact checks the published set it produced. A check before the
+  // lock would read a review a concurrent Reject is moving, and answer
+  // "a gag is missing" where the truth is "the review moved".
 
   // Final discovery tags. The moderator's curated list from the approve body is
   // authoritative; absent that, fall back to the submitter's tags (else the
@@ -549,8 +546,12 @@ async function approveForProduction(
     await db.transaction(async (tx) => {
       const locked = await lockReviewAt(tx, reviewId, canProductionApprove);
       if (!locked || locked.stagingFactId !== stagingFact.id) throw new ReviewMovedError(locked?.workflowStage ?? "gone", locked?.status ?? "gone");
-      // Sole activation chokepoint: locks the fact (after the review, the lock
-      // rule's order), re-reads the approved gag in-tx and does the
+      // The draft becomes the published set: locks the fact (after the review,
+      // the lock rule's order) and its gags, re-checks the go-live rule on the
+      // draft, and refuses with GoLiveError, changing nothing, if it fails.
+      await lockFactRow(tx, stagingFact.id);
+      await publishDraft(tx, stagingFact.id, req.user.id);
+      // Sole activation chokepoint: checks the published set and does the
       // compare-and-set flip. Throws ConceptMissingError /
       // ActivationConflictError — never activates on failure.
       await activateFact(tx, { factId: stagingFact.id, expectedText: validatedText });
@@ -584,10 +585,9 @@ async function approveForProduction(
       res.status(409).json({ error: "The fact's text changed while you were approving it. Re-review the current wording, then approve again.", code: "FACT_TEXT_CHANGED_DURING_APPROVAL" });
       return;
     }
-    if (err instanceof ConceptMissingError) {
-      logger.warn({ reviewId, factId: stagingFact.id }, "[moderation] approval aborted: no approved gag at activation");
-      const gaps = await exampleSetGaps(stagingFact.id);
-      res.status(409).json({ error: describeExampleSetGaps(gaps), code: "CONCEPT_MISSING", gaps });
+    if (err instanceof GoLiveError || err instanceof ConceptMissingError) {
+      logger.warn({ reviewId, factId: stagingFact.id }, "[moderation] approval aborted: the go-live rule failed in the approving transaction");
+      refuseGoLive(res, err instanceof GoLiveError ? err.check : await checkGoLive(stagingFact.id, "draft"));
       return;
     }
     throw err;

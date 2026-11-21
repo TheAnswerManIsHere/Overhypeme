@@ -398,6 +398,8 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     approvedBeforeExampleSets: "drop",
     approvedBy: "map-user",
     approvedAt: "keep",
+    // 0157: left to its default, false; the committed fixture predates it.
+    draftRemoved: "drop",
     pendingContent: "shape:visualStrategyOverride",
     pendingExampleAttemptId: "ref:image_prompt_attempts",
     pendingBy: "map-user",

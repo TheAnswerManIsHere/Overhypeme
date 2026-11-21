@@ -336,17 +336,17 @@ export const visualConceptProvenanceSchema = z.object({
 });
 export type VisualConceptProvenance = z.infer<typeof visualConceptProvenanceSchema>;
 
-/** Where a generation read its fact: a review's staging fact, or a live fact
- *  outside any review (Draft more gags, plan PLAN_THREE_GAGS.md increment 2). */
-export const VISUAL_CONCEPT_SOURCE_VALUES = ["staging_fact", "live_fact"] as const;
+/** Where a generation read its fact: a review's staging fact (the only
+ *  source since Draft more gags on a live fact was removed; migration 0157). */
+export const VISUAL_CONCEPT_SOURCE_VALUES = ["staging_fact"] as const;
 export type VisualConceptSource = (typeof VISUAL_CONCEPT_SOURCE_VALUES)[number];
 
 export const visualConceptCandidatesBlobSchema = z.object({
   candidates: z.array(storedCandidateConceptSchema),
   generatedAt: z.string(),
   provenance: visualConceptProvenanceSchema,
-  /** The review cycle these candidates were drafted for; null for a live draft. */
-  reviewId: z.number().nullable(),
+  /** The review cycle these candidates were drafted for. */
+  reviewId: z.number(),
   source: z.enum(VISUAL_CONCEPT_SOURCE_VALUES),
   /** Hash over the render-affecting inputs — see buildVisualConceptInputHash. */
   inputHash: z.string(),

@@ -32,8 +32,8 @@ import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { db, factGagsTable, pool } from "@workspace/db";
 
-import { discardGagChange } from "../lib/gags/gagStore.js";
-import { applyPendingSetIfComplete, putExample } from "../lib/gags/examples.js";
+import { putExample } from "../lib/gags/examples.js";
+import { publishedGagRuleOff, publishedGagRuleOn } from "./helpers/publishedGagRule.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../../../..");
@@ -194,6 +194,8 @@ describe("migration 0143: a gag's examples, one per kind", () => {
   let adminId = "";
 
   before(async () => {
+    // Data in its own era's shape: no approval record yet, no 0157 rule.
+    await publishedGagRuleOff();
     await cleanup();
     adminId = await adminUser();
   });
@@ -207,6 +209,8 @@ describe("migration 0143: a gag's examples, one per kind", () => {
       ALTER TABLE fact_gags DROP COLUMN IF EXISTS pending_remove;
       ALTER TABLE fact_gags DROP COLUMN IF EXISTS pending_review_id;
     `));
+    // Back on last, once this file's era-shaped rows are gone.
+    await publishedGagRuleOn();
   });
 
   describe("the runner first", () => {
@@ -244,12 +248,18 @@ describe("migration 0143: a gag's examples, one per kind", () => {
       await assertMatrix(s);
     });
 
-    it("a migrated pick can be completed and approved; the retained columns stay as they were", async () => {
+    it("a migrated pick can be completed and published; the retained columns stay as they were", async () => {
       await db.transaction(async (tx) => {
         await putExample(tx, s.refreshing, "male", "pending", await attempt(s.refreshingFact, s.refreshing, "i2i_male_default"), adminId);
         await putExample(tx, s.refreshing, "pet", "pending", await attempt(s.refreshingFact, s.refreshing, "i2i_nonhuman_animal"), adminId);
-        const [row] = await tx.select().from(factGagsTable).where(eq(factGagsTable.id, s.refreshing));
-        assert.ok(await applyPendingSetIfComplete(tx, row!, adminId), "the third pick applies the change");
+        // What a publish does to this gag (lib/gags/publish.ts, migration
+        // 0157): its picks become its published examples and its draft its
+        // published content. Since 0157 a gag is published only on a fact
+        // approved for production, so the fact's approval is recorded first.
+        await tx.execute(sql`UPDATE facts SET approved_at = coalesce(approved_at, now()), approval_source = coalesce(approval_source, 'legacy') WHERE id = ${s.refreshingFact}`);
+        await tx.execute(sql`DELETE FROM fact_gag_examples WHERE gag_id = ${s.refreshing} AND stage = 'approved'`);
+        await tx.execute(sql`UPDATE fact_gag_examples SET stage = 'approved' WHERE gag_id = ${s.refreshing} AND stage = 'pending'`);
+        await tx.execute(sql`UPDATE fact_gags SET approved_content = pending_content, approved_before_example_sets = false, approved_carried_over = false, pending_content = NULL, pending_by = NULL, pending_at = NULL WHERE id = ${s.refreshing}`);
       });
       const kinds = (await examplesOf(s.refreshing)).filter((e) => e.stage === "approved").map((e) => e.subject_kind);
       assert.deepEqual(kinds, ["female", "male", "pet"]);
@@ -317,15 +327,6 @@ describe("migration 0143: a gag's examples, one per kind", () => {
           client.release();
         }
       }
-    });
-
-    it("a migrated pick can be discarded, and the retained column stays as it was", async () => {
-      await discardGagChange(s.refreshingFact, s.refreshing, { adminId, reviewId: s.refreshReview });
-      assert.deepEqual(await examplesOf(s.refreshing), [], "the pick goes with the change");
-      const f = await flagsOf(s.refreshing);
-      assert.equal(f.pex, s.refreshPickAttempt);
-      const g = await one<{ pending_content: unknown }>(sql`SELECT pending_content FROM fact_gags WHERE id = ${s.refreshing}`);
-      assert.equal(g.pending_content, null);
     });
   });
 });

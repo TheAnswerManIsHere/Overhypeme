@@ -1,5 +1,5 @@
 /**
- * @purpose What the admin Gags panel reads for one fact: each gag's state in words, whether users could be offered it, its approved example and pending change, and its test renders.
+ * @purpose What the admin Gags panel reads for one fact: each gag's published and draft versions and examples, whether users could be offered it, its test renders, and whether the draft meets the go-live rule.
  * @subsystem visual-pipeline
  *
  * Plans docs/plans/PLAN_THREE_GAGS.md (section E) and
@@ -18,6 +18,7 @@ import { GAG_EXAMPLE_KINDS, MAX_GAGS_PER_FACT, mapKinds, type FactGagsView, type
 import { buildGagKindCards, gagRenderImageUrl } from "../reviewRenderScenarios";
 import { loadGags, normaliseGagContent, openReviewForFact } from "./resolver";
 import { examplesFor, isGrandfathered, loadExamples, type GagExamples } from "./examples";
+import { checkGoLive, describeGoLive } from "./goLive";
 
 async function examples(ids: number[], gagIdOf: Map<number, number>): Promise<Map<number, GagExample>> {
   const out = new Map<number, GagExample>();
@@ -58,13 +59,17 @@ export async function buildFactGagsView(factId: number): Promise<FactGagsView | 
 
   // Each gag's render tiles are independent reads: the view is polled while
   // renders draw, so they run together.
-  const views: GagView[] = await Promise.all(gags.map((g) => viewOf(g, fact.isActive, defaultId, examplesFor(byGag, g.id), ex)));
+  const [views, ready] = await Promise.all([
+    Promise.all(gags.map((g) => viewOf(g, fact.isActive, defaultId, examplesFor(byGag, g.id), ex))) as Promise<GagView[]>,
+    checkGoLive(factId, "draft", db, gags),
+  ]);
   return {
     factId,
     isActive: fact.isActive,
     review: review ? { id: review.id, stage: review.workflowStage } : null,
     gags: views,
     maxGags: MAX_GAGS_PER_FACT,
+    draftReady: { ok: ready.ok, reason: ready.ok ? null : describeGoLive(ready) },
   };
 }
 
@@ -80,7 +85,7 @@ async function viewOf(
   ex: Map<number, GagExample>,
 ): Promise<GagView> {
   const approved = g.approvedContent != null;
-  const state = !approved ? "new" : g.pendingContent != null ? "approved_with_change" : "approved";
+  const state = !approved ? "new" : g.pendingContent != null || g.draftRemoved ? "approved_with_change" : "approved";
   return {
     id: g.id,
     slot: g.slot,
@@ -93,6 +98,7 @@ async function viewOf(
     approvedAt: g.approvedAt?.toISOString() ?? null,
     pendingContent: normaliseGagContent(g.pendingContent),
     pendingExamples: perKind(set.pending, ex),
+    draftRemoved: g.draftRemoved,
     renders: await buildGagKindCards(g.id),
   };
 }

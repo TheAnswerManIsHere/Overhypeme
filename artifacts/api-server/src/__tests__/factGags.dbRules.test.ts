@@ -7,6 +7,9 @@
  *     refused (the refresh-only operations went with migration 0153);
  *   - a fact cannot be activated without an approved gag, and the last
  *     approved gag of a live fact cannot be removed or emptied;
+ *   - published content is refused on a fact never approved for production,
+ *     and only a published gag with no draft change can be removed in the
+ *     draft (migration 0157);
  *   - with two connections, two concurrent removals of a live fact's two
  *     approved gags, and an activation racing a removal, leave the rule intact:
  *     validation sees the preceding committed change.
@@ -29,7 +32,8 @@ async function makeFact(name: string, opts: { gags: number; active: boolean }): 
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const f = await client.query("INSERT INTO facts (text, is_active) VALUES ($1, false) RETURNING id", [P + name]);
+    // Approved for production on record: a gag's published content needs it (0157).
+    const f = await client.query("INSERT INTO facts (text, is_active, approved_at, approval_source) VALUES ($1, false, now(), 'legacy') RETURNING id", [P + name]);
     const factId = f.rows[0].id as number;
     const gagIds: number[] = [];
     for (let slot = 1; slot <= opts.gags; slot++) {
@@ -74,6 +78,33 @@ describe("fact_gags: rules the database enforces", () => {
     await assert.rejects(exec(`INSERT INTO fact_gags (fact_id, slot, pending_content) VALUES ($1, 1, '{"coreSceneOverride":"  "}'::jsonb)`, [factId]), /fact_gags_pending_scene_nonempty/);
     await assert.rejects(exec(`INSERT INTO fact_gags (fact_id, slot, pending_content) VALUES ($1, 1, '{"coreSceneOverride":42}'::jsonb)`, [factId]), /fact_gags_pending_scene_nonempty/);
     await assert.rejects(exec("INSERT INTO fact_gags (fact_id, slot) VALUES ($1, 1)", [factId]), /fact_gags_has_a_version/);
+  });
+
+  it("refuses published content on a fact never approved for production, at commit (0157)", async () => {
+    const f = await exec("INSERT INTO facts (text, is_active) VALUES ($1, false) RETURNING id", [P + "never-approved"]);
+    const factId = f.rows[0].id as number;
+    await assert.rejects(
+      exec("INSERT INTO fact_gags (fact_id, slot, approved_content, approved_carried_over) VALUES ($1, 1, $2::jsonb, true)", [factId, GAG]),
+      /never approved for production/,
+    );
+    // A draft is fine, and recording the approval in the same transaction as the publish is too.
+    await exec("INSERT INTO fact_gags (fact_id, slot, pending_content) VALUES ($1, 1, $2::jsonb)", [factId, GAG]);
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("UPDATE fact_gags SET approved_content = pending_content, approved_carried_over = true, pending_content = NULL WHERE fact_id = $1", [factId]);
+      await client.query("UPDATE facts SET approved_at = now(), approval_source = 'moderator' WHERE id = $1", [factId]);
+      await client.query("COMMIT");
+    } finally {
+      client.release();
+    }
+  });
+
+  it("marks only a published gag with no draft change as removed in the draft (0157)", async () => {
+    const { factId, gagIds } = await makeFact("draft-removed", { gags: 1, active: false });
+    await exec("UPDATE fact_gags SET draft_removed = true WHERE id = $1", [gagIds[0]]);
+    await assert.rejects(exec("UPDATE fact_gags SET pending_content = $2::jsonb WHERE id = $1", [gagIds[0], GAG]), /fact_gags_draft_removed_is_published/);
+    await assert.rejects(exec("INSERT INTO fact_gags (fact_id, slot, pending_content, draft_removed) VALUES ($1, 2, $2::jsonb, true)", [factId, GAG]), /fact_gags_draft_removed_is_published/);
   });
 
   it("refuses activating a fact with no approved gag, including one with only a pending gag", async () => {

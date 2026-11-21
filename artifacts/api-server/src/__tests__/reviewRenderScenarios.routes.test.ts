@@ -94,7 +94,8 @@ async function seedReview(submittedById: string, stage = "test_renders"): Promis
     text: "{NAME} bench-presses the Earth.", submittedById, isActive: false, enrichment: ENRICHMENT,
   }).returning({ id: factsTable.id });
   insertedFactIds.push(fact!.id);
-  await db.insert(factGagsTable).values({ factId: fact!.id, slot: 1, approvedContent: GAG, approvedCarriedOver: true });
+  // A submission's gag is in its draft (migration 0157).
+  await db.insert(factGagsTable).values({ factId: fact!.id, slot: 1, pendingContent: GAG });
   gagOf.set(fact!.id, (await db.select({ id: factGagsTable.id }).from(factGagsTable).where(eq(factGagsTable.factId, fact!.id)))[0]!.id);
   const [review] = await db.insert(pendingReviewsTable).values({
     submittedText: "{NAME} bench-presses the Earth.", submittedById, matchingSimilarity: 0,

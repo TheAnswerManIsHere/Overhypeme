@@ -54,16 +54,6 @@ export function mapKinds<T>(fn: (kind: GagExampleKind) => T): Record<GagExampleK
   return Object.fromEntries(GAG_EXAMPLE_KINDS.map((k) => [k, fn(k)])) as Record<GagExampleKind, T>;
 }
 
-/** Whether a set holds every kind. */
-export function isCompleteSet(set: Record<GagExampleKind, unknown | null>): boolean {
-  return GAG_EXAMPLE_KINDS.every((k) => set[k] != null);
-}
-
-/** The kinds a set still lacks, in display order. */
-export function missingKinds(set: Record<GagExampleKind, unknown | null>): GagExampleKind[] {
-  return GAG_EXAMPLE_KINDS.filter((k) => set[k] == null);
-}
-
 /** "a", "a and b", "a, b and c". */
 export function joinWithAnd(words: readonly string[]): string {
   return words.length <= 1 ? (words[0] ?? "") : `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
@@ -127,10 +117,11 @@ export const gagApproveBodySchema = z.object({ attemptId: z.number().int().posit
 export type GagApproveBody = z.infer<typeof gagApproveBodySchema>;
 
 /**
- * A gag's state for moderators, in words:
- * - `new`: saved, never approved; hidden from users.
- * - `approved`: approved and, on a live fact, offered to users.
- * - `approved_with_change`: approved, with a saved change not yet approved; users get the approved version.
+ * Where a gag stands between the fact's two sets (migration 0157):
+ * - `new`: in the draft only; nothing of it is published.
+ * - `approved`: published, unchanged in the draft.
+ * - `approved_with_change`: published, with a draft change (or removed in the
+ *   draft) that members get only when the draft is published.
  */
 export type GagState = "new" | "approved" | "approved_with_change";
 
@@ -161,8 +152,10 @@ export interface GagView {
   grandfathered: boolean;
   approvedAt: string | null;
   pendingContent: VisualPromptStrategyOverride | null;
-  /** Picks for the content being worked on, per kind; the third pick applies the change. */
+  /** Draft picks for the content being worked on, per kind; they reach members only when the draft is published. */
   pendingExamples: PerKind<GagExample | null>;
+  /** A published gag the draft removes: still offered until the draft is published. */
+  draftRemoved: boolean;
   /**
    * This gag's render of its current content, per kind: the attempt the
    * scheduler reused or drew for that content (null when none was drawn).
@@ -178,6 +171,12 @@ export interface FactGagsView {
   review: { id: number; stage: string } | null;
   gags: GagView[];
   maxGags: number;
+  /**
+   * The go-live rule on the fact's draft set (lib/gags/goLive.ts): whether
+   * "Approve for production" (or, from Phase 3, "Publish changes") would be
+   * accepted now, and if not, why in words.
+   */
+  draftReady: { ok: boolean; reason: string | null };
 }
 
 // ─── The fold and cast fill (plan PLAN_GAG_DIRECT_RENDER.md, E) ─────────────
