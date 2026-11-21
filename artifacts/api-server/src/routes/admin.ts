@@ -2,7 +2,7 @@ import { Router, type IRouter, type Request, type Response, type NextFunction } 
 import { z } from "zod";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, featureFlagsTable, userGenerationCostsTable, membershipEntitlementsTable, entitlementSourceDisputesTable, membershipHistoryTable, asyncJobsTable, stripeWebhookAuditTable, factTextEditHistoryTable } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, featureFlagsTable, userGenerationCostsTable, membershipEntitlementsTable, entitlementSourceDisputesTable, membershipHistoryTable, asyncJobsTable, stripeWebhookAuditTable, factTextEditHistoryTable, factTaxonomyRunsTable } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, getTableColumns } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
@@ -34,6 +34,7 @@ import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { normalizeFactTemplateForStorage } from "../lib/normalizeFactTemplateForStorage";
 import { logActivity } from "../lib/activity";
 import { recordAdminAction } from "../lib/adminActions";
+import { factEnrichmentPayload } from "../lib/enrichmentJobs";
 import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConfig";
 import {
   isMembershipConfigKey,
@@ -824,7 +825,9 @@ const FACT_LIST_COLUMNS = {
   splitTokenIndex: factsTable.splitTokenIndex,
   createdAt: factsTable.createdAt,
   updatedAt: factsTable.updatedAt,
-  primaryArchetype: factsTable.primaryArchetype,
+  // Read from the stored taxonomy itself: the projection column is no longer
+  // written (2.1b) and is dropped in 2.1c.
+  primaryArchetype: sql<string | null>`(${factsTable.enrichment} ->> 'primaryArchetype')`,
   enrichmentStatus: factsTable.enrichmentStatus,
   hasEmbedding: sql<boolean>`(${factsTable.embedding} IS NOT NULL)`,
   hasEnrichment: sql<boolean>`(${factsTable.enrichment} IS NOT NULL)`,
@@ -1081,10 +1084,36 @@ router.get("/admin/facts/:id", requireAdmin, async (req: Request, res: Response)
   res.json(row);
 });
 
-// POST /admin/facts/:id/enrich — re-run classification on a live fact. Marks
-// enrichmentStatus "pending" and enqueues the (generalized) enrichment job for
-// the fact target. The destructive "this overwrites admin-tuned metadata"
-// confirmation is enforced client-side; this endpoint just enqueues.
+// GET /admin/facts/:id/taxonomy-runs — the fact's taxonomy run history, newest
+// first (plan item 16): every classifier call, failures included, and the
+// legacy versions 0159 converted. Read-only.
+router.get("/admin/facts/:id/taxonomy-runs", requireAdmin, async (req: Request, res: Response) => {
+  const id = Number(req.params["id"]);
+  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
+  const [fact] = await db.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, id)).limit(1);
+  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
+
+  const runs = await db
+    .select({
+      id: factTaxonomyRunsTable.id,
+      outcome: factTaxonomyRunsTable.outcome,
+      origin: factTaxonomyRunsTable.origin,
+      output: factTaxonomyRunsTable.output,
+      error: factTaxonomyRunsTable.error,
+      requestedByName: sql<string | null>`coalesce(${usersTable.displayName}, ${usersTable.firstName}, ${usersTable.email})`,
+      createdAt: factTaxonomyRunsTable.createdAt,
+    })
+    .from(factTaxonomyRunsTable)
+    .leftJoin(usersTable, eq(usersTable.id, factTaxonomyRunsTable.requestedBy))
+    .where(eq(factTaxonomyRunsTable.factId, id))
+    .orderBy(desc(factTaxonomyRunsTable.createdAt), desc(factTaxonomyRunsTable.id));
+  res.json({ runs });
+});
+
+// POST /admin/facts/:id/enrich — "Re-run": a fresh taxonomy run for the fact.
+// Marks enrichmentStatus "pending" and enqueues the enrichment job, carrying who
+// asked so the run's history row records it (plan item 16). The paid-call
+// confirmation is the client's; this endpoint just enqueues.
 router.post("/admin/facts/:id/enrich", requireAdmin, async (req: Request, res: Response) => {
   const id = Number(req.params["id"]);
   if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
@@ -1095,7 +1124,7 @@ router.post("/admin/facts/:id/enrich", requireAdmin, async (req: Request, res: R
   await db.update(factsTable).set({ enrichmentStatus: "pending" }).where(eq(factsTable.id, id));
   await enqueueJob({
     queue: "enrichment",
-    payload: { factId: id },
+    payload: factEnrichmentPayload(id, "rerun", req.user?.id ?? null),
     dedupeKey: `enrichment:fact:${id}`,
   });
   await recordAdminAction({ factId: id }, req.user?.id, "classification_rerun", {});

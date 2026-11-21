@@ -26,8 +26,8 @@ import request from "supertest";
 
 import { db, factGagsTable } from "@workspace/db";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
-import { factsTable, usersTable, asyncJobsTable, pendingReviewsTable } from "@workspace/db/schema";
-import { eq, inArray, like, and } from "drizzle-orm";
+import { factsTable, usersTable, asyncJobsTable, pendingReviewsTable, factTaxonomyRunsTable } from "@workspace/db/schema";
+import { eq, inArray, like, and, asc, sql } from "drizzle-orm";
 import {
   buildPlaceholderFactEnrichment,
   buildPlaceholderGag,
@@ -40,7 +40,7 @@ import adminRouter from "../routes/admin.js";
 import gagsRouter from "../routes/gags.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import { runEnrichmentForFact } from "../lib/enrichmentJobs.js";
-import { buildFactEnrichmentColumns, EnrichmentError } from "../lib/factEnrichment.js";
+import { EnrichmentError } from "../lib/factEnrichment.js";
 import { compileDirect } from "../lib/imagePrompt/compilers/nanoBanana2.js";
 import { directGagInput } from "../lib/imagePrompt/directInput.js";
 import { withCast } from "./helpers/gagCast.js";
@@ -124,7 +124,7 @@ after(cleanup);
 
 describe("GET /admin/facts/:id", () => {
   it("returns the enrichment and enrichmentStatus", async () => {
-    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+    const id = await insertFact({ enrichment: VALID, enrichmentStatus: "ok" });
 
     const res = await request(adminApp).get(`/api/admin/facts/${id}`);
     assert.equal(res.status, 200);
@@ -135,7 +135,7 @@ describe("GET /admin/facts/:id", () => {
 
   it("omits the embedding and heavy generation blobs", async () => {
     const id = await insertFact({
-      ...buildFactEnrichmentColumns(VALID),
+      enrichment: VALID,
       aiScenePrompts: { foo: "bar" },
       aiMemeImages: { male: ["blob.png"], female: [], neutral: [] },
     });
@@ -178,7 +178,7 @@ describe("GET /admin/facts — a flat list", () => {
 
 describe("saving a gag — who and when, and its tokens", () => {
   it("records who saved a gag change and when, and an identical re-save changes neither", async () => {
-    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+    const id = await insertFact({ enrichment: VALID, enrichmentStatus: "ok" });
     const override = vso({ bubbles: [{ type: "speech", entity: "subject", text: "Light as a feather." }] }, "{NAME} hoists a glowing barbell overhead.");
 
     assert.equal((await patchVso(id, override)).status, 200);
@@ -196,7 +196,7 @@ describe("saving a gag — who and when, and its tokens", () => {
   });
 
   it("canonicalizes {name}/{Name} tokens and rejects unknown tokens in a gag", async () => {
-    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+    const id = await insertFact({ enrichment: VALID, enrichmentStatus: "ok" });
     const base = vso({}, "{NAME} stands ready in the arena.");
     // {name} canonicalizes to {NAME}.
     const ok = await patchVso(id, { ...base, bubbles: [{ type: "speech", entity: "subject", text: "{name} wins again" }] });
@@ -212,7 +212,7 @@ describe("saving a gag — who and when, and its tokens", () => {
 
 describe("the taxonomy is read-only (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 2A)", () => {
   it("no route edits, overrides or versions a fact's taxonomy any more", async () => {
-    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+    const id = await insertFact({ enrichment: VALID, enrichmentStatus: "ok" });
     const gone: Array<[string, () => Promise<{ status: number }>]> = [
       ["PATCH enrichment", () => request(adminApp).patch(`/api/admin/facts/${id}/enrichment`).send({ enrichment: { ...VALID, suggestedHashtags: ["alpha", "beta", "gamma"] } })],
       ["GET enrichment-resolved", () => request(adminApp).get(`/api/admin/facts/${id}/enrichment-resolved`)],
@@ -230,7 +230,7 @@ describe("the taxonomy is read-only (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 2A)", 
 
 describe("POST /admin/facts/:id/enrich", () => {
   it("marks the fact pending and enqueues an enrichment job", async () => {
-    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+    const id = await insertFact({ enrichment: VALID, enrichmentStatus: "ok" });
 
     const res = await request(adminApp).post(`/api/admin/facts/${id}/enrich`);
     assert.equal(res.status, 200);
@@ -244,12 +244,90 @@ describe("POST /admin/facts/:id/enrich", () => {
       .from(asyncJobsTable)
       .where(and(eq(asyncJobsTable.queue, "enrichment"), eq(asyncJobsTable.dedupeKey, `enrichment:fact:${id}`)));
     assert.equal(jobs.length, 1);
-    assert.equal((jobs[0].payload as { factId?: number }).factId, id);
+    assert.deepEqual(jobs[0].payload, { factId: id, origin: "rerun", requestedBy: adminId });
   });
 
   it("404s an unknown fact and 400s a bad id", async () => {
     assert.equal((await request(adminApp).post(`/api/admin/facts/2000000000/enrich`)).status, 404);
     assert.equal((await request(adminApp).post(`/api/admin/facts/0/enrich`)).status, 400);
+  });
+});
+
+describe("taxonomy run history (plan item 16; Issue #1018, increment 2.1b)", () => {
+  const history = (factId: number) => db.select().from(factTaxonomyRunsTable)
+    .where(eq(factTaxonomyRunsTable.factId, factId)).orderBy(asc(factTaxonomyRunsTable.id));
+
+  it("a stored run leaves one ok row carrying its output, origin and who asked", async () => {
+    const id = await insertFact({ enrichmentStatus: "pending", isActive: true, enrichment: buildPlaceholderFactEnrichment() });
+    await runEnrichmentForFact(id, { classify: async () => ({ ...OTHER }) }, { origin: "rerun", requestedBy: adminId });
+    const rows = await history(id);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!.outcome, "ok");
+    assert.equal(rows[0]!.origin, "rerun");
+    assert.equal(rows[0]!.requestedBy, adminId);
+    assert.equal(rows[0]!.error, null);
+    assert.deepEqual(rows[0]!.output, (await db.select().from(factsTable).where(eq(factsTable.id, id)))[0]!.enrichment);
+  });
+
+  it("a failed call leaves a failed row with the error and no output, and the earlier taxonomy stays", async () => {
+    const id = await insertFact({ enrichmentStatus: "pending", isActive: true, enrichment: VALID });
+    await runEnrichmentForFact(id, { classify: async () => { throw new EnrichmentError("the classifier timed out"); } });
+    const rows = await history(id);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!.outcome, "failed");
+    assert.equal(rows[0]!.origin, "unrecorded");
+    assert.equal(rows[0]!.output, null);
+    assert.match(rows[0]!.error ?? "", /timed out/);
+    const [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
+    assert.equal((row!.enrichment as FactEnrichment).primaryArchetype, VALID.primaryArchetype);
+  });
+
+  it("a run whose fact left its state mid-call leaves a discarded row and stores nothing", async () => {
+    const id = await insertFact({ enrichmentStatus: "pending", isActive: true, enrichment: VALID });
+    await runEnrichmentForFact(id, {
+      classify: async () => {
+        await db.update(factsTable).set({ isActive: false }).where(eq(factsTable.id, id));
+        return { ...OTHER };
+      },
+    }, { origin: "provisional_approval", requestedBy: null });
+    const rows = await history(id);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!.outcome, "discarded");
+    assert.equal(rows[0]!.origin, "provisional_approval");
+    assert.equal((rows[0]!.output as FactEnrichment).primaryArchetype, OTHER.primaryArchetype);
+    assert.match(rows[0]!.error ?? "", /left the state/);
+    const [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
+    assert.equal((row!.enrichment as FactEnrichment).primaryArchetype, VALID.primaryArchetype);
+  });
+
+  it("a skipped run (nothing to classify for) calls nothing and writes no row", async () => {
+    const id = await insertFact({ enrichmentStatus: "pending", isActive: false });
+    let called = false;
+    await runEnrichmentForFact(id, { classify: async () => { called = true; return { ...OTHER }; } });
+    assert.equal(called, false);
+    assert.deepEqual(await history(id), []);
+  });
+
+  it("GET /admin/facts/:id/taxonomy-runs lists the runs newest first, naming who asked", async () => {
+    const id = await insertFact({ enrichmentStatus: "pending", isActive: true, enrichment: VALID });
+    await runEnrichmentForFact(id, { classify: async () => { throw new EnrichmentError("boom"); } }, { origin: "rerun", requestedBy: adminId });
+    await runEnrichmentForFact(id, { classify: async () => ({ ...OTHER }) }, { origin: "rerun", requestedBy: adminId });
+    const res = await request(adminApp).get(`/api/admin/facts/${id}/taxonomy-runs`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.runs.map((r: { outcome: string }) => r.outcome), ["ok", "failed"]);
+    assert.equal(res.body.runs[0].requestedByName, adminEmail);
+    assert.equal(res.body.runs[1].error, "boom");
+    assert.equal((await request(adminApp).get(`/api/admin/facts/2000000000/taxonomy-runs`)).status, 404);
+    assert.equal((await request(adminApp).get(`/api/admin/facts/0/taxonomy-runs`)).status, 400);
+  });
+
+  it("the Facts list reads the archetype from the stored taxonomy, not the retired projection column", async () => {
+    const id = await insertFact({ enrichment: OTHER, enrichmentStatus: "ok" });
+    await db.execute(sql`UPDATE facts SET primary_archetype = 'stale_projection' WHERE id = ${id}`);
+    const [row] = await db.select({ text: factsTable.text }).from(factsTable).where(eq(factsTable.id, id));
+    const res = await request(adminApp).get(`/api/admin/facts`).query({ search: row!.text, visibility: "both" });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.facts[0].primaryArchetype, OTHER.primaryArchetype);
   });
 });
 
@@ -264,7 +342,7 @@ describe("runEnrichmentForFact — outcome branches (classify-only)", () => {
     assert.equal(row.enrichmentStatus, "failed");
   });
 
-  it("classification ok → enrichmentStatus ok, projection synced, no preview key", async () => {
+  it("classification ok → enrichmentStatus ok, the classifier's output stored, no preview key", async () => {
     const id = await insertFact({ enrichmentStatus: "pending", isActive: true, enrichment: buildPlaceholderFactEnrichment() });
     const result = await runEnrichmentForFact(id, {
       classify: async () => ({ ...OTHER }),
@@ -272,7 +350,7 @@ describe("runEnrichmentForFact — outcome branches (classify-only)", () => {
     assert.equal(result.ok, true);
     const [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
     assert.equal(row.enrichmentStatus, "ok");
-    assert.equal(row.primaryArchetype, "object_logic_impossibility");
+    assert.equal((row.enrichment as FactEnrichment).primaryArchetype, "object_logic_impossibility");
     const enr = row.enrichment as FactEnrichment & { previewStatus?: unknown; visualPromptPreview?: unknown };
     assert.equal(enr.previewStatus, undefined);
     assert.equal(enr.visualPromptPreview, undefined);
@@ -335,7 +413,7 @@ describe("runEnrichmentForFact — outcome branches (classify-only)", () => {
     };
     const row0 = await insertLiveFact({
       text: `${TEXT_PREFIX}${randomUUID()}`,
-      ...buildFactEnrichmentColumns(VALID),
+      enrichment: VALID,
       enrichmentStatus: "pending",
     }, override);
     insertedFactIds.push(row0.id);
@@ -347,7 +425,7 @@ describe("runEnrichmentForFact — outcome branches (classify-only)", () => {
     assert.equal(result.ok, true);
 
     const [row] = await db.select().from(factsTable).where(eq(factsTable.id, row0.id));
-    assert.equal(row.primaryArchetype, "object_logic_impossibility");
+    assert.equal((row.enrichment as FactEnrichment).primaryArchetype, "object_logic_impossibility");
     assert.equal((row.enrichment as FactEnrichment).visualPromptStrategyOverride, undefined);
     const [gag] = await db.select().from(factGagsTable).where(eq(factGagsTable.factId, row0.id));
     assert.deepEqual(gag!.approvedContent, override, "the gag survived re-classification word for word");
@@ -414,7 +492,7 @@ async function compiledPromptFor(id: number): Promise<string> {
 
 /** A fact the way Moderation Step 2 holds it: inactive, staged on a pending review. */
 async function insertStagingFact(): Promise<{ id: number; reviewId: number }> {
-  const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok", isActive: false });
+  const id = await insertFact({ enrichment: VALID, enrichmentStatus: "ok", isActive: false });
   const [fact] = await db.select({ text: factsTable.text }).from(factsTable).where(eq(factsTable.id, id));
   const [review] = await db.insert(pendingReviewsTable).values({
     submittedText: fact.text, status: "pending", workflowStage: "gags", stagingFactId: id,
@@ -424,7 +502,7 @@ async function insertStagingFact(): Promise<{ id: number; reviewId: number }> {
 
 describe("saving a gag — Visual Concept budget", () => {
   it("400s a Concept of 200 {NAME} tokens (under the raw cap) with a core_scene_rendered_too_long detail", async () => {
-    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+    const id = await insertFact({ enrichment: VALID, enrichmentStatus: "ok" });
     const tokenHeavy = "{NAME} ".repeat(200).trim();
     assert.ok(tokenHeavy.length <= CORE_SCENE_RAW_MAX, "sanity: raw length is within the raw cap");
 
@@ -439,7 +517,7 @@ describe("saving a gag — Visual Concept budget", () => {
   });
 
   it("200s and stores a token-free Concept just under the raw cap (~1,490 characters)", async () => {
-    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+    const id = await insertFact({ enrichment: VALID, enrichmentStatus: "ok" });
     const concept = "The hero stands tall in a vast arena. ".repeat(40).slice(0, 1490);
     assert.equal(concept.length, 1490);
 
@@ -449,7 +527,7 @@ describe("saving a gag — Visual Concept budget", () => {
   });
 
   it("400s RETIRED_FIELD for content carrying the old art-direction fields, naming them, and stores nothing (PLAN_GAG_DIRECT_RENDER.md, D)", async () => {
-    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+    const id = await insertFact({ enrichment: VALID, enrichmentStatus: "ok" });
     const line = "a perfectly ordinary guidance sentence of moderate length";
     const res = await patchVso(id, vso({
       roleBindings: [{ entity: "onlooker", visualRole: line }],
@@ -465,7 +543,7 @@ describe("saving a gag — Visual Concept budget", () => {
   });
 
   it("200s a typical Concept with several bubbles", async () => {
-    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+    const id = await insertFact({ enrichment: VALID, enrichmentStatus: "ok" });
     const override = vso({
       bubbles: [
         { type: "speech", entity: "subject", text: "Is that all?" },
@@ -481,14 +559,14 @@ describe("saving a gag — Visual Concept budget", () => {
 
 describe("saving a gag — saved content", () => {
   it("200s a bubble whose entity (the mailman) matches no subject or role binding", async () => {
-    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+    const id = await insertFact({ enrichment: VALID, enrichmentStatus: "ok" });
     const res = await patchVso(id, vso({ bubbles: [{ type: "speech", entity: "the mailman", text: "Special delivery!" }] }));
     assert.equal(res.status, 200, JSON.stringify(res.body));
     assert.deepEqual((await storedVso(id))?.bubbles, [{ type: "speech", entity: "the mailman", text: "Special delivery!" }]);
   });
 
   it("GET /admin/facts/:id/gags returns the edited bubble after the save", async () => {
-    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+    const id = await insertFact({ enrichment: VALID, enrichmentStatus: "ok" });
     await patchVso(id, vso({ bubbles: [{ type: "speech", entity: "subject", text: "An old line." }] }));
 
     const res = await patchVso(id, vso({ bubbles: [{ type: "speech", entity: "subject", text: "An edited line." }] }));
@@ -498,7 +576,7 @@ describe("saving a gag — saved content", () => {
   });
 
   it("compiles a saved bubble into the prompt; refuses each retired field saved alone (RETIRED_FIELD), storing nothing", async () => {
-    const bubbleId = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+    const bubbleId = await insertFact({ enrichment: VALID, enrichmentStatus: "ok" });
     const bubbles = [{ type: "speech" as const, entity: "subject", text: "Special delivery!" }];
     const saved = await patchVso(bubbleId, vso({ bubbles }));
     assert.equal(saved.status, 200, JSON.stringify(saved.body));
@@ -515,7 +593,7 @@ describe("saving a gag — saved content", () => {
       { name: "supportingTextPolicyOverride", extra: { supportingTextPolicyOverride: { mode: "allow", guidance: "a neon sign reading OPEN" } } },
     ];
     for (const c of retired) {
-      const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+      const id = await insertFact({ enrichment: VALID, enrichmentStatus: "ok" });
       const res = await patchVso(id, vso(c.extra));
       assert.equal(res.status, 400, `${c.name}: ${JSON.stringify(res.body)}`);
       assert.equal(res.body.code, "RETIRED_FIELD", c.name);
@@ -543,7 +621,7 @@ describe("saving a gag — blank scene and typed scene", () => {
   });
 
   it("refuses a blank scene on an existing gag with 400 SCENE_REQUIRED and leaves the stored scene unchanged", async () => {
-    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+    const id = await insertFact({ enrichment: VALID, enrichmentStatus: "ok" });
     const scene = "David hoists a barbell overhead in an arena.";
     assert.equal((await patchVso(id, vso({}, scene))).status, 200);
 

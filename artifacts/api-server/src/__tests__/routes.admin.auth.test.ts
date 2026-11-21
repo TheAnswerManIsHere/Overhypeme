@@ -67,6 +67,7 @@ const ADMIN_AUTH_ROUTES: readonly RouteEntry[] = [
   { method: "delete", path: "/admin/facts/:id" },
   { method: "patch",  path: "/admin/facts/:id" },
   { method: "post",   path: "/admin/facts/:id/enrich" },
+  { method: "get",    path: "/admin/facts/:id/taxonomy-runs" },
   { method: "get",    path: "/admin/comments/pending" },
   { method: "get",    path: "/admin/comments/pending/count" },
   { method: "get",    path: "/admin/comments/flagged" },

@@ -20,7 +20,7 @@ import {
 } from "@workspace/api-zod";
 import {
   enrichFactWithModel,
-  buildFactEnrichmentColumns,
+  taxonomyColumns,
   stripDeniedHashtags,
   EnrichmentError,
   type EnrichInput,
@@ -252,14 +252,12 @@ describe("validateEnrichment — semantic entities (capitalization-aware referen
   });
 });
 
-describe("buildFactEnrichmentColumns", () => {
-  it("derives promoted columns from the blob", () => {
-    const cols = buildFactEnrichmentColumns(VALID);
-    assert.equal(cols.primaryArchetype, "superhuman_physical_feat");
-    assert.equal(cols.subtype, "force_scaled_action");
-    assert.equal(cols.overhypeFit, "strong");
-    assert.equal(cols.adultSuitability, "safe");
+describe("taxonomyColumns", () => {
+  it("writes the blob and its AI baseline, and no projection columns (2.1b)", () => {
+    const cols = taxonomyColumns(VALID);
+    assert.deepEqual(Object.keys(cols).sort(), ["enrichment", "enrichmentAiDerived"]);
     assert.deepEqual(cols.enrichment, VALID);
+    assert.deepEqual(cols.enrichmentAiDerived, VALID);
   });
 });
 
@@ -390,21 +388,21 @@ describe("facts table — each fact stores its own enrichment", () => {
 
     const [first] = await db.insert(factsTable).values({
       text: "t_enrich first fact",
-      ...buildFactEnrichmentColumns(firstEnrichment),
+      enrichment: firstEnrichment,
     }).returning();
     insertedIds.push(first.id);
 
     const [second] = await db.insert(factsTable).values({
       text: "t_enrich second fact",
-      ...buildFactEnrichmentColumns(secondEnrichment),
+      enrichment: secondEnrichment,
     }).returning();
     insertedIds.push(second.id);
 
     const [aRow] = await db.select().from(factsTable).where(eq(factsTable.id, first.id));
     const [bRow] = await db.select().from(factsTable).where(eq(factsTable.id, second.id));
 
-    assert.equal(aRow.primaryArchetype, "superhuman_physical_feat");
-    assert.equal(bRow.primaryArchetype, "object_logic_impossibility");
+    assert.equal((aRow.enrichment as FactEnrichment).primaryArchetype, "superhuman_physical_feat");
+    assert.equal((bRow.enrichment as FactEnrichment).primaryArchetype, "object_logic_impossibility");
     assert.notDeepEqual(aRow.enrichment, bRow.enrichment);
     assert.equal((bRow.enrichment as FactEnrichment).adultSuitability, "requires_review");
   });

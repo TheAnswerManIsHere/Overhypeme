@@ -3,23 +3,18 @@
  *
  * PURE DATA (no React/UI imports): consumed by FieldInfo.tsx, the coverage
  * tests, and the Node-run markdown generator. The registry is the UI's source
- * of truth for field labels; `OVERRIDABLE_PATHS.label` in api-zod is a mirrored
- * copy for server messages, kept aligned by a consistency test.
+ * of truth for field labels.
  */
 
-import { isKnownModifier, type KnownFactModifier, type OverridablePath } from "@workspace/api-zod";
-import type { FieldDoc, FieldDocKey, FieldDocUsage, ValueDoc } from "./types";
-import { CLASSIFICATION_FIELD_DOCS } from "./classification";
-import { KNOWN_MODIFIER_DOCS, CUSTOM_MODIFIER_DOC } from "./modifiers";
+import type { FieldDoc, FieldDocKey, FieldDocUsage } from "./types";
+import { HASHTAG_FIELD_DOCS } from "./hashtags";
 import { VISUAL_STRATEGY_FIELD_DOCS } from "./visualStrategy";
-import { REFERENCES_ENTITIES_FIELD_DOCS } from "./referencesEntities";
 
 // ─── Assembly ────────────────────────────────────────────────────────────────
 
 const ALL_FIELD_DOCS: FieldDoc[] = [
-  ...CLASSIFICATION_FIELD_DOCS,
+  ...HASHTAG_FIELD_DOCS,
   ...VISUAL_STRATEGY_FIELD_DOCS,
-  ...REFERENCES_ENTITIES_FIELD_DOCS,
 ];
 
 /** Keyed registry. The `satisfies` clause fails typecheck if any FieldDocKey
@@ -43,19 +38,8 @@ export const FIELD_DOCS = Object.fromEntries(
 // ─── Usage categories (drives the deterministic usage test) ──────────────────
 
 export const FIELD_DOC_USAGE = {
-  primaryArchetype: "field-label",
-  subtype: "field-label",
-  visualLiteralness: "field-label",
-  visualComplexity: "field-label",
-  overhypeFit: "field-label",
-  adultSuitability: "field-label",
-  adultSuitabilityNotes: "field-label",
-  modifiers: "field-label",
   finalHashtags: "field-label",
   aiSuggestedHashtags: "field-label",
-  suggestedHashtags: "field-label",
-  taxonomyConfidence: "field-label",
-  adminReviewNotes: "field-label",
   "vso.panel": "panel-level",
   "vso.coreSceneOverride": "field-label",
   "vso.moderatorIntent": "field-label",
@@ -70,48 +54,7 @@ export const FIELD_DOC_USAGE = {
   "vso.negativePromptAdditions": "field-label",
   "vso.supportingTextPolicy": "field-label",
   "vso.violencePolicy": "field-label",
-  culturalReferences: "section-level",
-  "ref.sourcePhrase": "reserved",
-  "ref.referenceType": "repeater-enum",
-  "ref.canonicalReference": "reserved",
-  "ref.explanation": "reserved",
-  "ref.visualImplication": "reserved",
-  "ref.confidence": "reserved",
-  "ref.requiresAdminReview": "reserved",
-  semanticEntities: "section-level",
-  characters: "section-level",
-  "ent.surfaceText": "reserved",
-  "ent.normalizedText": "reserved",
-  "ent.entityKind": "repeater-enum",
-  "ent.capitalizationSignal": "repeater-enum",
-  "ent.visualReferent": "reserved",
-  "ent.notes": "reserved",
-  "ent.materiallyAffects": "reserved",
-  "ent.requiresReview": "reserved",
-  "ent.confidence": "reserved",
 } satisfies Record<FieldDocKey, FieldDocUsage>;
-
-// ─── Overridable-path mapping ────────────────────────────────────────────────
-//
-// Overridable enrichment path → docs-registry key, so the "Overridden:" chips
-// render labels from the registry (the UI's label source of truth) while
-// OVERRIDABLE_PATHS.label stays a server-message mirror. The coverage test
-// asserts the two label sources stay byte-identical.
-
-export const PATH_TO_DOC_KEY: Record<OverridablePath, FieldDocKey> = {
-  "/primaryArchetype": "primaryArchetype",
-  "/subtype": "subtype",
-  "/visualLiteralness": "visualLiteralness",
-  "/visualComplexity": "visualComplexity",
-  "/overhypeFit": "overhypeFit",
-  "/adultSuitability": "adultSuitability",
-  "/adultSuitabilityNotes": "adultSuitabilityNotes",
-  "/modifiers": "modifiers",
-  "/culturalReferences": "culturalReferences",
-  "/semanticEntities": "semanticEntities",
-  "/characters": "characters",
-  "/adminReviewNotes": "adminReviewNotes",
-};
 
 // ─── Lookup helpers ──────────────────────────────────────────────────────────
 
@@ -122,13 +65,6 @@ export function getFieldDoc(key: FieldDocKey): FieldDoc {
 /** The UI's source of truth for a field's on-screen label. */
 export function fieldLabel(key: FieldDocKey): string {
   return FIELD_DOCS[key].label;
-}
-
-/** Doc for a modifier chip: the known doc, or the explicit custom fallback. */
-export function modifierDoc(name: string): ValueDoc {
-  return isKnownModifier(name)
-    ? KNOWN_MODIFIER_DOCS[name as KnownFactModifier]
-    : CUSTOM_MODIFIER_DOC;
 }
 
 export type { FieldDoc, FieldDocKey, FieldDocUsage, ValueDoc } from "./types";

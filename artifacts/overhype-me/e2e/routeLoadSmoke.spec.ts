@@ -294,6 +294,11 @@ test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
       createdAt: "2026-10-01T12:00:00.000Z", actor: { id: "dev-admin", name: "Dev Admin", email: null },
     }]]]);
     const server = await stubFactWrites(page, [live], history);
+    // Its taxonomy run history (increment 2.1b): a failed Re-run after the stored one.
+    await page.route("**/api/admin/facts/96201/taxonomy-runs", (route) => route.fulfill({ json: { runs: [
+      { id: 2, outcome: "failed", origin: "rerun", output: null, error: "the classifier timed out", requestedByName: "Dee Admin", createdAt: "2026-11-21T10:00:00Z" },
+      { id: 1, outcome: "ok", origin: "provisional_approval", output: null, error: null, requestedByName: null, createdAt: "2026-11-20T10:00:00Z" },
+    ] } }));
 
     await page.goto("/admin/facts");
     await selectFact(page, 96201, LIVE);
@@ -318,6 +323,11 @@ test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
     const taxonomy = panel.getByTestId("fact-taxonomy-panel");
     await expect(taxonomy.getByTestId("taxonomy-summary"), "the stored taxonomy is shown").toBeVisible();
     await expect(taxonomy.getByTestId("taxonomy-rerun"), "the taxonomy keeps Re-run").toBeEnabled();
+    const runs = taxonomy.getByTestId("taxonomy-run");
+    await expect(runs, "every run is listed, failures included").toHaveCount(2);
+    await expect(runs.first(), "newest first, with who asked").toContainText("Failed");
+    await expect(runs.first()).toContainText("Re-run, by Dee Admin");
+    await expect(runs.first().getByTestId("taxonomy-run-error")).toHaveText("the classifier timed out");
     await expect(panel.getByPlaceholder("Add hashtag…"), "no box edits the AI's hashtags").toHaveCount(0);
     await expect(panel.getByRole("button", { name: /save enrichment|revert to ai/i }), "nothing saves or overrides the taxonomy").toHaveCount(0);
 

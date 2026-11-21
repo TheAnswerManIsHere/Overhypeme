@@ -20,6 +20,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { factsTable, pendingReviewsTable, type AsyncJobStatus } from "@workspace/db/schema";
 import { enqueueJob } from "./asyncJobs";
+import { factEnrichmentPayload } from "./enrichmentJobs";
 import { ensureStagingFact, type StagingReviewRow } from "./moderationStaging";
 import { startReading } from "./readingJobs";
 import { logger } from "./logger";
@@ -79,7 +80,7 @@ export async function ensureFirstTimeStagingPrepJobs(factId: number): Promise<Pr
     await db.update(factsTable).set({ enrichmentStatus: "pending" }).where(eq(factsTable.id, factId));
     const res = await enqueueJob({
       queue: "enrichment",
-      payload: { factId },
+      payload: factEnrichmentPayload(factId, "provisional_approval"),
       dedupeKey: `enrichment:fact:${factId}`,
     });
     enrichment = { status: res.status, inserted: res.inserted };

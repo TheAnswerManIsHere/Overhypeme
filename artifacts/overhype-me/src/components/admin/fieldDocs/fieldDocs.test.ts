@@ -3,31 +3,19 @@ import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  PRIMARY_ARCHETYPES,
-  ALL_SUBTYPES,
-  VISUAL_LITERALNESS_VALUES,
-  VISUAL_COMPLEXITY_VALUES,
-  OVERHYPE_FIT_VALUES,
-  ADULT_SUITABILITY_VALUES,
-  KNOWN_FACT_MODIFIERS,
-  REFERENCE_TYPE_VALUES,
-  SEMANTIC_ENTITY_KIND_VALUES,
-  CAPITALIZATION_SIGNAL_VALUES,
   SUBJECT_REALIZATION_MODE_VALUES,
   SUPPORTING_TEXT_MODE_VALUES,
   VIOLENCE_MODE_VALUES,
   VIOLENCE_INTENSITY_VALUES,
-  OVERRIDABLE_PATHS,
-  type OverridablePath,
 } from "@workspace/api-zod";
-import { FIELD_DOCS, FIELD_DOC_USAGE, PATH_TO_DOC_KEY, fieldLabel, modifierDoc } from "./index";
+import { FIELD_DOCS, FIELD_DOC_USAGE } from "./index";
 import type { FieldDocKey } from "./types";
 import { renderAdminFieldReference } from "./renderMarkdown";
 
 /**
  * The coverage ratchet: every field and every enum value must be fully
- * documented — non-empty content, canonical value order, label parity with the
- * api-zod mirror, valid provenance — and the generated reference doc must be in
+ * documented — non-empty content, canonical value order, valid provenance —
+ * and the generated reference doc must be in
  * sync with the registry. During authoring this suite is the burndown list.
  */
 
@@ -70,48 +58,16 @@ describe("fieldDocs — content completeness", () => {
 
 describe("fieldDocs — enum value parity (set AND order match api-zod)", () => {
   const ENUM_FIELDS: [FieldDocKey, readonly string[]][] = [
-    ["primaryArchetype", PRIMARY_ARCHETYPES],
-    ["subtype", ALL_SUBTYPES],
-    ["visualLiteralness", VISUAL_LITERALNESS_VALUES],
-    ["visualComplexity", VISUAL_COMPLEXITY_VALUES],
-    ["overhypeFit", OVERHYPE_FIT_VALUES],
-    ["adultSuitability", ADULT_SUITABILITY_VALUES],
-    ["modifiers", KNOWN_FACT_MODIFIERS],
     ["vso.subjectRealization", SUBJECT_REALIZATION_MODE_VALUES],
     ["vso.supportingTextPolicy", SUPPORTING_TEXT_MODE_VALUES],
     // The violence popover documents both of its enums, modes first.
     ["vso.violencePolicy", [...VIOLENCE_MODE_VALUES, ...VIOLENCE_INTENSITY_VALUES]],
-    ["ref.referenceType", REFERENCE_TYPE_VALUES],
-    ["ent.entityKind", SEMANTIC_ENTITY_KIND_VALUES],
-    ["ent.capitalizationSignal", CAPITALIZATION_SIGNAL_VALUES],
   ];
 
   it.each(ENUM_FIELDS)("%s covers its canonical values exactly, in order", (key, canonical) => {
     const values = FIELD_DOCS[key].values;
     expect(values, `${key} should have per-value docs`).toBeTruthy();
     expect(values!.map((v) => v.value)).toEqual([...canonical]);
-  });
-
-  it("modifierDoc() resolves every known modifier and falls back for custom ones", () => {
-    for (const m of KNOWN_FACT_MODIFIERS) {
-      expect(modifierDoc(m).meaning.trim()).not.toBe("");
-    }
-    const custom = modifierDoc("definitely_not_a_known_modifier");
-    // The custom fallback explains it isn't a known/catalog modifier.
-    expect(custom.meaning.toLowerCase()).toContain("known");
-    expect(custom.renderImpact.trim()).not.toBe("");
-  });
-});
-
-describe("fieldDocs — label parity with the api-zod mirror", () => {
-  it("every overridable path maps to a doc key with an identical label", () => {
-    for (const path of Object.keys(OVERRIDABLE_PATHS) as OverridablePath[]) {
-      const key = PATH_TO_DOC_KEY[path];
-      expect(key, `no PATH_TO_DOC_KEY entry for ${path}`).toBeTruthy();
-      expect(fieldLabel(key), `label mismatch for ${path} — update fieldDocs AND enrichmentOverrides.ts together`).toBe(
-        OVERRIDABLE_PATHS[path].label,
-      );
-    }
   });
 });
 

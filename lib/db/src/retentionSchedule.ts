@@ -286,6 +286,7 @@ export const RETENTION_SCHEDULE: Readonly<Record<string, RetentionEntry>> = {
   tier_feature_permission_audit: adminRecord(null, "the record of entitlement changes"),
   enrichment_override_history: adminRecord("facts", "a fact's edit record"),
   fact_enrichment_versions: adminRecord("facts", "a fact's enrichment record"),
+  fact_taxonomy_runs: adminRecord("facts", "a fact's taxonomy run history"),
   fact_readings: adminRecord("facts", "a fact's readings: the research and draft humor note of each run"),
   fact_text_edit_history: adminRecord("facts", "a fact's edit record"),
   fact_gags: adminRecord("facts", "a fact's gags"),

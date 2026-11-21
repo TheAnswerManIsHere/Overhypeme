@@ -355,8 +355,9 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender, onPr
       const data = await res.json();
       if (!res.ok) {
         const detail = typeof data?.details === "string" ? `: ${data.details}` : "";
-        if (data?.error === "fact_enrichment_invalid") {
-          setError("This fact has no usable AI taxonomy yet. Re-run it from the fact's \"Gags and AI taxonomy\" panel, then try again.");
+        if (data?.error === "gag_render_input_invalid") {
+          // The preview reads the gag alone; the taxonomy is not on the render path.
+          setError(`This gag can't be turned into a picture prompt${detail}. Fix the gag's scene, then try again.`);
         } else {
           setError(`${data?.error ?? `Request failed (${res.status})`}${detail}`);
         }

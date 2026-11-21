@@ -28,6 +28,7 @@ export * from "./referenceResearchCache";
 export * from "./enrichmentOverrideHistory";
 export * from "./factTextEditHistory";
 export * from "./factEnrichmentVersions";
+export * from "./factTaxonomyRuns";
 export * from "./engineRevisionBumps";
 export * from "./evalRuns";
 export * from "./comparisons";

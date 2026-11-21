@@ -602,6 +602,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
   exclude(s.supportRequestsTable, "telemetry", "support requests: private messages and the addresses that sent them, written from 0156 on"),
   exclude(s.activityFeedTable, "telemetry", "per-user notification prose"),
   exclude(s.adminActionsTable, "telemetry", "who did what to which fact: admin identities and their edits, written from 0152 on"),
+  exclude(s.factTaxonomyRunsTable, "not-catalogue", "a fact's taxonomy run history, written from 0159 on; the loader derives it from the fixture's enrichment versions with 0159's own conversion"),
   exclude(s.factReadingsTable, "not-catalogue", "moderation reading runs (paid research and draft notes), written from 0155 on; the committed fixture predates them"),
   exclude(s.userFactPreferencesTable, "telemetry", "per-user viewing state"),
   exclude(s.referenceResearchCacheTable, "not-catalogue", "cached admin research calls"),

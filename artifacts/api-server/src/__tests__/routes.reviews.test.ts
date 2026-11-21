@@ -390,7 +390,7 @@ describe("POST /admin/reviews/:id/provisional-approve", () => {
 
   async function enrichmentJobsForFact(factId: number) {
     return db
-      .select({ id: asyncJobsTable.id })
+      .select({ id: asyncJobsTable.id, payload: asyncJobsTable.payload })
       .from(asyncJobsTable)
       .where(and(eq(asyncJobsTable.queue, "enrichment"), sql`${asyncJobsTable.payload}->>'factId' = ${String(factId)}`));
   }
@@ -436,6 +436,7 @@ describe("POST /admin/reviews/:id/provisional-approve", () => {
     assert.equal(reading.jobs.length, 1, "with its job");
     const jobs = await enrichmentJobsForFact(stagingFactId);
     assert.equal(jobs.length, 1, "exactly one taxonomy job beside it");
+    assert.equal((jobs[0]!.payload as { origin?: string }).origin, "provisional_approval", "its run is recorded as provisional approval's");
     const pexels = await pexelsJobsForFact(stagingFactId);
     assert.equal(pexels.length, 0, "no stock-photo job: staging prep is enrichment only since launch Phase 4, removal 6");
   });

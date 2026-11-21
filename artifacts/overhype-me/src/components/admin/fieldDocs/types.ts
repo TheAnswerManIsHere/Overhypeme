@@ -7,8 +7,7 @@
  * and by `FieldInfo.tsx`, never the reverse.
  *
  * The registry is the UI's source of truth for field labels (the naming pass
- * edits `label` here). `OVERRIDABLE_PATHS.label` in @workspace/api-zod remains
- * a mirrored copy for server-side messages, kept aligned by a consistency test.
+ * edits `label` here).
  */
 
 // ─── Effect classification (two honest axes) ────────────────────────────────
@@ -23,7 +22,7 @@
 export type FieldEffectClass =
   | "render-affecting" // reaches the picture prompt (the gag's scene and bubbles)
   | "advisory-only" // read by the gag writer or a label only; never reaches a picture prompt
-  | "gating-only" // approval / taxonomy-health gate; never compiled into the prompt
+  | "gating-only" // an approval gate; never compiled into the prompt
   | "product-metadata" // ships with the live fact (e.g. discovery hashtags) but never affects the render
   | "human-only"; // never leaves the admin UI
 
@@ -76,20 +75,9 @@ export interface ValueDoc {
 // ─── Field docs ──────────────────────────────────────────────────────────────
 
 export type FieldDocKey =
-  // AI Visual Classification
-  | "primaryArchetype"
-  | "subtype"
-  | "visualLiteralness"
-  | "visualComplexity"
-  | "overhypeFit"
-  | "adultSuitability"
-  | "adultSuitabilityNotes"
-  | "modifiers"
+  // Hashtags (the approval step)
   | "finalHashtags"
   | "aiSuggestedHashtags"
-  | "suggestedHashtags"
-  | "taxonomyConfidence"
-  | "adminReviewNotes"
   // Visual Strategy Overrides
   | "vso.panel"
   | "vso.coreSceneOverride"
@@ -104,27 +92,7 @@ export type FieldDocKey =
   | "vso.styleAgnosticPromptAdditions"
   | "vso.negativePromptAdditions"
   | "vso.supportingTextPolicy"
-  | "vso.violencePolicy"
-  // References & Scene Entities
-  | "culturalReferences"
-  | "ref.sourcePhrase"
-  | "ref.referenceType"
-  | "ref.canonicalReference"
-  | "ref.explanation"
-  | "ref.visualImplication"
-  | "ref.confidence"
-  | "ref.requiresAdminReview"
-  | "semanticEntities"
-  | "characters"
-  | "ent.surfaceText"
-  | "ent.normalizedText"
-  | "ent.entityKind"
-  | "ent.capitalizationSignal"
-  | "ent.visualReferent"
-  | "ent.notes"
-  | "ent.materiallyAffects"
-  | "ent.requiresReview"
-  | "ent.confidence";
+  | "vso.violencePolicy";
 
 export interface FieldDoc {
   key: FieldDocKey;

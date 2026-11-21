@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { buildPlaceholderFactEnrichment, type FactEnrichment } from "@workspace/api-zod";
-import { FactTaxonomyPanel } from "./FactTaxonomyPanel";
+import { FactTaxonomyPanel, type TaxonomyRun } from "./FactTaxonomyPanel";
 
 const STORED: FactEnrichment = {
   ...buildPlaceholderFactEnrichment(),
@@ -14,12 +14,20 @@ const STORED: FactEnrichment = {
   suggestedHashtags: ["strength", "pushups", "earth"],
 };
 
-function stub(detail: { enrichment: FactEnrichment | null; enrichmentStatus: string | null }) {
+const RUNS: TaxonomyRun[] = [
+  { id: 3, outcome: "ok", origin: "rerun", output: STORED, error: null, requestedByName: "Dee Admin", createdAt: "2026-11-21T10:00:00Z" },
+  { id: 2, outcome: "failed", origin: "rerun", output: null, error: "the classifier timed out", requestedByName: "Dee Admin", createdAt: "2026-11-21T09:00:00Z" },
+  { id: 1, outcome: "ok", origin: "legacy_superseded", output: { ...STORED, primaryArchetype: "object_logic_impossibility" }, error: null, requestedByName: null, createdAt: "2026-01-01T00:00:00Z" },
+];
+
+function stub(detail: { enrichment: FactEnrichment | null; enrichmentStatus: string | null }, runs: TaxonomyRun[] = []) {
   const calls: Array<{ url: string; method: string }> = [];
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
     calls.push({ url: String(url), method });
-    const body = method === "POST" ? { success: true, enrichmentStatus: "pending" } : detail;
+    const body = method === "POST"
+      ? { success: true, enrichmentStatus: "pending" }
+      : String(url).endsWith("/taxonomy-runs") ? { runs } : detail;
     return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
   }));
   return calls;
@@ -35,7 +43,24 @@ describe("FactTaxonomyPanel", () => {
     expect(summary.textContent).toContain("superhuman_physical_feat");
     expect(summary.textContent).toContain("strength, pushups, earth");
     expect(container.querySelectorAll("input, textarea, select")).toHaveLength(0);
+    await screen.findByTestId("taxonomy-run-history-empty");
     expect(screen.getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Re-run"]);
+  });
+
+  it("lists every run newest first, failures included, and opens an earlier run's output", async () => {
+    stub({ enrichment: STORED, enrichmentStatus: "ok" }, RUNS);
+    render(<FactTaxonomyPanel factId={7} initialStatus="ok" />);
+    await waitFor(() => expect(screen.getAllByTestId("taxonomy-run")).toHaveLength(3));
+    const rows = screen.getAllByTestId("taxonomy-run");
+    expect(rows.map((r) => r.getAttribute("data-outcome"))).toEqual(["ok", "failed", "ok"]);
+    expect(rows[0]!.textContent).toContain("Re-run, by Dee Admin");
+    expect(rows[1]!.textContent).toContain("Failed");
+    expect(rows[1]!.textContent).toContain("the classifier timed out");
+    expect(rows[2]!.textContent).toContain("an earlier version, replaced");
+    // A failed run has no output to open.
+    expect(rows[1]!.querySelector("[data-testid=taxonomy-run-toggle]")).toBeNull();
+    fireEvent.click(rows[2]!.querySelector("[data-testid=taxonomy-run-toggle]")!);
+    expect(rows[2]!.querySelector("[data-testid=taxonomy-summary]")!.textContent).toContain("object_logic_impossibility");
   });
 
   it("Re-run asks first, then starts a run on the fact", async () => {
