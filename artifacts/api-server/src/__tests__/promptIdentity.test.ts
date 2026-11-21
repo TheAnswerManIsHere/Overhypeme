@@ -47,12 +47,19 @@ describe("graphemeSafeTruncate", () => {
 });
 
 describe("reducePromptName", () => {
-  it("prefers firstName when present", () => {
-    assert.equal(reducePromptName({ firstName: "David", displayName: "David Franklin" }), "David");
+  // #709: the display name is the one the member chose (and the one onboarding
+  // checked); firstName may be whatever their Google or Apple account holds.
+  it("prefers the first token of displayName, the name the member chose, over a provider's firstName", () => {
+    assert.equal(reducePromptName({ firstName: "Robert", displayName: "Bob Franklin" }), "Bob");
   });
 
-  it("falls back to the first token of displayName when firstName is absent", () => {
+  it("uses the first token of displayName when firstName is absent", () => {
     assert.equal(reducePromptName({ displayName: "David Franklin" }), "David");
+  });
+
+  it("falls back to firstName when displayName is absent or blank", () => {
+    assert.equal(reducePromptName({ firstName: "Raena" }), "Raena");
+    assert.equal(reducePromptName({ firstName: "Raena", displayName: "   " }), "Raena");
   });
 
   it("falls back to the canonical name when both are absent/empty", () => {
