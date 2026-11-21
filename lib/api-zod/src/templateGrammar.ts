@@ -18,6 +18,10 @@ export const ALLOWED_SIMPLE_TOKENS: ReadonlySet<string> = new Set([
 ]);
 
 const CONJUGATION_PAIR_RE = /^[^|]+\|[^|]+$/;
+// "n't" (or "n’t") joined directly after a pair, as in `{does|do}n't`: both
+// branches plus the ending are real words, so it is a legitimate join (the
+// build report on PR #1145 found the glued-suffix rules refused it).
+const NEGATIVE_CONTRACTION_AFTER_PAIR_RE = /^n['’]t(?![A-Za-z])/;
 
 export interface GrammarValidationResult {
   valid: boolean;
@@ -62,7 +66,9 @@ export function validateTemplate(template: string): GrammarValidationResult {
       if (!parts[0] || !parts[1]) {
         return { valid: false, error: `Conjugation pair "${inner}" must have non-empty alternatives` };
       }
-      if (/[A-Za-z]/.test(template[closeIdx + 1] ?? "")) {
+      // A pair joined to the letters after it is refused, except a negative
+      // contraction: `{does|do}n't` reads "doesn't"/"don't" for every set.
+      if (/[A-Za-z]/.test(template[closeIdx + 1] ?? "") && !NEGATIVE_CONTRACTION_AFTER_PAIR_RE.test(template.slice(closeIdx + 1))) {
         return { valid: false, error: `Conjugation pair "{${inner}}" is joined to the letters after it; each alternative must be the whole word` };
       }
       i = closeIdx + 1;
@@ -229,7 +235,7 @@ export function collapseIdenticalConjugationBranches(template: string): string {
 // Any other glued shape is left alone for validateTemplate to refuse.
 // ---------------------------------------------------------------------------
 
-const GLUED_SUFFIX_PAIR_RE = /\{([^|{}]+)\|([^|{}]+)\}([A-Za-z]+)/g;
+const GLUED_SUFFIX_PAIR_RE = /\{([^|{}]+)\|([^|{}]+)\}(?!n['’]t(?![A-Za-z]))([A-Za-z]+)/g;
 
 /**
  * Drop letters glued directly after a conjugation pair when they repeat the
@@ -263,8 +269,13 @@ export function repairGluedConjugationSuffixes(template: string): string {
 // refuses it; collapsing it here would turn it into an unrefusable non-word
 // ("addses"), the hole Codex found on PR #1145 (#1131). The lookahead is part
 // of the pattern both name-collapse expressions share, so it is evaluated
-// against the template itself, not a captured substring.
-const PAIR_RE_SRC = "\\{[^|{}]+\\|[^|{}]+\\}(?![A-Za-z])";
+// against the template itself, not a captured substring. The one letter-run a
+// pair may carry is a complete joined negative contraction (`{does|do}n't`,
+// which reads "doesn't"/"don't"): the pattern CONSUMES that "n't" as part of
+// the unit, so a coordination chain continues past it exactly as it would past
+// the whole-branch spelling `{doesn't|don't}` (Codex, PR #1153). The collapse
+// replaces only the braces, so the "n't" stays where it was.
+const PAIR_RE_SRC = "\\{[^|{}]+\\|[^|{}]+\\}(?:n['’]t(?![A-Za-z])|(?![A-Za-z]))";
 // One verb unit in a coordination chain: a plain word (contractions allowed) or
 // a conjugation pair. "{...}" simple tokens like {Subj} match neither, which is
 // what stops the chain before a new subject.
