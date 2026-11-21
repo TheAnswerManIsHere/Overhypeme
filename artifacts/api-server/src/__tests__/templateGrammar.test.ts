@@ -5,6 +5,7 @@ import {
   expandSubjectContractions,
   applyDeterministicGrammar,
   collapseNameSubjectConjugationPairs,
+  repairGluedConjugationSuffixes,
 } from "../lib/templateGrammar.js";
 
 describe("validateTemplate — empty input", () => {
@@ -249,5 +250,109 @@ describe("applyDeterministicGrammar — canonical sequence", () => {
   it("is a no-op on already-correct text", () => {
     const input = "{NAME} gives you the finger. {Subj} {is|are} telling you {Subj} {keeps|keep} score.";
     assert.equal(applyDeterministicGrammar(input), input);
+  });
+});
+
+// #1131: the tokenizer wrapped "adds" as a pair and left the "s" behind
+// ("{NAME} calmly {adds|add}s"), which renders "addss". The repair drops a
+// glued suffix that repeats the end of the singular branch; any other glued
+// shape is refused by the validator rather than stored.
+describe("repairGluedConjugationSuffixes (#1131)", () => {
+  it("drops a suffix that repeats the end of the singular branch", () => {
+    assert.equal(repairGluedConjugationSuffixes("{Subj} calmly {adds|add}s the mark"), "{Subj} calmly {adds|add} the mark");
+    assert.equal(repairGluedConjugationSuffixes("{Subj} {watches|watch}es TV"), "{Subj} {watches|watch} TV");
+    assert.equal(repairGluedConjugationSuffixes("{Subj} {carries|carry}ies it"), "{Subj} {carries|carry} it");
+    assert.equal(repairGluedConjugationSuffixes("{Subj} {has|have}s one"), "{Subj} {has|have} one");
+  });
+
+  it("repairs every glued pair in a template, not only the first", () => {
+    assert.equal(
+      repairGluedConjugationSuffixes("{Subj} {adds|add}s it and {watches|watch}es"),
+      "{Subj} {adds|add} it and {watches|watch}",
+    );
+  });
+
+  it("leaves a glued suffix that is not the singular's ending, for the validator to refuse", () => {
+    assert.equal(repairGluedConjugationSuffixes("{Subj} {is|are}ly here"), "{Subj} {is|are}ly here");
+  });
+
+  it("leaves well-formed pairs, simple tokens and punctuation after a pair alone", () => {
+    for (const t of ["{Subj} {adds|add} it.", "{Subj} {adds|add}, then rests", "{NAME}s list", "{Subj} {doesn't|don't} care", "{NAME_POSSESSIVE} hat"]) {
+      assert.equal(repairGluedConjugationSuffixes(t), t);
+    }
+  });
+
+  it("is idempotent", () => {
+    const once = repairGluedConjugationSuffixes("{Subj} {adds|add}s it");
+    assert.equal(repairGluedConjugationSuffixes(once), once);
+  });
+});
+
+describe("applyDeterministicGrammar — a glued suffix after a pair (#1131)", () => {
+  it("a {NAME} subject: the reported scene renders 'adds', never 'addss'", () => {
+    assert.equal(
+      applyDeterministicGrammar("{NAME} calmly {adds|add}s the final check mark"),
+      "{NAME} calmly adds the final check mark",
+    );
+  });
+
+  it("a pronoun subject keeps a clean pair for they/them", () => {
+    assert.equal(applyDeterministicGrammar("{Subj} calmly {adds|add}s the mark"), "{Subj} calmly {adds|add} the mark");
+  });
+
+  it("is idempotent", () => {
+    const once = applyDeterministicGrammar("{NAME} {adds|add}s it");
+    assert.equal(applyDeterministicGrammar(once), once);
+  });
+});
+
+describe("validateTemplate — a pair joined to the letters after it (#1131)", () => {
+  it("refuses a pair followed directly by a letter", () => {
+    const r = validateTemplate("{Subj} {is|are}ly here");
+    assert.equal(r.valid, false);
+    assert.match(r.error ?? "", /joined to the letters after it/);
+    assert.equal(validateTemplate("{NAME} calmly {adds|add}s it").valid, false);
+  });
+
+  it("accepts a pair followed by punctuation, a space or the end", () => {
+    for (const t of ["{Subj} {adds|add}.", "{Subj} {adds|add}, then", "{Subj} {adds|add}", "{Subj} {adds|add}'"]) {
+      assert.deepEqual(validateTemplate(t), { valid: true }, t);
+    }
+  });
+
+  it("does not apply to simple tokens followed by letters", () => {
+    assert.deepEqual(validateTemplate("{NAME}s"), { valid: true });
+  });
+});
+
+// PR #1145 round 1 (Codex 4655277100): a glued ending the repair cannot explain
+// must still reach the validator with its braces. The {NAME}-subject collapse
+// used to strip them first, so "{adds|add}es" was stored as "addses".
+describe("applyDeterministicGrammar then validateTemplate — an unrepairable glued pair is refused, never stored", () => {
+  for (const raw of [
+    "{NAME} calmly {adds|add}es the final check mark",
+    "{NAME} {runs|run} and {hides|hide}ing",
+    "{NAME} eats cake and {drinks|drink}ing soda",
+    "{NAME} {adds|add}S",
+  ]) {
+    it(raw, () => {
+      const out = applyDeterministicGrammar(raw);
+      const r = validateTemplate(out);
+      assert.equal(r.valid, false, `stored as "${out}"`);
+      assert.match(r.error ?? "", /joined to the letters after it/);
+    });
+  }
+
+  it("a repairable glued pair after a name still becomes the plain word", () => {
+    assert.equal(applyDeterministicGrammar("{NAME} calmly {adds|add}s the mark"), "{NAME} calmly adds the mark");
+  });
+
+  it("well-formed name-subject pairs collapse exactly as before", () => {
+    assert.equal(applyDeterministicGrammar("{NAME} {runs|run} and {hides|hide}."), "{NAME} runs and hides.");
+    assert.equal(applyDeterministicGrammar("{NAME} eats cake and {drinks|drink} soda"), "{NAME} eats cake and drinks soda");
+  });
+
+  it("identical branches glued to letters still collapse to the word (cannot)", () => {
+    assert.equal(applyDeterministicGrammar("{Subj} {can|can}not stop"), "{Subj} cannot stop");
   });
 });

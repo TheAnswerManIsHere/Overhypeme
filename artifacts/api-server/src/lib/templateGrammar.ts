@@ -9,6 +9,7 @@ export {
   collapseIdenticalConjugationBranches,
   collapseNameSubjectConjugationPairs,
   expandSubjectContractions,
+  repairGluedConjugationSuffixes,
   applyDeterministicGrammar,
   HAS_ONLY_FOLLOWING_WORDS,
   ALLOWED_SIMPLE_TOKENS,

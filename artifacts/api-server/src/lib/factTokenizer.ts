@@ -19,6 +19,7 @@ import {
   collapseIdenticalConjugationBranches,
   collapseNameSubjectConjugationPairs,
   expandSubjectContractions,
+  repairGluedConjugationSuffixes,
   validateTemplate,
 } from "./templateGrammar";
 import { callUtilityLLM } from "./utilityLLM";
@@ -162,7 +163,7 @@ export function postProcessTokenizedTemplate(
   conjugated: boolean;
   collapsed: boolean;
 } {
-  const stripped = stripUnknownTokens(raw);
+  const stripped = repairGluedConjugationSuffixes(stripUnknownTokens(raw));
   const nameSubjectCollapsed = collapseNameSubjectConjugationPairs(stripped);
   const contractionsExpandedTemplate = expandSubjectContractions(nameSubjectCollapsed);
   const conjugatedTemplate = autoConjugatePersonSubjectVerbs(contractionsExpandedTemplate);
