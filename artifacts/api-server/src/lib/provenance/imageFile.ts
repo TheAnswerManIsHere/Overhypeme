@@ -50,7 +50,7 @@ function xmlEscape(s: string): string {
 export function xmpPacket(stamp: ProvenanceStamp): string {
   const engine = stamp.engine ? ` ovh:Engine="${xmlEscape(stamp.engine)}"` : "";
   return (
-    `<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>` +
+    `<?xpacket begin="\uFEFF" id="W5M0MpCehiHzreSzNTczkc9d"?>` +
     `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">` +
     `<rdf:Description rdf:about="" xmlns:ovh="${XMP_NS}" ovh:ProvenanceId="${stamp.id}"${engine}/>` +
     `</rdf:RDF></x:xmpmeta><?xpacket end="r"?>`
