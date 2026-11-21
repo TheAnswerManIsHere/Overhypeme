@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
 import { Button } from "@/components/ui/Button";
-import { Textarea, Input } from "@/components/ui/Input";
-import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, Brain, EyeOff, Loader2, Sparkles, ChevronRight, ChevronDown } from "lucide-react";
+import { Input } from "@/components/ui/Input";
+import { Trash2, Search, AlertCircle, CheckCircle, Pencil, X, Save, Brain, EyeOff, Loader2, Sparkles, ChevronRight, ChevronDown } from "lucide-react";
 import type { FactEnrichment } from "@workspace/api-zod";
 import { EnrichmentEditor } from "@/components/admin/EnrichmentEditor";
 import { GagsPanel } from "@/components/admin/gags/GagsPanel";
@@ -49,7 +49,6 @@ interface FactsResponse {
   limit: number;
 }
 
-type ImportMode = "json" | "csv" | "lines";
 type FactsTab = "facts" | "utilities";
 type FactVisibilityFilter = "active" | "inactive" | "both";
 
@@ -367,12 +366,6 @@ export default function AdminFacts() {
   selectedFactRef.current = selectedFact;
   const [saveResult, setSaveResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
-  const [importMode, setImportMode] = useState<ImportMode>("lines");
-  const [importText, setImportText] = useState("");
-  const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -543,48 +536,6 @@ export default function AdminFacts() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFact?.id, loadVersionInfo]);
 
-  async function handleImport() {
-    setImporting(true);
-    setImportResult(null);
-    try {
-      let body: BodyInit;
-      let url: string;
-      if (importMode === "csv") {
-        url = "/api/admin/facts/import-csv";
-        body = JSON.stringify({ csv: importText });
-      } else {
-        url = "/api/admin/facts/import";
-        let factsArr: string[];
-        if (importMode === "json") {
-          factsArr = JSON.parse(importText) as string[];
-          if (!Array.isArray(factsArr)) throw new Error("JSON must be an array");
-        } else {
-          factsArr = importText.split("\n").map((l) => l.trim()).filter(Boolean);
-        }
-        body = JSON.stringify({ facts: factsArr });
-      }
-      const res = await fetch(url, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body,
-      });
-      const data = (await res.json()) as { queued?: number; skipped?: number; error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Import failed");
-      // Bulk import now LOADS the moderation queue — facts appear only after they
-      // pass triage → enrichment → activation, not immediately.
-      const skippedNote = data.skipped ? ` (${data.skipped} skipped as duplicates)` : "";
-      setImportResult({ type: "success", message: `Queued ${data.queued ?? 0} fact(s) for moderation${skippedNote}. They'll appear after review.` });
-      setImportText("");
-      setPage(1);
-      setDebouncedSearch("");
-    } catch (err) {
-      setImportResult({ type: "error", message: err instanceof Error ? err.message : "Import failed" });
-    } finally {
-      setImporting(false);
-    }
-  }
-
   async function handleBackfillEnrichment() {
     setBackfillingEnrichment(true);
     setEnrichmentBackfillResult(null);
@@ -601,17 +552,6 @@ export default function AdminFacts() {
     } finally {
       setBackfillingEnrichment(false);
     }
-  }
-
-  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      setImportText(ev.target?.result as string);
-      setImportMode(file.name.endsWith(".json") ? "json" : "csv");
-    };
-    reader.readAsText(file);
   }
 
   const totalPages = Math.ceil(total / LIMIT);
@@ -760,7 +700,7 @@ export default function AdminFacts() {
           )}
         </div>
 
-        {/* Right — edit panel or bulk import */}
+        {/* Right — edit panel, or the taxonomy backfill */}
         {selectedFact && draft ? (
           <div className="bg-card border border-border rounded-lg flex flex-col xl:h-[calc(100dvh-7rem)] xl:overflow-y-auto">
             {/* Header — sticky within the scrolling panel */}
@@ -1022,74 +962,7 @@ export default function AdminFacts() {
       </div>
       ) : (
           <div className="bg-card border border-border rounded-lg p-5 flex flex-col gap-4 xl:min-h-[calc(100dvh-7rem)]">
-            <div className="flex items-center justify-between">
-              <h2 className="font-display font-bold text-foreground uppercase tracking-wide">Bulk Import</h2>
-              <label className="cursor-pointer">
-                <input ref={fileInputRef} type="file" accept=".txt,.csv,.json" className="hidden" onChange={handleFileUpload} />
-                <span className="flex items-center gap-1.5 text-xs text-primary hover:underline">
-                  <Upload className="w-3.5 h-3.5" /> Upload file
-                </span>
-              </label>
-            </div>
-
-            <div className="flex gap-2 text-xs">
-              {(["lines", "csv", "json"] as ImportMode[]).map((mode) => (
-                <button
-                  key={mode}
-                  onClick={() => setImportMode(mode)}
-                  className={`px-3 py-1 rounded-sm border transition-colors ${
-                    importMode === mode
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border text-muted-foreground hover:border-primary/50"
-                  }`}
-                >
-                  {mode === "lines" ? "One per line" : mode.toUpperCase()}
-                </button>
-              ))}
-            </div>
-
-            <div className="text-xs text-muted-foreground bg-muted/50 rounded-sm p-3 leading-relaxed">
-              {importMode === "lines" && <>Paste one fact per line. Empty lines are ignored.</>}
-              {importMode === "csv" && <>Paste CSV data. Each line becomes a fact. Surrounding quotes are stripped.</>}
-              {importMode === "json" && (
-                <>
-                  Paste a JSON array of strings or objects with a{" "}
-                  <code className="text-primary">text</code> field.
-                  <br />
-                  Example: <code className="text-primary">{`["Fact 1", "Fact 2"]`}</code>
-                </>
-              )}
-            </div>
-
-            <Textarea
-              value={importText}
-              onChange={(e) => setImportText(e.target.value)}
-              placeholder={
-                importMode === "json"
-                  ? `["{Name} can sneeze with their eyes open.", "{Name} counted to infinity — twice."]`
-                  : "{Name} can sneeze with their eyes open.\n{Name} counted to infinity — twice."
-              }
-              className="font-mono text-xs resize-y min-h-[320px]"
-            />
-
-            {importResult && (
-              <div className={`flex items-start gap-2 text-sm px-3 py-2.5 rounded-sm ${
-                importResult.type === "success"
-                  ? "bg-green-500/10 text-green-400 border border-green-500/30"
-                  : "bg-destructive/10 text-destructive border border-destructive/30"
-              }`}>
-                {importResult.type === "success"
-                  ? <CheckCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  : <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />}
-                {importResult.message}
-              </div>
-            )}
-
-            <Button onClick={handleImport} disabled={!importText.trim() || importing} className="w-full">
-              {importing ? "Importing…" : "Import Facts"}
-            </Button>
-
-            <div className="border-t border-border pt-4 mt-1 flex flex-col gap-2">
+            <div className="flex flex-col gap-2">
               <h3 className="text-sm font-bold text-foreground uppercase tracking-wide flex items-center gap-2">
                 <Brain className="w-4 h-4" /> Visual Taxonomy
               </h3>

@@ -132,7 +132,7 @@ reporting even at Medium confidence:
   handling, `artifacts/api-server/src/lib/membershipPricing.ts`, grant/cancel
   symmetry.
 - **Auth stack** — `artifacts/api-server/src/middlewares/` (`authMiddleware`,
-  `apiKeyAuth`, `tierMiddleware`), `routes/auth.ts`, `routes/localAuth.ts`
+  `tierMiddleware`), `routes/auth.ts`, `routes/localAuth.ts`
   (esp. the fail-closed `dev-admin-login` predicate), session lifecycle,
   password reset.
 - **Admin surface** — `routes/admin*.ts`, anything reachable via

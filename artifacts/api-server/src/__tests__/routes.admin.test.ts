@@ -68,10 +68,6 @@ const FACT_PREFIX = "t-routes-admin-fact-";
 function makeApp(): Express {
   const app = express();
   // Mirror the real server's body limit (app.ts: express.json({ limit: "2mb" })).
-  // Bare express.json() defaults to 100 KB, which is BELOW the 2 MB contract
-  // /admin/facts/import-csv advertises — so on the default this harness answers
-  // a large-but-legal import with 413 before the route's own caps are ever
-  // reached, and no test of those caps can mean anything.
   app.use(express.json({ limit: "2mb" }));
   app.use(authMiddleware);
   app.use(adminRouter);
@@ -670,126 +666,15 @@ describe("admin variant routes — retired", () => {
   });
 });
 
-// ── POST /admin/facts/import ──────────────────────────────────────────────────
+// ── The import routes are gone (plan PLAN_FACT_LIFECYCLE_REBUILD.md, item 1) ──
 
-describe("POST /admin/facts/import", () => {
-  it("returns 401 with no credentials", async () => {
-    const res = await request(makeApp()).post("/admin/facts/import").send({ facts: ["hi"] });
-    assert.equal(res.status, 401);
-  });
-
-  it("queues valid rows for moderation and reports invalid rows in `failed` (partial success)", async () => {
-    const suffix = randomUUID();
-    const rawText = `${FACT_PREFIX}${suffix} {Subj} keeps it locked in {POSS} back yard.`;
-    const expectedText = `${FACT_PREFIX}${suffix} {Subj} {keeps|keep} it locked in {POSS} back yard.`;
-    const res = await request(makeApp())
-      .post("/admin/facts/import")
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ facts: [rawText, "bad token {FOO}"] });
-    assert.equal(res.status, 200);
-    assert.equal(res.body.success, true);
-    assert.equal(res.body.queued, 1);
-    assert.equal(res.body.failed.length, 1);
-    assert.match(res.body.failed[0].error, /grammar validation failed/);
-
-    // The valid row became a Stage-1 review (normalized), NOT an active fact.
-    const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.submittedText, expectedText));
-    assert.ok(review, "valid row should have been queued as a review");
-    assert.equal(review.workflowStage, "triage");
-    const factRows = await db.select().from(factsTable).where(eq(factsTable.text, expectedText));
-    assert.equal(factRows.length, 0, "bulk import must not write the fact directly");
-  });
-});
-
-// ── POST /admin/facts/import-csv ──────────────────────────────────────────────
-
-describe("POST /admin/facts/import-csv", () => {
-  it("returns 401 with no credentials", async () => {
-    const res = await request(makeApp()).post("/admin/facts/import-csv").send({ csv: "hi there" });
-    assert.equal(res.status, 401);
-  });
-
-  it("queues valid lines for moderation and reports invalid lines in `failed` (partial success)", async () => {
-    const rawText = `${FACT_PREFIX}${randomUUID()} {Subj} keeps it locked in {POSS} back yard.`;
-    const expectedText = rawText.replace("{Subj} keeps", "{Subj} {keeps|keep}");
-    const csv = `${rawText}\nbad token {FOO} here\n`;
-    const res = await request(makeApp())
-      .post("/admin/facts/import-csv")
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ csv });
-    assert.equal(res.status, 200);
-    assert.equal(res.body.success, true);
-    assert.equal(res.body.queued, 1);
-    assert.equal(res.body.failed.length, 1);
-    assert.match(res.body.failed[0].error, /grammar validation failed/);
-
-    // The valid line became a Stage-1 review (normalized), NOT an active fact.
-    const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.submittedText, expectedText));
-    assert.ok(review, "valid line should have been queued as a review");
-    assert.equal(review.workflowStage, "triage");
-
-    const factRows = await db.select().from(factsTable).where(eq(factsTable.text, expectedText));
-    assert.equal(factRows.length, 0, "bulk CSV import must not write the fact directly");
-  });
-
-  // ── The 2000-row cap ───────────────────────────────────────────────────────
-  //
-  // The ADJACENT cap — the ≤2 MB byte limit on the raw string — is already
-  // covered (admin.validation.security.test.ts, via ImportCsvBody). That is
-  // exactly what made this hole read as covered at a glance: two caps guarding
-  // the same endpoint, one proven and one not.
-  //
-  // The over-cap rows are deliberately VALID templates. Invalid ones would have
-  // queued nothing whether the cap fired or not, which would make the
-  // "queued nothing" assertion below unfalsifiable — it would still pass if the
-  // cap were moved AFTER the queue write. Valid rows mean that assertion can
-  // only hold because the request was rejected before any row was processed.
-  // The at-cap row below is invalid on purpose for the opposite reason: it only
-  // needs to be COUNTED (the cap is applied to the split lines, before any
-  // validation runs), and staying invalid keeps 2000 rows out of the database.
-  const overCapMarker = randomUUID();
-
-  it("rejects an import of more than 2000 rows, by ROW COUNT and not by byte size", async () => {
-    const rows = Array.from(
-      { length: 2001 },
-      (_, i) => `${FACT_PREFIX}${overCapMarker}-${i} {Subj} keeps it locked in {POSS} back yard.`,
-    );
-    const csv = rows.join("\n");
-    // Pin that this is the row cap firing and not the 2 MB byte cap: the
-    // payload has to be comfortably inside the byte limit for the assertion
-    // below to mean anything.
-    assert.ok(
-      Buffer.byteLength(csv, "utf8") < 2_000_000,
-      "the over-cap payload must stay well under the 2 MB byte limit, or this proves the wrong cap",
-    );
-
-    const res = await request(makeApp())
-      .post("/admin/facts/import-csv")
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ csv });
-    assert.equal(res.status, 400);
-    assert.match(res.body.error, /Too many rows \(2001\); import at most 2000 per call/);
-    assert.equal(res.body.success, undefined, "an over-cap import must not report partial success");
-
-    // Rejected up front, so not one row of this batch was processed. Scoped to
-    // this test's own marker, so it asserts nothing about the rest of the DB.
-    const queued = await db
-      .select({ id: pendingReviewsTable.id })
-      .from(pendingReviewsTable)
-      .where(like(pendingReviewsTable.submittedText, `%${overCapMarker}%`));
-    assert.equal(queued.length, 0, "an over-cap import must queue nothing at all");
-  });
-
-  it("accepts an import of exactly 2000 rows — the cap is inclusive", async () => {
-    const rows = Array.from({ length: 2000 }, (_, i) => `bad token {FOO} ${randomUUID()} row ${i}`);
-    const res = await request(makeApp())
-      .post("/admin/facts/import-csv")
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ csv: rows.join("\n") });
-    assert.equal(res.status, 200, "exactly 2000 rows is at the cap, not over it");
-    assert.equal(res.body.success, true);
-    assert.equal(res.body.failed.length, 2000, "all 2000 rows must have been processed, not truncated");
-  });
+describe("admin import routes — removed", () => {
+  for (const [path, body] of [["/admin/facts/import", { facts: ["{NAME} gone."] }], ["/admin/facts/import-csv", { csv: "{NAME} gone." }]] as const) {
+    it(`POST ${path} is gone`, async () => {
+      const res = await request(makeApp()).post(path).set("authorization", `Bearer ${adminSid}`).send(body);
+      assert.equal(res.status, 404);
+    });
+  }
 });
 
 // ── DELETE /admin/facts/:id ───────────────────────────────────────────────────
@@ -981,111 +866,6 @@ describe("GET /admin/facts/:id/text-edit-history", () => {
       .get("/admin/facts/999999999/text-edit-history")
       .set("authorization", `Bearer ${adminSid}`);
     assert.equal(res.status, 404);
-  });
-});
-
-// ── Bulk import: size caps, dedup, and the inclusive cap ──────────────────────
-
-describe("POST /admin/facts/import — caps and dedup", () => {
-  const validRow = (marker: string, i: number) =>
-    `${FACT_PREFIX}${marker}-${i} {Subj} {keeps|keep} it locked in {POSS} back yard.`;
-
-  it("rejects 1001 valid facts with 400 Invalid input and queues none of them", async () => {
-    const marker = randomUUID();
-    const facts = Array.from({ length: 1001 }, (_, i) => validRow(marker, i));
-    const res = await request(makeApp())
-      .post("/admin/facts/import")
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ facts });
-    assert.equal(res.status, 400);
-    assert.equal(res.body.error, "Invalid input");
-
-    // Every row is a valid template, so "queued nothing" can only hold because the
-    // request was refused before any row was processed.
-    const queued = await db
-      .select({ id: pendingReviewsTable.id })
-      .from(pendingReviewsTable)
-      .where(like(pendingReviewsTable.submittedText, `%${marker}%`));
-    assert.equal(queued.length, 0, "an over-cap import must queue nothing at all");
-  });
-
-  it("accepts exactly 1000 facts and processes all of them — the cap is inclusive", async () => {
-    const marker = randomUUID();
-    const facts = Array.from({ length: 1000 }, (_, i) => validRow(marker, i));
-    const res = await request(makeApp())
-      .post("/admin/facts/import")
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ facts });
-    assert.equal(res.status, 200, "exactly 1000 is at the cap, not over it");
-    assert.equal(res.body.success, true);
-    assert.equal(res.body.queued, 1000, "all 1000 must be queued, not truncated");
-    assert.equal(res.body.failed.length, 0);
-
-    const queued = await db
-      .select({ id: pendingReviewsTable.id })
-      .from(pendingReviewsTable)
-      .where(like(pendingReviewsTable.submittedText, `%${marker}%`));
-    assert.equal(queued.length, 1000, "every row must have a review");
-  });
-
-  it("skips a text matching an existing fact and one matching an unresolved review, queuing no new review", async () => {
-    const marker = randomUUID();
-    const factText = validRow(marker, 1);
-    const reviewText = validRow(marker, 2);
-    await createTestFact(factText);
-    await db.insert(pendingReviewsTable).values({
-      submittedText: reviewText,
-      status: "pending",
-      workflowStage: "triage",
-      submittedById: adminUserId,
-    } as typeof pendingReviewsTable.$inferInsert);
-
-    for (const text of [factText, reviewText]) {
-      const res = await request(makeApp())
-        .post("/admin/facts/import")
-        .set("authorization", `Bearer ${adminSid}`)
-        .send({ facts: [text] });
-      assert.equal(res.status, 200);
-      assert.equal(res.body.queued, 0, `${text} must not be queued again`);
-      assert.equal(res.body.skipped, 1);
-    }
-
-    // No review was added for the fact-matching text, and the review-matching text
-    // still has exactly the one it started with.
-    const factReviews = await db.select({ id: pendingReviewsTable.id }).from(pendingReviewsTable)
-      .where(eq(pendingReviewsTable.submittedText, factText));
-    assert.equal(factReviews.length, 0, "a text matching an existing fact must not get a review");
-    const reviewRows = await db.select({ id: pendingReviewsTable.id }).from(pendingReviewsTable)
-      .where(eq(pendingReviewsTable.submittedText, reviewText));
-    assert.equal(reviewRows.length, 1, "a text matching an unresolved review must not get a second one");
-  });
-});
-
-describe("POST /admin/facts/import-csv — byte cap", () => {
-  it("rejects a csv over 2,000,000 characters (but under the 2 MiB limit and 2000 rows) with 400 Invalid input and queues nothing", async () => {
-    const marker = randomUUID();
-    // 100 valid, ~20 KB lines: >2,000,000 characters, <2 MiB on the wire, <2000 rows —
-    // so neither the request-size limit nor the row cap can be what refuses it.
-    const filler = "x".repeat(20_000);
-    const csv = Array.from(
-      { length: 100 },
-      (_, i) => `${FACT_PREFIX}${marker}-${i} {Subj} {keeps|keep} it locked in {POSS} back yard. ${filler}`,
-    ).join("\n");
-    assert.ok(csv.length > 2_000_000, "precondition: the csv must exceed the 2,000,000-character cap");
-    assert.ok(Buffer.byteLength(csv, "utf8") < 2 * 1024 * 1024, "precondition: it must stay under the 2 MiB request limit");
-
-    const res = await request(makeApp())
-      .post("/admin/facts/import-csv")
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ csv });
-    assert.equal(res.status, 400);
-    assert.equal(res.body.error, "Invalid input");
-
-    const queued = await db
-      .select({ id: pendingReviewsTable.id })
-      .from(pendingReviewsTable)
-      .where(like(pendingReviewsTable.submittedText, `%${marker}%`));
-    assert.equal(queued.length, 0, "an over-cap csv must queue nothing at all");
   });
 });
 

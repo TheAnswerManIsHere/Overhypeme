@@ -78,8 +78,6 @@ const ADMIN_AUTH_ROUTES: readonly RouteEntry[] = [
   { method: "get",    path: "/admin/facts/:id/enrichment-overrides/history" },
   { method: "post",   path: "/admin/facts/:id/enrich" },
   { method: "get",    path: "/admin/facts/:id/enrichment-versions" },
-  { method: "post",   path: "/admin/facts/import" },
-  { method: "post",   path: "/admin/facts/import-csv" },
   { method: "get",    path: "/admin/comments/pending" },
   { method: "get",    path: "/admin/comments/pending/count" },
   { method: "get",    path: "/admin/comments/flagged" },

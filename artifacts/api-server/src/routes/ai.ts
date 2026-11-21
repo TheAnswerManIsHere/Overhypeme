@@ -2,7 +2,7 @@ import { can, principalFromRequest } from "../lib/featureAccess";
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db } from "@workspace/db";
 import { factsTable, commentsTable, pendingReviewsTable } from "@workspace/db/schema";
-import { eq, sql, and, ne } from "drizzle-orm";
+import { eq, sql, and, ne, or, isNotNull } from "drizzle-orm";
 import { callUtilityLLM, JUDGEMENT_REASONING_EFFORT } from "../lib/utilityLLM";
 import { z } from "zod";
 import { createRateLimiter, RATE_WINDOW_MS } from "../lib/rateLimit";
@@ -274,6 +274,35 @@ export async function findPendingReviewWithText(text: string, excludeReviewId?: 
     ))
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * The wording a new submission may not repeat (plan PLAN_FACT_LIFECYCLE_REBUILD.md,
+ * 1G): a fact that is live or was ever approved, or a submission still awaiting
+ * a decision, whose wording matches under duplicateMatchText (case, whitespace
+ * and punctuation ignored, the same "exact" the duplicate check uses). A fact
+ * of a submission that was never approved (a rejected one's) is not one.
+ */
+export interface IdenticalMatch {
+  matchingFactId?: number;
+  matchingReviewId?: number;
+  /** The match's wording, rendered for a reader. */
+  matchingCanonicalText: string;
+}
+
+export async function findIdenticalSubmission(text: string): Promise<IdenticalMatch | null> {
+  const [fact] = await db
+    .select({ id: factsTable.id, text: factsTable.text, canonicalText: factsTable.canonicalText })
+    .from(factsTable)
+    .where(and(
+      or(eq(factsTable.isActive, true), isNotNull(factsTable.approvedAt)),
+      sql`${duplicateMatchText(factsTable.text)} = ${duplicateMatchText(text)}`,
+    ))
+    .limit(1);
+  if (fact) return { matchingFactId: fact.id, matchingCanonicalText: fact.canonicalText ?? renderCanonical(fact.text) };
+  const review = await findPendingReviewWithText(text);
+  if (review) return { matchingReviewId: review.id, matchingCanonicalText: renderCanonical(review.submittedText) };
+  return null;
 }
 
 function nearest(n: Neighbor): Pick<DuplicateCheckResult, "confidence" | "matchingFactId" | "matchingFactText" | "matchingCanonicalText"> {

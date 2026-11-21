@@ -563,57 +563,6 @@ export interface MemeListResponse {
 }
 
 /**
- * A single fact to import. The `text` field is required; `hashtags` is optional.
- */
-export interface ImportFactItem {
-  /**
-   * The fact text. Must be at least 10 characters.
-   * @minLength 10
-   * @maxLength 1000
-   */
-  text: string;
-  /**
-   * Optional list of hashtag slugs to attach to this fact.
-   * @maxItems 20
-   * @items.maxLength 100
-   * @items.pattern ^[a-zA-Z0-9_]+$
-   */
-  hashtags?: string[];
-}
-
-export interface BulkImportFactsValidationError {
-  /** The field that failed validation (e.g. "text", "hashtags.0"). */
-  field: string;
-  /** Human-readable reason the field failed validation. */
-  message: string;
-}
-
-export interface BulkImportFactsFailedItem {
-  /** Zero-based position of the item in the submitted array. */
-  index: number;
-  errors: BulkImportFactsValidationError[];
-}
-
-/**
- * Result of a bulk import. Valid rows are QUEUED as Stage-1 moderation
- * reviews, not inserted as facts directly (Phase 2 fact-lifecycle closure —
- * bulk import loads the moderation queue, it does not publish). When
- * `dryRun` is true, `wouldQueue` is present instead of `queued`/`skipped`.
- */
-export interface BulkImportFactsResponse {
-  /** Present and true when the request was a dry run. */
-  dryRun?: boolean;
-  /** Number of facts queued as Stage-1 triage reviews (absent in dry-run mode). */
-  queued?: number;
-  /** Number of valid facts skipped as exact-text duplicates against existing facts or unresolved reviews (absent in dry-run mode). */
-  skipped?: number;
-  /** Number of facts that would be queued for moderation (dry-run mode only). */
-  wouldQueue?: number;
-  /** Items that failed schema validation and were not queued. */
-  failed: BulkImportFactsFailedItem[];
-}
-
-/**
  * Bearer session token (used by mobile clients).
  */
 export type AuthorizationSessionHeaderParameter = string;
@@ -802,15 +751,3 @@ export const ListFactMemesSort = {
   top: "top",
   new: "new",
 } as const;
-
-export type BulkImportFactsParams = {
-  /** If true, validate items but do not write to the database. */
-  dryRun?: boolean;
-};
-
-export type BulkImportFactsBody =
-  | ImportFactItem[]
-  | {
-      /** @maxItems 500 */
-      facts: ImportFactItem[];
-    };

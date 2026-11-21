@@ -287,6 +287,44 @@ function withDetector<T extends { locals: Record<string, unknown> }>(app: T, det
 }
 
 describe("the routes", () => {
+  it("identical wording is refused at submission: a live or ever-approved fact, or a submission awaiting a decision (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1G)", async () => {
+    const app = withDetector(buildTestApp({ kind: "authenticated", userId: adminId }, reviewsRouter),
+      async () => ({ outcome: "distinct", confidence: 0 }));
+    const submit = (text: string) => request(app).post("/api/facts/submit-review").send({ text });
+    const pendingBefore = async () => (await db.select({ id: pendingReviewsTable.id }).from(pendingReviewsTable).where(like(pendingReviewsTable.submittedById, `${USER_PREFIX}%`))).length;
+
+    // A live fact, matched with case, whitespace and punctuation ignored.
+    const live = await fact(`{NAME} identical live ${RUN}.`);
+    const before = await pendingBefore();
+    const refusedLive = await submit(`{NAME}   IDENTICAL live ${RUN}!`);
+    assert.equal(refusedLive.status, 409, JSON.stringify(refusedLive.body));
+    assert.equal(refusedLive.body.code, "IDENTICAL_FACT");
+    assert.equal(refusedLive.body.matchingFactId, live);
+    assert.equal(refusedLive.body.error, "This exact fact is already on Overhype.me.");
+    assert.equal(await pendingBefore(), before, "nothing was queued");
+
+    // A deactivated fact that was once approved still counts.
+    const deactivated = await fact(`{NAME} identical deactivated ${RUN}`, undefined, false);
+    await db.update(factsTable).set({ approvedAt: new Date() }).where(eq(factsTable.id, deactivated));
+    assert.equal((await submit(`{NAME} identical deactivated ${RUN}`)).body.matchingFactId, deactivated);
+
+    // A fact never approved (a rejected submission's) does not.
+    const [never] = await db.insert(factsTable).values({ text: `{NAME} identical never approved ${RUN}`, isActive: false }).returning({ id: factsTable.id });
+    factIds.push(never!.id);
+    const allowed = await submit(`{NAME} identical never approved ${RUN}`);
+    assert.equal(allowed.status, 201, JSON.stringify(allowed.body));
+
+    // A submission still waiting for a decision counts: the one just made.
+    const refusedPending = await submit(`{NAME} identical never approved ${RUN}`);
+    assert.equal(refusedPending.status, 409);
+    assert.equal(refusedPending.body.matchingReviewId, allowed.body.reviewId);
+    assert.equal(refusedPending.body.error, "This exact fact is already waiting for review.");
+
+    // Anything less than identical goes in, for the duplicate verdict to flag.
+    assert.equal((await submit(`{NAME} identical live ${RUN} twice`)).status, 201);
+    await __settleSubmitDuplicateChecksForTest();
+  });
+
   it("a submission ignores browser-sent match fields; the server checks the saved wording after commit", async () => {
     const seen: string[] = [];
     const factId = await fact(`{NAME} unrelated ${RUN}`);

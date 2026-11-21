@@ -82,7 +82,7 @@ import { logger } from "../lib/logger";
 import { editTriageWording, WordingError } from "../lib/reviewWording";
 import { lockFactRow, lockReviewAt, ReviewMovedError, reviewMovedBody, sendIfReviewMoved } from "../lib/reviewLocks";
 import { latestReading, readingView, startReading } from "../lib/readingJobs";
-import { checkDuplicateInternal } from "./ai";
+import { checkDuplicateInternal, findIdenticalSubmission } from "./ai";
 import { recordAdminAction } from "../lib/adminActions";
 
 // Re-export the plan-generator test seam (owned by the shared preview helper).
@@ -159,6 +159,21 @@ router.post("/facts/submit-review", requireAuth, requireFactSubmitRateLimit, asy
     return;
   }
   const text = normalized.text;
+  // Identical wording is refused (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1G): a
+  // fact that is live or was ever approved, or a submission still waiting for
+  // a decision. Anything less than identical goes in, and the duplicate
+  // verdict after the commit flags it for triage.
+  const identical = await findIdenticalSubmission(text);
+  if (identical) {
+    res.status(409).json({
+      error: identical.matchingReviewId != null
+        ? "This exact fact is already waiting for review."
+        : "This exact fact is already on Overhype.me.",
+      code: "IDENTICAL_FACT",
+      ...identical,
+    });
+    return;
+  }
   // Normalize submitter tags at ingress so `pending_reviews.hashtags` always
   // holds clean values (the Zod schema only caps count; API clients can send
   // arbitrary strings). Same sanitizer used at approval, so storage never drifts.
