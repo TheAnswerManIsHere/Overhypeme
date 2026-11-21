@@ -103,7 +103,7 @@ test.describe("Admin · moderation · the Reading step", () => {
     await page.getByTestId("reading-note").fill("The sharks are the audience; Alex is the show.");
     await page.getByTestId("approve-reading").click();
     await expect.poll(() => server.approvals()).toEqual([{ text: "The sharks are the audience; Alex is the show.", readingId: 77 }]);
-    await expect(page.getByTestId("gags-step-hint"), "the wizard moves to Gags").toBeVisible();
+    await expect(page.getByTestId("visual-concepts"), "the wizard moves to Gags").toBeVisible();
   });
 
   test("Reject past triage asks first, and only the confirmation rejects", async ({ page }) => {

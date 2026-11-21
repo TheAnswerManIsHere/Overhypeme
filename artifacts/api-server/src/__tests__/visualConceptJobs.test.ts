@@ -154,7 +154,7 @@ before(async () => {
 after(async () => {
   await cleanup();
   await db.delete(asyncJobsTable).where(and(
-    inArray(asyncJobsTable.queue, ["fact_visual_concepts"]),
+    inArray(asyncJobsTable.queue, ["fact_visual_concepts", "gag_prefill"]),
     gte(asyncJobsTable.createdAt, TEST_FILE_START),
   ));
 });
@@ -450,7 +450,7 @@ describe("the gag writer: humor note, joke read and freshness", () => {
     assert.equal(r.current, true);
   });
 
-  it("ideas written under the saved note stay current; a different note marks them out of date; regenerating under it makes them current", async () => {
+  it("ideas written under the saved note stay current; a changed note writes fresh ideas by itself, written under it (plan item 7)", async () => {
     const { reviewId, factId } = await seedReview(adminId, "gags");
     await db.update(factsTable).set({ humorNote: "Read one." }).where(eq(factsTable.id, factId));
     await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate() });
@@ -460,12 +460,14 @@ describe("the gag writer: humor note, joke read and freshness", () => {
     const n = await note(factId);
     assert.equal(n.text, "A corrected reading.");
     assert.equal(n.by, adminId);
-    const stale = await response(reviewId, factId);
-    assert.equal(stale.current, false);
-    assert.equal(stale.staleReason, "humor_note_changed");
+    // The changed note asked for fresh ideas in its own commit (Issue #1018, increment 1.3b).
+    assert.equal((await response(reviewId, factId)).status, "pending");
+    const [queued] = await db.select({ payload: asyncJobsTable.payload }).from(asyncJobsTable)
+      .where(and(eq(asyncJobsTable.status, "pending"), like(asyncJobsTable.dedupeKey, `fact_visual_concepts:review:${reviewId}:%`)));
+    assert.ok(queued, "a generation is queued");
 
     let sentNote: string | null = null;
-    await runVisualConceptsJob({ reviewId, factId }, { generate: async (input) => { sentNote = input.humorNote; return stubGenerate()(input); } });
+    await runVisualConceptsJob(queued.payload as Parameters<typeof runVisualConceptsJob>[0], { generate: async (input) => { sentNote = input.humorNote; return stubGenerate()(input); } });
     assert.equal(sentNote, "A corrected reading.");
     assert.equal((await response(reviewId, factId)).current, true);
     assert.equal((await note(factId)).text, "A corrected reading.", "a generation never writes the note");

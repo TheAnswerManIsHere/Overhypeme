@@ -58,11 +58,11 @@ export function deriveModerationQueueState(review: {
     }
     case "gags": {
       const cs = review.visualConceptStatus;
-      if (cs === "pending") return { label: "Generating visual ideas…", spinner: true, actionStep: "concept", tone: "working" };
+      if (cs === "pending") return { label: "Writing gag ideas…", spinner: true, actionStep: "concept", tone: "working" };
       if (cs === "ok") return { label: "Ready for gags", spinner: false, actionStep: "concept", tone: "ready" };
       if (cs === "failed") return { label: "Visual-ideas generation failed", spinner: false, actionStep: "concept", tone: "attention" };
       // null/undefined: never generated (a review the stage cutover moved here).
-      return { label: "Visual ideas not generated", spinner: false, actionStep: "concept", tone: "attention" };
+      return { label: "Gag ideas not written", spinner: false, actionStep: "concept", tone: "attention" };
     }
     case "test_renders": {
       const rs = review.renderReviewState;

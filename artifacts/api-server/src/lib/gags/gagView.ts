@@ -17,6 +17,7 @@ import {
 import { GAG_EXAMPLE_KINDS, MAX_GAGS_PER_FACT, mapKinds, type FactGagsView, type GagExample, type GagView, type PerKind } from "@workspace/api-zod";
 import { buildGagKindCards, gagRenderImageUrl } from "../reviewRenderScenarios";
 import { loadGags, normaliseGagContent, openReviewForFact } from "./resolver";
+import { prefillExpected } from "./prefill";
 import { examplesFor, isGrandfathered, loadExamples, type GagExamples } from "./examples";
 import { checkGoLive, describeGoLive } from "./goLive";
 
@@ -40,8 +41,7 @@ async function examples(ids: number[], gagIdOf: Map<number, number>): Promise<Ma
 export async function buildFactGagsView(factId: number): Promise<FactGagsView | null> {
   const [fact] = await db.select({ id: factsTable.id, isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, factId)).limit(1);
   if (!fact) return null;
-  const gags = await loadGags(factId);
-  const review = await openReviewForFact(factId);
+  const [gags, review] = await Promise.all([loadGags(factId), openReviewForFact(factId)]);
 
   const byGag = await loadExamples(gags.map((g) => g.id));
   const exampleIds: number[] = [];
@@ -59,9 +59,10 @@ export async function buildFactGagsView(factId: number): Promise<FactGagsView | 
 
   // Each gag's render tiles are independent reads: the view is polled while
   // renders draw, so they run together.
-  const [views, ready] = await Promise.all([
+  const [views, ready, filling] = await Promise.all([
     Promise.all(gags.map((g) => viewOf(g, fact.isActive, defaultId, examplesFor(byGag, g.id), ex))) as Promise<GagView[]>,
     checkGoLive(factId, "draft", db, gags),
+    review ? prefillExpected(factId, review, gags) : Promise.resolve(false),
   ]);
   return {
     factId,
@@ -70,6 +71,7 @@ export async function buildFactGagsView(factId: number): Promise<FactGagsView | 
     gags: views,
     maxGags: MAX_GAGS_PER_FACT,
     draftReady: { ok: ready.ok, reason: ready.ok ? null : describeGoLive(ready) },
+    filling,
   };
 }
 

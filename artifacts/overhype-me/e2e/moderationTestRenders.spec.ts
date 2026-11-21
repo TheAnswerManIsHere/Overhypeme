@@ -51,7 +51,7 @@ async function stubReview(page: Page, stage: "gags" | "test_renders" = "test_ren
     rendersRunning: false, renderReviewState: null,
   };
   const { visualPromptStrategyOverride: _gag, ...classification } = enrichmentWithConcept("{NAME} outlifts a forklift.");
-  const view: FactGagsView = { factId: FACT_ID, isActive: false, review: { id: REVIEW_ID, stage }, gags: [gag(1, 1), gag(2, 2)], maxGags: 3, draftReady: { ok: true, reason: null } };
+  const view: FactGagsView = { factId: FACT_ID, isActive: false, review: { id: REVIEW_ID, stage }, gags: [gag(1, 1), gag(2, 2)], maxGags: 3, draftReady: { ok: true, reason: null }, filling: false };
 
   await page.route(/\/api\/admin\/reviews(\?.*)?$/, (route: Route) =>
     route.fulfill({ json: { reviews: [row], total: 1, page: 1, limit: 20 } }));
@@ -122,16 +122,17 @@ test.describe("Admin · moderation · Test Renders per gag", () => {
   });
 
   // Saving a gag draws a paid male render (plan PLAN_GAG_EXAMPLES.md), so the
-  // Gags step must not tell the moderator its edits are free (build report, PR #972).
-  test("the Gags step says a save draws a paid male render, never that it spends nothing", async ({ page }) => {
+  // The Gags step's explanatory hint and Advanced Options are gone (plan
+  // PLAN_FACT_LIFECYCLE_REBUILD.md, items 9 and 23; Issue #1018, increment 1.3b).
+  test("the Gags step names its parts Gag ideas and Visual gag, with no hint and no Advanced Options", async ({ page }) => {
     await stubReview(page, "gags");
     await page.goto("/admin/moderation");
     await page.getByText(`"${TEXT}"`, { exact: true }).first().click();
 
-    const hint = page.getByTestId("gags-step-hint");
-    await expect(hint).toBeVisible();
-    await expect(hint).toContainText("Each save draws one paid male test render");
-    await expect(hint).not.toContainText("spends nothing");
+    await expect(page.getByText("Gag ideas", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("gag-card").first()).toContainText("Visual gag 1");
+    await expect(page.getByTestId("gags-step-hint")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Advanced Options/ })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Reject", exact: true }), "Reject is on the Gags step too").toBeVisible();
   });
 });

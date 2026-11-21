@@ -36,9 +36,9 @@ describe("deriveModerationQueueState — label table", () => {
       .toMatchObject({ label: "Reading not written yet", actionStep: "reading", tone: "attention" });
   });
 
-  it("gags, ideas pending → Generating visual ideas… (spinner, concept step)", () => {
+  it("gags, ideas pending → Writing gag ideas… (spinner, concept step)", () => {
     expect(deriveModerationQueueState({ status: "pending", workflowStage: "gags", visualConceptStatus: "pending" }))
-      .toMatchObject({ label: "Generating visual ideas…", spinner: true, actionStep: "concept", tone: "working" });
+      .toMatchObject({ label: "Writing gag ideas…", spinner: true, actionStep: "concept", tone: "working" });
   });
 
   it("gags, ideas ok → Ready for gags", () => {
@@ -51,9 +51,9 @@ describe("deriveModerationQueueState — label table", () => {
       .toMatchObject({ label: "Visual-ideas generation failed", spinner: false, tone: "attention" });
   });
 
-  it("gags with no ideas → Visual ideas not generated", () => {
+  it("gags with no ideas → Gag ideas not written", () => {
     expect(deriveModerationQueueState({ status: "pending", workflowStage: "gags", visualConceptStatus: null }))
-      .toMatchObject({ label: "Visual ideas not generated", spinner: false, actionStep: "concept", tone: "attention" });
+      .toMatchObject({ label: "Gag ideas not written", spinner: false, actionStep: "concept", tone: "attention" });
   });
 
   it("test_renders running → Rendering test images… (spinner, render step)", () => {

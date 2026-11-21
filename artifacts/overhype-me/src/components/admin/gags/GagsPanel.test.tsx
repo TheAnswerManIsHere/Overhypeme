@@ -51,7 +51,7 @@ function gag(over: Partial<GagView> & Pick<GagView, "id" | "slot">): GagView {
 }
 
 function view(gags: GagView[], over: Partial<FactGagsView> = {}): FactGagsView {
-  return { factId: 5, isActive: true, review: null, gags, maxGags: 3, draftReady: { ok: false, reason: null }, ...over };
+  return { factId: 5, isActive: true, review: null, gags, maxGags: 3, draftReady: { ok: false, reason: null }, filling: false, ...over };
 }
 
 type Call = { url: string; method: string; body: unknown };
@@ -267,13 +267,13 @@ describe("GagsPanel", () => {
     render(<GagsPanel factId={5} reviewId={77} rendersEnabled={false} subjectNames={[]} onUnsavedChange={onUnsaved} />);
     const second = (await screen.findAllByTestId("gag-card"))[1]!;
     fireEvent.change(within(second).getByTestId("visual-concept-textarea"), { target: { value: "{NAME} an unsaved edit." } });
-    await waitFor(() => expect(onUnsaved).toHaveBeenLastCalledWith(["Gag 2"]));
+    await waitFor(() => expect(onUnsaved).toHaveBeenLastCalledWith(["Visual gag 2"]));
     fireEvent.click(within(second).getByTestId("gag-undo"));
     await waitFor(() => expect(onUnsaved).toHaveBeenLastCalledWith([]));
     // A new gag with text typed in is unsaved work too.
     fireEvent.click(screen.getByTestId("gag-add"));
     fireEvent.change(within(screen.getByTestId("gag-new")).getByTestId("visual-concept-textarea"), { target: { value: "{NAME} typed, not saved." } });
-    await waitFor(() => expect(onUnsaved).toHaveBeenLastCalledWith(["the new gag"]));
+    await waitFor(() => expect(onUnsaved).toHaveBeenLastCalledWith(["the new visual gag"]));
   });
 
   describe("reloading while an iteration render is on its way (Codex, PR #956 round 1)", () => {
@@ -547,5 +547,40 @@ describe("GagsPanel", () => {
     expect(calls.some((c) => c.method === "PUT")).toBe(false);
     fireEvent.click(within(card).getByTestId("bubble-add"));
     expect(await within(card).findByTestId("gag-cast-retry")).toBeTruthy();
+  });
+  describe("the Gags step's Visual gag 1 (Issue #1018, increment 1.3b)", () => {
+    it("with no gag yet, shows an empty Visual gag 1 that cannot be cancelled, and no add button", async () => {
+      stubFetch(view([], { isActive: false, review: { id: 9, stage: "gags" } }));
+      render(<GagsPanel factId={5} reviewId={9} rendersEnabled={false} subjectNames={[]} startWithGag1 />);
+      const card = await screen.findByTestId("gag-new");
+      expect(card.textContent).toContain("Visual gag 1");
+      expect(within(card).queryByText("Cancel")).toBeNull();
+      expect(screen.queryByTestId("gag-add")).toBeNull();
+      expect(screen.queryByTestId("gags-empty")).toBeNull();
+    });
+
+    it("says while the gags are being filled from the gag ideas", async () => {
+      stubFetch(view([], { isActive: false, review: { id: 9, stage: "gags" }, filling: true }));
+      render(<GagsPanel factId={5} reviewId={9} rendersEnabled={false} subjectNames={[]} startWithGag1 />);
+      expect((await screen.findByTestId("gags-filling")).textContent).toMatch(/Filling from the gag ideas/);
+    });
+
+    it("text typed into the empty card stays, as an unsaved edit over gag 1 when the first idea fills it", async () => {
+      let filled = false;
+      const filledView = view([gag({ id: 21, slot: 1, state: "new", availableToUsers: false, approvedContent: null, approvedAt: null, pendingContent: scene("{NAME} does thing 0.") })], { isActive: false, review: { id: 9, stage: "gags" } });
+      vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(filled ? filledView : view([], { isActive: false, review: { id: 9, stage: "gags" } })), { status: 200, headers: { "Content-Type": "application/json" } })));
+      const onUnsaved = vi.fn();
+      const { rerender } = render(<GagsPanel factId={5} reviewId={9} rendersEnabled={false} subjectNames={[]} startWithGag1 reloadKey={0} onUnsavedChange={onUnsaved} />);
+      const empty = await screen.findByTestId("gag-new");
+      fireEvent.change(within(empty).getByTestId("visual-concept-textarea"), { target: { value: "{NAME} typed first." } });
+      await waitFor(() => expect(window.localStorage.getItem("gag-draft::5:new")).toBeTruthy());
+      filled = true;
+      await act(async () => { rerender(<GagsPanel factId={5} reviewId={9} rendersEnabled={false} subjectNames={[]} startWithGag1 reloadKey={1} onUnsavedChange={onUnsaved} />); });
+      const card = await screen.findByTestId("gag-card");
+      expect(card.textContent).toContain("Visual gag 1");
+      expect((within(card).getByTestId("visual-concept-textarea") as HTMLTextAreaElement).value).toBe("{NAME} typed first.");
+      await waitFor(() => expect(onUnsaved).toHaveBeenLastCalledWith(["Visual gag 1"]));
+      expect(screen.queryByTestId("gag-new")).toBeNull();
+    });
   });
 });

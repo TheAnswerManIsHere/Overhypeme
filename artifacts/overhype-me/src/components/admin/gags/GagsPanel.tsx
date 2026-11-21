@@ -82,6 +82,18 @@ export interface GagsPanelProps {
    */
   onUnsavedChange?: (gags: string[]) => void;
   disabled?: boolean;
+  /**
+   * The Gags step (plan PLAN_FACT_LIFECYCLE_REBUILD.md, item 9): with no gag
+   * yet, Visual gag 1 is shown at once, empty, and the first gag idea fills it
+   * when it lands (lib/gags/prefill.ts) unless the moderator saved one first.
+   * Text typed into it before then stays, as an edit over the filled gag.
+   */
+  startWithGag1?: boolean;
+  /**
+   * Gag ideas are being written: the gags may be filled when they land, so
+   * the panel reloads meanwhile and once more when they finish.
+   */
+  awaitingIdeas?: boolean;
 }
 
 function sameContent(a: unknown, b: unknown): boolean {
@@ -97,8 +109,10 @@ export function GagsPanel(props: GagsPanelProps) {
 }
 
 const NO_CHARACTERS: readonly FactCharacter[] = [];
+/** How long the panel waits on a fill from the gag ideas (lib/gags/prefill.ts): reading a cast takes seconds. */
+const FILL_POLL_MS = 90_000;
 
-function GagsPanelBody({ factId, reviewId, rendersEnabled, rendersExpected = false, subjectNames, reloadKey = 0, onView, onUnsavedChange, disabled = false }: GagsPanelProps) {
+function GagsPanelBody({ factId, reviewId, rendersEnabled, rendersExpected = false, subjectNames, reloadKey = 0, onView, onUnsavedChange, disabled = false, startWithGag1 = false, awaitingIdeas = false }: GagsPanelProps) {
   const [view, setView] = useState<FactGagsView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   // A new gag's draft kept from before a reload opens the new-gag card again.
@@ -121,17 +135,23 @@ function GagsPanelBody({ factId, reviewId, rendersEnabled, rendersExpected = fal
   // The unsaved gags by name, in slot order, the new gag last.
   const slotOf = useMemo(() => new Map((view?.gags ?? []).map((g) => [`gag-${g.id}`, g.slot])), [view]);
   const unsavedNames = useMemo(() => [...unsavedKeys]
-    .map((k) => (k === "new" ? { order: 99, name: "the new gag" } : { order: slotOf.get(k) ?? 98, name: slotOf.has(k) ? `Gag ${slotOf.get(k)}` : "a gag" }))
+    .map((k) => (k === "new" ? { order: 99, name: "the new visual gag" } : { order: slotOf.get(k) ?? 98, name: slotOf.has(k) ? `Visual gag ${slotOf.get(k)}` : "a visual gag" }))
     .sort((a, b) => a.order - b.order)
     .map((x) => x.name), [unsavedKeys, slotOf]);
   const unsavedSignature = unsavedNames.join("|");
   useEffect(() => { onUnsavedRef.current?.(unsavedNames); }, [unsavedSignature]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => { onUnsavedRef.current?.([]); }, []);
 
+  const viewRef = useRef<FactGagsView | null>(null);
   const accept = useCallback((v: FactGagsView) => {
+    // Gag 1 arrived from the first idea while text was typed into the empty
+    // card: the typing moves onto it as an unsaved edit, before its card
+    // mounts and reads its kept edit (plan item 9).
+    if (viewRef.current?.gags.length === 0 && v.gags.length > 0) moveNewDraftOnto(factId, v.gags[0]!);
+    viewRef.current = v;
     setView(v);
     onViewRef.current?.(v);
-  }, []);
+  }, [factId]);
   /** A view an action answered with: its iteration render may still be on its way. */
   const acceptAction = useCallback((v: FactGagsView) => {
     accept(v);
@@ -163,7 +183,21 @@ function GagsPanelBody({ factId, reviewId, rendersEnabled, rendersExpected = fal
   }, [rendersExpected, factId, reloadKey, windowKick, reloadedFromOutside]);
   const drawing = !!view?.gags.some((g) => GAG_EXAMPLE_KINDS.some((k) => IN_FLIGHT.has(g.renders[k]?.status ?? "")));
   const awaitingMale = !!view?.gags.some((g) => g.renders.male == null || g.renders.male.status === "missing");
-  const poll = drawing || (prepareWindowOpen && awaitingMale);
+  // Ideas being written may fill the gags when they land; the view says while
+  // a fill is under way (`filling`).
+  // A fill the server skipped (an idea it could not use) would say "filling"
+  // for good, so its polling stops after a while.
+  const fillingSince = useRef<number | null>(null);
+  if (!view?.filling) fillingSince.current = null;
+  else if (fillingSince.current == null) fillingSince.current = Date.now();
+  const filling = !!view?.filling && Date.now() - (fillingSince.current ?? 0) < FILL_POLL_MS;
+  const poll = drawing || (prepareWindowOpen && awaitingMale) || awaitingIdeas || filling;
+  // Ideas just finished: one more load, so a fill they started is seen.
+  const wasAwaiting = useRef(awaitingIdeas);
+  useEffect(() => {
+    if (wasAwaiting.current && !awaitingIdeas && factId > 0) void load();
+    wasAwaiting.current = awaitingIdeas;
+  }, [awaitingIdeas, factId, load]);
   useEffect(() => {
     if (!poll) return;
     const h = setInterval(() => { void load(); }, POLL_MS);
@@ -182,19 +216,24 @@ function GagsPanelBody({ factId, reviewId, rendersEnabled, rendersExpected = fal
 
   const readOnly = disabled;
   const canAdd = !readOnly && view.gags.length < view.maxGags;
+  // On the Gags step, Visual gag 1 is always there: empty until the first idea fills it.
+  const showGag1 = startWithGag1 && view.gags.length === 0 && !readOnly;
 
   return (
     <div className="space-y-3" data-testid="gags-panel">
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <p className="text-sm font-bold text-foreground uppercase tracking-wide">Gags</p>
-        <p className="text-xs text-muted-foreground">
-          {view.gags.length} of {view.maxGags}. A gag reaches users once its male, female and pet renders are approved as its examples.
-        </p>
+        <p className="text-sm font-bold text-foreground uppercase tracking-wide">Visual gags</p>
+        <p className="text-xs text-muted-foreground">{view.gags.length} of {view.maxGags}</p>
       </div>
 
+      {filling && (
+        <p className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1.5" data-testid="gags-filling">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" /> Filling from the gag ideas…
+        </p>
+      )}
 
-      {view.gags.length === 0 && !adding && (
-        <p className="text-xs text-muted-foreground" data-testid="gags-empty">No gags yet. Add one, or use one of the visual ideas.</p>
+      {view.gags.length === 0 && !adding && !showGag1 && (
+        <p className="text-xs text-muted-foreground" data-testid="gags-empty">No visual gags yet.</p>
       )}
 
       {view.gags.map((g) => (
@@ -211,25 +250,27 @@ function GagsPanelBody({ factId, reviewId, rendersEnabled, rendersExpected = fal
         />
       ))}
 
-      {adding && (
+      {(adding || showGag1) && (
         <NewGagCard
           factId={factId}
           reviewId={reviewId}
           subjectNames={subjectNames}
+          title={showGag1 ? "Visual gag 1" : "New visual gag"}
+          cancellable={!showGag1}
           onCancel={() => { reportUnsaved("new", false); setAdding(false); }}
           onView={(v) => { reportUnsaved("new", false); acceptAction(v); setAdding(false); }}
           reportUnsaved={reportUnsaved}
         />
       )}
 
-      {canAdd && !adding && (
+      {canAdd && !adding && !showGag1 && (
         <button
           type="button"
           onClick={() => setAdding(true)}
           data-testid="gag-add"
           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium border border-dashed border-primary/50 text-primary rounded-sm hover:bg-primary/10"
         >
-          <Plus className="w-4 h-4" /> Add a gag
+          <Plus className="w-4 h-4" /> Add a visual gag
         </button>
       )}
     </div>
@@ -515,7 +556,7 @@ function GagCard({
 
   const save = async () => done(await s.run(draft, working, (c) => gagApi.save(factId, gag.id, c, reviewId), setDraft));
   const remove = async () => {
-    if (!window.confirm(`Remove gag ${gag.slot}?`)) return;
+    if (!window.confirm(`Remove visual gag ${gag.slot}?`)) return;
     done(await s.act(() => gagApi.remove(factId, gag.id, reviewId)));
   };
   const runRenders = async (kinds: GagExampleKind[], redraw = false) => done(await s.act(() => gagApi.runRenders(factId, gag.id, reviewId, kinds, redraw)));
@@ -537,7 +578,7 @@ function GagCard({
       <div className="flex items-start justify-between gap-2 flex-wrap">
         <div className="space-y-1">
           <p className="text-sm font-bold text-foreground flex items-center gap-2 flex-wrap">
-            Gag {gag.slot}
+            Visual gag {gag.slot}
             {gag.isDefault && (
               <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-sm bg-primary/15 text-primary" data-testid="gag-default">Default</span>
             )}
@@ -565,7 +606,7 @@ function GagCard({
         <div className="flex gap-3 flex-wrap" data-testid="gag-approved-examples">
           {GAG_EXAMPLE_KINDS.map((k) => gag.approvedExamples[k]?.imageUrl ? (
             <figure key={k} className="space-y-1">
-              <img src={gag.approvedExamples[k]!.imageUrl!} alt={`Gag ${gag.slot} ${k} example`} className="w-28 rounded-sm border border-border" data-testid="gag-example" data-kind={k} />
+              <img src={gag.approvedExamples[k]!.imageUrl!} alt={`Visual gag ${gag.slot} ${k} example`} className="w-28 rounded-sm border border-border" data-testid="gag-example" data-kind={k} />
               <figcaption className="text-[11px] text-muted-foreground">{KIND_LABEL[k]} example{building ? " (users see this now)" : ""}</figcaption>
             </figure>
           ) : null)}
@@ -718,10 +759,27 @@ export function hasStoredNewGagDraft(factId: number): boolean {
   return readStoredDraft(`${factId}:new`, NEW_BASE) != null;
 }
 
+/**
+ * Move the empty card's kept typing onto the gag the first idea filled: kept
+ * against that gag's current version, so its card opens with the typing as
+ * an unsaved edit over it (plan item 9).
+ */
+function moveNewDraftOnto(factId: number, gag: GagView): void {
+  const typed = readStoredDraft(`${factId}:new`, NEW_BASE);
+  if (!typed) return;
+  const working = gag.pendingContent ?? gag.approvedContent ?? EMPTY_VISUAL_STRATEGY_OVERRIDE;
+  try {
+    window.localStorage.setItem(draftKey(`${factId}:${gag.id}`), JSON.stringify({ base: JSON.stringify(working), draft: typed }));
+  } catch { /* not kept: the filled gag shows as it is */ }
+  clearStoredDraft(`${factId}:new`);
+}
+
 function NewGagCard({
   factId,
   reviewId,
   subjectNames,
+  title,
+  cancellable,
   onCancel,
   onView,
   reportUnsaved,
@@ -729,6 +787,8 @@ function NewGagCard({
   factId: number;
   reviewId: number | null;
   subjectNames: string[];
+  title: string;
+  cancellable: boolean;
   onCancel: () => void;
   onView: (v: FactGagsView) => void;
   reportUnsaved: (key: string, unsaved: boolean) => void;
@@ -750,7 +810,7 @@ function NewGagCard({
   useEffect(() => () => reportUnsaved("new", false), [reportUnsaved]);
   return (
     <div className="rounded-sm border-2 border-dashed border-primary/40 bg-card p-4 space-y-3" data-testid="gag-new">
-      <p className="text-sm font-bold text-foreground">New gag</p>
+      <p className="text-sm font-bold text-foreground">{title}</p>
       <GagEditor value={draft} onChange={setDraft} disabled={s.busy} fieldErrors={s.fieldErrors} cast={castReading} />
       {s.error && <p className="text-xs text-destructive flex items-start gap-1.5 break-words" data-testid="gag-error"><AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" /><span className="min-w-0">{s.error}</span></p>}
       <div className="flex gap-2">
@@ -758,8 +818,10 @@ function NewGagCard({
           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium border border-primary/50 text-primary rounded-sm hover:bg-primary/10 disabled:opacity-40">
           {s.busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Save gag
         </button>
-        <button type="button" onClick={() => { clearStoredDraft(storeKey); onCancel(); }} disabled={s.busy}
-          className="px-3 py-1.5 text-sm border border-border rounded-sm hover:bg-muted text-foreground disabled:opacity-40">Cancel</button>
+        {cancellable && (
+          <button type="button" onClick={() => { clearStoredDraft(storeKey); onCancel(); }} disabled={s.busy}
+            className="px-3 py-1.5 text-sm border border-border rounded-sm hover:bg-muted text-foreground disabled:opacity-40">Cancel</button>
+        )}
       </div>
     </div>
   );

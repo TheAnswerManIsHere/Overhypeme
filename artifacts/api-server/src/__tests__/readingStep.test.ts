@@ -83,7 +83,10 @@ before(async () => {
 after(async () => {
   const reviews = reviewIds.length ? await db.select({ stagingFactId: pendingReviewsTable.stagingFactId }).from(pendingReviewsTable).where(inArray(pendingReviewsTable.id, reviewIds)) : [];
   const factIds = reviews.map((r) => r.stagingFactId).filter((x): x is number => x != null);
-  for (const id of reviewIds) await db.delete(asyncJobsTable).where(like(asyncJobsTable.dedupeKey, `fact_visual_concepts:review:${id}:%`));
+  for (const id of reviewIds) {
+    await db.delete(asyncJobsTable).where(like(asyncJobsTable.dedupeKey, `fact_visual_concepts:review:${id}:%`));
+    await db.delete(asyncJobsTable).where(like(asyncJobsTable.dedupeKey, `gag_prefill:${id}:%`));
+  }
   if (factIds.length) {
     const runs = await db.select({ id: factReadingsTable.id }).from(factReadingsTable).where(inArray(factReadingsTable.factId, factIds));
     for (const r of runs) await db.delete(asyncJobsTable).where(eq(asyncJobsTable.dedupeKey, `fact_reading:${r.id}`));

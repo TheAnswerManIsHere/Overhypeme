@@ -215,21 +215,21 @@ test.describe("Admin described screens", () => {
     const card = await openConceptReview(page, "{NAME} makes onions cry.");
     await expectRequiredMarker(page, card);
 
-    // Near the top: only the submitted fact and the one-line instruction come before the gags.
+    // Near the top: only the submitted fact comes before the gags (the step's
+    // explanatory line went with increment 1.3b).
     const gags = page.getByTestId("gags-panel");
     const before = await gags.evaluate((el) => {
       const out: string[] = [];
       for (let s = el.previousElementSibling; s; s = s.previousElementSibling) out.unshift((s.textContent ?? "").trim());
       return out;
     });
-    expect(before).toHaveLength(2);
+    expect(before).toHaveLength(1);
     expect(before[0]).toMatch(/^submitted fact/i);
-    expect(before[1]).toMatch(/^Write, edit or use an idea for each gag/);
-    // In the gag, the concept sits above its bubbles; the visual ideas follow the gags.
+    // In the gag, the concept sits above its bubbles; the gag ideas follow the gags.
     const cardTop = (await card.boundingBox())!.y;
     const gag = page.getByTestId("gag-card").first();
     const bubbles = (await gag.getByText(/speech & thought bubbles/i).first().boundingBox())!.y;
-    const ideas = (await page.getByTestId("visual-concepts").getByText(/^visual ideas$/i).boundingBox())!.y;
+    const ideas = (await page.getByTestId("visual-concepts").getByText(/^gag ideas$/i).boundingBox())!.y;
     expect(cardTop).toBeLessThan(bubbles);
     expect(bubbles).toBeLessThan(ideas);
   });

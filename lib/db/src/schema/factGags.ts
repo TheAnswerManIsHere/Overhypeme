@@ -6,6 +6,14 @@ import { factsTable } from "./facts";
 import { usersTable } from "./auth";
 import { imagePromptAttemptsTable } from "./imagePromptAttempts";
 
+/** The gag idea a gag was pre-filled from (fact_gags.prefilled_from, migration 0158). */
+export interface GagPrefilledFrom {
+  scene: string;
+  bubbles: Array<{ type: "speech" | "thought"; entity: string; text: string }>;
+  /** The humor note the idea was written under; null when there was none. */
+  humorNote: string | null;
+}
+
 /**
  * A fact's gags (migration 0139, plan docs/plans/PLAN_THREE_GAGS.md, approved
  * by David 2026-11-14). A gag is one way of making a fact's joke visible, with
@@ -72,6 +80,14 @@ export const factGagsTable = pgTable("fact_gags", {
 
   /** A published gag the draft removes: still offered until the draft is published (0157). */
   draftRemoved: boolean("draft_removed").notNull().default(false),
+
+  /**
+   * The gag idea this gag was pre-filled from (0158): its scene, its bubbles
+   * and the humor note it was written under. While the gag's draft scene and
+   * bubbles still equal it, the gag is untouched, and a changed note replaces
+   * it (lib/gags/prefill.ts). Null on a gag a person wrote or chose.
+   */
+  prefilledFrom: jsonb("prefilled_from").$type<GagPrefilledFrom>(),
 
   removedAt: timestamp("removed_at", { withTimezone: true }),
   removedBy: varchar("removed_by").references(() => usersTable.id, { onDelete: "set null" }),

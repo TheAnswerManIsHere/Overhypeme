@@ -177,6 +177,12 @@ export interface FactGagsView {
    * accepted now, and if not, why in words.
    */
   draftReady: { ok: boolean; reason: string | null };
+  /**
+   * The gags are about to be filled from the fact's gag ideas (gag 1 from the
+   * first idea, or untouched pre-filled gags after a changed note;
+   * lib/gags/prefill.ts). The screen shows it and polls until it lands.
+   */
+  filling: boolean;
 }
 
 // ─── The fold and cast fill (plan PLAN_GAG_DIRECT_RENDER.md, E) ─────────────
