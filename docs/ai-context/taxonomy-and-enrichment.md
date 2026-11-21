@@ -9,15 +9,18 @@
 > panel and the hashtag edit. The taxonomy is now read-only stored AI output:
 > a run writes the classifier's own result through `taxonomyColumns`
 > (`artifacts/api-server/src/lib/factEnrichment.ts`), and the Facts editor
-> shows it with only "Re-run" (`FactTaxonomyPanel.tsx`). The override,
-> signature and version columns stay in the schema, unread, until increment
-> 2.1c drops them; increment 2.1b adds run history. Trust the code and
+> shows it with only "Re-run" (`FactTaxonomyPanel.tsx`). Increment 2.1b keeps
+> every run as history (`fact_taxonomy_runs`). Increment 2.1c's migration 0160
+> dropped the override, signature and projection columns, the enrichment
+> versions, the override history and the engine-revision record; the modules
+> named below as gone are at tag `pre-cut/taxonomy-health`
+> (`docs/retired/README.md`). Trust the code and
 > `docs/plans/PLAN_FACT_LIFECYCLE_REBUILD.md` (2A–2C) over the sections below.
 
 > Enrichment = the AI **classification** layer for a fact. This doc is the
 > source-of-truth boundary map. Key modules: `lib/api-zod/src/taxonomy.ts`
-> (schema + version constants), `lib/api-zod/src/enrichmentOverrides.ts` (the
-> resolver), `artifacts/api-server/src/lib/factEnrichment.ts`,
+> (schema + version constants), `enrichmentOverrides.ts` (the
+> resolver; gone, at the tag above), `artifacts/api-server/src/lib/factEnrichment.ts`,
 > `enrichmentVersioning.ts`, `enrichmentJobs.ts` (Taxonomy Health's
 > modules went in increment 2.1a).
 
@@ -100,7 +103,7 @@ destroying human decisions, and what powers baseline-drift detection.
 ## Runtime merge behavior
 
 The single merge function is **`resolveEnrichment()`**
-(`lib/api-zod/src/enrichmentOverrides.ts`): start from the AI baseline, apply each
+(`enrichmentOverrides.ts`, gone; at tag `pre-cut/taxonomy-health`): start from the AI baseline, apply each
 *valid* override on top (invalid stored values are recorded in `invalidPaths` and
 the AI value is kept so the effective blob stays renderable), repair cross-field
 archetype/subtype mismatches, and re-attach the moderator visual override. The
@@ -174,7 +177,7 @@ notes below).
 on the version row) records the engine/prompt/code revision an enrichment was
 generated under, so a fact processed under old assumptions reads as stale.
 
-- `ProcessingSignature` (`lib/api-zod/src/processingSignature.ts`, pure, no DB)
+- `ProcessingSignature` (`processingSignature.ts`, gone; at tag `pre-cut/taxonomy-health`)
   = `{ engineRevision, taxonomyVersion, classificationVersion,
   imagePromptGenerationVersion, visualStrategyVersion }`. The four `*Version`
   fields are the same code-version constants used elsewhere;
@@ -301,10 +304,11 @@ must preserve that.
 
 ## Files to inspect before enrichment work
 
-- `lib/db/src/schema/facts.ts`, `lib/db/src/schema/factEnrichmentVersions.ts`,
-  `lib/db/src/schema/engineRevisionBumps.ts`
-- `lib/api-zod/src/enrichmentOverrides.ts`, `lib/api-zod/src/taxonomy.ts`,
-  `lib/api-zod/src/processingSignature.ts` (the stored shape only)
+- `lib/db/src/schema/facts.ts`, `lib/db/src/schema/factTaxonomyRuns.ts`
+  (`factEnrichmentVersions.ts` and `engineRevisionBumps.ts` are gone, at tag
+  `pre-cut/taxonomy-health`)
+- `lib/api-zod/src/taxonomy.ts` (`enrichmentOverrides.ts` and
+  `processingSignature.ts` are gone, at the same tag)
 - `artifacts/api-server/src/lib/factEnrichment.ts`,
   `enrichmentOverrideLayers.ts`, `enrichmentVersioning.ts`,
   `sendBackToReview.ts`, `enrichmentJobs.ts`, `factEnrichmentBackfillJob.ts`,

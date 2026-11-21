@@ -63,6 +63,15 @@ describe("FactTaxonomyPanel", () => {
     expect(rows[2]!.querySelector("[data-testid=taxonomy-summary]")!.textContent).toContain("object_logic_impossibility");
   });
 
+  it("names a run kept from before history began (migration 0160) for what it is", async () => {
+    const kept: TaxonomyRun = { id: 4, outcome: "ok", origin: "legacy_current", output: STORED, error: null, requestedByName: null, createdAt: "2026-11-21T12:00:00Z" };
+    stub({ enrichment: STORED, enrichmentStatus: "ok" }, [kept]);
+    render(<FactTaxonomyPanel factId={7} initialStatus="ok" />);
+    const [row] = await screen.findAllByTestId("taxonomy-run");
+    expect(row!.textContent).toContain("the taxonomy held before run history began");
+    expect(row!.textContent).not.toContain(" by ");
+  });
+
   it("Re-run asks first, then starts a run on the fact", async () => {
     const calls = stub({ enrichment: STORED, enrichmentStatus: "ok" });
     const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
