@@ -12,15 +12,13 @@
  */
 
 import type { FieldDoc, FieldEffectClass, StaleBehavior } from "./types";
-import { CLASSIFICATION_FIELD_DOCS } from "./classification";
+import { HASHTAG_FIELD_DOCS } from "./hashtags";
 import { VISUAL_STRATEGY_FIELD_DOCS } from "./visualStrategy";
-import { REFERENCES_ENTITIES_FIELD_DOCS } from "./referencesEntities";
 import { FIELD_DOC_USAGE } from "./index";
 
 const SECTIONS: readonly { title: string; docs: readonly FieldDoc[] }[] = [
-  { title: "AI Visual Classification", docs: CLASSIFICATION_FIELD_DOCS },
+  { title: "Hashtags", docs: HASHTAG_FIELD_DOCS },
   { title: "Visual Strategy Override", docs: VISUAL_STRATEGY_FIELD_DOCS },
-  { title: "References & Scene Entities", docs: REFERENCES_ENTITIES_FIELD_DOCS },
 ];
 
 const EFFECT_TEXT: Record<FieldEffectClass, string> = {

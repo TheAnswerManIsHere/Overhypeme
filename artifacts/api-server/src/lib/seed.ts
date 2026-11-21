@@ -609,18 +609,14 @@ export async function seedIfEmpty(): Promise<void> {
   // Facts are born inactive and only go live with an approved gag (Phase-2
   // fact-lifecycle closure; since migration 0139 the deferred trigger
   // enforce_live_fact_has_approved_gag). The startup seed inserts live starter
-  // facts, so each carries a valid placeholder enrichment, its projected
-  // taxonomy columns, and a placeholder gag, inserted together.
+  // facts, so each carries a valid placeholder enrichment and a
+  // placeholder gag, inserted together.
   const seedEnrichment = buildPlaceholderFactEnrichment();
 
   for (const item of SEED_FACTS) {
     const fact = await insertLiveFact({
       text: item.text,
       enrichment: seedEnrichment,
-      primaryArchetype: seedEnrichment.primaryArchetype,
-      subtype: seedEnrichment.subtype,
-      overhypeFit: seedEnrichment.overhypeFit,
-      adultSuitability: seedEnrichment.adultSuitability,
     }, buildPlaceholderGag());
 
     for (const tagName of item.hashtags) {

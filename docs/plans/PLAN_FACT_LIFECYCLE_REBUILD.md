@@ -50,7 +50,7 @@ A human approves every gag, so the machinery built for taxonomy-driven prompts i
 
 ## Settled decisions
 - One plan, three phases, in the order above.
-- Modifiers are removed and the gag's wording is the source of truth for appearance (Q10: 3, David over a stated picture-quality risk); the removal itself is PLAN_GAG_DIRECT_RENDER increment 3's (Issue #1016). This plan carries before/after renders of an age-change fact and a violence fact as evidence.
+- Modifiers are removed and the gag's wording is the source of truth for appearance (Q10: 3, David over a stated picture-quality risk); the removal itself is PLAN_GAG_DIRECT_RENDER increment 3's (Issue #1016). This plan carries before/after renders of an age-change fact and a violence fact as evidence. **Struck by David, 2026-11-21 (Q35): "strike the promise"; the picture quality is revisited when the user-facing AI memes are tested.**
 - The cast stays one separate derived step; the gag writer does not supply it.
 - Built on top of the planner removal (Issue #1016) and the duplicate verdict (Issue #1003); neither is rebuilt here.
 - Between phases some live-fact admin functions are unavailable; each phase leaves every remaining screen working.
@@ -220,7 +220,7 @@ All routes stay behind the existing admin permission checks; new routes are adde
 - **Unit and integration:** the go-live predicate over the draft and published sets; stage transitions including reject from each step and concurrent transitions; note-change effects on ideas and pre-filled gags; publish as one transaction; the delete guard; each needs-attention predicate, with counts equal to filter results; migrations over fixtures for the states that separate publication from preparation: an unfinished submission holding approved gag content; a deactivated approved fact; an open refresh; an open resubmission; a live fact with unpublished edits; a fact with no establishable approval.
 - **Acceptance journeys** (the existing recorder): submit → four steps → live with the taxonomy run made to fail; reject at step 3 with the email; edit a live fact's gag → unpublished → publish.
 - **Browser:** the admin screens suite updated for the four steps and the sheet; phone-width run of the sheet.
-- **Evidence David judges:** the blind check (1A); the revised gag writer's ideas on the pushups, Rushmore and grenade facts before the relock (1C); before and after renders of an age-change fact and a violence fact once modifiers are gone (settled decision); the duplicate message copy.
+- **Evidence David judges:** the blind check (1A); the revised gag writer's ideas on the pushups, Rushmore and grenade facts before the relock (1C); ~~before and after renders of an age-change fact and a violence fact once modifiers are gone (settled decision)~~ (struck, Q35, 2026-11-21); the duplicate message copy.
 - **UAT:** judgement steps only — whether the four steps feel right in use, whether the sheet's grouping reads well. Screen facts are assertions in the PRs.
 
 ## Implementation Steps
