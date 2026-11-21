@@ -31,7 +31,7 @@ import {
   type ReviewReadingView,
   type ReviewWorkflowStage,
 } from "@workspace/api-zod";
-import { enqueueJob, registerJobHandler, type HandlerResult, type JobHandler } from "./asyncJobs";
+import { RESUMES_FROM_CHECKPOINTS, enqueueJob, registerJobHandler, type HandlerResult, type JobHandler } from "./asyncJobs";
 import { assertJobOwnership, fencedTransaction } from "./jobFence";
 import { logger } from "./logger";
 import { renderCanonical } from "./renderCanonical";
@@ -271,5 +271,8 @@ export const readingJobHandler: JobHandler = {
 
 export function registerReadingJobHandlers(): void {
   // Execution limit (Issue #1000): one web-search call of up to 120 s, plus database work and margin.
-  registerJobHandler(READING_QUEUE, readingJobHandler, { executionLimitMs: 5 * 60_000 });
+  // Resumes from its checkpoint (plan PLAN_JOB_RESUME.md, Q12: every queue; #1129): a resumed run
+  // finds its reading already `ok` and stops, or finds it `pending` and makes the one paid call
+  // again — repeated only where no committed result exists (Q13: 1, logged by the worker).
+  registerJobHandler(READING_QUEUE, readingJobHandler, { executionLimitMs: 5 * 60_000, ...RESUMES_FROM_CHECKPOINTS });
 }
