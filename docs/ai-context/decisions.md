@@ -13,6 +13,12 @@
 
 ---
 
+### 2026-11-21 · ADMIN_API_KEY is deleted, not scoped; admin actions need a signed-in admin
+- **Decision:** the static `ADMIN_API_KEY` header no longer opens any admin route; `set-password`, the backfill launchers, `enable-notifications` and both Stripe sync routes take an admin session like every other admin route (#455). This supersedes the 2026-10-13 placement "scoped, not deleted" in `PLAN_GET_TO_LAUNCH.md` (Phase 15) and `deferred-work.md`.
+- **Why:** David's answer to Q4 of the backlog plan (Issue #628, 2026-11-21: *"q4 1"*, choosing "delete the key, so admin actions need a signed-in admin"). The recommendation was the same: a shared master key that can set any account's password is the largest single standing risk on the list, and no tooling in the repository called these routes with it (`grep -rn "x-api-key"` outside tests and the route found none).
+- **Reference:** Issue #455; the bugfix PR that removed `requireAdminOrApiKey`.
+- **Revisit if:** an operational task genuinely needs an unattended admin call; then it gets its own narrowly scoped credential, never a general key.
+
 ### 2026-11-17 to 2026-11-20 · Phase 14 (Compliance): the operator, 18+, the NCMEC path, the published texts and how long data is kept
 - **Decision:** David's answers on Issue #1030 — Launch Phase 14 — Compliance, under `PLAN_PHASE14_COMPLIANCE.md` (approved 2026-11-17):
   - **Q2, the NCMEC path:** David files reports by hand; automated filing is built only once there are more than five distinct cases in any 90 days. The trigger starts the build and never delays a manual report.

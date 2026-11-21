@@ -94,9 +94,10 @@ target, not an auth provider, here.
   prompt-injection steering generation, SSRF-shaped fetches of
   attacker-controlled URLs, and private images leaving through vendor CDNs
   without an ownership check first.
-- **Admin session / `ADMIN_API_KEY` → admin routes** — a second, static-secret
-  auth path (`requireAdminOrApiKey`) alongside admin sessions. Broadest
-  standing credential in the system; scoping/rotating it is a tracked
+- **Admin session → admin routes** — the static-secret second path
+  (`ADMIN_API_KEY`, `requireAdminOrApiKey`) was removed (#455, 2026-11-21);
+  every admin route takes an admin session only. Previously the broadest
+  standing credential in the system; its removal closes what was a tracked
   deferral.
 - **Supply chain → build/runtime** — pnpm workspace with pinned
   payment-critical deps, Dependabot across all workspace manifests,
@@ -210,8 +211,9 @@ Already known, tracked in
 [`deferred-work.md`](engineering/deferred-work.md#security--patching) and the
 roadmap — report regressions against them, but they are not new findings:
 
-- `ADMIN_API_KEY` is a single static key with broad admin reach (scoping and
-  rotation is the open item).
+- ~~`ADMIN_API_KEY` is a single static key with broad admin reach~~ — removed
+  (#455, 2026-11-21); the Replit secret itself is retired with the launch
+  credential rotation.
 - CSP is Report-Only pending UAT; HSTS ships without preload/subdomains.
 - The global rate limiter is per-instance and in-memory by design (a
   blast-radius backstop, not the narrow control).

@@ -4,7 +4,7 @@
  *
  * This file closes the auth-coverage gap left by routes.admin.test.ts (which
  * only exercises a representative sample of admin routes) by driving 401/403
- * assertions across every requireAdmin / requireAdminOrApiKey route.
+ * assertions across every requireAdmin route.
  *
  * Drift protection: the final describe block introspects adminRouter.stack
  * and asserts ADMIN_AUTH_ROUTES is in lockstep with the actual router. Any
@@ -178,16 +178,10 @@ for (const route of ADMIN_AUTH_ROUTES) {
   });
 }
 
-describe("requireAdminOrApiKey via x-api-key header", () => {
-  // IMPORTANT: capture the previous value inside `before`, NOT at module-load
-  // time. Under `--test-isolation=none` all test files share a process and
-  // top-level `before` hooks from every file run before any tests, in an
-  // order that is independent of the order in which files' tests execute.
-  // That means another file's top-level `before` (e.g. routes.import.test.ts
-  // setting ADMIN_API_KEY to its own test key) may have already mutated the
-  // env var by the time this nested suite runs — capturing at module load
-  // would snapshot a stale value, and the `after` below would then clobber
-  // the sibling file's setup, breaking its tests with 401s.
+// #455: the static ADMIN_API_KEY no longer opens any admin route. Even with
+// the variable set and the matching header sent, a request without an admin
+// session is refused exactly like any other unauthenticated one.
+describe("the x-api-key header admits no one (#455)", () => {
   let previousKey: string | undefined;
   const TEST_KEY = "test-admin-key-do-not-use-anywhere-else";
 
@@ -201,30 +195,20 @@ describe("requireAdminOrApiKey via x-api-key header", () => {
     else process.env.ADMIN_API_KEY = previousKey;
   });
 
-  it("admits an unauthenticated request bearing a valid api key", async () => {
-    // POST /admin/users/set-password validates body next and returns 400
-    // for missing email — that 400 (not 401/403) confirms the api-key
-    // branch passed the auth gate.
-    const app = buildTestApp({ kind: "unauthenticated" }, adminRouter);
-    const res = await request(app)
-      .post("/api/admin/users/set-password")
-      .set("x-api-key", TEST_KEY)
-      .send({});
-    assert.notEqual(res.status, 401, "valid api key should not return 401");
-    assert.notEqual(res.status, 403, "valid api key should not return 403");
-    assert.equal(res.status, 400);
-    assert.match(String(res.body.error ?? ""), /email/i);
-  });
-
-  it("rejects an unauthenticated request bearing a wrong api key with 401", async () => {
-    const app = buildTestApp({ kind: "unauthenticated" }, adminRouter);
-    const res = await request(app)
-      .post("/api/admin/users/set-password")
-      .set("x-api-key", "wrong-key")
-      .send({});
-    assert.equal(res.status, 401, `expected 401, got ${res.status}`);
-    assert.equal(res.body.error, "Unauthorized");
-  });
+  for (const path of [
+    "/api/admin/users/set-password",
+    "/api/admin/users/enable-notifications",
+    "/api/admin/facts/backfill-ai-memes",
+    "/api/admin/facts/backfill-embeddings",
+    "/api/admin/stripe/full-sync",
+    "/api/admin/stripe/sync",
+  ]) {
+    it(`POST ${path} with the matching key and no session is 401`, async () => {
+      const app = buildTestApp({ kind: "unauthenticated" }, adminRouter);
+      const res = await request(app).post(path).set("x-api-key", TEST_KEY).send({});
+      assert.equal(res.status, 401, `expected 401, got ${res.status}`);
+    });
+  }
 });
 
 describe("admin router auth coverage completeness", () => {

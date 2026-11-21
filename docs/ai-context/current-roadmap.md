@@ -736,9 +736,8 @@ KITT work a launch phase needs and a second app would need identically;
   - **Exposure meanwhile.** Operator-only. No customer path reaches it, and no
     live purchase is affected. Found by Codex on PR #287 round 11 and escalated
     rather than patched in at the end of an eleven-round review loop.
-- **Scope/rotate `ADMIN_API_KEY`.** A single static key grants 9 admin routes
-  (incl. `set-password` and the bulk backfill launchers) without a session;
-  decide whether to scope, rotate, or replace it.
+- ~~**Scope/rotate `ADMIN_API_KEY`.**~~ Done: the key is removed and every
+  admin route takes an admin session only (#455; David, 2026-11-21).
 - *(The dev-admin-login backdoor, C1 — the review's highest-severity finding —
   is now hardened fail-closed, PR #221. See
   [`security-model.md`](./security-model.md#dev-admin-login-backdoor-c1).)*
