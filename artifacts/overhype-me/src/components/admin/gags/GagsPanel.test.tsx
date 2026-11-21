@@ -45,13 +45,14 @@ function gag(over: Partial<GagView> & Pick<GagView, "id" | "slot">): GagView {
     pendingContent: null,
     pendingExamples: NONE,
     draftRemoved: false,
+    prefilledUntouched: false,
     renders: NONE,
     ...over,
   };
 }
 
 function view(gags: GagView[], over: Partial<FactGagsView> = {}): FactGagsView {
-  return { factId: 5, isActive: true, review: null, gags, maxGags: 3, draftReady: { ok: false, reason: null }, filling: false, ...over };
+  return { factId: 5, isActive: true, review: null, gags, maxGags: 3, draftReady: { ok: false, reason: null }, filling: false, fillFailed: false, ...over };
 }
 
 type Call = { url: string; method: string; body: unknown };
@@ -548,6 +549,73 @@ describe("GagsPanel", () => {
     fireEvent.click(within(card).getByTestId("bubble-add"));
     expect(await within(card).findByTestId("gag-cast-retry")).toBeTruthy();
   });
+  describe("a fill from the gag ideas (Codex 4649903945 and 4649903966, PR #1136 round 1)", () => {
+    const filled = (text: string, untouched: boolean) => gag({ id: 31, slot: 1, state: "new", availableToUsers: false, approvedContent: null, approvedAt: null, pendingContent: scene(text), prefilledUntouched: untouched });
+    const stubSequence = (views: () => FactGagsView) => {
+      let gets = 0;
+      vi.stubGlobal("fetch", vi.fn(async () => { gets++; return new Response(JSON.stringify(views()), { status: 200, headers: { "Content-Type": "application/json" } }); }));
+      return () => gets;
+    };
+
+    it("keeps polling and showing the fill for as long as the view says it is under way, with no deadline, and shows the gag it lands", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        let landed = false;
+        const gets = stubSequence(() => (landed
+          ? view([filled("{NAME} does thing 0.", true)], { isActive: false, review: { id: 9, stage: "gags" } })
+          : view([], { isActive: false, review: { id: 9, stage: "gags" }, filling: true })));
+        render(<GagsPanel factId={5} reviewId={9} rendersEnabled={false} subjectNames={[]} startWithGag1 />);
+        await screen.findByTestId("gags-filling");
+        await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
+        expect(screen.getByTestId("gags-filling")).toBeTruthy();
+        const before = gets();
+        await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+        expect(gets()).toBeGreaterThan(before);
+        landed = true;
+        await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+        expect((await screen.findByTestId("gag-card")).textContent).toContain("Visual gag 1");
+        expect(screen.queryByTestId("gags-filling")).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("says when the fill failed for good, pointing at the ideas", async () => {
+      stubFetch(view([], { isActive: false, review: { id: 9, stage: "gags" }, fillFailed: true }));
+      render(<GagsPanel factId={5} reviewId={9} rendersEnabled={false} subjectNames={[]} startWithGag1 />);
+      expect((await screen.findByTestId("gags-fill-failed")).textContent).toMatch(/Use an idea below, or write the gag yourself/);
+    });
+
+    it("typing in an open gag stays, unsaved, when a fill replaces that gag underneath it", async () => {
+      let refilled = false;
+      stubSequence(() => view([refilled ? filled("{NAME} the new idea.", true) : filled("{NAME} the old idea.", true)], { isActive: false, review: { id: 9, stage: "gags" } }));
+      const onUnsaved = vi.fn();
+      const { rerender } = render(<GagsPanel factId={5} reviewId={9} rendersEnabled={false} subjectNames={[]} reloadKey={0} onUnsavedChange={onUnsaved} />);
+      const card = await screen.findByTestId("gag-card");
+      fireEvent.change(within(card).getByTestId("visual-concept-textarea"), { target: { value: "{NAME} my typing." } });
+      refilled = true;
+      await act(async () => { rerender(<GagsPanel factId={5} reviewId={9} rendersEnabled={false} subjectNames={[]} reloadKey={1} onUnsavedChange={onUnsaved} />); });
+      await waitFor(() => expect(JSON.parse(window.localStorage.getItem("gag-draft::5:31")!).base).toContain("the new idea"));
+      expect((within(screen.getByTestId("gag-card")).getByTestId("visual-concept-textarea") as HTMLTextAreaElement).value).toBe("{NAME} my typing.");
+      await waitFor(() => expect(onUnsaved).toHaveBeenLastCalledWith(["Visual gag 1"]));
+      fireEvent.click(within(screen.getByTestId("gag-card")).getByTestId("gag-undo"));
+      expect((within(screen.getByTestId("gag-card")).getByTestId("visual-concept-textarea") as HTMLTextAreaElement).value).toBe("{NAME} the new idea.");
+    });
+
+    it("a kept edit comes back on reopening after a fill replaced the gag meanwhile", async () => {
+      stubFetch(view([filled("{NAME} the old idea.", true)], { isActive: false, review: { id: 9, stage: "gags" } }));
+      const first = render(<GagsPanel factId={5} reviewId={9} rendersEnabled={false} subjectNames={[]} />);
+      fireEvent.change(within(await screen.findByTestId("gag-card")).getByTestId("visual-concept-textarea"), { target: { value: "{NAME} typed before closing." } });
+      first.unmount();
+      vi.unstubAllGlobals();
+
+      stubFetch(view([filled("{NAME} the new idea.", true)], { isActive: false, review: { id: 9, stage: "gags" } }));
+      render(<GagsPanel factId={5} reviewId={9} rendersEnabled={false} subjectNames={[]} />);
+      const card = await screen.findByTestId("gag-card");
+      expect((within(card).getByTestId("visual-concept-textarea") as HTMLTextAreaElement).value).toBe("{NAME} typed before closing.");
+    });
+  });
+
   describe("the Gags step's Visual gag 1 (Issue #1018, increment 1.3b)", () => {
     it("with no gag yet, shows an empty Visual gag 1 that cannot be cancelled, and no add button", async () => {
       stubFetch(view([], { isActive: false, review: { id: 9, stage: "gags" } }));

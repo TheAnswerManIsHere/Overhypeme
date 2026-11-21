@@ -17,7 +17,7 @@ import {
 import { GAG_EXAMPLE_KINDS, MAX_GAGS_PER_FACT, mapKinds, type FactGagsView, type GagExample, type GagView, type PerKind } from "@workspace/api-zod";
 import { buildGagKindCards, gagRenderImageUrl } from "../reviewRenderScenarios";
 import { loadGags, normaliseGagContent, openReviewForFact } from "./resolver";
-import { prefillExpected } from "./prefill";
+import { fillState, isUntouchedPrefill } from "./prefill";
 import { examplesFor, isGrandfathered, loadExamples, type GagExamples } from "./examples";
 import { checkGoLive, describeGoLive } from "./goLive";
 
@@ -62,7 +62,7 @@ export async function buildFactGagsView(factId: number): Promise<FactGagsView | 
   const [views, ready, filling] = await Promise.all([
     Promise.all(gags.map((g) => viewOf(g, fact.isActive, defaultId, examplesFor(byGag, g.id), ex))) as Promise<GagView[]>,
     checkGoLive(factId, "draft", db, gags),
-    review ? prefillExpected(factId, review, gags) : Promise.resolve(false),
+    review ? fillState(factId, review, gags) : Promise.resolve("none" as const),
   ]);
   return {
     factId,
@@ -71,7 +71,8 @@ export async function buildFactGagsView(factId: number): Promise<FactGagsView | 
     gags: views,
     maxGags: MAX_GAGS_PER_FACT,
     draftReady: { ok: ready.ok, reason: ready.ok ? null : describeGoLive(ready) },
-    filling,
+    filling: filling === "filling",
+    fillFailed: filling === "failed",
   };
 }
 
@@ -101,6 +102,7 @@ async function viewOf(
     pendingContent: normaliseGagContent(g.pendingContent),
     pendingExamples: perKind(set.pending, ex),
     draftRemoved: g.draftRemoved,
+    prefilledUntouched: isUntouchedPrefill(g),
     renders: await buildGagKindCards(g.id),
   };
 }

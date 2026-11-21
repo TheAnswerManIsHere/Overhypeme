@@ -658,7 +658,9 @@ function ReviewModal({
   const ideasPending = visualConceptStatus === "pending";
   const ideasTerminalOk = visualConceptStatus === "ok";
   // "Approve the gags": enabled with a saved gag AND terminal-OK ideas.
-  const canApproveGag = hasSavedGag && ideasTerminalOk && !gagsUnsaved;
+  // A fill from the gag ideas still running would be carried past by approving (Codex 4649903956).
+  const gagsFilling = !!gagsView?.filling;
+  const canApproveGag = hasSavedGag && ideasTerminalOk && !gagsUnsaved && !gagsFilling;
   const matchVisible = duplicateMatchShown(wording.duplicate, showClosest);
 
   // ── Sub-renders ────────────────────────────────────────────────────────────
@@ -991,6 +993,8 @@ function ReviewModal({
                       ? "Approve is locked until a gag is saved. Write one above (or use an idea) and save it."
                       : ideasPending
                       ? "Approve is locked while the gag ideas are being written."
+                      : gagsFilling
+                      ? "Approve is locked while the gags are filled from the gag ideas."
                       : "Approve is locked until the gag ideas have been written. Regenerate them above."}
                   </p>
                 )}

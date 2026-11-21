@@ -27,8 +27,8 @@
  * request has its own key, so a request is never folded into an earlier job.
  */
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, isNull } from "drizzle-orm";
-import { db, factGagsTable, factsTable, pendingReviewsTable, type FactGag, type GagPrefilledFrom } from "@workspace/db";
+import { and, asc, desc, eq, isNull, like } from "drizzle-orm";
+import { IN_FLIGHT_JOB_STATUSES, asyncJobsTable, db, factGagsTable, factsTable, pendingReviewsTable, type FactGag, type GagPrefilledFrom } from "@workspace/db";
 import {
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
   canApproveGags,
@@ -191,23 +191,37 @@ async function nonRemovedGags(factId: number, executor: Executor = db, forUpdate
   return forUpdate ? q.for("update") : q;
 }
 
+/** Where a fill from the gag ideas stands, as the Gags screen and its approval read it. */
+export type FillState = "none" | "filling" | "failed";
+
 /**
- * Whether the fact's gags are about to be filled from its ideas: its review is
- * on the Gags step and the ideas it holds call for a write. The Gags screen
- * shows that work as it happens and polls until it lands (the async-status
- * rule, docs/ai-context/async-ui-status.md).
+ * Whether the fact's gags are being filled from its ideas, read from the job
+ * that does it (async-ui-status.md: status reflects the job, never a guess;
+ * Codex 4649903956 and 4649903966, PR #1136 round 1):
+ *   - "filling": the ideas call for a write and a `gag_prefill` job for this
+ *     review is in flight (a retry waiting included). The screen polls and
+ *     approving the Gags step waits on it.
+ *   - "failed": the ideas still call for a write, no job is in flight, and the
+ *     latest one failed for good. Said on screen; the idea cards are the retry.
+ *   - "none": otherwise, including a job that ended having skipped an idea
+ *     that cannot be a gag.
  */
-export async function prefillExpected(factId: number, review: { id: number; workflowStage: string }, gags: FactGag[]): Promise<boolean> {
+export async function fillState(factId: number, review: { id: number; workflowStage: string }, gags: FactGag[], executor: Executor = db): Promise<FillState> {
   // Cheap exits first: the view is polled, and most calls are off the Gags
   // step or on a fact whose gags were all written by hand.
-  if (review.workflowStage !== "gags") return false;
+  if (review.workflowStage !== "gags") return "none";
   const live = gags.filter((g) => g.removedAt == null);
-  if (live.length > 0 && !live.some((g) => g.prefilledFrom)) return false;
-  const reviewId = review.id;
-  const state = await readState(reviewId, factId);
-  if (!state || !canApproveGags(state.stage as ReviewWorkflowStage, state.status)) return false;
-  const blob = usableIdeas(state, reviewId);
-  return blob != null && decidePrefill(live, blob).length > 0;
+  if (live.length > 0 && !live.some((g) => g.prefilledFrom)) return "none";
+  const state = await readState(review.id, factId, executor);
+  if (!state || !canApproveGags(state.stage as ReviewWorkflowStage, state.status)) return "none";
+  const blob = usableIdeas(state, review.id);
+  if (!blob || decidePrefill(live, blob).length === 0) return "none";
+  const [latest] = await executor.select({ status: asyncJobsTable.status }).from(asyncJobsTable)
+    .where(and(eq(asyncJobsTable.queue, GAG_PREFILL_QUEUE), like(asyncJobsTable.dedupeKey, `${GAG_PREFILL_QUEUE}:${review.id}:%`)))
+    .orderBy(desc(asyncJobsTable.id)).limit(1);
+  if (!latest) return "none";
+  if ((IN_FLIGHT_JOB_STATUSES as readonly string[]).includes(latest.status)) return "filling";
+  return latest.status === "failed" ? "failed" : "none";
 }
 
 export async function runGagPrefill(payload: GagPrefillPayload, deps: GagPrefillDeps = { readCast: prepareDraftCast }): Promise<HandlerResult> {

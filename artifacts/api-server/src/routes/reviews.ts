@@ -60,7 +60,8 @@ import {
 import { checkGoLive, describeGoLive, GoLiveError, type GoLiveCheck } from "../lib/gags/goLive";
 import { publishDraft } from "../lib/gags/publish";
 import { enqueueVisualConceptsForReview, buildVisualConceptsResponse } from "../lib/visualConceptJobs";
-import { enqueueGagPrefill } from "../lib/gags/prefill";
+import { enqueueGagPrefill, fillState } from "../lib/gags/prefill";
+import { loadGags } from "../lib/gags/resolver";
 import {
   buildAndEnqueueImagePromptAttempt,
   buildRenderStatusPayload,
@@ -981,7 +982,14 @@ router.post("/admin/reviews/:id/approve-visual-concept", requireAdmin, async (re
     return;
   }
   if (conceptStatus !== "ok") {
-    res.status(409).json({ error: "Visual ideas were never generated (or failed). Regenerate them before approving the gag.", code: "IDEAS_NOT_GENERATED" });
+    res.status(409).json({ error: "The gag ideas were never written (or failed). Regenerate them before approving the gags.", code: "IDEAS_NOT_GENERATED" });
+    return;
+  }
+  // A fill from the gag ideas still running (lib/gags/prefill.ts): approving
+  // now would carry the gag it is about to replace into Test Renders (Codex
+  // 4649903956, PR #1136). Read from the fill's job, so it ends when the job does.
+  if ((await fillState(review.stagingFactId, review, await loadGags(review.stagingFactId))) === "filling") {
+    res.status(409).json({ error: "The gags are still being filled from the gag ideas. Wait for it to finish, then approve.", code: "GAGS_FILLING" });
     return;
   }
 

@@ -21,6 +21,9 @@
   - **Only a changed note replaces anything.** Regenerate under the same note writes new ideas and overwrites no gag; an idea the moderator used on a gag is the moderator's choice and is never replaced.
   - **Fills happen on the Gags step only.** A note changed on Test Renders is applied when the review goes back to Gags.
   - **An untouched pre-filled gag is left out of the gag writer's context and input hash:** it is one of the ideas, so filling it does not mark the ideas out of date.
+  - **Whether a fill is under way is read from its job** (`fillState`): the ideas call for a write and a `gag_prefill` job for the review is in flight, a retry included. The screen polls for as long as that holds, approving the Gags step is refused while it does (`GAGS_FILLING`), and a fill that failed for good says so, with the idea cards as the retry (PR #1136 round 1).
+  - **A fill never discards unsaved typing:** a gag still exactly its idea is marked `prefilledUntouched` on its view, and the editor keeps typing over such a change, open or reopened. A person's save, undo or idea use replaces it as before.
+  - **Known gap:** a changed note whose new idea is word for word the old one leaves the gag's recorded note at the old one, so a later Regenerate under the new note can still replace that never-edited gag (Codex 4649903975, recorded on the Fable assessor's tie-break).
 - **Why:** a gag cannot be stored without a cast, and reading one is a model call that never runs inside a transaction, so the fill is a job that decides, reads casts, then writes under the lock rule after checking nothing it decided on has changed.
 - **Reference:** Issue #1018; the 1.3b PR.
 - **Revisit if:** moderators want an idea they used on a gag to follow later note changes too.

@@ -36,6 +36,7 @@ function gag(id: number, slot: number): GagView {
     pendingContent: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: `{NAME} outlifts a forklift, take ${slot}.` },
     pendingExamples: { male: example(id * 10 + 1), female: example(id * 10 + 2), pet: example(id * 10 + 3) },
     draftRemoved: false,
+    prefilledUntouched: false,
     renders: { male: tile("i2i_male_default", id * 10 + 1), female: tile("i2i_female_default", id * 10 + 2), pet: tile("i2i_nonhuman_animal", id * 10 + 3) },
   };
 }
@@ -51,7 +52,7 @@ async function stubReview(page: Page, stage: "gags" | "test_renders" = "test_ren
     rendersRunning: false, renderReviewState: null,
   };
   const { visualPromptStrategyOverride: _gag, ...classification } = enrichmentWithConcept("{NAME} outlifts a forklift.");
-  const view: FactGagsView = { factId: FACT_ID, isActive: false, review: { id: REVIEW_ID, stage }, gags: [gag(1, 1), gag(2, 2)], maxGags: 3, draftReady: { ok: true, reason: null }, filling: false };
+  const view: FactGagsView = { factId: FACT_ID, isActive: false, review: { id: REVIEW_ID, stage }, gags: [gag(1, 1), gag(2, 2)], maxGags: 3, draftReady: { ok: true, reason: null }, filling: false, fillFailed: false };
 
   await page.route(/\/api\/admin\/reviews(\?.*)?$/, (route: Route) =>
     route.fulfill({ json: { reviews: [row], total: 1, page: 1, limit: 20 } }));
@@ -108,7 +109,7 @@ test.describe("Admin · moderation · Test Renders per gag", () => {
 
     // An unsaved edit to gag 2 locks Approve, and the warning says which gag.
     await cards.nth(1).getByTestId("visual-concept-textarea").fill("{NAME} an edit not saved yet.");
-    await expect(page.getByText("Save or undo your edits to Gag 2 first: approving uses the saved gags.")).toBeVisible();
+    await expect(page.getByText("Save or undo your edits to Visual gag 2 first: approving uses the saved gags.")).toBeVisible();
     await expect(page.getByTestId("approve-for-production")).toBeDisabled();
     await cards.nth(1).getByTestId("gag-undo").click();
 
@@ -129,7 +130,7 @@ test.describe("Admin · moderation · Test Renders per gag", () => {
     await page.goto("/admin/moderation");
     await page.getByText(`"${TEXT}"`, { exact: true }).first().click();
 
-    await expect(page.getByText("Gag ideas", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("visual-concepts").getByText("Gag ideas", { exact: true })).toBeVisible();
     await expect(page.getByTestId("gag-card").first()).toContainText("Visual gag 1");
     await expect(page.getByTestId("gags-step-hint")).toHaveCount(0);
     await expect(page.getByRole("button", { name: /Advanced Options/ })).toHaveCount(0);

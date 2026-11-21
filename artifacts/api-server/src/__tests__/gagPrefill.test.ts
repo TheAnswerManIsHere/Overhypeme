@@ -28,7 +28,7 @@ import { castSourceKey as castKey, type FactReadingResult, type StoredCandidateC
 import reviewsRouter from "../routes/reviews.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import { latestReading, runReadingJob } from "../lib/readingJobs.js";
-import { GAG_PREFILL_QUEUE, runGagPrefill, type GagPrefillDeps } from "../lib/gags/prefill.js";
+import { GAG_PREFILL_QUEUE, enqueueGagPrefill, runGagPrefill, type GagPrefillDeps } from "../lib/gags/prefill.js";
 import { contextGagsFor } from "../lib/visualConceptJobs.js";
 import { saveGagContent } from "../lib/gags/gagStore.js";
 import { buildFactGagsView } from "../lib/gags/gagView.js";
@@ -264,5 +264,80 @@ describe("a changed note", () => {
     };
     assert.equal((await runGagPrefill({ reviewId, factId, adminId }, racing)).ok, true);
     assert.equal(sceneOf((await gagsOf(factId))[0]!), "{NAME} does thing 0 (j), mine now.");
+  });
+});
+
+describe("a fill's status is its job's (Codex 4649903956 and 4649903966, PR #1136 round 1)", () => {
+  const setJobs = (reviewId: number, status: "done" | "failed" | "pending") =>
+    db.update(asyncJobsTable).set({ status, ...(status === "pending" ? { runAfter: new Date(Date.now() + 5 * 60_000) } : {}) })
+      .where(like(asyncJobsTable.dedupeKey, `${GAG_PREFILL_QUEUE}:${reviewId}:%`));
+  /** Gag 1 filled under NOTE, then the note changed and its new ideas stored: a replacement is called for. */
+  async function replacementDue(): Promise<{ reviewId: number; factId: number }> {
+    const { reviewId, factId } = await atGags();
+    await storeIdeas(reviewId, factId, [idea(0, "r1")], NOTE);
+    await prefill(reviewId, factId);
+    await setJobs(reviewId, "done");
+    const corrected = `A changed reading ${randomUUID().slice(0, 4)}.`;
+    await db.update(factsTable).set({ humorNote: corrected }).where(eq(factsTable.id, factId));
+    await storeIdeas(reviewId, factId, [idea(0, "r2")], corrected);
+    return { reviewId, factId };
+  }
+
+  it("approving the Gags step waits while the fill's job is in flight, and goes through once it has run", async () => {
+    const { reviewId, factId } = await replacementDue();
+    await enqueueGagPrefill({ reviewId, factId });
+    assert.equal((await buildFactGagsView(factId))!.filling, true);
+    const refused = await request(app).post(url(reviewId, "approve-visual-concept")).send({});
+    assert.equal(refused.status, 409, JSON.stringify(refused.body));
+    assert.equal(refused.body.code, "GAGS_FILLING");
+    assert.equal((await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId)))[0]!.workflowStage, "gags");
+
+    await prefill(reviewId, factId);
+    await setJobs(reviewId, "done");
+    assert.equal((await buildFactGagsView(factId))!.filling, false);
+    assert.equal(sceneOf((await gagsOf(factId))[0]!), "{NAME} does thing 0 (r2).");
+    const approved = await request(app).post(url(reviewId, "approve-visual-concept")).send({});
+    assert.notEqual(approved.body.code, "GAGS_FILLING", JSON.stringify(approved.body));
+  });
+
+  it("a fill waiting out a retry still reads as under way", async () => {
+    const { reviewId, factId } = await replacementDue();
+    await enqueueGagPrefill({ reviewId, factId });
+    await setJobs(reviewId, "pending");
+    assert.equal((await buildFactGagsView(factId))!.filling, true);
+  });
+
+  it("a fill that ended having skipped an idea it could not use is not under way, and approval is not held", async () => {
+    const { reviewId, factId } = await replacementDue();
+    await enqueueGagPrefill({ reviewId, factId });
+    const unusable: GagPrefillDeps = { readCast: async (f, body) => ({ ...(await castStub.readCast(f, body)), cast: [], unboundSpeakers: ["mailman"] }) };
+    // A speaker the scene does not show: the idea cannot be a gag.
+    await storeIdeas(reviewId, factId, [{ ...idea(0, "r3"), bubbles: [{ type: "speech", entity: "mailman", text: "Hi.", tokenValid: true }] as never }], (await db.select().from(factsTable).where(eq(factsTable.id, factId)))[0]!.humorNote);
+    assert.equal((await runGagPrefill({ reviewId, factId, adminId }, unusable)).ok, true);
+    await setJobs(reviewId, "done");
+    const view = (await buildFactGagsView(factId))!;
+    assert.equal(view.filling, false);
+    assert.equal(view.fillFailed, false);
+    const r = await request(app).post(url(reviewId, "approve-visual-concept")).send({});
+    assert.notEqual(r.body.code, "GAGS_FILLING");
+  });
+
+  it("a fill that failed for good says so, and holds nothing", async () => {
+    const { reviewId, factId } = await replacementDue();
+    await enqueueGagPrefill({ reviewId, factId });
+    await setJobs(reviewId, "failed");
+    const view = (await buildFactGagsView(factId))!;
+    assert.equal(view.filling, false);
+    assert.equal(view.fillFailed, true);
+  });
+
+  it("each gag says whether it is still exactly the idea it was filled from", async () => {
+    const { reviewId, factId } = await atGags();
+    await storeIdeas(reviewId, factId, [idea(0, "u")], NOTE);
+    await prefill(reviewId, factId);
+    assert.equal((await buildFactGagsView(factId))!.gags[0]!.prefilledUntouched, true);
+    const [gag] = await gagsOf(factId);
+    await db.update(factGagsTable).set({ pendingContent: { ...(gag!.pendingContent as object), coreSceneOverride: "{NAME} mine." } }).where(eq(factGagsTable.id, gag!.id));
+    assert.equal((await buildFactGagsView(factId))!.gags[0]!.prefilledUntouched, false);
   });
 });

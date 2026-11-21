@@ -109,8 +109,6 @@ export function GagsPanel(props: GagsPanelProps) {
 }
 
 const NO_CHARACTERS: readonly FactCharacter[] = [];
-/** How long the panel waits on a fill from the gag ideas (lib/gags/prefill.ts): reading a cast takes seconds. */
-const FILL_POLL_MS = 90_000;
 
 function GagsPanelBody({ factId, reviewId, rendersEnabled, rendersExpected = false, subjectNames, reloadKey = 0, onView, onUnsavedChange, disabled = false, startWithGag1 = false, awaitingIdeas = false }: GagsPanelProps) {
   const [view, setView] = useState<FactGagsView | null>(null);
@@ -185,12 +183,9 @@ function GagsPanelBody({ factId, reviewId, rendersEnabled, rendersExpected = fal
   const awaitingMale = !!view?.gags.some((g) => g.renders.male == null || g.renders.male.status === "missing");
   // Ideas being written may fill the gags when they land; the view says while
   // a fill is under way (`filling`).
-  // A fill the server skipped (an idea it could not use) would say "filling"
-  // for good, so its polling stops after a while.
-  const fillingSince = useRef<number | null>(null);
-  if (!view?.filling) fillingSince.current = null;
-  else if (fillingSince.current == null) fillingSince.current = Date.now();
-  const filling = !!view?.filling && Date.now() - (fillingSince.current ?? 0) < FILL_POLL_MS;
+  // The view reads the fill's own job, so this ends when the job does,
+  // however long a retry takes (async-ui-status.md: no UI deadline).
+  const filling = !!view?.filling;
   const poll = drawing || (prepareWindowOpen && awaitingMale) || awaitingIdeas || filling;
   // Ideas just finished: one more load, so a fill they started is seen.
   const wasAwaiting = useRef(awaitingIdeas);
@@ -229,6 +224,11 @@ function GagsPanelBody({ factId, reviewId, rendersEnabled, rendersExpected = fal
       {filling && (
         <p className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1.5" data-testid="gags-filling">
           <Loader2 className="w-3.5 h-3.5 animate-spin" /> Filling from the gag ideas…
+        </p>
+      )}
+      {!filling && view.fillFailed && (
+        <p className="text-xs text-destructive flex items-center gap-1.5" data-testid="gags-fill-failed">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Couldn't fill from the gag ideas. Use an idea below, or write the gag yourself.
         </p>
       )}
 
@@ -481,12 +481,12 @@ function stateWords(g: GagView): string {
  */
 const draftKey = (key: string) => `gag-draft::${key}`;
 
-function readStoredDraft(key: string, base: string): VisualPromptStrategyOverride | null {
+function readStoredDraft(key: string, base: string, anyBase = false): VisualPromptStrategyOverride | null {
   try {
     const raw = window.localStorage.getItem(draftKey(key));
     if (!raw) return null;
     const stored = JSON.parse(raw) as { base?: string; draft?: VisualPromptStrategyOverride };
-    if (stored.base !== base || !stored.draft) {
+    if ((stored.base !== base && !anyBase) || !stored.draft) {
       window.localStorage.removeItem(draftKey(key));
       return null;
     }
@@ -535,14 +535,22 @@ function GagCard({
   const storeKey = `${factId}:${gag.id}`;
   // An edit kept from before a reload or a closed review comes back, if the
   // gag is still as it was when the edit was typed.
-  const [draft, setDraft] = useState<VisualPromptStrategyOverride>(() => readStoredDraft(storeKey, workingKey) ?? working);
-  // A new server version replaces the draft (a save, a discard, an idea used on this gag).
+  // A kept edit comes back over a version a fill from the gag ideas wrote
+  // since, whatever version it was typed against: the moderator did not make
+  // that change (Codex 4649903945, PR #1136).
+  const [draft, setDraft] = useState<VisualPromptStrategyOverride>(() => readStoredDraft(storeKey, workingKey, gag.prefilledUntouched) ?? working);
+  // A new server version replaces the draft (a save, an undo, an idea used on
+  // this gag); a fill from the gag ideas leaves unsaved typing over it.
   const seenKey = useRef(workingKey);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   useEffect(() => {
     if (seenKey.current === workingKey) return;
+    const before = JSON.parse(seenKey.current) as VisualPromptStrategyOverride;
     seenKey.current = workingKey;
+    if (gag.prefilledUntouched && !sameContent(draftRef.current, before)) return;
     setDraft(JSON.parse(workingKey) as VisualPromptStrategyOverride);
-  }, [workingKey]);
+  }, [workingKey, gag.prefilledUntouched]);
   const dirty = !sameContent(draft, working);
   // Kept while the edit is unsaved, locked or not: a lock (a refresh, a step
   // change in flight) is not a save (Codex, PR #958 round 2).
