@@ -31,8 +31,10 @@ const ROOT = path.resolve(__dirname, "../../../..");
 // 0159 looks for its source table in `public`, where production keeps it; the
 // test schema is another, and since 0160 the table exists only where this file
 // puts it back, so the test reads 0159's guard against the current schema.
-const MIGRATION_SQL = readFileSync(path.join(ROOT, "lib/db/migrations/0159_fact_taxonomy_runs.sql"), "utf8")
-  .replace("to_regclass('public.fact_enrichment_versions')", "to_regclass('fact_enrichment_versions')");
+const PUBLIC_GUARD = "to_regclass('public.fact_enrichment_versions')";
+const MIGRATION_FILE = readFileSync(path.join(ROOT, "lib/db/migrations/0159_fact_taxonomy_runs.sql"), "utf8");
+if (!MIGRATION_FILE.includes(PUBLIC_GUARD)) throw new Error("0159's source-table guard is not the text this test rewrites");
+const MIGRATION_SQL = MIGRATION_FILE.replace(PUBLIC_GUARD, "to_regclass('fact_enrichment_versions')");
 const P = `t_0159_${randomUUID().slice(0, 8)}`;
 
 type RunRow = { origin: string; outcome: string; output: Record<string, unknown> | null; at: string; legacy: string };

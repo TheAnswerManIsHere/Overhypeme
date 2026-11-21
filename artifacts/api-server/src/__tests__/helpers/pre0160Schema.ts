@@ -16,7 +16,8 @@ import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const MIGRATION_0160 = readFileSync(
+/** Migration 0160's SQL, as the file holds it. */
+export const MIGRATION_0160 = readFileSync(
   path.resolve(__dirname, "../../../../../lib/db/migrations/0160_taxonomy_drops.sql"),
   "utf8",
 );

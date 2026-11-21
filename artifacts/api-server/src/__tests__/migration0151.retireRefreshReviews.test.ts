@@ -158,18 +158,19 @@ const PRE_0153_COLUMNS = `
   ALTER TABLE fact_gags DROP CONSTRAINT IF EXISTS fact_gags_pending_ops_owned;
   ALTER TABLE fact_gags ADD CONSTRAINT fact_gags_pending_ops_owned CHECK (NOT pending_remove OR pending_review_id IS NOT NULL);
 `;
-before(async () => {
+/** Everything 0151 and 0153 read that a later migration dropped: 0153's columns and 0160's table. */
+async function restoreSchemaFor0151(): Promise<void> {
   await restorePre0160Schema();
   await db.execute(sql.raw(PRE_0153_COLUMNS));
-});
+}
+before(restoreSchemaFor0151);
 // Whatever happens above, leave the schema as the migrations build it.
 // These file-level hooks run around the whole test process when files share
 // one (--test-isolation=none, as each CI shard does), so another file's
 // teardown may already have dropped what 0153's closing pass reads (0139's drops
 // the gag columns, 0160 the versions table): put it all back first.
 after(async () => {
-  await restorePre0160Schema();
-  await db.execute(sql.raw(PRE_0153_COLUMNS));
+  await restoreSchemaFor0151();
   await db.execute(sql.raw(CONTRACT_SQL));
   await rerun0160();
 });
@@ -180,8 +181,7 @@ describe("migration 0151: refresh and resubmission reviews are retired", () => {
   before(async () => {
     // Again here: under one test process another file's teardown can run after
     // the file-level hook above (0139's drops the gag columns, 0160 the table).
-    await restorePre0160Schema();
-    await db.execute(sql.raw(PRE_0153_COLUMNS));
+    await restoreSchemaFor0151();
     s = await seed();
     untouchedBefore = await gag(s.liveUntouched);
     await db.execute(sql.raw(MIGRATION_SQL));
@@ -263,8 +263,7 @@ describe("migration 0153: a late refresh is closed, then the columns are dropped
   let lateGag: number;
   let live: number;
   before(async () => {
-    await restorePre0160Schema();
-    await db.execute(sql.raw(PRE_0153_COLUMNS));
+    await restoreSchemaFor0151();
     const f = await insertLiveFact({ text: `{NAME} ${P} late`, enrichment: buildPlaceholderFactEnrichment() }, { ...buildPlaceholderGag(), coreSceneOverride: "{NAME} late." });
     live = f.id;
     lateGag = f.gags[0]!.id;

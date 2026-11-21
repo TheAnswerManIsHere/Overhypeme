@@ -167,7 +167,7 @@ export const RETIRED_ADMIN_CONFIG_KEYS: readonly string[] = ["review_duplicate_t
 
 /**
  * Tables a migration drops whole, by name: the rehearsal expects each one gone
- * and reports its rows under intendedDeletions, never as a loss.
+ * and reports its rows under intendedTableDrops, never as a loss.
  *   - 0160 (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 2A/2B; Issue #1018, 2.1c): the
  *     legacy enrichment versions (converted to fact_taxonomy_runs by 0159), the
  *     manual-override history, and the engine-revision record.

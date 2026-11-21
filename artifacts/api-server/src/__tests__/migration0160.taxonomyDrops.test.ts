@@ -20,18 +20,12 @@
  */
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db, pool } from "@workspace/db";
 import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
-import { restorePre0160Schema } from "./helpers/pre0160Schema.js";
+import { MIGRATION_0160 as MIGRATION_SQL, restorePre0160Schema } from "./helpers/pre0160Schema.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(__dirname, "../../../..");
-const MIGRATION_SQL = readFileSync(path.join(ROOT, "lib/db/migrations/0160_taxonomy_drops.sql"), "utf8");
 const P = `t_0160_${randomUUID().slice(0, 8)}`;
 
 type RunRow = { origin: string; outcome: string; output: Record<string, unknown> | null; legacy: string | null };
