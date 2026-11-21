@@ -22,7 +22,6 @@ import type { FactEnrichment } from "@workspace/api-zod";
 
 import adminRouter from "../routes/admin.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
-import { buildFactEnrichmentColumns } from "../lib/factEnrichment.js";
 
 const USER_PREFIX = "tadminfacts-";
 const TEXT_PREFIX = "t_adminfacts ";
@@ -70,7 +69,7 @@ before(async () => {
       upvotes: 11, downvotes: 3, score: 8, wilsonScore: 0.61,
       commentCount: 5, shareCount: 7,
       submittedById: adminId,
-      ...buildFactEnrichmentColumns(ENRICHMENT),
+      enrichment: ENRICHMENT,
       enrichmentStatus: "ok",
     } as Omit<typeof factsTable.$inferInsert, "isActive">, GAG);
   factId = row.id;

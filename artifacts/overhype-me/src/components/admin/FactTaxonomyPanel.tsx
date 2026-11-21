@@ -6,11 +6,12 @@
  * is not edited: the manual-override system, the hashtag edit and the version
  * panel went with Taxonomy Health (2A). "Re-run" asks for a fresh run, which
  * replaces the stored output when it finishes; a failed run leaves the old one
- * in place and blocks nothing. Run history arrives in increment 2.1b, and the
- * whole panel moves into the fact sheet in Phase 3.
+ * in place and blocks nothing. Below it, the run history: every classifier
+ * call, failures included, newest first (item 16; increment 2.1b). The whole
+ * panel moves into the fact sheet in Phase 3.
  */
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, AlertTriangle, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
+import { AlertCircle, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Loader2, RefreshCw } from "lucide-react";
 import type { FactEnrichment } from "@workspace/api-zod";
 import { Button } from "@/components/ui/Button";
 import { useEnrichmentJobs } from "./useEnrichmentJobs";
@@ -86,6 +87,96 @@ function TaxonomySummary({ e }: { e: FactEnrichment }) {
             </p>
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+/** One row of GET /admin/facts/:id/taxonomy-runs. */
+export interface TaxonomyRun {
+  id: number;
+  outcome: "ok" | "failed" | "discarded";
+  origin: "provisional_approval" | "rerun" | "unrecorded" | "legacy_promoted" | "legacy_superseded";
+  output: FactEnrichment | null;
+  error: string | null;
+  requestedByName: string | null;
+  createdAt: string;
+}
+
+const OUTCOME_LABEL: Record<TaxonomyRun["outcome"], string> = {
+  ok: "Stored",
+  failed: "Failed",
+  discarded: "Not stored",
+};
+const ORIGIN_LABEL: Record<TaxonomyRun["origin"], string> = {
+  provisional_approval: "at provisional approval",
+  rerun: "Re-run",
+  unrecorded: "reason not recorded",
+  legacy_promoted: "an earlier version, made current",
+  legacy_superseded: "an earlier version, replaced (time archived; run time not recorded)",
+};
+
+function RunRow({ run }: { run: TaxonomyRun }) {
+  const [open, setOpen] = useState(false);
+  const when = new Date(run.createdAt).toLocaleString();
+  const tone = run.outcome === "ok" ? "text-foreground" : run.outcome === "failed" ? "text-destructive" : "text-amber-700 dark:text-amber-300";
+  return (
+    <li className="border-t border-border first:border-t-0 py-1.5" data-testid="taxonomy-run" data-outcome={run.outcome}>
+      <div className="flex items-start gap-2 text-xs">
+        {run.output ? (
+          <button
+            type="button"
+            onClick={() => setOpen((o) => !o)}
+            className="shrink-0 text-muted-foreground hover:text-foreground"
+            aria-expanded={open}
+            aria-label={open ? "Hide this run's output" : "Show this run's output"}
+            data-testid="taxonomy-run-toggle"
+          >
+            {open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+          </button>
+        ) : <span className="w-3.5 shrink-0" />}
+        <span className="text-muted-foreground shrink-0">{when}</span>
+        <span className={`font-medium shrink-0 ${tone}`}>{OUTCOME_LABEL[run.outcome]}</span>
+        <span className="text-muted-foreground">
+          {ORIGIN_LABEL[run.origin]}
+          {run.requestedByName ? `, by ${run.requestedByName}` : ""}
+          {run.output ? ` · ${run.output.primaryArchetype}` : ""}
+        </span>
+      </div>
+      {run.error && <p className="text-xs text-muted-foreground ml-5 mt-0.5" data-testid="taxonomy-run-error">{run.error}</p>}
+      {open && run.output && <div className="ml-5 mt-1.5"><TaxonomySummary e={run.output} /></div>}
+    </li>
+  );
+}
+
+/** Every run of this fact's taxonomy, newest first. Reloaded when a run finishes. */
+function RunHistory({ factId, reloadKey }: { factId: number; reloadKey: string }) {
+  const [runs, setRuns] = useState<TaxonomyRun[] | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    setError("");
+    fetch(`/api/admin/facts/${factId}/taxonomy-runs`, { credentials: "include" })
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`Request failed (${r.status}).`);
+        const body = (await r.json()) as { runs: TaxonomyRun[] };
+        if (!cancelled) setRuns(body.runs);
+      })
+      .catch((err: unknown) => { if (!cancelled) setError(err instanceof Error ? err.message : "Could not load the run history."); });
+    return () => { cancelled = true; };
+  }, [factId, reloadKey]);
+
+  return (
+    <div className="space-y-1" data-testid="taxonomy-run-history">
+      <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Run history</p>
+      {error ? (
+        <p className="text-xs text-destructive" data-testid="taxonomy-run-history-error">Could not load the run history: {error}</p>
+      ) : runs === null ? (
+        <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" /> Loading the run history…</p>
+      ) : runs.length === 0 ? (
+        <p className="text-xs text-muted-foreground" data-testid="taxonomy-run-history-empty">No runs are recorded for this fact.</p>
+      ) : (
+        <ul>{runs.map((r) => <RunRow key={r.id} run={r} />)}</ul>
       )}
     </div>
   );
@@ -179,6 +270,7 @@ export function FactTaxonomyPanel({ factId, initialStatus }: { factId: number; i
           )}
         </>
       )}
+      {!loading && !loadError && <RunHistory factId={factId} reloadKey={`${status}:${enrichment ? "1" : "0"}:${running ? "r" : ""}`} />}
       {jobs.error && (
         <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2" data-testid="taxonomy-rerun-error">
           <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />

@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { FieldInfo, FieldLabel, guardModalOverlayDismiss } from "./FieldInfo";
+import { SUPPORTING_TEXT_MODE_VALUES } from "@workspace/api-zod";
 import { fieldLabel } from "./fieldDocs";
 
 /**
@@ -17,20 +18,20 @@ import { fieldLabel } from "./fieldDocs";
 
 afterEach(() => cleanup());
 
-const open = () => fireEvent.click(screen.getByTestId("field-info-primaryArchetype"));
-const content = () => screen.queryByTestId("field-info-content-primaryArchetype");
+const open = () => fireEvent.click(screen.getByTestId("field-info-vso.supportingTextPolicy"));
+const content = () => screen.queryByTestId("field-info-content-vso.supportingTextPolicy");
 
 describe("FieldInfo", () => {
   it("opens on click with registry content, scrollable and above the modal z-index", () => {
-    render(<FieldInfo docKey="primaryArchetype" />);
+    render(<FieldInfo docKey="vso.supportingTextPolicy" />);
     expect(content()).toBeNull();
 
     open();
     const el = content();
     expect(el).toBeTruthy();
     // Registry-sourced content: the hint and a known value doc are present.
-    expect(el!.textContent).toContain(fieldLabel("primaryArchetype"));
-    expect(el!.textContent).toContain("superhuman_physical_feat");
+    expect(el!.textContent).toContain(fieldLabel("vso.supportingTextPolicy"));
+    expect(el!.textContent).toContain(SUPPORTING_TEXT_MODE_VALUES[0]);
     // Persistent + scrollable + layered above the z-50 review modal.
     expect(el!.className).toContain("overflow-y-auto");
     expect(el!.className).toContain("z-[70]");
@@ -38,7 +39,7 @@ describe("FieldInfo", () => {
   });
 
   it("closes on Escape", () => {
-    render(<FieldInfo docKey="primaryArchetype" />);
+    render(<FieldInfo docKey="vso.supportingTextPolicy" />);
     open();
     expect(content()).toBeTruthy();
     fireEvent.keyDown(document, { key: "Escape" });
@@ -105,7 +106,7 @@ describe("FieldInfo inside the review-modal backdrop stack", () => {
     return (
       <div data-modal-overlay data-testid="overlay" onClick={onClose}>
         <div data-testid="card" onClick={(e) => e.stopPropagation()}>
-          <FieldInfo docKey="primaryArchetype" />
+          <FieldInfo docKey="vso.supportingTextPolicy" />
         </div>
       </div>
     );
@@ -123,10 +124,10 @@ describe("FieldInfo inside the review-modal backdrop stack", () => {
 
 describe("FieldLabel", () => {
   it("renders the registry label text with the info button as a SIBLING of <label>", () => {
-    const { container } = render(<FieldLabel docKey="modifiers" />);
+    const { container } = render(<FieldLabel docKey="aiSuggestedHashtags" />);
     const label = container.querySelector("label");
-    expect(label?.textContent).toBe(fieldLabel("modifiers"));
-    const btn = screen.getByTestId("field-info-modifiers");
+    expect(label?.textContent).toBe(fieldLabel("aiSuggestedHashtags"));
+    const btn = screen.getByTestId("field-info-aiSuggestedHashtags");
     expect(label?.contains(btn)).toBe(false);
   });
 

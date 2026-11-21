@@ -27,10 +27,6 @@ import {
   TAXONOMY_VERSION,
   CLASSIFICATION_PROMPT_VERSION,
   type FactEnrichment,
-  type PrimaryArchetype,
-  type FactSubtype,
-  type OverhypeFit,
-  type AdultSuitability,
   type ClassificationPromptDiagnostics,
 } from "@workspace/api-zod";
 import {
@@ -414,54 +410,26 @@ export async function enrichFact(input: EnrichInput): Promise<FactEnrichment> {
 
 // ─── Persistence helpers ────────────────────────────────────────────────────
 
-/** Promoted, indexed projections of the enrichment blob for the facts table. */
-export function buildFactEnrichmentColumns(enrichment: FactEnrichment): {
-  enrichment: FactEnrichment;
-  primaryArchetype: PrimaryArchetype;
-  subtype: FactSubtype;
-  overhypeFit: OverhypeFit;
-  adultSuitability: AdultSuitability;
-} {
-  return {
-    enrichment,
-    primaryArchetype: enrichment.primaryArchetype,
-    subtype: enrichment.subtype,
-    overhypeFit: enrichment.overhypeFit,
-    adultSuitability: enrichment.adultSuitability,
-  };
-}
-
 /** The exact `facts` columns a taxonomy run writes. */
 export interface MaterializedEnrichmentColumns {
   enrichment: FactEnrichment;
   enrichmentAiDerived: FactEnrichment;
-  primaryArchetype: PrimaryArchetype;
-  subtype: FactSubtype;
-  overhypeFit: OverhypeFit;
-  adultSuitability: AdultSuitability;
 }
 
 /**
  * THE single write-shape for a fact's stored taxonomy. The taxonomy is
  * read-only AI output (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 2A): there are no
- * manual overrides, so the stored blob is the classifier's own result. It
- * returns the exact `facts` columns to persist, the indexed projections
- * included, so they never drift. A fact's gags are not part of it (fact_gags,
- * migration 0139).
+ * manual overrides, so the stored blob is the classifier's own result. The four
+ * projection columns (primary_archetype, subtype, overhype_fit,
+ * adult_suitability) are no longer written or read: a reader takes the field
+ * from `enrichment`, so no second copy can drift (2B), and increment 2.1c drops
+ * them. A fact's gags are not part of it (fact_gags, migration 0139).
  */
 export function taxonomyColumns(enrichment: FactEnrichment): MaterializedEnrichmentColumns {
   // Since migration 0139 a gag lives only in fact_gags: the stored taxonomy
   // never carries one (CHECK facts_enrichment_holds_no_gag), whatever a caller passed.
   const aiDerived = stripGag(enrichment);
-  const projected = buildFactEnrichmentColumns(aiDerived);
-  return {
-    enrichment: aiDerived,
-    enrichmentAiDerived: aiDerived,
-    primaryArchetype: projected.primaryArchetype,
-    subtype: projected.subtype,
-    overhypeFit: projected.overhypeFit,
-    adultSuitability: projected.adultSuitability,
-  };
+  return { enrichment: aiDerived, enrichmentAiDerived: aiDerived };
 }
 
 /**

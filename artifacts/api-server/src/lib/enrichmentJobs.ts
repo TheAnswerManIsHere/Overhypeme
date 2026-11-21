@@ -20,7 +20,9 @@ import { db } from "@workspace/db";
 import {
   pendingReviewsTable,
   factsTable,
+  factTaxonomyRunsTable,
   type AsyncJobRow,
+  type FactTaxonomyRunOrigin,
 } from "@workspace/db/schema";
 import { validateEnrichment, type FactEnrichment } from "@workspace/api-zod";
 import { enrichFact, taxonomyColumns } from "./factEnrichment";
@@ -43,6 +45,27 @@ import { logger } from "./logger";
 interface EnrichmentJobPayload {
   reviewId?: number;
   factId?: number;
+  /** Why the fact's run was asked for; absent on a job queued before 2.1b. */
+  origin?: "provisional_approval" | "rerun";
+  /** The admin who asked for a Re-run. */
+  requestedBy?: string | null;
+}
+
+/** Who asked for a fact's taxonomy run, recorded on its history row. */
+export interface TaxonomyRunRequest {
+  origin: FactTaxonomyRunOrigin;
+  requestedBy: string | null;
+}
+
+const UNRECORDED_REQUEST: TaxonomyRunRequest = { origin: "unrecorded", requestedBy: null };
+
+/** The enqueue payload for a fact's taxonomy run. */
+export function factEnrichmentPayload(
+  factId: number,
+  origin: "provisional_approval" | "rerun",
+  requestedBy: string | null = null,
+): EnrichmentJobPayload & Record<string, unknown> {
+  return { factId, origin, requestedBy };
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -110,7 +133,13 @@ export interface FactEnrichmentDeps {
 export async function runEnrichmentForFact(
   factId: number,
   deps: FactEnrichmentDeps = { classify: enrichFact },
+  request: TaxonomyRunRequest = UNRECORDED_REQUEST,
 ): Promise<HandlerResult> {
+  // Every classifier call leaves one history row (plan item 16, 2B): written in
+  // the same transaction as the result it describes, failures included.
+  const historyRow = (outcome: "ok" | "failed" | "discarded", output: FactEnrichment | null, error: string | null) => ({
+    factId, outcome, origin: request.origin, requestedBy: request.requestedBy, output, error,
+  });
   // Load the fact text (a fact is classified from its own text only) and the
   // prior run's output, whose character list the classifier carries forward.
   // The stored taxonomy is read-only AI output: a run replaces it whole (plan
@@ -158,10 +187,10 @@ export async function runEnrichmentForFact(
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    await fencedTransaction(db, (tx) => tx
-      .update(factsTable)
-      .set({ enrichmentStatus: "failed" })
-      .where(eq(factsTable.id, factId)));
+    await fencedTransaction(db, async (tx) => {
+      await tx.update(factsTable).set({ enrichmentStatus: "failed" }).where(eq(factsTable.id, factId));
+      await tx.insert(factTaxonomyRunsTable).values(historyRow("failed", null, msg));
+    });
     return { ok: false, error: `classify: ${msg}` };
   }
 
@@ -177,12 +206,15 @@ export async function runEnrichmentForFact(
       .where(eq(factsTable.id, factId))
       .for("no key update") // the lock rule's strength (lib/reviewLocks.ts)
       .limit(1);
-    if (!locked) return;
+    if (!locked) return; // the fact is gone, and its history with it
     const recheck = await resolveGenericFactEnrichmentDecision(factId, tx);
     if (recheck.action === "skip") {
       logger.info(
         { factId, reason: recheck.reason },
         "[enrichment] generic fact result discarded at recheck (state changed mid-classify)",
+      );
+      await tx.insert(factTaxonomyRunsTable).values(
+        historyRow("discarded", taxonomyColumns(freshAiDerived).enrichment, `The fact left the state a run is for while it ran (${recheck.reason}).`),
       );
       return;
     }
@@ -197,12 +229,17 @@ export async function runEnrichmentForFact(
         { factId },
         "[enrichment] generic fact result discarded at recheck (classifier input drifted mid-classify)",
       );
+      await tx.insert(factTaxonomyRunsTable).values(
+        historyRow("discarded", taxonomyColumns(freshAiDerived).enrichment, "The fact's wording changed while it ran."),
+      );
       return;
     }
+    const stored = taxonomyColumns(freshAiDerived);
     await tx
       .update(factsTable)
-      .set({ ...taxonomyColumns(freshAiDerived), enrichmentStatus: "ok" })
+      .set({ ...stored, enrichmentStatus: "ok" })
       .where(eq(factsTable.id, factId));
+    await tx.insert(factTaxonomyRunsTable).values(historyRow("ok", stored.enrichment, null));
     // The taxonomy never moves a review or starts idea writing: it is stored
     // data beside moderation (Issue #1018, increment 1.2c-ii).
   });
@@ -211,9 +248,12 @@ export async function runEnrichmentForFact(
 
 export const enrichmentJobHandler: JobHandler = {
   async run(payload: unknown): Promise<HandlerResult> {
-    const { reviewId, factId } = payload as EnrichmentJobPayload;
+    const { reviewId, factId, origin, requestedBy } = payload as EnrichmentJobPayload;
     if (typeof factId === "number") {
-      return runEnrichmentForFact(factId);
+      const request: TaxonomyRunRequest = origin === "rerun" || origin === "provisional_approval"
+        ? { origin, requestedBy: typeof requestedBy === "string" ? requestedBy : null }
+        : UNRECORDED_REQUEST;
+      return runEnrichmentForFact(factId, { classify: enrichFact }, request);
     }
     if (typeof reviewId === "number") {
       return runEnrichmentForReview(reviewId);

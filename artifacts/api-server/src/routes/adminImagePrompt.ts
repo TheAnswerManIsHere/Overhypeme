@@ -132,7 +132,7 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
       // taxonomy is not on the render path.
       const ev = validateGagRenderInput({ visualPromptStrategyOverride: chosen ?? undefined });
       if (!ev.ok) {
-        res.status(400).json({ error: "fact_enrichment_invalid", details: ev.error });
+        res.status(400).json({ error: "gag_render_input_invalid", details: ev.error });
         return;
       }
       sourceText = cycle.text;
@@ -141,7 +141,7 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
     } else {
       const ev = validateGagRenderInput(reviewRow.enrichment);
       if (!ev.ok) {
-        res.status(400).json({ error: "fact_enrichment_invalid", details: ev.error });
+        res.status(400).json({ error: "gag_render_input_invalid", details: ev.error });
         return;
       }
       sourceText = reviewRow.submittedText;
@@ -165,7 +165,7 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
     if (chosen === "not_found") { res.status(400).json({ error: "gag_not_found", gagId: body.gagId }); return; }
     const ev = validateGagRenderInput({ visualPromptStrategyOverride: chosen ?? undefined });
     if (!ev.ok) {
-      res.status(400).json({ error: "fact_enrichment_invalid", details: ev.error });
+      res.status(400).json({ error: "gag_render_input_invalid", details: ev.error });
       return;
     }
     sourceText = factRow.text;

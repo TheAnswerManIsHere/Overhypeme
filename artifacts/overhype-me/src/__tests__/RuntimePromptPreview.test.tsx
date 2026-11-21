@@ -137,14 +137,15 @@ describe("RuntimePromptPreview", () => {
     expect(screen.queryByTestId("rpp-fallback-gender")).toBeNull();
   });
 
-  it("shows a friendly message when the fact has no usable enrichment", async () => {
-    installFetch({ previewStatus: 400, previewBody: { error: "fact_enrichment_invalid", details: "bad" } });
+  it("names the gag, not the taxonomy, when the gag can't be read as a render input", async () => {
+    installFetch({ previewStatus: 400, previewBody: { error: "gag_render_input_invalid", details: "bad" } });
     render(<RuntimePromptPreview factId={42} />);
     expand();
     fireEvent.click(screen.getByTestId("rpp-generate"));
 
     await waitFor(() => expect(screen.getByTestId("rpp-error")).toBeTruthy());
-    expect(screen.getByTestId("rpp-error").textContent).toMatch(/Re-run it from the fact/i);
+    expect(screen.getByTestId("rpp-error").textContent).toMatch(/This gag can't be turned into a picture prompt: bad\. Fix the gag's scene/);
+    expect(screen.getByTestId("rpp-error").textContent).not.toMatch(/taxonomy/i);
   });
 
   it("shows no planner panel: no visual-plan debug and no planner provenance (the planner was removed, plan PLAN_GAG_DIRECT_RENDER.md, D)", async () => {
