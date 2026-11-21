@@ -23,6 +23,7 @@ import {
   factTaxonomyRunsTable,
   type AsyncJobRow,
   type FactTaxonomyRunOrigin,
+  type FactTaxonomyRunOutcome,
 } from "@workspace/db/schema";
 import { validateEnrichment, type FactEnrichment } from "@workspace/api-zod";
 import { enrichFact, taxonomyColumns } from "./factEnrichment";
@@ -42,14 +43,18 @@ import { logger } from "./logger";
 // The enrichment job classifies either a pending review (submission flow +
 // admin re-run) or a live fact (admin re-run on the Facts page). Exactly one of
 // reviewId / factId is set.
-interface EnrichmentJobPayload {
+/** The origins a job can carry; the legacy ones are 0159's, "unrecorded" a pre-2.1b job's. */
+const REQUESTED_ORIGINS = ["provisional_approval", "rerun"] as const;
+type RequestedOrigin = (typeof REQUESTED_ORIGINS)[number];
+
+type EnrichmentJobPayload = {
   reviewId?: number;
   factId?: number;
   /** Why the fact's run was asked for; absent on a job queued before 2.1b. */
-  origin?: "provisional_approval" | "rerun";
+  origin?: RequestedOrigin;
   /** The admin who asked for a Re-run. */
   requestedBy?: string | null;
-}
+};
 
 /** Who asked for a fact's taxonomy run, recorded on its history row. */
 export interface TaxonomyRunRequest {
@@ -62,9 +67,9 @@ const UNRECORDED_REQUEST: TaxonomyRunRequest = { origin: "unrecorded", requested
 /** The enqueue payload for a fact's taxonomy run. */
 export function factEnrichmentPayload(
   factId: number,
-  origin: "provisional_approval" | "rerun",
+  origin: RequestedOrigin,
   requestedBy: string | null = null,
-): EnrichmentJobPayload & Record<string, unknown> {
+): EnrichmentJobPayload {
   return { factId, origin, requestedBy };
 }
 
@@ -137,7 +142,7 @@ export async function runEnrichmentForFact(
 ): Promise<HandlerResult> {
   // Every classifier call leaves one history row (plan item 16, 2B): written in
   // the same transaction as the result it describes, failures included.
-  const historyRow = (outcome: "ok" | "failed" | "discarded", output: FactEnrichment | null, error: string | null) => ({
+  const historyRow = (outcome: FactTaxonomyRunOutcome, output: FactEnrichment | null, error: string | null) => ({
     factId, outcome, origin: request.origin, requestedBy: request.requestedBy, output, error,
   });
   // Load the fact text (a fact is classified from its own text only) and the
@@ -194,6 +199,9 @@ export async function runEnrichmentForFact(
     return { ok: false, error: `classify: ${msg}` };
   }
 
+  // The shape stored, and recorded even when the result is discarded.
+  const stored = taxonomyColumns(freshAiDerived);
+
   // Transactional re-check before the write: the pre-classify guard can't cover
   // state that changed during the (slow) classifier call, so the result is
   // discarded if the fact left the eligible state or its text changed. The fact
@@ -214,7 +222,7 @@ export async function runEnrichmentForFact(
         "[enrichment] generic fact result discarded at recheck (state changed mid-classify)",
       );
       await tx.insert(factTaxonomyRunsTable).values(
-        historyRow("discarded", taxonomyColumns(freshAiDerived).enrichment, `The fact left the state a run is for while it ran (${recheck.reason}).`),
+        historyRow("discarded", stored.enrichment, `The fact left the state a run is for while it ran (${recheck.reason}).`),
       );
       return;
     }
@@ -230,11 +238,10 @@ export async function runEnrichmentForFact(
         "[enrichment] generic fact result discarded at recheck (classifier input drifted mid-classify)",
       );
       await tx.insert(factTaxonomyRunsTable).values(
-        historyRow("discarded", taxonomyColumns(freshAiDerived).enrichment, "The fact's wording changed while it ran."),
+        historyRow("discarded", stored.enrichment, "The fact's wording changed while it ran."),
       );
       return;
     }
-    const stored = taxonomyColumns(freshAiDerived);
     await tx
       .update(factsTable)
       .set({ ...stored, enrichmentStatus: "ok" })
@@ -250,7 +257,7 @@ export const enrichmentJobHandler: JobHandler = {
   async run(payload: unknown): Promise<HandlerResult> {
     const { reviewId, factId, origin, requestedBy } = payload as EnrichmentJobPayload;
     if (typeof factId === "number") {
-      const request: TaxonomyRunRequest = origin === "rerun" || origin === "provisional_approval"
+      const request: TaxonomyRunRequest = origin && (REQUESTED_ORIGINS as readonly string[]).includes(origin)
         ? { origin, requestedBy: typeof requestedBy === "string" ? requestedBy : null }
         : UNRECORDED_REQUEST;
       return runEnrichmentForFact(factId, { classify: enrichFact }, request);

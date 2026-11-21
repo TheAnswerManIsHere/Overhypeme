@@ -10,7 +10,8 @@
  * call, failures included, newest first (item 16; increment 2.1b). The whole
  * panel moves into the fact sheet in Phase 3.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { readError } from "./readError";
 import { AlertCircle, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Loader2, RefreshCw } from "lucide-react";
 import type { FactEnrichment } from "@workspace/api-zod";
 import { Button } from "@/components/ui/Button";
@@ -150,7 +151,7 @@ function RunRow({ run }: { run: TaxonomyRun }) {
 }
 
 /** Every run of this fact's taxonomy, newest first. Reloaded when a run finishes. */
-function RunHistory({ factId, reloadKey }: { factId: number; reloadKey: string }) {
+function RunHistory({ factId, reloadKey }: { factId: number; reloadKey: number }) {
   const [runs, setRuns] = useState<TaxonomyRun[] | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -158,7 +159,7 @@ function RunHistory({ factId, reloadKey }: { factId: number; reloadKey: string }
     setError("");
     fetch(`/api/admin/facts/${factId}/taxonomy-runs`, { credentials: "include" })
       .then(async (r) => {
-        if (!r.ok) throw new Error(`Request failed (${r.status}).`);
+        if (!r.ok) throw new Error(await readError(r));
         const body = (await r.json()) as { runs: TaxonomyRun[] };
         if (!cancelled) setRuns(body.runs);
       })
@@ -227,6 +228,13 @@ export function FactTaxonomyPanel({ factId, initialStatus }: { factId: number; i
   }, [jobs]);
 
   const running = status === "pending" || jobs.rerunBusy;
+  // A run adds its history row as it finishes: reload the history then, and only then.
+  const [historyKey, setHistoryKey] = useState(0);
+  const wasRunning = useRef(running);
+  useEffect(() => {
+    if (wasRunning.current && !running) setHistoryKey((k) => k + 1);
+    wasRunning.current = running;
+  }, [running]);
   return (
     <section className="space-y-2" data-testid="fact-taxonomy-panel">
       <div className="flex items-start justify-between gap-3">
@@ -270,7 +278,7 @@ export function FactTaxonomyPanel({ factId, initialStatus }: { factId: number; i
           )}
         </>
       )}
-      {!loading && !loadError && <RunHistory factId={factId} reloadKey={`${status}:${enrichment ? "1" : "0"}:${running ? "r" : ""}`} />}
+      {!loading && !loadError && <RunHistory factId={factId} reloadKey={historyKey} />}
       {jobs.error && (
         <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2" data-testid="taxonomy-rerun-error">
           <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
