@@ -443,7 +443,7 @@ derivative or a meme from the Library moves it to **Recently deleted** for
 a not-live one goes only to its owner and is never cached (so Recently
 deleted can show thumbnails), and anything else is 404. A class-guard test
 fails if any file outside `contentVisibility.ts` spells `deleted_at IS
-NULL`. The current profile photo cannot be deleted. A deleted meme's page
+NULL`. The current profile photo cannot be deleted (it is the member's picture: [*A member's picture*](#a-members-picture)). A deleted meme's page
 keeps its "removed" 410.
 
 ### A member's picture
