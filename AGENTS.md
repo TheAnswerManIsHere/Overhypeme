@@ -72,7 +72,8 @@ HTTP headers, or secrets** work, also read:
   headers, secrets, the dev-admin-login gate)
 - [`docs/ai-context/accounts-and-auth.md`](docs/ai-context/accounts-and-auth.md) —
   the operational shape of sign-in, account creation, and the account
-  lifecycle (routes, flows, session mechanics, role derivation)
+  lifecycle (routes, flows, session mechanics, role derivation), and a
+  member's picture
 
 For **the meme studio, its image sources, or media storage**
 work, also read:
