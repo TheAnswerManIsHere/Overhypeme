@@ -16,6 +16,7 @@
 import {
   ALLOWED_SIMPLE_TOKENS,
   autoConjugatePersonSubjectVerbs,
+  capitalizeSentenceInitialPronounTokens,
   collapseIdenticalConjugationBranches,
   collapseNameSubjectConjugationPairs,
   expandSubjectContractions,
@@ -51,7 +52,7 @@ export const TOKENIZE_SYSTEM_PROMPT = `You are a fact-template tokenizer for a p
 Users write facts in plain English about a person. You convert them into a template using a closed token set.
 
 TOKEN RULES:
-1. Replace the person's name with {NAME}
+1. Replace the person's name with {NAME}. Replace the person's name in possessive form ("David's", "James'") with {NAME_POSSESSIVE} — it is still the name, NEVER a pronoun. Use a pronoun token only where the input has a pronoun.
 2. Replace subject pronouns (he, she) with {SUBJ}; capitalize to {Subj} when sentence-starting
 3. Replace object pronouns (him, her) with {OBJ}; capitalize to {Obj} when needed
 4. Replace possessive adjectives (his, her as adjective) with {POSS}; capitalize to {Poss} when needed
@@ -101,6 +102,9 @@ Output: {"template": "Sharks have a {NAME} Week."}
 Input: "Alex keeps the virus in his back yard."
 Output: {"template": "{NAME} keeps the virus in {POSS} back yard."}
 
+Input: "David's pin is the last four digits of pi."
+Output: {"template": "{NAME_POSSESSIVE} pin is the last four digits of pi."}
+
 Input: "He runs and hides from tax auditors."
 Output: {"template": "{Subj} {runs|run} and {hides|hide} from tax auditors."}
 
@@ -136,13 +140,13 @@ export function stripUnknownTokens(template: string): string {
 }
 
 /**
- * Clean up a raw model-produced template into its final form, in five passes:
+ * Clean up a raw model-produced template into its final form, in six passes:
  *   1. strip hallucinated tokens ({When} → When) — model-hallucination cleanup,
  *      kept server-owned here rather than in the shared deterministic sequence,
- *   2-5. the shared deterministic sequence from `applyDeterministicGrammar`
+ *   2-6. the shared deterministic sequence from `applyDeterministicGrammar`
  *      (collapse {NAME}-subject pairs, expand subject-pronoun contractions,
  *      auto-conjugate missed person-subject verbs, collapse identical
- *      conjugation branches) — run pass-by-pass here (not via one opaque call)
+ *      conjugation branches, capitalize sentence-initial pronoun tokens) — run pass-by-pass here (not via one opaque call)
  *      so each pass can report its own flag, but in the EXACT SAME ORDER, so
  *      this route and every other template-writing ingress can never drift.
  *
@@ -150,7 +154,8 @@ export function stripUnknownTokens(template: string): string {
  * can log each independently: `nameCollapsed` (a {NAME}-subject pair was
  * collapsed to its singular branch), `contractionExpanded` (a `{Subj}'s`/
  * `{SUBJ}'s` was expanded to an {is|are} or {has|have} pair), `conjugated` (the net wrapped
- * a missed verb), and `collapsed` (a duplicate pair was dropped). No flag is
+ * a missed verb), `collapsed` (a duplicate pair was dropped), and
+ * `capitalized` (a sentence-initial pronoun token was capitalized). No flag is
  * overloaded to mean "anything changed" — a raw `{can|can}` collapses with
  * `conjugated: false, collapsed: true`.
  */
@@ -162,18 +167,21 @@ export function postProcessTokenizedTemplate(
   contractionExpanded: boolean;
   conjugated: boolean;
   collapsed: boolean;
+  capitalized: boolean;
 } {
   const stripped = repairGluedConjugationSuffixes(stripUnknownTokens(raw));
   const nameSubjectCollapsed = collapseNameSubjectConjugationPairs(stripped);
   const contractionsExpandedTemplate = expandSubjectContractions(nameSubjectCollapsed);
   const conjugatedTemplate = autoConjugatePersonSubjectVerbs(contractionsExpandedTemplate);
   const collapsedTemplate = collapseIdenticalConjugationBranches(conjugatedTemplate);
+  const capitalizedTemplate = capitalizeSentenceInitialPronounTokens(collapsedTemplate);
   return {
-    template: collapsedTemplate,
+    template: capitalizedTemplate,
     nameCollapsed: nameSubjectCollapsed !== stripped,
     contractionExpanded: contractionsExpandedTemplate !== nameSubjectCollapsed,
     conjugated: conjugatedTemplate !== contractionsExpandedTemplate,
     collapsed: collapsedTemplate !== conjugatedTemplate,
+    capitalized: capitalizedTemplate !== collapsedTemplate,
   };
 }
 
@@ -265,6 +273,7 @@ export interface TokenizeCoreResult {
     contractionExpanded: boolean;
     conjugated: boolean;
     collapsed: boolean;
+    capitalized: boolean;
   };
   usedLlm: boolean;
   /** Returned, NOT thrown — callers decide how to surface a grammar failure. */
@@ -336,14 +345,14 @@ export async function tokenizePlainTextToTemplate(
     }
   }
 
-  const { template, nameCollapsed, contractionExpanded, conjugated, collapsed } =
+  const { template, nameCollapsed, contractionExpanded, conjugated, collapsed, capitalized } =
     postProcessTokenizedTemplate(rawTemplate);
   const grammarResult = validateTemplate(template);
 
   return {
     rawTemplate,
     template,
-    passes: { nameCollapsed, contractionExpanded, conjugated, collapsed },
+    passes: { nameCollapsed, contractionExpanded, conjugated, collapsed, capitalized },
     usedLlm,
     grammarError: grammarResult.valid ? undefined : grammarResult.error,
   };

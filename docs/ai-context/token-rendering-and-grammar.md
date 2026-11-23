@@ -142,6 +142,17 @@ canonical grammar-only cleanup, run in this exact order:
    alone). Coordinated `{Subj}` verbs are the AI prompt's job (it has an example
    for them); the net doesn't retro-repair the tail.
 4. `collapseIdenticalConjugationBranches` — `{can|can}` → `can`.
+5. `capitalizeSentenceInitialPronounTokens` — `{POSS} pin is…` → `{Poss} pin
+   is…`: a lower-case pronoun token at the start of the template, or after
+   `.`/`!`/`?` and whitespace (through an opening quote or bracket), takes its
+   capitalized variant. The renderer prints a token's case as written, so
+   without this a model that ignores the prompt's capitalization rule ships
+   "his pin…" into every preview. Name tokens are untouched.
+
+The tokenizer prompt also keeps a **possessive name as the name**: "David's
+pin…" is `{NAME_POSSESSIVE} pin…`, never `{Poss} pin…`. A pronoun token is
+used only where the input has a pronoun — the reported case had the model
+replace the name with "his" outright, so the rendered fact named nobody.
 
 `applyDeterministicGrammar` deliberately **excludes** `stripUnknownTokens` — that
 is model-hallucination cleanup owned by the AI route; the other write routes
