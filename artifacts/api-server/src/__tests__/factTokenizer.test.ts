@@ -151,6 +151,24 @@ describe("factTokenizer — TOKENIZE_SYSTEM_PROMPT policy", () => {
     assert.match(TOKENIZE_SYSTEM_PROMPT, /\{runs\|run\}\s+and\s+\{hides\|hide\}/);
     assert.match(TOKENIZE_SYSTEM_PROMPT, /\{runs\|run\}\s+and\s+dogs\s+bark/);
   });
+
+  it("keeps a possessive name as the name, never a pronoun (\"David's pin…\")", () => {
+    assert.match(TOKENIZE_SYSTEM_PROMPT, /possessive form[^\n]*\{NAME_POSSESSIVE\}[^\n]*NEVER a pronoun/);
+    assert.match(TOKENIZE_SYSTEM_PROMPT, /"David's pin is the last four digits of pi\."\nOutput: \{"template": "\{NAME_POSSESSIVE\} pin is the last four digits of pi\."\}/);
+  });
+});
+
+describe("factTokenizer — a sentence-initial pronoun token is capitalized", () => {
+  it("turns the model's lower-case {POSS} at the start into {Poss}, so the preview reads \"His pin…\"", () => {
+    const { template, capitalized } = postProcessTokenizedTemplate("{POSS} pin is the last four digits of pi.");
+    assert.equal(template, "{Poss} pin is the last four digits of pi.");
+    assert.equal(capitalized, true);
+  });
+
+  it("reports nothing when the model already capitalized it", () => {
+    const { capitalized } = postProcessTokenizedTemplate("{Poss} pin is the last four digits of pi.");
+    assert.equal(capitalized, false);
+  });
 });
 
 describe("factTokenizer — collapseNameSubjectConjugationPairs", () => {

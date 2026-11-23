@@ -6,6 +6,7 @@ import {
   applyDeterministicGrammar,
   collapseNameSubjectConjugationPairs,
   repairGluedConjugationSuffixes,
+  capitalizeSentenceInitialPronounTokens,
 } from "../lib/templateGrammar.js";
 
 describe("validateTemplate — empty input", () => {
@@ -434,5 +435,41 @@ describe("every object-separated verb after a name collapses in one pass (#1156)
   it("still stops at a different subject and at clause punctuation", () => {
     assert.equal(applyDeterministicGrammar("{NAME} eats cake and {SUBJ} {drinks|drink} soda"), "{NAME} eats cake and {SUBJ} {drinks|drink} soda");
     assert.equal(applyDeterministicGrammar("{NAME} eats cake. And {drinks|drink} soda"), "{NAME} eats cake. And {drinks|drink} soda");
+  });
+});
+
+describe("capitalizeSentenceInitialPronounTokens", () => {
+  it("capitalizes every pronoun token kind at the start of the template", () => {
+    assert.equal(capitalizeSentenceInitialPronounTokens("{POSS} pin is pi."), "{Poss} pin is pi.");
+    assert.equal(capitalizeSentenceInitialPronounTokens("{SUBJ} {runs|run}."), "{Subj} {runs|run}.");
+    assert.equal(capitalizeSentenceInitialPronounTokens("{OBJ}, the legend."), "{Obj}, the legend.");
+    assert.equal(capitalizeSentenceInitialPronounTokens("{POSS_PRO} is the best."), "{Poss_Pro} is the best.");
+    assert.equal(capitalizeSentenceInitialPronounTokens("{REFL} alone."), "{Refl} alone.");
+  });
+
+  it("capitalizes after a sentence end, and through an opening quote", () => {
+    assert.equal(
+      capitalizeSentenceInitialPronounTokens("{NAME} won. {SUBJ} {was|were} bored! \"{POSS} prize? Gone.\""),
+      "{NAME} won. {Subj} {was|were} bored! \"{Poss} prize? Gone.\"",
+    );
+    assert.equal(capitalizeSentenceInitialPronounTokens("  \"{POSS} pin\""), "  \"{Poss} pin\"");
+  });
+
+  it("leaves a mid-sentence token, an already-capitalized token and the name tokens alone", () => {
+    const unchanged = [
+      "{NAME} keeps the virus in {POSS} back yard.",
+      "When {SUBJ} {laughs|laugh}, {POSS} dog cries.",
+      "{Poss} pin is pi.",
+      "{NAME_POSSESSIVE} pin is pi. {NAME} rules.",
+      "",
+    ];
+    for (const t of unchanged) assert.equal(capitalizeSentenceInitialPronounTokens(t), t);
+  });
+
+  it("is idempotent and runs inside applyDeterministicGrammar", () => {
+    const once = capitalizeSentenceInitialPronounTokens("{POSS} pin. {SUBJ} keeps it.");
+    assert.equal(capitalizeSentenceInitialPronounTokens(once), once);
+    assert.equal(applyDeterministicGrammar("{POSS} pin is pi."), "{Poss} pin is pi.");
+    assert.equal(applyDeterministicGrammar("{SUBJ} keeps it"), "{Subj} {keeps|keep} it");
   });
 });
