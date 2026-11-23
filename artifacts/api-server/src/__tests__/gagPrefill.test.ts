@@ -268,6 +268,37 @@ describe("a changed note", () => {
   });
 });
 
+describe("an admin deleted while the fill was queued (Issue #1148)", () => {
+  // The job's payload still names them; the users row is gone. Both actor
+  // columns reference users.id, so the write must record nobody, not fail.
+  const gone = () => `t-prefill-gone-${RUN}-${randomUUID().slice(0, 6)}`;
+
+  it("gag 1 is still written, with no one recorded as its author", async () => {
+    const { reviewId, factId } = await atGags();
+    await storeIdeas(reviewId, factId, [idea(0, "p")], NOTE);
+    assert.equal((await runGagPrefill({ reviewId, factId, adminId: gone() }, castStub)).ok, true);
+    const gags = await gagsOf(factId);
+    assert.equal(gags.length, 1);
+    assert.equal(sceneOf(gags[0]!), "{NAME} does thing 0 (p).");
+    assert.equal(gags[0]!.createdBy, null);
+    assert.equal(gags[0]!.pendingBy, null);
+  });
+
+  it("a refill under a changed note still replaces the gag, with no one recorded as its editor", async () => {
+    const { reviewId, factId } = await atGags();
+    await storeIdeas(reviewId, factId, [idea(0, "q")], NOTE);
+    await prefill(reviewId, factId);
+    const changed = "A different reading entirely.";
+    await db.update(factsTable).set({ humorNote: changed }).where(eq(factsTable.id, factId));
+    await storeIdeas(reviewId, factId, [idea(0, "r")], changed);
+    assert.equal((await runGagPrefill({ reviewId, factId, adminId: gone() }, castStub)).ok, true);
+    const [gag] = await gagsOf(factId);
+    assert.equal(sceneOf(gag!), "{NAME} does thing 0 (r).");
+    assert.equal(gag!.pendingBy, null);
+    assert.equal(gag!.createdBy, adminId, "the gag's creator is untouched by a refill");
+  });
+});
+
 describe("a fill's status is its job's (Codex 4649903956 and 4649903966, PR #1136 round 1)", () => {
   const setJobs = (reviewId: number, status: "done" | "failed" | "pending") =>
     db.update(asyncJobsTable).set({ status, ...(status === "pending" ? { runAfter: new Date(Date.now() + 5 * 60_000) } : {}) })

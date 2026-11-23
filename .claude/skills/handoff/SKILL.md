@@ -289,10 +289,12 @@ decision to stay short has failed at the only thing it does.
 Before handing back: `unsubscribe_pr_activity` for anything this session was
 watching that the new session now owns, disarm any scheduled wake, and state
 in one line what this session is still on the hook for — normally nothing.
-A UAT run owed on the workstream this hand-off carries goes with it, since
-the new session inherits it (the `uat` skill, section 1 item 0); one owed
-on a workstream the hand-off left behind, or a run this session started
-and left unfinished, stays here and is named (the `archive` skill, Step 1
+A UAT run on the workstream this hand-off carries goes with it, whether
+owed or paused partway, since the new session inherits that workstream and
+resumes a paused run on it (the `archive` skill, Step 1 item 8, and the
+`uat` skill, section 1 items 0 and 2); a
+run on a workstream the hand-off left behind, owed or started here and
+left unfinished, stays here and is named (the `archive` skill, Step 1
 item 8). Where Step 5 fell back to a pasted prompt, nothing has gone yet.
 An abandoned subscription is worse than none, because it looks like coverage.
 
