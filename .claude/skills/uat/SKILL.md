@@ -1,6 +1,6 @@
 ---
 name: uat
-description: Run a UAT session with David step by step, in chat, instead of handing him a markdown file to read alone. Use when he says /uat, "let's test PR N", "walk me through the UAT", "I'm ready to test this", or "resume the UAT". Starts from this session's own context — work it just merged or delivered that owes a run is the run, and only a session with nothing to test searches the repository for every run owed. I do the setup, settle every machine-lane step first — citing what the lifecycle already ran (the PR gate's `ci` checks, the PR's `scripted` record, close-out's `live` checks) and running only what nothing ran (a screen fact whose action I can perform is mine to check in a browser, whatever the script labels it; one only his own account or device can perform stays his; what an AI-generated image shows, beyond what anyone would verify the same way, is always his), present only the judgement steps to him one at a time, record Pass/Fail/Blocked/Skipped per step, capture evidence on anything that isn't a clean pass, file the bug and the way back the moment something breaks, and leave a durable run record any session can resume from. NOT for writing a UAT script — that's `pr-docs`.
+description: Run a UAT session with David step by step, in chat, instead of handing him a markdown file to read alone. Use when he says /uat, "let's test PR N", "walk me through the UAT", "I'm ready to test this", or "resume the UAT". Starts from this session's own context — work it just merged or delivered that owes a run is the run (unless it handed that workstream to a session /handoff started, which took the run with it), and only a session with nothing to test searches the repository for every run owed. I do the setup, settle every machine-lane step first — citing what the lifecycle already ran (the PR gate's `ci` checks, the PR's `scripted` record, close-out's `live` checks) and running only what nothing ran (a screen fact whose action I can perform is mine to check in a browser, whatever the script labels it; one only his own account or device can perform stays his; what an AI-generated image shows, beyond what anyone would verify the same way, is always his), present only the judgement steps to him one at a time, record Pass/Fail/Blocked/Skipped per step, capture evidence on anything that isn't a clean pass, file the bug and the way back the moment something breaks, and leave a durable run record any session can resume from. NOT for writing a UAT script — that's `pr-docs`.
 ---
 
 <!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
@@ -45,7 +45,10 @@ session, then it should do what it does today."*).
    my own context for the units of work this session took to a merge or
    delivered — the PRs whose merge report I wrote here, and a workstream
    handed to this session by a `/handoff` prompt, which is this session's
-   work by inheritance. Context compaction keeps the summary of them, and
+   work by inheritance. A workstream this session handed to a session the
+   `handoff` skill started is no longer its own, whoever wrote the merge
+   report: its run, owed or paused, went with it (the `archive` skill,
+   Step 1 item 8). Context compaction keeps the summary of them, and
    the summary is enough to name them; nothing else is read for this step.
    A PR of this session's that has not merged is not finished work — the
    Repl tracks `main`, so there is nothing of it for him to click — and is

@@ -1,6 +1,6 @@
 ---
 name: archive
-description: Answer one question cheaply — "are we done with everything this session needs to do, and should we archive it?" — and archive the session when the answer is yes. Use when David says /archive, "can we archive this", "are we done here", or "should I close this session". Checks only what dies with the session (unpushed work, a PR this session watches, armed check-ins, running tasks, unpaid close-out, unpersisted learnings, an open ask, a UAT run it owes — its own work's, or one it started and left unfinished), returns one of three verdicts — continue, hand off, archive — starts /uat instead of archiving when a run is owed, and on archive schedules the session's own archiving a minute after the verdict is shown. NOT /handoff (which moves context and costs far more) and NOT /next or /status (which rank or report work); this skill reads no workstream but its own.
+description: Answer one question cheaply — "are we done with everything this session needs to do, and should we archive it?" — and archive the session when the answer is yes. Use when David says /archive, "can we archive this", "are we done here", or "should I close this session". Checks only what dies with the session (unpushed work, a PR this session watches, armed check-ins, running tasks, unpaid close-out, unpersisted learnings, an open ask, a UAT run it owes — its own work's, or one it started and left unfinished, unless a hand-off carried that workstream to a session `/handoff` started), returns one of three verdicts — continue, hand off, archive — starts /uat instead of archiving when a run is owed, and on archive schedules the session's own archiving a minute after the verdict is shown. NOT /handoff (which moves context and costs far more) and NOT /next or /status (which rank or report work); this skill reads no workstream but its own.
 ---
 
 <!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
@@ -74,15 +74,19 @@ do not stop at the first hit, since David wants the whole list once.
      inherited by a `/handoff` prompt, whose PR body carries a `## UAT`
      section (or a legacy doc on current `origin/main`) and whose
      workstream has no finished run record, a run recorded `in progress`
-     included. **A workstream this session handed to a session the
-     `handoff` skill started is not a hit here**: its run went with it,
-     since that skill's item 0 makes it the new session's by inheritance.
-     A hand-off that fell back to a pasted prompt releases nothing until
-     that session exists.
+     included.
    - **A run this session started or resumed** and left unfinished,
      whatever work it tests — a session opened to test someone else's
      PR included — read from the run record's `in progress` verdict
      (the `uat` skill, section 5).
+
+   **Neither kind is a hit on a workstream this session handed to a
+   session the `handoff` skill started**, whether its run is owed or
+   paused: the run went with the workstream, since the `uat` skill's
+   section 1 item 0 makes that workstream the new session's by
+   inheritance and its item 2 resumes a paused run there. A hand-off that
+   fell back to a pasted prompt releases nothing until that session
+   exists.
 
    The session holds the context that run starts from; archiving sends it
    to a cold repository-wide search. Either kind is carried into the `uat`
