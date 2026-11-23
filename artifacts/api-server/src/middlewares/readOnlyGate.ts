@@ -80,6 +80,7 @@ export const READ_ONLY_ROUTES: Readonly<Record<RouteKey, { allowed: boolean; why
   "POST /memes": { allowed: false, why: "makes a meme" },
   "POST /memes/:id/heart": { allowed: false, why: "hearts a meme" },
   "DELETE /memes/:slug": { allowed: false, why: "deletes a meme" },
+  "PATCH /memes/:slug/visibility": { allowed: false, why: "changes who can see a meme" },
   "POST /memes/:slug/restore": { allowed: false, why: "restores a meme" },
   "POST /share/invite": { allowed: false, why: "sends an invitation email" },
   "POST /stripe/checkout": { allowed: false, why: "starts a purchase" },
