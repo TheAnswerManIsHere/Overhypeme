@@ -450,10 +450,10 @@ takedown, so it never names who removed it.
 
 **Delete now** (image-surface audit R7, #875): from Recently deleted the
 owner can end an item's window at once (`POST
-/users/me/recently-deleted/purge`, `purgeNow` in `lib/myContent.ts`); it
+/users/me/recently-deleted/purge`, `purgeNow` in `artifacts/api-server/src/lib/myContent.ts`); it
 leaves the list, can no longer be restored, and the next hourly purge
 removes it. **Admin takedown** (R9): `POST /admin/content/takedown` with a
-recorded reason (`lib/contentTakedown.ts`) does the same to any member's
+recorded reason (`artifacts/api-server/src/lib/contentTakedown.ts`) does the same to any member's
 meme or photo, live or still restorable, clears a taken-down profile photo
 from the account, never touches quarantined content (it is evidence), and
 writes a `content_takedown` admin action. Its control is on Image Trace.
