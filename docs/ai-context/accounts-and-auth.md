@@ -138,7 +138,7 @@ the server enforces it:
   `_wording_version` — and `onboarding_completed_at` in one write, the draft
   cleared; under 13 refused with nothing stored and nothing destroyed;
   completing twice changes nothing). An adult is then offered the optional
-  profile photo.
+  profile photo, which becomes their picture ([*A member's picture*](#a-members-picture)).
 - **The web shell** (`App.tsx`'s `SetupRedirect`, rule in
   `artifacts/overhype-me/src/lib/setup-redirect.ts`) sends a suspended
   account to `/account/suspended`, one scheduled for deletion to
@@ -603,6 +603,10 @@ and the last-admin guard could approve zeroing the real population.
 - `artifacts/api-server/src/lib/userRole.ts` — role derivation.
 - `artifacts/api-server/src/middlewares/tierMiddleware.ts` —
   `requireRole`/`requireAdmin`.
+- `artifacts/api-server/src/lib/profilePicture.ts`,
+  `artifacts/api-server/src/lib/profilePhoto.ts` and
+  `artifacts/api-server/src/lib/providerPicture.ts` — a member's picture: the one reader, the one setter
+  and the Google copy ([*A member's picture*](#a-members-picture)).
 - `artifacts/api-server/src/routes/admin.ts` — user PATCH, the hard
   DELETE (the engine's admin removal), verify-email override.
 - `artifacts/api-server/src/lib/eligibility.ts` and

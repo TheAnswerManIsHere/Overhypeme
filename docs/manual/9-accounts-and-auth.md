@@ -83,7 +83,7 @@ Profile, your comments, the admin user list), whether you are free or
 Legendary; with no photo, your initial shows instead. There are no generated
 avatars. Signing in with Google copies your Google picture in as your first
 photo, if you are an adult and have none yet; you can replace it like any
-other. Apple sends no picture. (Decided 2026-11-21 and 2026-11-23, Issue #849.)
+other. Apple sends no picture. (Decided 2026-11-21 and 2026-11-23, Issue #849; the rule is [*A member's picture*](../ai-context/accounts-and-auth.md#a-members-picture).)
 
 There's no separate "guest" or "anonymous" tier of account — every account
 you can sign in as is a full account, not a lighter stand-in. (Admin-created

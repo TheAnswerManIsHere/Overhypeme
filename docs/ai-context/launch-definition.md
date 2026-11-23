@@ -81,7 +81,7 @@ verified email gates every authenticated action** (provider-verified emails
 count); one onboarding path for every sign-in method; pronouns chosen on the
 device carried through OAuth sign-up, and the default is never "he/him";
 your own photo as your picture, for every member (the generated avatars and
-the Legendary photo avatar were removed 2026-11-23, Issue #849); "My content" listing every
+the Legendary photo avatar were removed 2026-11-23, Issue #849; [the rule](accounts-and-auth.md#a-members-picture)); "My content" listing every
 upload and generation with per-item delete; **self-service account deletion**
 that never destroys legally retained safety records; an age gate (18+ for an
 account, decided in the compliance phase: Issue #1030 Q3, 2026-11-17);
