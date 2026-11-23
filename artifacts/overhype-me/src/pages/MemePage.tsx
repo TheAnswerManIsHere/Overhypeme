@@ -114,7 +114,7 @@ export default function MemePage() {
         <div className="max-w-xl mx-auto mt-20 p-8 bg-card border border-border rounded-[20px] text-center">
           <Ban className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
           <h2 className="text-3xl font-display uppercase mb-2">Meme Removed</h2>
-          <p className="text-muted-foreground mb-6">This meme has been removed by its creator.</p>
+          <p className="text-muted-foreground mb-6">This meme has been removed.</p>
           <Link href="/">
             <Button variant="outline" className="gap-2">
               <ArrowLeft className="w-4 h-4" /> Return to Base

@@ -195,7 +195,7 @@ router.get("/og/m/:slug", async (req: Request, res: Response) => {
     // name) — generic card only.
     res.status(410).send(renderOgShell({
       title: `Removed · ${SITE_NAME}`,
-      description: "This meme has been removed by its creator.",
+      description: "This meme has been removed.",
       imageUrl: `${baseUrl}${DEFAULT_OG_IMAGE_PATH}`,
       imageWidth: 1200,
       imageHeight: 630,

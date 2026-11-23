@@ -73,7 +73,7 @@ router.post("/share-intents", async (req: Request, res: Response) => {
     // The client may race a soft-delete between modal-open and click. Surface
     // it explicitly rather than silently logging an intent against a meme
     // the user can no longer share.
-    res.status(410).json({ error: "This meme has been removed by its creator." });
+    res.status(410).json({ error: "This meme has been removed." });
     return;
   }
 
