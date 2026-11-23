@@ -27,8 +27,12 @@ describe("copying the Google picture in at sign-in", () => {
   const saved: Record<string, string | undefined> = {};
   let png: Buffer;
 
+  // No moderation vendor: a sibling test in the shard may have set a dummy fal
+  // key, and the classifier would then fail closed on the copied picture.
+  const unset = ["FAL_AI_API_KEY", "FAL_KEY", "AI_BACKEND"];
   before(async () => {
     for (const [k, v] of Object.entries(env)) { saved[k] = process.env[k]; process.env[k] = v; }
+    for (const k of unset) { saved[k] = process.env[k]; delete process.env[k]; }
     png = await sharp({ create: { width: 64, height: 64, channels: 3, background: "#c33" } }).png().toBuffer();
   });
   after(async () => {

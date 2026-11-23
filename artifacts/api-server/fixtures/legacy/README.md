@@ -8,7 +8,7 @@ to refresh it: `docs/tests/TESTING.md`, *The legacy fixture*.
 ## What it is
 
 - Extracted at source commit `efe0732ffe0ba54a7061486a94f77a9506884b04`, whose journal holds 102 migrations (latest `0101_user_generation_costs_is_estimated`), all applied on the source; scrub ruleset version 2.
-- `manifest.json` sha256 `40dd6915a4a01cc466af2014db7d77827122aa33f7c21c53ed84487e2256f61b`. A recording made over this fixture names that digest. (Edited by hand at increment 2.1c of the fact lifecycle rebuild, Issue #1018: the tables and columns migration 0160 dropped were removed from the fixture, its manifest and the `engine_revision` setting; nothing else was re-extracted. Edited by hand again for migration 0162, Issue #849: the users' `avatar_style` and `avatar_source` columns and the `custom_avatar` feature-flag and tier rows were removed.)
+- `manifest.json` sha256 `3a557ae2bc2f1ebea6caf61e6d508125ad02d2391e0270a3229f4717a9b66d95`. A recording made over this fixture names that digest. (Edited by hand at increment 2.1c of the fact lifecycle rebuild, Issue #1018: the tables and columns migration 0160 dropped were removed from the fixture, its manifest and the `engine_revision` setting; nothing else was re-extracted. Edited by hand again for migration 0162, Issue #849: the users' `avatar_style` and `avatar_source` columns and the `custom_avatar` feature-flag and tier rows were removed.)
 - 1146 rows in 28 tables, one NDJSON file per table.
 
 | Table | Rows |
