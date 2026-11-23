@@ -444,7 +444,19 @@ a not-live one goes only to its owner and is never cached (so Recently
 deleted can show thumbnails), and anything else is 404. A class-guard test
 fails if any file outside `contentVisibility.ts` spells `deleted_at IS
 NULL`. The current profile photo cannot be deleted. A deleted meme's page
-keeps its "removed" 410.
+keeps its "removed" 410, which says only "This meme has been removed.":
+the same page answers a creator's delete, an account deletion and an admin
+takedown, so it never names who removed it.
+
+**Delete now** (image-surface audit R7, #875): from Recently deleted the
+owner can end an item's window at once (`POST
+/users/me/recently-deleted/purge`, `purgeNow` in `lib/myContent.ts`); it
+leaves the list, can no longer be restored, and the next hourly purge
+removes it. **Admin takedown** (R9): `POST /admin/content/takedown` with a
+recorded reason (`lib/contentTakedown.ts`) does the same to any member's
+meme or photo, live or still restorable, clears a taken-down profile photo
+from the account, never touches quarantined content (it is evidence), and
+writes a `content_takedown` admin action. Its control is on Image Trace.
 
 ## Age, audience and the NSFW opt-in
 
