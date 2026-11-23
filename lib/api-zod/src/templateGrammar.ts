@@ -339,10 +339,20 @@ const NAME_OBJECT_SEPARATED_PAIR_RE = new RegExp(
  */
 function collapseNameObjectSeparatedConjugationPair(template: string): string {
   if (!template) return template;
-  return template.replace(
-    NAME_OBJECT_SEPARATED_PAIR_RE,
-    (_match, prefix: string, pair: string) => `${prefix}${pair.replace(CHAIN_PAIR_RE, "$1")}`,
-  );
+  // One match consumes everything from {NAME} to the pair it collapses, so a
+  // single replace fixes one pair per {NAME}: "{NAME} eats cake and {drinks|drink}
+  // soda and {sleeps|sleep} late" left the second pair (#1156). Repeat until
+  // nothing changes. Each round only removes braces, never adds them, so it
+  // ends within as many rounds as the template has pairs.
+  let current = template;
+  for (;;) {
+    const next = current.replace(
+      NAME_OBJECT_SEPARATED_PAIR_RE,
+      (_match, prefix: string, pair: string) => `${prefix}${pair.replace(CHAIN_PAIR_RE, "$1")}`,
+    );
+    if (next === current) return current;
+    current = next;
+  }
 }
 
 /**
