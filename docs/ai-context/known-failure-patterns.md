@@ -459,7 +459,8 @@ many eligible targets as the cap needs rather than classifying the entire
 candidate set up front, when the two aren't in tension (see the cap-vs-exact-
 remaining-count trade-off noted below). **Overhype:**
 `factsWithInFlightRefresh` in
-`adminTaxonomyHealth.ts` chunks its guard queries at 500 ids/query
+`adminTaxonomyHealth.ts` (deleted with Taxonomy Health in the fact lifecycle
+rebuild, Overhype.me PR #1140) chunked its guard queries at 500 ids/query
 (`GUARD_QUERY_CHUNK_SIZE`) rather than passing the full stale-for-reprocess id
 set (which the Stale-for-reprocess card's own docs note can be "nearly the
 whole corpus," especially after a "Mark major update" bump) in one call —
@@ -489,8 +490,8 @@ while `visual_concept_status = "pending"` for the same reason. See
 `moderation-workflow.md` and the PR #179 decision in
 [`decisions.md`](./decisions.md). (Since 2026-11-15 the advance enqueues only
 the male iteration render of each new or changed gag rather than a full batch;
-the keyless enqueue and the compare-and-set are unchanged;
-[decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates).)
+the keyless enqueue and the compare-and-set are unchanged; Overhype.me's
+decision of that date, *A gag carries a male, a female and a pet example*.)
 
 ## Repairing state on a caught async error races the thing it's repairing
 
