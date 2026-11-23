@@ -128,9 +128,9 @@ pre-launch, but the interrupted UAT is what gets lost. Per
 *When UAT finds a bug*:
 
 - Add `Blocked by: #<this bug>` to the **interrupted** workstream's issue
-  body, and one line in its State of Play naming **which UAT step failed**
-  — that's what turns resumption into "resume at step 4" rather than a full
-  re-run.
+  body, and one line in its State of Play naming **which UAT step failed**, by its static ID
+  (`uat-doc-format.md`, *The rule that makes it deterministic*) — that's
+  what turns resumption into "resume at T4" rather than a full re-run.
 - **Also flip the interrupted issue's `waiting:` label to `claude`** —
   unless this session was started from a `/uat` run's intake whose prompt
   says the run is still live: that label, and its parent's, are then the

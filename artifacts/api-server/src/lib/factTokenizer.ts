@@ -20,6 +20,7 @@ import {
   collapseIdenticalConjugationBranches,
   collapseNameSubjectConjugationPairs,
   expandSubjectContractions,
+  hasPlainSubjectReference,
   repairGluedConjugationSuffixes,
   validateTemplate,
 } from "./templateGrammar";
@@ -186,56 +187,6 @@ export function postProcessTokenizedTemplate(
 }
 
 /**
- * Mask every `{…}` brace span (replacing it with a single space) before doing
- * plain-text word matching, so a token like `{NAME}` or `{NAME_POSSESSIVE}`
- * is never mistaken for a literal plain-text occurrence of a subject who
- * happens to be named "Name", and a name inside a conjugation pair's
- * alternatives can't match either.
- */
-function maskBraceSpans(text: string): string {
-  return text.replace(/\{[^{}]*\}/g, " ");
-}
-
-function escapeForRegex(word: string): string {
-  return word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/** Individual words (>=3 chars) drawn from every subject name, deduped. */
-function subjectNameWords(subjectNames: string[]): string[] {
-  const words = new Set<string>();
-  for (const name of subjectNames) {
-    for (const word of name.split(/\s+/)) {
-      const trimmed = word.trim();
-      if (trimmed.length >= 3) words.add(trimmed);
-    }
-  }
-  return [...words];
-}
-
-function containsPlainSubjectNameWord(text: string, subjectNames: string[]): boolean {
-  const masked = maskBraceSpans(text);
-  return subjectNameWords(subjectNames).some((word) =>
-    new RegExp(`\\b${escapeForRegex(word)}\\b`, "i").test(masked),
-  );
-}
-
-// Deliberately small: pronouns that can refer to the personalized subject.
-// This is a conservative optimization heuristic, not a grammar guarantee —
-// missing a pronoun here only costs an extra (harmless) LLM call.
-const SUBJECT_PRONOUN_WHITELIST = [
-  "he", "him", "his", "she", "her", "hers",
-  "they", "them", "their", "theirs",
-  "himself", "herself", "themself", "themselves",
-];
-
-function containsSubjectPronoun(text: string): boolean {
-  const masked = maskBraceSpans(text);
-  return SUBJECT_PRONOUN_WHITELIST.some((pronoun) =>
-    new RegExp(`\\b${pronoun}\\b`, "i").test(masked),
-  );
-}
-
-/**
  * True iff `text` is already a valid template (contains `{`, passes
  * `validateTemplate`) AND no subject-name word OR subject pronoun appears in
  * plain text outside any brace span. Callers use this to skip the LLM call
@@ -248,8 +199,7 @@ function containsSubjectPronoun(text: string): boolean {
 export function isAlreadyTokenizedNoPlainName(text: string, subjectNames: string[] = []): boolean {
   if (!text.includes("{")) return false;
   if (!validateTemplate(text).valid) return false;
-  if (containsPlainSubjectNameWord(text, subjectNames)) return false;
-  return !containsSubjectPronoun(text);
+  return !hasPlainSubjectReference(text, subjectNames);
 }
 
 /**
@@ -261,8 +211,7 @@ export function isAlreadyTokenizedNoPlainName(text: string, subjectNames: string
  */
 export function hasNoLikelySubjectReference(text: string, subjectNames: string[] = []): boolean {
   if (text.includes("{")) return false;
-  if (containsPlainSubjectNameWord(text, subjectNames)) return false;
-  return !containsSubjectPronoun(text);
+  return !hasPlainSubjectReference(text, subjectNames);
 }
 
 export interface TokenizeCoreResult {
