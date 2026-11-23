@@ -7,7 +7,7 @@ import { FactCard } from "@/components/facts/FactCard";
 import { Button } from "@/components/ui/Button";
 import { SubscriptionPanel } from "@/components/SubscriptionPanel";
 import { DeleteAccountSection } from "@/components/account/DeleteAccountSection";
-import { ShieldAlert, ShieldCheck, ShieldOff, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, ImageIcon, UserCircle2, Image, Eraser, ChevronLeft, ChevronRight, KeyRound, Eye, EyeOff, Bell, Crown } from "lucide-react";
+import { ShieldAlert, ShieldCheck, ShieldOff, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, ImageIcon, Eraser, ChevronLeft, ChevronRight, KeyRound, Eye, EyeOff, Bell, Crown } from "lucide-react";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { Link, useLocation } from "wouter";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
@@ -105,9 +105,24 @@ function ProfilePhotoThumbnailPicker({
   );
 }
 
+/**
+ * The member's picture on Profile: their uploaded photo, or their initial
+ * (plan PLAN_PHOTO_IS_YOUR_PICTURE.md). The server decides which photo.
+ */
+function ProfilePicture({ url, name, className }: { url: string | null | undefined; name: string | null | undefined; className: string }) {
+  if (url) return <img src={url} alt={name ?? "Your picture"} className={className} data-testid="profile-picture" />;
+  const initial = (name?.trim()[0] ?? "?").toUpperCase();
+  return (
+    <span role="img" aria-label={name ?? "Your picture"} data-testid="profile-picture-initial"
+      className={`${className} inline-flex items-center justify-center font-display font-bold text-foreground`}>
+      {initial}
+    </span>
+  );
+}
+
 export default function Profile() {
   const [currentPath, setLocation] = useLocation();
-  const { isAuthenticated, isLoading: authLoading, login, role, realRole, can, refreshUser } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, login, role, realRole, refreshUser } = useAuth();
   const signOut = useSignOut();
   // `realRole` is the toggle-INDEPENDENT admin status; `role` is the
   // preview-aware effective one. Round 6 of PR #425's review found this page
@@ -142,15 +157,6 @@ export default function Profile() {
   const [checkoutSessionId, setCheckoutSessionId] = useState<string | null>(null);
   const [emailVerifiedBanner, setEmailVerifiedBanner] = useState(false);
 
-  const AVATAR_STYLES = [
-    { id: "bottts",     label: "Robot" },
-    { id: "pixel-art",  label: "Pixel" },
-    { id: "adventurer", label: "Hero" },
-    { id: "identicon",  label: "Geo" },
-    { id: "shapes",     label: "Abstract" },
-    { id: "thumbs",     label: "Thumbs" },
-  ] as const;
-
   const [editing, setEditing] = useState(false);
   const [draftDisplayName, setDraftDisplayName] = useState("");
   const [draftFirstName, setDraftFirstName] = useState("");
@@ -159,7 +165,6 @@ export default function Profile() {
   const displayNameField = useNameField(draftDisplayName, setDraftDisplayName);
   const firstNameField = useNameField(draftFirstName, setDraftFirstName);
   const lastNameField = useNameField(draftLastName, setDraftLastName);
-  const [draftAvatarStyle, setDraftAvatarStyle] = useState("bottts");
   const [draftPronouns, setDraftPronouns] = useState("");
   const [draftEmail, setDraftEmail] = useState("");
   const [editError, setEditError] = useState("");
@@ -170,7 +175,6 @@ export default function Profile() {
   const [photoError, setPhotoError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editFormRef = useRef<HTMLDivElement>(null);
-  const [avatarSourceToggling, setAvatarSourceToggling] = useState(false);
   const [forgetMeConfirm, setForgetMeConfirm] = useState(false);
   const [forgetMeLoading, setForgetMeLoading] = useState(false);
 
@@ -304,68 +308,10 @@ export default function Profile() {
   }
 
 
-  function dicebearUrl(style: string, seed: string) {
-    return `https://api.dicebear.com/9.x/${style}/svg?seed=${encodeURIComponent(seed)}`;
-  }
-
-  // Told, not derived. `isLegendary` used to collapse admin into legendary
-  // client-side — the roleToTier shape that let PR #402 happen.
-  const canCustomAvatar = can("custom_avatar");
-
   // Deliberately still role-derived: the badge and the upsell button describe
   // MEMBERSHIP STATUS ("are you a Legendary member?"), which is not a feature
   // entitlement and does not belong in the grid. Only gates moved.
   const isLegendaryMember = role === "legendary" || role === "admin";
-
-  function getAvatarUrl() {
-    // Mirrors the server's effective-avatar projection exactly: selected AND
-    // stored AND entitled, else the generated icon. This surface honoured
-    // avatarSource but checked no entitlement, so a lapsed account kept showing
-    // its photo until the next write.
-    if (canCustomAvatar && profile?.profileImageUrl && (profile?.avatarSource ?? "avatar") === "photo") {
-      return profile.profileImageUrl;
-    }
-    return dicebearUrl(profile?.avatarStyle ?? "bottts", profile?.id ?? "default");
-  }
-
-  async function toggleAvatarSource() {
-    if (!profile) return;
-    const next = (profile.avatarSource ?? "avatar") === "photo" ? "avatar" : "photo";
-    setAvatarSourceToggling(true);
-    try {
-      await updateProfile.mutateAsync({ data: { avatarSource: next } });
-      await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
-    } catch {
-      // silently ignore
-    } finally {
-      setAvatarSourceToggling(false);
-    }
-  }
-
-  // The EFFECTIVE selection, not the raw stored value. `avatarSource` can be
-  // "photo" for an account whose `custom_avatar` entitlement has since
-  // lapsed (the documented no-backfill case — see getAvatarUrl() above,
-  // which already falls back to the generated avatar for exactly this
-  // account). Before this, the pills read the raw stored value directly, so
-  // a revoked account saw Photo highlighted with no Crown and a tap that did
-  // nothing — describing a selection the server had already stopped
-  // honouring. Round 3 of PR #425's review caught this.
-  const photoSelected = canCustomAvatar && (profile?.avatarSource ?? "avatar") === "photo";
-
-  /**
-   * The Photo button's click handler. Selecting "photo" is a standalone
-   * PATCH /users/me request, which the server now rejects with 403 for an
-   * unentitled account (`custom_avatar`) — `toggleAvatarSource` swallows that
-   * error silently, so without this the button did nothing visible on click.
-   * An unentitled tap goes to the upgrade path instead of attempting (and
-   * silently failing) the request; the button below is also visually locked
-   * so the state is discoverable before the tap, not just after.
-   */
-  function handlePhotoSelect() {
-    if (photoSelected) return;
-    if (!canCustomAvatar) { setLocation("/pricing"); return; }
-    void toggleAvatarSource();
-  }
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -594,7 +540,6 @@ export default function Profile() {
     setDraftDisplayName(profile?.displayName ?? "");
     setDraftFirstName(profile?.firstName ?? "");
     setDraftLastName(profile?.lastName ?? "");
-    setDraftAvatarStyle(profile?.avatarStyle ?? "bottts");
     setDraftPronouns(profile?.pronouns ?? "");
     setDraftEmail("");
     setEditError("");
@@ -623,7 +568,6 @@ export default function Profile() {
     if (draftDisplayName.trim() !== (profile?.displayName ?? "")) body.displayName = draftDisplayName.trim();
     if (draftFirstName.trim() !== (profile?.firstName ?? "")) body.firstName = draftFirstName.trim();
     if (draftLastName.trim() !== (profile?.lastName ?? "")) body.lastName = draftLastName.trim();
-    if (draftAvatarStyle !== (profile?.avatarStyle ?? "bottts")) body.avatarStyle = draftAvatarStyle;
     if (draftPronouns !== (profile?.pronouns ?? "")) body.pronouns = draftPronouns;
     if (draftEmail.trim()) body.email = draftEmail.trim();
 
@@ -698,7 +642,7 @@ export default function Profile() {
     setPhotoUploading(true);
     try {
       // The profile photo becomes the user's reusable identity asset (their
-      // photo memes and avatar), stored as a square face crop — except for
+      // picture and photo memes), stored as a square face crop — except for
       // GIFs, which are sent verbatim so animation is preserved.
       const { objectPath } = await uploadUserImage(file, {
         kind: "avatar",
@@ -789,10 +733,8 @@ export default function Profile() {
 
         {/* ── Real-photo nudge ────────────────────────────────────────
             Persistent banner for users who haven't uploaded a real photo
-            (shouldAskForRealPhoto, #848: an upload counts even when the
-            membership keeps the generated avatar as the picture).
-            Dismissible per session. A Google or Apple picture alone still
-            asks. */}
+            (shouldAskForRealPhoto, #848). Their uploaded photo is their
+            picture, for every member. Dismissible per session. */}
         {showPhotoNudge && (
           <div className="flex items-start justify-between gap-3 bg-primary/10 border-2 border-primary/40 rounded-sm p-4 mb-6">
             <div className="flex items-start gap-3 min-w-0">
@@ -802,8 +744,7 @@ export default function Profile() {
                   Add a real photo of you
                 </p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Your memes look 10× better when they actually look like you.
-                  We reuse one photo for every meme and AI scene — free.
+                  It becomes your picture and stars in your memes. Free for everyone.
                 </p>
                 <div className="mt-3">
                   <Button
@@ -836,10 +777,10 @@ export default function Profile() {
             <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-6">
               <div className="flex items-center gap-4 md:shrink-0">
                 <div className="relative shrink-0">
-                  <img
-                    src={getAvatarUrl()}
-                    alt={profile.displayName ?? "Your avatar"}
-                    className="w-16 h-16 md:w-20 md:h-20 rounded-sm border-2 border-primary/60 object-cover bg-secondary"
+                  <ProfilePicture
+                    url={profile.profileImageUrl}
+                    name={profile.displayName}
+                    className="w-16 h-16 md:w-20 md:h-20 rounded-sm border-2 border-primary/60 object-cover bg-secondary text-2xl"
                   />
                   {!hasCustomPhoto && (
                     <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center shadow">!</span>
@@ -854,7 +795,7 @@ export default function Profile() {
                 <div className="hidden md:block text-[11px] font-display uppercase tracking-[0.18em] text-primary mb-1">Complete your identity</div>
                 <h2 className="hidden md:block text-xl font-display uppercase tracking-wide text-foreground mb-1">Your face is the meme</h2>
                 <p className="text-xs md:text-sm text-muted-foreground leading-snug">
-                  Add your <strong className="text-foreground">name</strong> and a <strong className="text-foreground">photo of you</strong> — we reuse them everywhere: in your photo memes and as your avatar. Free for everyone.
+                  Add your <strong className="text-foreground">name</strong> and a <strong className="text-foreground">photo of you</strong> — your photo becomes your picture and stars in your memes. Free for everyone.
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {!hasCustomPhoto && (
@@ -990,10 +931,10 @@ export default function Profile() {
           <div className="relative group shrink-0">
             {/* The photo is inside the paused wrapper so it sizes it and grays with it. */}
             <PausedWhenReadOnly className="rounded-full">
-            <img
-              src={getAvatarUrl()}
-              alt={profile.displayName ?? "User"}
-              className="w-[120px] h-[120px] rounded-full border-2 border-primary object-cover bg-secondary shadow-[0_0_24px_rgba(249,115,22,0.25)]"
+            <ProfilePicture
+              url={profile.profileImageUrl}
+              name={profile.displayName ?? profile.email}
+              className="w-[120px] h-[120px] rounded-full border-2 border-primary object-cover bg-secondary shadow-[0_0_24px_rgba(249,115,22,0.25)] text-5xl"
             />
             <button
               onClick={() => fileInputRef.current?.click()}
@@ -1109,10 +1050,10 @@ export default function Profile() {
               className="relative block rounded-full focus:outline-none focus:ring-2 focus:ring-primary"
               title="Upload profile photo"
             >
-              <img
-                src={getAvatarUrl()}
-                alt={profile.displayName ?? "User"}
-                className="w-24 h-24 rounded-full border-2 border-primary object-cover bg-secondary shadow-[0_0_15px_rgba(249,115,22,0.3)]"
+              <ProfilePicture
+                url={profile.profileImageUrl}
+                name={profile.displayName ?? profile.email}
+                className="w-24 h-24 rounded-full border-2 border-primary object-cover bg-secondary shadow-[0_0_15px_rgba(249,115,22,0.3)] text-4xl"
               />
               <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                 {photoUploading
@@ -1126,41 +1067,6 @@ export default function Profile() {
               <p className="absolute top-full mt-1 left-0 w-48 text-xs text-destructive font-medium bg-card border border-destructive/40 rounded-sm px-2 py-1 z-20">{photoError}</p>
             )}
 
-            {/* Avatar source toggle — anyone with a custom photo */}
-            {profile.profileImageUrl && (
-              <PausedWhenReadOnly>
-              <div className="mt-2 flex items-center gap-1 bg-secondary/80 rounded-sm p-0.5 border border-border/60">
-                <button
-                  disabled={avatarSourceToggling}
-                  onClick={() => photoSelected && toggleAvatarSource()}
-                  className={`flex items-center gap-1 px-2 py-1 rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors ${
-                    !photoSelected
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                  title="Use avatar style"
-                >
-                  <UserCircle2 className="w-3 h-3" /> Avatar
-                </button>
-                <button
-                  disabled={avatarSourceToggling}
-                  onClick={handlePhotoSelect}
-                  className={`flex items-center gap-1 px-2 py-1 rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors ${
-                    photoSelected
-                      ? "bg-primary text-primary-foreground"
-                      : canCustomAvatar
-                        ? "text-muted-foreground hover:text-foreground"
-                        : "text-muted-foreground/50"
-                  }`}
-                  title={canCustomAvatar ? "Use custom photo" : "Custom photo avatars are a Legendary feature"}
-                >
-                  <Image className="w-3 h-3" /> Photo{!canCustomAvatar && !photoSelected && (
-                    <Crown className="w-2.5 h-2.5 ml-0.5" />
-                  )}
-                </button>
-              </div>
-              </PausedWhenReadOnly>
-            )}
           </div>
 
           <div className="flex-1 text-center md:text-left z-10">
@@ -1295,36 +1201,10 @@ export default function Profile() {
                 </div>
               </div>
 
-              {/* Avatar Style Picker */}
-              <div>
-                <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-2">Avatar Style</label>
-                <PausedWhenReadOnly>
-                <div className="flex flex-wrap gap-3">
-                  {AVATAR_STYLES.map((style) => (
-                    <button
-                      key={style.id}
-                      type="button"
-                      onClick={() => setDraftAvatarStyle(style.id)}
-                      className={`flex flex-col items-center gap-1 p-1.5 rounded-sm border-2 transition-all ${draftAvatarStyle === style.id ? "border-primary bg-primary/10" : "border-border bg-secondary hover:border-primary/50"}`}
-                      title={style.label}
-                    >
-                      <img
-                        src={dicebearUrl(style.id, profile.id)}
-                        alt={style.label}
-                        className="w-12 h-12 rounded-sm"
-                      />
-                      <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{style.label}</span>
-                    </button>
-                  ))}
-                </div>
-                </PausedWhenReadOnly>
-                <p className="text-xs text-muted-foreground mt-1">Your avatar is generated from your unique ID — same look everywhere, no photo needed.</p>
-              </div>
-
-              {/* Photo Upload — free identity asset for everyone */}
+              {/* Your picture: the photo you upload or choose is your picture, for everyone */}
               <div>
                 <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-2">
-                  <Camera className="w-3.5 h-3.5" /> Profile Photo <span className="text-muted-foreground/70 text-[10px] font-normal normal-case tracking-normal">— free, reused for memes &amp; AI</span>
+                  <Camera className="w-3.5 h-3.5" /> Your picture <span className="text-muted-foreground/70 text-[10px] font-normal normal-case tracking-normal">— free, and it stars in your memes</span>
                 </label>
                 <div className="flex items-center gap-4 flex-wrap">
                   {profile.profileImageUrl && (
@@ -1341,50 +1221,12 @@ export default function Profile() {
                     {photoUploading ? <><Loader2 className="w-4 h-4 animate-spin" /> Uploading…</> : <><Camera className="w-4 h-4" /> {profile.profileImageUrl ? "Change Photo" : "Upload Photo"}</>}
                   </Button>
                   </PausedWhenReadOnly>
-                  {profile.profileImageUrl && (
-                    <div className="flex flex-col gap-1">
-                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">Display as</p>
-                      <PausedWhenReadOnly>
-                      <div className="flex items-center gap-1 bg-secondary/80 rounded-sm p-0.5 border border-border/60">
-                        <button
-                          type="button"
-                          disabled={avatarSourceToggling}
-                          onClick={() => photoSelected && toggleAvatarSource()}
-                          className={`flex items-center gap-1 px-2 py-1 rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors ${
-                            !photoSelected
-                              ? "bg-primary text-primary-foreground"
-                              : "text-muted-foreground hover:text-foreground"
-                          }`}
-                        >
-                          <UserCircle2 className="w-3 h-3" /> Avatar
-                        </button>
-                        <button
-                          type="button"
-                          disabled={avatarSourceToggling}
-                          onClick={handlePhotoSelect}
-                          className={`flex items-center gap-1 px-2 py-1 rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors ${
-                            photoSelected
-                              ? "bg-primary text-primary-foreground"
-                              : canCustomAvatar
-                                ? "text-muted-foreground hover:text-foreground"
-                                : "text-muted-foreground/50"
-                          }`}
-                          title={canCustomAvatar ? "Use custom photo" : "Custom photo avatars are a Legendary feature"}
-                        >
-                          <Image className="w-3 h-3" /> Photo{!canCustomAvatar && !photoSelected && (
-                            <Crown className="w-2.5 h-2.5 ml-0.5" />
-                          )}
-                        </button>
-                      </div>
-                      </PausedWhenReadOnly>
-                    </div>
-                  )}
                 </div>
                 {photoError && <p className="text-xs text-destructive mt-1">{photoError}</p>}
                 <p className="text-xs text-muted-foreground mt-1">
                   {profile.profileImageUrl
-                    ? "Toggle between your avatar style and your custom photo, or upload a new photo. We reuse this photo as your face for memes."
-                    : "Upload a photo of your face. We reuse it for memes of you. JPEG, PNG, WebP or GIF, max 5 MB."}
+                    ? "This photo is your picture and your face in memes. Upload a new one or choose another below."
+                    : "Upload a photo of your face. It becomes your picture and stars in your memes. JPEG, PNG, WebP or GIF, max 5 MB."}
                 </p>
 
                 {/* Task #507 — thumbnail picker.

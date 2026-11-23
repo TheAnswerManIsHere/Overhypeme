@@ -94,8 +94,8 @@ verified account; this section describes the code until that ships.
 - **Free** — everything that doesn't cost per-render money: browse, personalize,
   submit facts, comment, vote, and **photo** memes (your own photo behind the
   fact).
-- **Legendary** — private memes, no CAPTCHAs, higher limits, a photo avatar
-  and no ads; the paid per-render surface (**AI image memes**) returns in
+- **Legendary** — private memes, no CAPTCHAs, higher limits and no ads (your
+  own photo as your picture is free for everyone, since 2026-11-23); the paid per-render surface (**AI image memes**) returns in
   launch Phase 7. Plans are monthly, annual, and a one-time lifetime ("Legendary for
   Life"), fetched live from Stripe. There are no consumer credits
   in the code yet; server-side budget/spend caps gate generation cost.

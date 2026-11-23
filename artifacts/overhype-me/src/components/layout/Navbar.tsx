@@ -13,10 +13,6 @@ import { devPreviewKey, DEV_PREVIEW_HEADER } from "@/lib/devPreviewUnlock";
 
 const DEV_ADMIN_LOGIN_URL = "/api/auth/dev-admin-login?returnTo=/admin";
 
-function dicebearUrl(style: string, seed: string) {
-  return `https://api.dicebear.com/9.x/${style}/svg?seed=${encodeURIComponent(seed)}`;
-}
-
 // Module-level tap counter — intentionally outside the component so it survives
 // Navbar remounts. Each page renders its own <Layout><Navbar />, meaning a click
 // that navigates away from the current page will unmount and remount the Navbar,
@@ -36,7 +32,7 @@ function FlameMark({ className = "" }: { className?: string }) {
 }
 
 export function Navbar() {
-  const { user, isAuthenticated, isLoading: authLoading, role, can } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading, role } = useAuth();
   const { name } = usePersonName();
   const { data: profile } = useGetMyProfile({
     query: { queryKey: getGetMyProfileQueryKey(), enabled: isAuthenticated, staleTime: 60_000 }
@@ -47,19 +43,9 @@ export function Navbar() {
   // the onboarding work instead of a competing nav button.
   const isColdMobile = !isAuthenticated && !authLoading && !name;
 
-  // Which avatar is public is a SERVER decision now (effectiveAvatar.ts), and
-  // this surface asks the same entitlement the server resolves rather than
-  // inferring it from the role. Three public projections used to ignore
-  // avatarSource entirely; this one honoured it but checked no entitlement.
-  const navAvatarUrl = (() => {
-    if (can("custom_avatar") && profile?.profileImageUrl && (profile?.avatarSource ?? "avatar") === "photo") {
-      return profile.profileImageUrl;
-    }
-    if (profile?.id) {
-      return dicebearUrl(profile?.avatarStyle ?? "bottts", profile.id);
-    }
-    return null;
-  })();
+  // The member's picture is their uploaded photo, decided by the server
+  // (lib/profilePicture.ts); with none, the avatar shows their initial.
+  const navAvatarUrl = profile?.profileImageUrl ?? null;
 
   const [, setLocation] = useLocation();
   // Opening search in place is an in-page action: a visitor without a

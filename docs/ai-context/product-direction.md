@@ -148,9 +148,9 @@ being an admin. (The `tester` overlay was retired from the launch scope on
 
 **Tier privileges are an upsell surface, not just plumbing** (David,
 2026-08-11). Withholding a capability from lower tiers and unlocking it on
-upgrade is a deliberate conversion lever — custom avatars are the worked
-example: lower tiers get a non-configurable generated icon, and setting a
-custom image is a paid unlock. Such privileges must be **enforced
+upgrade is a deliberate conversion lever — private memes are the worked
+example (custom avatars were, until David made a member's own photo their
+picture for everyone on 2026-11-23, Issue #849). Such privileges must be **enforced
 server-side**, not merely hidden in the UI, or the incentive is decorative.
 
 **The client is told what it may do; it never derives it.** A client that

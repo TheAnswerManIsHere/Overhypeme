@@ -1025,8 +1025,9 @@ same thing as being signed out or having skipped [onboarding](#onboarding).
 
 ### Legendary
 
-The paid tier, unlocking private memes, no CAPTCHAs, higher rate limits, a
-photo avatar and no ads. ([AI image memes](#ai-image-meme) went with PuLID in
+The paid tier, unlocking private memes, no CAPTCHAs, higher rate limits and
+no ads. (A photo avatar was a Legendary perk until 2026-11-23: a member's own
+photo is now their picture, free for everyone.) ([AI image memes](#ai-image-meme) went with PuLID in
 launch Phase 4; Phase 7 brings AI pictures back on credits, which anyone can
 buy and membership adds monthly: [product strategy](./product-strategy.md#what-is-paid).)
 Bought as a subscription or as [Legendary for Life](#legendary-for-life), or

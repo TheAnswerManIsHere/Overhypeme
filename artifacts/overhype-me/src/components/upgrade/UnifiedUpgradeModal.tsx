@@ -53,7 +53,7 @@ const CONTEXT_HEADLINES: Record<UpgradeModalContext, string> = {
 const VALUE_PROPS = [
   "Private memes only you can see",
   "No CAPTCHAs, and higher posting limits",
-  "Your own photo as your avatar",
+  "No ads",
 ];
 
 export function UnifiedUpgradeModal({ open, onClose, context, headline }: Props) {

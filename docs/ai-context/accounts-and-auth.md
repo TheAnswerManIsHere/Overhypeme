@@ -446,6 +446,35 @@ fails if any file outside `contentVisibility.ts` spells `deleted_at IS
 NULL`. The current profile photo cannot be deleted. A deleted meme's page
 keeps its "removed" 410.
 
+### A member's picture
+
+A member's picture is the photo they uploaded and chose as their profile
+photo, for every member, free or Legendary, or none, when the browser shows
+their initial (plan `docs/plans/PLAN_PHOTO_IS_YOUR_PICTURE.md`; David, Q1
+2026-11-21 and Q11 2026-11-23, Issue #849). The generated-avatar system (DiceBear
+icons, the style picker, the Avatar/Photo switch, the `custom_avatar` feature)
+was removed by migration 0162; recovery is the `pre-cut/avatar-system` tag plus
+a forward migration ([`docs/retired/README.md`](../retired/README.md)).
+
+- **One reader.** `profilePictureUrl` in
+  `artifacts/api-server/src/lib/profilePicture.ts` passes only a first-party
+  `/api/storage/objects/` path; `GET /users/me`, the admin users list and the
+  three fact and comment projections all use it.
+- **One setter.** `POST /users/me/profile-image` (through `makeProfilePhoto` in
+  `artifacts/api-server/src/lib/profilePhoto.ts`) makes the upload public, then in one
+  transaction moves the `is_profile` marker and points the account at it, so
+  the shown photo, the Profile-marked photo and the deletion-protected photo are
+  one. `PATCH /users/me` refuses a picture.
+- **Google's picture is copied in.** At a Google sign-in, an adult member with
+  no photo gets the Google picture as a real upload marked as their profile
+  photo (`artifacts/api-server/src/lib/providerPicture.ts`): Google's image host over https
+  only, no redirects, a timeout and a 5 MB cap, then the full upload pipeline.
+  The provider URL is never stored. A member without an adult date of birth is
+  skipped (photo uploads are for adults), so a brand-new Google member, who has
+  no date of birth until onboarding, gets the copy at a later Google sign-in if
+  they still have no photo. Apple sends no picture. Nothing waits on the copy,
+  and a failure leaves the member photo-less.
+
 ## Age, audience and the NSFW opt-in
 
 - **Age is a date, derived at read** (`date_of_birth`, required at

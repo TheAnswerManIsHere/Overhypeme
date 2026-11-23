@@ -77,6 +77,14 @@ the right screen.
    it is needed, never stored as a flag) are also offered a profile photo,
    and only adults can upload photos at all.
 
+**Your picture is your photo.** The photo you upload or choose as your
+profile photo is your picture everywhere the site shows one (the header,
+Profile, your comments, the admin user list), whether you are free or
+Legendary; with no photo, your initial shows instead. There are no generated
+avatars. Signing in with Google copies your Google picture in as your first
+photo, if you are an adult and have none yet; you can replace it like any
+other. Apple sends no picture. (Decided 2026-11-21 and 2026-11-23, Issue #849.)
+
 There's no separate "guest" or "anonymous" tier of account — every account
 you can sign in as is a full account, not a lighter stand-in. (Admin-created
 accounts are a separate case — an [admin](../ai-context/glossary.md#admin) can
