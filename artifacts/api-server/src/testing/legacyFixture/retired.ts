@@ -8,7 +8,8 @@
  * of a live fact. The rules are 0151's (lib/db/migrations/0151_retire_refresh_reviews.sql),
  * applied to the fixture's raw rows: refresh reviews (candidate_version_id
  * set) and open resubmissions (an open review of a fact created before it)
- * are left out with the enrichment versions that never became a fact's; a
+ * are left out (the enrichment versions 0151 also deleted are not loaded at
+ * all: their table went with 0160); a
  * gag a refresh owned loses that refresh's change and picks; references to a
  * left-out review are nulled. The freshness predicates of left-out or changed
  * rows are not checked on either side, since no recorded outcome describes them.
@@ -29,8 +30,6 @@ export interface FixtureRetirement {
   openReviewFacts: Set<number>;
   /** Gags a refresh review owned an operation on. */
   refreshGagIds: Set<number>;
-  /** Enrichment versions left out (never the fact's: candidate, rejected). */
-  versionIds: Set<number>;
   /** Render attempts made in a left-out review, or of a refresh-owned gag (their input changed). */
   attemptIds: Set<number>;
   /** Reviews whose staging fact's gag-idea set the retirement clears (a refresh review shared its live fact). */
@@ -79,10 +78,6 @@ export function fixtureRetirement(read: (table: string) => Row[]): FixtureRetire
     const owner = num(g["pending_review_id"]);
     if (owner != null && refreshIds.has(owner) && g["removed_at"] == null) refreshGagIds.add(num(g["id"])!);
   }
-  const versionIds = new Set<number>();
-  for (const v of read("fact_enrichment_versions")) {
-    if (v["status"] === "candidate" || v["status"] === "rejected") versionIds.add(num(v["id"])!);
-  }
   const attemptIds = new Set<number>();
   for (const a of read("image_prompt_attempts")) {
     const gag = num(a["gag_id"]);
@@ -103,7 +98,7 @@ export function fixtureRetirement(read: (table: string) => Row[]): FixtureRetire
   }
   const notedFacts = new Set<number>();
   for (const f of read("facts")) if (f["humor_note_approved_at"] != null) notedFacts.add(num(f["id"])!);
-  return { reviewIds, refreshIds, openReviewFacts, refreshGagIds, versionIds, attemptIds, clearedBlobReviewIds, notedFacts };
+  return { reviewIds, refreshIds, openReviewFacts, refreshGagIds, attemptIds, clearedBlobReviewIds, notedFacts };
 }
 
 /** The table's rows as 0151 (and 0155's stage map) leaves them. */
@@ -117,8 +112,6 @@ export function retireRows(table: string, rows: Row[], r: FixtureRetirement, now
       return rows
         .filter((row) => !r.reviewIds.has(num(row["id"])!))
         .map((row) => ({ ...nullRef(row, "matching_review_id"), workflow_stage: fixtureStage(row["workflow_stage"], num(row["staging_fact_id"]), r.notedFacts) }));
-    case "fact_enrichment_versions":
-      return rows.filter((row) => !r.versionIds.has(num(row["id"])!)).map((row) => nullRef(row, "source_review_id"));
     case "image_prompt_attempts":
       return rows.map((row) => nullRef(row, "review_id"));
     case "fact_gag_examples":
@@ -167,7 +160,6 @@ export function withoutRetired(p: PredicateRecord, r: FixtureRetirement): Predic
     Object.fromEntries(Object.entries(rec).filter(([k]) => !gone.has(Number(k))));
   return {
     renderAttempts: keep(p.renderAttempts, r.attemptIds),
-    candidateTextHash: keep(p.candidateTextHash, r.versionIds),
     conceptBlobs: keep(p.conceptBlobs, new Set([...r.reviewIds, ...r.clearedBlobReviewIds])),
   };
 }

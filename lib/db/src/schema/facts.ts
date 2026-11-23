@@ -128,50 +128,26 @@ export const factsTable = pgTable("facts", {
    */
   aiMemeBackfillStatus: varchar("ai_meme_backfill_status", { length: 16 }),
   /**
-   * Full visual-taxonomy enrichment blob (FactEnrichment from @workspace/api-zod).
-   * Populated when a fact is approved from an enriched review, or via backfill.
-   * Nullable until enriched. The four columns below are promoted, indexed
-   * projections of this blob for search / related-fact surfacing.
+   * The fact's stored AI taxonomy (FactEnrichment from @workspace/api-zod): the
+   * latest stored run's output, read-only (plan PLAN_FACT_LIFECYCLE_REBUILD.md,
+   * item 16). Every run is also kept in fact_taxonomy_runs. Nullable until a
+   * run succeeds. (The four projection columns of this blob were dropped by
+   * migration 0160.)
    */
   enrichment: jsonb("enrichment"),
   /**
-   * The immutable, pure AI baseline enrichment blob. `enrichment` above is the
-   * MATERIALIZED EFFECTIVE blob (baseline + manual overrides + preserved visual
-   * override) that runtime reads; this column preserves what the AI produced so
-   * manual overrides can win, stick across re-enrich, and detect baseline drift.
-   * Nullable: legacy/never-enriched rows. Backfilled = current `enrichment`.
+   * The classifier's own output for the latest stored run. Since manual
+   * overrides were removed (2.1a; columns dropped by 0160) it is written equal to
+   * `enrichment`; it is still read as the prior character list for the next run.
+   * Nullable: legacy/never-enriched rows.
    */
   enrichmentAiDerived: jsonb("enrichment_ai_derived"),
-  /**
-   * Path-keyed manual overrides: `{ "/primaryArchetype": ManualOverride, … }`
-   * for the allowlisted overridable paths only. `{}` = no manual intervention.
-   */
-  enrichmentOverrides: jsonb("enrichment_overrides").notNull().default({}),
-  /**
-   * Denormalized "an active override's AI baseline has since changed" flag,
-   * recomputed on every materialization, for cheap admin list filtering.
-   */
-  enrichmentBaselineChanged: boolean("enrichment_baseline_changed").notNull().default(false),
   /**
    * Classification lifecycle for the admin Facts editor: "pending" | "ok" | "failed".
    * Tracks the re-run-classification job only. Null on facts that were never
    * (re)classified in-place. Mirrors `pending_reviews.enrichment_status`.
    */
   enrichmentStatus: varchar("enrichment_status", { length: 16 }),
-  primaryArchetype: varchar("primary_archetype", { length: 64 }),
-  subtype: varchar("subtype", { length: 64 }),
-  overhypeFit: varchar("overhype_fit", { length: 16 }),
-  adultSuitability: varchar("adult_suitability", { length: 24 }),
-  /**
-   * The ProcessingSignature this fact's ACTIVE enrichment was last generated
-   * under (engine revision + code-version constants). Stamped at first-time
-   * production approval (via the first-time staging enrichment job) and when a
-   * refresh candidate is PROMOTED — but NEVER on a direct live re-enrich (an
-   * existing live fact only refreshes via send-back → promote). NULL = legacy
-   * fact never processed under the versioned pipeline → reads as stale-for-
-   * reprocess in Taxonomy Health.
-   */
-  lastProcessedSignature: jsonb("last_processed_signature"),
   /**
    * Eval harness (Slice 2B): part of the GOLDEN SET — a curated set of stable
    * active facts rendered by every eval run for regression comparison. Toggled
@@ -185,8 +161,6 @@ export const factsTable = pgTable("facts", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => [
   index("facts_wilson_score_idx").on(table.wilsonScore.desc()),
-  index("facts_primary_archetype_idx").on(table.primaryArchetype),
-  index("facts_adult_suitability_idx").on(table.adultSuitability),
   check("facts_audience_check", sql`${table.audience} IN ('general','adult')`),
   check(
     "facts_approval_recorded_whole",

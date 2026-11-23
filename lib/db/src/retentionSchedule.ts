@@ -282,10 +282,7 @@ export const RETENTION_SCHEDULE: Readonly<Record<string, RetentionEntry>> = {
 
   // ── Admin records (an admin's account id, cleared at that account's deletion) ─
   admin_actions: adminRecord(null, "the record of moderation decisions"),
-  engine_revision_bumps: adminRecord(null, "the record of engine changes"),
   tier_feature_permission_audit: adminRecord(null, "the record of entitlement changes"),
-  enrichment_override_history: adminRecord("facts", "a fact's edit record"),
-  fact_enrichment_versions: adminRecord("facts", "a fact's enrichment record"),
   fact_taxonomy_runs: adminRecord("facts", "a fact's taxonomy run history"),
   fact_readings: adminRecord("facts", "a fact's readings: the research and draft humor note of each run"),
   fact_text_edit_history: adminRecord("facts", "a fact's edit record"),

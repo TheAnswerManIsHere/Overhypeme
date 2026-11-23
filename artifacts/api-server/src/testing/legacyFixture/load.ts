@@ -176,9 +176,11 @@ export async function loadFixtureRows(
     // 0157 again, whole: a never-approved fact's approved gag versions become
     // its draft, as on a migrated database (the fixture predates it).
     await client.query(migrationSql("0157_published_and_draft_gags"));
-    // 0159 again, whole: the fixture's enrichment versions become taxonomy run
-    // history, as on a migrated database (the fixture predates it).
-    await client.query(migrationSql("0159_fact_taxonomy_runs"));
+    // 0160 again, whole: each fact's stored taxonomy becomes its first history
+    // row (legacy_current), as on a migrated database. The fixture's legacy
+    // enrichment versions are not loaded: 0160 dropped their table, and with it
+    // the history rows 0159 made from them are not reproduced here.
+    await client.query(migrationSql("0160_taxonomy_drops"));
     await client.query(
       `SELECT setval('membership_source_state_seq', GREATEST(COALESCE((SELECT max(source_state_as_of) FROM public.membership_entitlements), 0), 1), (SELECT count(*) > 0 FROM public.membership_entitlements))`,
     );

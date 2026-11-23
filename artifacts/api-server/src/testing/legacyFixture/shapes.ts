@@ -10,12 +10,8 @@
  */
 import { z, type ZodTypeAny } from "zod";
 import {
-  OVERRIDABLE_PATHS,
   factEnrichmentBase,
   imagePromptPlanWireSchema,
-  isOverridablePath,
-  manualOverrideSchema,
-  processingSignatureSchema,
   validateEnrichment,
   visualConceptCandidatesBlobSchema,
   visualPromptStrategyOverrideSchema,
@@ -49,10 +45,7 @@ import { ShapeStop, placeholderHashtagsFor, rerootRules, structuralDeep, walk, t
 
 export type ShapeName =
   | "config"
-  | "processingSignature"
   | "factEnrichment"
-  | "enrichmentOverrides"
-  | "overrideValue"
   | "visualStrategyOverride"
   | "visualConceptCandidatesBlob"
   | "aiScenePrompts"
@@ -69,22 +62,16 @@ export type ShapeName =
   | "framingTransform"
   | "reviewHashtags";
 
-/** Extra row-level inputs a shape may need beyond the walk context. */
-export interface ShapeRow {
-  /** The enrichment_override_history row's `path`, for `overrideValue`. */
-  overridePath?: string;
-}
-
 export interface ShapeDef {
   /** Walk the stored value and return the transformed value. */
-  transform(value: unknown, ctx: WalkContext, row: ShapeRow): unknown;
+  transform(value: unknown, ctx: WalkContext): unknown;
   /**
    * The validator the output must satisfy, as an error string or null. A shape
    * whose SOURCE value fails its validator must fail it on the output too and
    * vice versa — the exporter compares the two outcomes, so a legacy row that
    * never validated is not "fixed" and a valid one is not broken.
    */
-  validate?(value: unknown, row: ShapeRow): string | null;
+  validate?(value: unknown): string | null;
 }
 
 const issues = (r: { success: boolean; error?: { issues: Array<{ path: (string | number)[]; message: string }> } }) =>
@@ -130,64 +117,12 @@ const factEnrichment: ShapeDef = {
   },
 };
 
-// ─── visual-strategy override on its own (fact_enrichment_versions.visual_override) ──
+// ─── visual-strategy override on its own (a gag's content, fact_gags) ──
 
 const VSO_RULES = rerootRules(FACT_ENRICHMENT_RULES, VSO);
 const visualStrategyOverride: ShapeDef = {
   transform: (value, ctx) => walk(value, visualPromptStrategyOverrideSchema, VSO_RULES, ctx),
   validate: (value) => issues(visualPromptStrategyOverrideSchema.safeParse(value)),
-};
-
-// ─── manual overrides (enrichmentOverrides.ts:30-57, OVERRIDABLE_PATHS) ────
-
-function overrideValueFor(path: string, value: unknown, ctx: WalkContext, at: string): unknown {
-  if (!isOverridablePath(path)) throw new ShapeStop(ctx.where, at, "an override keyed by a path OVERRIDABLE_PATHS does not name");
-  const def = OVERRIDABLE_PATHS[path];
-  // Each value is transformed by its path's own schema, with the enrichment rules re-rooted at that field.
-  return walk(value, def.schema as ZodTypeAny, rerootRules(FACT_ENRICHMENT_RULES, def.field as string), ctx);
-}
-
-const MANUAL_OVERRIDE_RULES = (key: string): PathRules => ({
-  value: { custom: (v, ctx, p) => overrideValueFor(key, v, ctx, p) },
-  overriddenFrom: { custom: (v, ctx, p) => overrideValueFor(key, v, ctx, p) },
-  overriddenFromHash: "rekey",
-  aiGenerationId: "keep",
-  createdAt: "keep",
-  createdBy: "map-user", // an admin id (enrichmentOverrideLayers.ts:261)
-  updatedAt: "keep",
-  updatedBy: "map-user",
-  reason: "prose",
-  autoLinked: "keep",
-});
-
-const enrichmentOverrides: ShapeDef = {
-  transform: (value, ctx) => {
-    if (value === null || value === undefined) return value;
-    if (typeof value !== "object" || Array.isArray(value)) throw new ShapeStop(ctx.where, "", "overrides that are not a record");
-    const out: Record<string, unknown> = {};
-    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-      if (!isOverridablePath(key)) throw new ShapeStop(ctx.where, `{${key.replace(/[^/A-Za-z]/g, "")}}`, "an override keyed by a path OVERRIDABLE_PATHS does not name");
-      out[key] = walk(entry, manualOverrideSchema, MANUAL_OVERRIDE_RULES(key), ctx);
-    }
-    return out;
-  },
-  validate: (value) => {
-    if (value === null || value === undefined) return null;
-    const r = z.record(z.string(), manualOverrideSchema).safeParse(value);
-    return issues(r);
-  },
-};
-
-const overrideValue: ShapeDef = {
-  transform: (value, ctx, row) => {
-    if (value === null || value === undefined) return value;
-    if (!row.overridePath) throw new ShapeStop(ctx.where, "", "an override-history value with no path");
-    return overrideValueFor(row.overridePath, value, ctx, "");
-  },
-  validate: (value, row) => {
-    if (value === null || value === undefined || !row.overridePath || !isOverridablePath(row.overridePath)) return null;
-    return issues(OVERRIDABLE_PATHS[row.overridePath].schema.safeParse(value));
-  },
 };
 
 // ─── visual concept candidates (visualConcepts.ts:196-326) ─────────────────
@@ -336,14 +271,7 @@ const plain = (schema: ZodTypeAny, rules: PathRules): ShapeDef => ({
 export const SHAPES: Record<ShapeName, ShapeDef> = {
   /** Product configuration (engines' jsonb columns): kept verbatim; the exporter's credential scan still reads it. */
   config: { transform: (value) => value },
-  /** Version numbers and the engine revision (processingSignature.ts:37-48); nothing derived from content. */
-  processingSignature: {
-    transform: (value, ctx) => structuralDeep(value, ctx, ""),
-    validate: (value) => issues(processingSignatureSchema.safeParse(value)),
-  },
   factEnrichment,
-  enrichmentOverrides,
-  overrideValue,
   visualStrategyOverride,
   visualConceptCandidatesBlob,
   aiScenePrompts: plain(aiScenePromptsProjection, {}),

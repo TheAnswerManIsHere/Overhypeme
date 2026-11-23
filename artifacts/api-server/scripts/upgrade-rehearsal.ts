@@ -19,7 +19,10 @@
  *     `intendedDeletions`, apart from `failures`. Migration 0149's deletion of
  *     the retired review_duplicate_threshold setting is declared the same way
  *     (RETIRED_ADMIN_CONFIG_KEYS): its row is expected gone and every other
- *     setting is still compared;
+ *     setting is still compared. Migration 0160's taxonomy drops are declared
+ *     too: its deleted jobs counted the same way, and the three tables it
+ *     drops whole named in RETIRED_TABLES, each expected gone and reported
+ *     under `intendedTableDrops`;
  *   - relationships resolve: no foreign key has an orphan row;
  *   - sequences are usable: every sequence-backed column's next value is above
  *     the column's largest value, so the next insert cannot collide;
@@ -51,7 +54,15 @@ import pg from "pg";
 import { TABLE_CLASSIFICATION } from "@workspace/db/table-classification";
 import { adminValues, exhaustedSequences, orphans, rowCounts } from "../src/lib/databaseChecks.js";
 import { pgCommandConnection } from "../src/lib/pgCommandLine.js";
-import { isRetiredSettingValue, mergeLosses, refreshRetirementLosses, retiredSettingLosses, variantRetirementLosses } from "../src/lib/retirementLosses.js";
+import {
+  RETIRED_TABLES,
+  isRetiredSettingValue,
+  mergeLosses,
+  refreshRetirementLosses,
+  retiredSettingLosses,
+  taxonomyDropLosses,
+  variantRetirementLosses,
+} from "../src/lib/retirementLosses.js";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -114,8 +125,14 @@ async function main(): Promise<void> {
     const before = await rowCounts(db);
     // Intended deletions, counted before they run: migration 0142's retired
     // variants, 0151's retired refresh and resubmission reviews, and the
-    // admin_config rows of settings a migration retires (0149).
-    const intended = mergeLosses(await variantRetirementLosses(db), await refreshRetirementLosses(db), await retiredSettingLosses(db));
+    // admin_config rows of settings a migration retires (0149, 0160), and the
+    // jobs 0160 deletes. The tables 0160 drops whole are RETIRED_TABLES.
+    const intended = mergeLosses(
+      await variantRetirementLosses(db),
+      await refreshRetirementLosses(db),
+      await retiredSettingLosses(db),
+      await taxonomyDropLosses(db),
+    );
     const settingsBefore = await adminValues(db);
     const ledgerBefore = Number((await db.query("SELECT count(*) AS n FROM drizzle.__drizzle_migrations")).rows[0].n);
     await db.end();
@@ -137,9 +154,14 @@ async function main(): Promise<void> {
     const ledgerAfter = Number((await after.query("SELECT count(*) AS n FROM drizzle.__drizzle_migrations")).rows[0].n);
 
     const heldBack: Record<string, number> = {};
+    const droppedTables: Record<string, number> = {};
     for (const [table, n] of before) {
       const entry = TABLE_CLASSIFICATION[table];
       const now = counts.get(table);
+      if (now === undefined && RETIRED_TABLES.includes(table)) {
+        droppedTables[table] = n;
+        continue;
+      }
       if (now === undefined) {
         failures.push(`lost: table ${table} (${n} rows) is gone`);
         continue;
@@ -178,6 +200,7 @@ async function main(): Promise<void> {
       },
       heldBack,
       intendedDeletions: Object.fromEntries(intended),
+      intendedTableDrops: droppedTables,
       settingsChecked: settingsBefore.size,
     };
   } finally {

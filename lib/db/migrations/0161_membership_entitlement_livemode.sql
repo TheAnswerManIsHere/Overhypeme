@@ -33,6 +33,6 @@ BEGIN
    WHERE provider_ref IS NOT NULL AND livemode IS NULL;
   GET DIAGNOSTICS v_filled = ROW_COUNT;
 
-  RAISE NOTICE '[0160] entitlement sources %: provider rows marked test mode %, already marked (no-op) %, admin grants left null %, failed 0',
+  RAISE NOTICE '[0161] entitlement sources %: provider rows marked test mode %, already marked (no-op) %, admin grants left null %, failed 0',
     v_total, v_filled, v_already, v_grants;
 END $$;

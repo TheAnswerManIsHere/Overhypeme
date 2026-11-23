@@ -8,7 +8,7 @@ to refresh it: `docs/tests/TESTING.md`, *The legacy fixture*.
 ## What it is
 
 - Extracted at source commit `efe0732ffe0ba54a7061486a94f77a9506884b04`, whose journal holds 102 migrations (latest `0101_user_generation_costs_is_estimated`), all applied on the source; scrub ruleset version 2.
-- `manifest.json` sha256 `864bfcf551fedd009feb84c951e2e5ba0a9aaa962336cb8dde85ea3c40f3b882`. A recording made over this fixture names that digest.
+- `manifest.json` sha256 `b2526e169f36ceeea1f9935e43d54ad5b2547b39df3ff5b83367f991e4bdfd77`. A recording made over this fixture names that digest. (Edited by hand at increment 2.1c of the fact lifecycle rebuild, Issue #1018: the tables and columns migration 0160 dropped were removed from the fixture, its manifest and the `engine_revision` setting; nothing else was re-extracted.)
 - 1151 rows in 28 tables, one NDJSON file per table.
 
 | Table | Rows |
@@ -21,13 +21,11 @@ to refresh it: `docs/tests/TESTING.md`, *The legacy fixture*.
 | `hero_examples` | 0 |
 | `fal_pricing_cache` | 9 |
 | `users` | 26 |
-| `admin_config` | 47 |
+| `admin_config` | 46 |
 | `facts` | 49 |
 | `hashtags` | 45 |
 | `fact_hashtags` | 115 |
 | `pending_reviews` | 89 |
-| `fact_enrichment_versions` | 54 |
-| `enrichment_override_history` | 206 |
 | `fact_text_edit_history` | 0 |
 | `image_prompt_attempts` | 104 |
 | `memes` | 64 |
@@ -52,10 +50,9 @@ to refresh it: `docs/tests/TESTING.md`, *The legacy fixture*.
 
 ## What the readers see
 
-The freshness outcomes of stored renders, concepts and candidates were recorded on the source with the real readers. The loader restores them and re-asks the readers, and refuses to finish if any answer differs.
+The freshness outcomes of stored renders and concepts were recorded on the source with the real readers. The loader restores them and re-asks the readers, and refuses to finish if any answer differs.
 
 - Render attempts: stale 65, no-context 21, current 11.
-- Candidate text hashes: current 53, stale 1.
 - Concept blobs: stale:review_mismatch 21, stale:input_hash_mismatch 38, current 6.
 - Facts the embedding backfill would pick up: 0.
 

@@ -2,7 +2,7 @@
  * The freshness predicates the legacy fixture preserves (plan D4, Astra LF2 /
  * C2): the readers' conclusions, not the stored hash bytes.
  *
- * Three readers compare a stored hash with one they compute from database
+ * Two readers compare a stored hash with one they compute from database
  * state at read time:
  *
  * - render staleness — `isAttemptStale` (factRenderScenarios.ts), the stored
@@ -10,11 +10,12 @@
  *   attempt's gag's render target (reviewRenderScenarios.ts,
  *   `loadGagRenderTarget`); an attempt made before gags had their own table
  *   names no gag and reads as "no-context" on both sides;
- * - candidate promotion — the stored `fact_enrichment_versions.fact_text_hash`
- *   against `hashFactText(fact.text)` (enrichmentVersioning.ts:335);
  * - visual-concept freshness — `buildVisualConceptsResponse`
  *   (visualConceptJobs.ts:276-310), the blob's `reviewId`, `candidateVersionId`
  *   and `inputHash` against the review's live state.
+ *
+ * (A third, candidate promotion's text hash on `fact_enrichment_versions`, went
+ * with that table: migration 0160, and its record left the committed manifest.)
  *
  * The "current" hash depends on what the database holds when the reader runs
  * (the cycle's text and enrichment, the configured concept engine and prompt),
@@ -25,9 +26,8 @@
  */
 import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { db, pool } from "@workspace/db";
-import { factEnrichmentVersionsTable, factsTable, imagePromptAttemptsTable, pendingReviewsTable } from "@workspace/db/schema";
+import { factsTable, imagePromptAttemptsTable, pendingReviewsTable } from "@workspace/db/schema";
 
-import { hashFactText } from "../../lib/enrichmentVersioning";
 import { computeScenarioInputHash, loadGagRenderTarget } from "../../lib/reviewRenderScenarios";
 import { buildVisualConceptsResponse, computeCurrentInputHash, resolveVisualConceptCycle } from "../../lib/visualConceptJobs";
 import type { RenderScenarioKey } from "@workspace/api-zod";
@@ -37,13 +37,11 @@ export type HashOutcome = "current" | "stale" | "no-context";
 export interface PredicateRecord {
   /** image_prompt_attempts.id → outcome, for every review render with a stored hash. */
   renderAttempts: Record<string, HashOutcome>;
-  /** fact_enrichment_versions.id → outcome, for every version with a stored text hash. */
-  candidateTextHash: Record<string, HashOutcome>;
   /** pending_reviews.id → the concept reader's answer, for every review whose staging fact holds a blob. */
   conceptBlobs: Record<string, { current: boolean; staleReason: string | null }>;
 }
 
-export const emptyPredicateRecord = (): PredicateRecord => ({ renderAttempts: {}, candidateTextHash: {}, conceptBlobs: {} });
+export const emptyPredicateRecord = (): PredicateRecord => ({ renderAttempts: {}, conceptBlobs: {} });
 
 /** The render grid's current input hash for a gag's scenario, its target loaded once per gag. */
 function renderHasher(): (gagId: number | null, scenarioKey: string) => Promise<{ ok: true; hash: string } | { ok: false; reason: string }> {
@@ -116,14 +114,6 @@ export async function evaluatePredicates(): Promise<PredicateRecord> {
     out.renderAttempts[String(a.id)] = !current.ok ? "no-context" : a.hash === current.hash ? "current" : "stale";
   }
 
-  // Candidate text hash, per version, against its fact's text.
-  const versions = await db
-    .select({ id: factEnrichmentVersionsTable.id, hash: factEnrichmentVersionsTable.factTextHash, text: factsTable.text })
-    .from(factEnrichmentVersionsTable)
-    .innerJoin(factsTable, eq(factsTable.id, factEnrichmentVersionsTable.factId))
-    .where(isNotNull(factEnrichmentVersionsTable.factTextHash));
-  for (const v of versions) out.candidateTextHash[String(v.id)] = v.hash === hashFactText(v.text) ? "current" : "stale";
-
   // Concept freshness, per review, exactly as the review-detail route asks it (routes/reviews.ts:361-369).
   const reviews = await db
     .select({
@@ -179,20 +169,6 @@ export async function restorePredicates(expected: PredicateRecord): Promise<stri
     await db.update(imagePromptAttemptsTable).set({ reviewRenderInputHash: current.hash }).where(eq(imagePromptAttemptsTable.id, Number(id)));
   }
 
-  for (const [id, outcome] of Object.entries(expected.candidateTextHash)) {
-    if (outcome !== "current") continue;
-    const [v] = await db
-      .select({ text: factsTable.text })
-      .from(factEnrichmentVersionsTable)
-      .innerJoin(factsTable, eq(factsTable.id, factEnrichmentVersionsTable.factId))
-      .where(eq(factEnrichmentVersionsTable.id, Number(id)));
-    if (!v) {
-      problems.push(`enrichment version ${id}: missing from the load`);
-      continue;
-    }
-    await db.update(factEnrichmentVersionsTable).set({ factTextHash: hashFactText(v.text) }).where(eq(factEnrichmentVersionsTable.id, Number(id)));
-  }
-
   for (const [reviewId, outcome] of Object.entries(expected.conceptBlobs)) {
     if (!outcome.current) continue;
     const resolved = await resolveVisualConceptCycle(Number(reviewId));
@@ -224,7 +200,6 @@ export function comparePredicates(expected: PredicateRecord, actual: PredicateRe
     }
   };
   cmp("render attempt", expected.renderAttempts, actual.renderAttempts, (x, y) => x === y);
-  cmp("enrichment version", expected.candidateTextHash, actual.candidateTextHash, (x, y) => x === y);
   cmp("concept blob of review", expected.conceptBlobs, actual.conceptBlobs, (x, y) => x.current === y.current && x.staleReason === y.staleReason);
   return diffs;
 }
@@ -234,7 +209,6 @@ export function predicateCounts(r: PredicateRecord): Record<string, Record<strin
   const tally = (values: string[]) => values.reduce<Record<string, number>>((acc, v) => ({ ...acc, [v]: (acc[v] ?? 0) + 1 }), {});
   return {
     renderAttempts: tally(Object.values(r.renderAttempts)),
-    candidateTextHash: tally(Object.values(r.candidateTextHash)),
     conceptBlobs: tally(Object.values(r.conceptBlobs).map((c) => (c.current ? "current" : `stale:${c.staleReason}`))),
   };
 }

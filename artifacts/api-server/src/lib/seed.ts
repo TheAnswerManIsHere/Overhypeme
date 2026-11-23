@@ -497,30 +497,6 @@ export async function ensureSchema(): Promise<void> {
       ddl: `ALTER TABLE facts ADD COLUMN IF NOT EXISTS enrichment jsonb`,
     },
     {
-      label: "facts.primary_archetype",
-      ddl: `ALTER TABLE facts ADD COLUMN IF NOT EXISTS primary_archetype varchar(64)`,
-    },
-    {
-      label: "facts.subtype",
-      ddl: `ALTER TABLE facts ADD COLUMN IF NOT EXISTS subtype varchar(64)`,
-    },
-    {
-      label: "facts.overhype_fit",
-      ddl: `ALTER TABLE facts ADD COLUMN IF NOT EXISTS overhype_fit varchar(16)`,
-    },
-    {
-      label: "facts.adult_suitability",
-      ddl: `ALTER TABLE facts ADD COLUMN IF NOT EXISTS adult_suitability varchar(24)`,
-    },
-    {
-      label: "facts.primary_archetype index",
-      ddl: `CREATE INDEX IF NOT EXISTS facts_primary_archetype_idx ON facts (primary_archetype)`,
-    },
-    {
-      label: "facts.adult_suitability index",
-      ddl: `CREATE INDEX IF NOT EXISTS facts_adult_suitability_idx ON facts (adult_suitability)`,
-    },
-    {
       label: "pending_reviews.enrichment",
       ddl: `ALTER TABLE pending_reviews ADD COLUMN IF NOT EXISTS enrichment jsonb`,
     },

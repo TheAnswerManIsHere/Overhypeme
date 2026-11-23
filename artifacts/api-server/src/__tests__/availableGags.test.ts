@@ -17,7 +17,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import { db, factsTable, usersTable, factGagsTable } from "@workspace/db";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
-import { factEnrichmentVersionsTable, imagePromptAttemptsTable, pendingReviewsTable } from "@workspace/db/schema";
+import { imagePromptAttemptsTable, pendingReviewsTable } from "@workspace/db/schema";
 import { EMPTY_VISUAL_STRATEGY_OVERRIDE, buildPlaceholderFactEnrichment, type VisualPromptStrategyOverride } from "@workspace/api-zod";
 
 import { availableGags, GagNotAvailableError, resolveOfferedGag } from "../lib/gags/resolver.js";
@@ -57,9 +57,7 @@ after(async () => {
     await db.update(factsTable).set({ isActive: false }).where(inArray(factsTable.id, factIds));
     await db.delete(factGagsTable).where(inArray(factGagsTable.factId, factIds));
     await db.delete(imagePromptAttemptsTable).where(inArray(imagePromptAttemptsTable.factId, factIds));
-    await db.update(factEnrichmentVersionsTable).set({ sourceReviewId: null }).where(inArray(factEnrichmentVersionsTable.factId, factIds));
     await db.delete(pendingReviewsTable).where(inArray(pendingReviewsTable.stagingFactId, factIds));
-    await db.delete(factEnrichmentVersionsTable).where(inArray(factEnrichmentVersionsTable.factId, factIds));
     await db.delete(factsTable).where(inArray(factsTable.id, factIds));
   }
   await db.delete(usersTable).where(eq(usersTable.id, adminId));

@@ -32,7 +32,6 @@ if (refusal) {
 const { db } = await import("@workspace/db");
 const t = await import("@workspace/db/schema");
 const { aiBackgroundKey, uploadKey } = await import("../../lib/storageKeys");
-const { hashFactText } = await import("../../lib/enrichmentVersioning");
 const { computeScenarioInputHash, loadGagRenderTarget } = await import("../../lib/reviewRenderScenarios");
 const { computeCurrentInputHash, resolveVisualConceptCycle } = await import("../../lib/visualConceptJobs");
 
@@ -95,15 +94,10 @@ const partialGag = {
   coreSceneOverride: "{NAME} waits in line.",
   bubbles: [{ type: "speech", entity: "subject", text: "" }],
 };
-const overrides = {
-  "/overhypeFit": { value: "strong", overriddenFrom: "questionable", createdAt: "2026-01-01T00:00:00Z", createdBy: adminId, reason: S.overrideReason },
-  "/adminReviewNotes": { value: S.overrideNote, overriddenFrom: S.adminReviewNotes, createdAt: "2026-01-01T00:00:00Z", createdBy: adminId },
-};
 
 const activeFact = await insertLiveFact({
   text: KEPT_FACT_TEXT, submittedById: userId, canonicalText: "Alex counted to infinity, twice, and the second time it was backwards.",
   hasPronouns: false, enrichment, enrichmentAiDerived: { ...placeholderEnrichment, adminReviewNotes: S.adminReviewNotes },
-  enrichmentOverrides: overrides,
   aiScenePrompts: { fact_type: "action", male: S.scenePrompt, female: S.scenePrompt, neutral: "" },
   embedding: Array.from({ length: 384 }, (_, i) => (i % 7) / 10),
   createdAt: at,
@@ -152,18 +146,6 @@ const [submission] = await db.insert(t.pendingReviewsTable).values({
   submittedText: S.pendingFactText, submittedById: userId, status: "pending", workflowStage: "gags",
   stagingFactId: pendingFact!.id, hashtags: ["zqxprivatetag"], createdAt: at,
 }).returning({ id: t.pendingReviewsTable.id });
-
-// A version kept as classification history (promoted); 0151 deletes candidate and rejected ones.
-await db.insert(t.factEnrichmentVersionsTable).values({
-  factId: activeFact!.id, versionNo: 1, status: "promoted", enrichment, enrichmentAiDerived: placeholderEnrichment,
-  enrichmentOverrides: overrides, factTextHash: hashFactText(KEPT_FACT_TEXT), source: "refresh_candidate",
-  sourceReviewId: refresh!.id, note: S.versionNote, createdBy: adminId, promotedAt: at,
-});
-
-await db.insert(t.enrichmentOverrideHistoryTable).values({
-  factId: activeFact!.id, path: "/adminReviewNotes", action: "set", oldValue: S.historyOld, newValue: S.historyNew,
-  reason: S.overrideReason, performedBy: adminId,
-});
 
 // Concept blobs: the pending submission's (stale on purpose), and the live fact's review's (made current below).
 const blob = (reviewId: number) => ({

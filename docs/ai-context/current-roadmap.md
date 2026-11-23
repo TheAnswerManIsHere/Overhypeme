@@ -716,7 +716,7 @@ KITT work a launch phase needs and a second app would need identically;
 - ~~**Record the Stripe mode on every entitlement source.**~~ *Done
   2026-11-23 (#454): the `livemode` column, written by the verifier and
   checked by `loadSourceSnapshots`; pre-existing rows marked test mode
-  (migration 0160).* Sits here rather than
+  (migration 0161).* Sits here rather than
   in the deferred list because the thing that triggers it *is* a go-live action.
   Provider-backed sources in `membership_entitlements` store only the Stripe
   object id, and `loadSourceSnapshots` derives membership from every retained

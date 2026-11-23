@@ -180,6 +180,8 @@ describe("Migration 0092 backfill block — the real statements", () => {
       await client.query('DROP TRIGGER IF EXISTS "facts_live_requires_approved_gag" ON "facts"');
       // ...and the pre-0142 parent link the block's orphan sweep reads.
       await client.query('ALTER TABLE "facts" ADD COLUMN IF NOT EXISTS "parent_id" integer');
+      // ...and the projection column the block reads, which 0160 dropped.
+      await client.query('ALTER TABLE "facts" ADD COLUMN IF NOT EXISTS "primary_archetype" varchar(64)');
       const idByKey = new Map<string, number>();
       for (const row of seed) {
         const { rows } = await client.query<{ id: number }>(
