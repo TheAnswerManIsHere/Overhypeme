@@ -55,6 +55,21 @@ the section itself — is context for David or for me, and never produces a
 prompt. (A legacy doc under `docs/tests/UAT/` is the same rule one heading
 level up: `### ` inside `## Steps` or `## Regression`.)
 
+**Every step has a static ID, and David answers with it** (David,
+2026-11-23: *"When running UAT tests, the test steps should be numbered in
+the same way that questions you ask me are numbered so I can respond to them
+accurately. Let's use T1, T2, etc."*). A feature step is `T1`, `T2`, …; a
+regression check is `R1`, `R2`, …, the prefixed form it already had. The ID
+is written in the heading itself (`#### T3. <title>`), so it is the same
+string in the script, in the step `/uat` shows him, in his reply ("T3:
+pass"), in the run record and in a resume point, and it never collides with
+a question's `Q` ID or a plain option number (`claude-core.md`, interaction
+rule 4). It is fixed by the script, not by the run: a resumed run, a
+deferred step and a skipped step keep theirs. (Until 2026-11-23 feature
+steps were bare `1.`, `2.`; a legacy body or file still numbered that way
+is driven as though its `n.` read `Tn.` — the mapping is one-to-one — and
+the guard asks for the `T` form on any body it checks.)
+
 Two consequences worth stating, because they are what the rule buys:
 
 - **Coverage is countable.** "7 steps and 4 regression checks" is a fact the
@@ -253,7 +268,7 @@ his decision rather than a gap.>
 
 ### Steps
 
-#### 1. <Short imperative title>
+#### T1. <Short imperative title>
 
 **Do:** <the exact action — where to click, what to type>
 
@@ -263,7 +278,7 @@ his decision rather than a gap.>
 
 **Judgement:** <what only he can judge or do, and why no machine can>
 
-#### 2. <…>
+#### T2. <…>
 
 **Do:** <…>
 
@@ -273,7 +288,7 @@ his decision rather than a gap.>
 
 **Check:** `<path/to/the.test.ts>`
 
-#### 3. <…>
+#### T3. <…>
 
 **Do:** <…>
 
@@ -283,7 +298,7 @@ his decision rather than a gap.>
 
 **Check:** `<path/to/capture.spec.ts:shot name>`
 
-#### 4. <…>
+#### T4. <…>
 
 ### Regression
 
@@ -314,7 +329,7 @@ first line, optionally followed by a sentence saying why.
 
 - **`[claude]`** — mine to execute before he starts. Seeding rows, putting
   config in a known state, confirming the Repl is synced. Anything mechanical
-  that stands between him and step 1 belongs here, not in a step.
+  that stands between him and step T1 belongs here, not in a step.
 - **`[david]`** — only his own session or device can do it: signing in as
   himself, using a real phone, a live Stripe account. Keep these few; each
   one is friction he has to supply.
@@ -322,7 +337,7 @@ first line, optionally followed by a sentence saying why.
   `[david]` line changed live state — admin-gated setup is his, so its
   restore is too. It names **what** to restore and says the original was
   captured before the write: `budget_limit_legendary_usd — restore to the
-  value captured before step 1's change`.
+  value captured before step T1's change`.
 
   **It must not name the value itself.** A script is written before the run, so
   it cannot know what the live setting will be; a number written here is a
@@ -332,8 +347,8 @@ first line, optionally followed by a sentence saying why.
   exists because the first version of this spec demanded the value, and a
   conversion duly invented one from a seed file.)
 
-**`### Steps`** — the feature under test. One `#### <n>. <title>` per step,
-numbered from 1, each with exactly one **Do:**, one **Expect:** and one
+**`### Steps`** — the feature under test. One `#### T<n>. <title>` per step,
+numbered from T1, each with exactly one **Do:**, one **Expect:** and one
 **Lane:**, plus a **Check:** for a machine lane, exactly one **Judgement:**
 for a `human` step and none on any other, and at most one **Deferred:**. For a machine-lane step, **Do:** and **Expect:** still say
 what the check does and asserts, in words, so the script reads the same for a
@@ -346,9 +361,9 @@ human and the check's coverage can be reviewed against it.
   or no to. "The page loads correctly" is not; "a bordered table listing
   chapters 1–12, and a search box above it" is — and that one is a screen
   fact, so its lane is a machine's, not his (*Lanes*, above).
-- **Never reference another step's state implicitly.** If step 4 needs what
-  step 3 created, say so in step 4's **Do:**, because a resumed run may start
-  at 4.
+- **Never reference another step's state implicitly.** If T4 needs what
+  T3 created, say so in T4's **Do:**, because a resumed run may start
+  at T4.
 
 **`### Regression`** — what must still work, unchanged by this PR. Same shape,
 IDs `R1…Rn`. These are steps in every sense that matters: they are presented,
