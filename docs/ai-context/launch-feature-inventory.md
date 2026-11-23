@@ -116,7 +116,7 @@ routes, delete, git keeps it) · **your call**.
 
 ### Decisions — Journey B (David, 2026-10-05)
 
-- Ship list accepted (B1, B2, B3, B5, B7, B8, B12, B13, B14, B15, B16, B18, B19, B20, B22, B25, B26); B6 remnants removed; B9 moves to a CI test; B15 dead tab code deleted.
+- Ship list accepted (B1, B2, B3, B5, B7, B8, B12, B13, B14, B15, B16, B18, B19, B20, B22, B25, B26); B6 remnants removed; B9 moves to a CI test; B15 dead tab code deleted. *B18 and B19 removed 2026-11-23 with the avatar system: see [*A member's picture*](accounts-and-auth.md#a-members-picture).*
 - **B4** Apple sign-in ships: David — "already tested and working on Overhype.me."
 - **B10** Fix for launch: one onboarding path for every sign-in method (confirm local-path behaviour first).
 - **B11** **Verified email gates every authenticated action** (David: "a monetization strategy for the site may be to use email lists … I would gate any action in the system against having a valid email"). Implementation notes: trust Google/Apple's verified-email claim at sign-up (the code never records it today; OAuth users would otherwise be locked out); add **marketing opt-in at sign-up, a stored consent flag, and unsubscribe on every list email** — none exist (Fact of the Day currently goes to Legendary members only, `factOfTheDay.ts:71-84`).
