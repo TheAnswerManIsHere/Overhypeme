@@ -78,7 +78,6 @@ export const FEATURE_KEYS = [
   "fact_submit_captcha_bypass",
   "fact_submit_rate_limit_bypass",
   "ads_free",
-  "custom_avatar",
 ] as const;
 
 export type FeatureKey = (typeof FEATURE_KEYS)[number];

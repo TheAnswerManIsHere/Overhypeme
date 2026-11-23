@@ -10,8 +10,8 @@
   },
   "extractedAt": "2026-10-13T20:05:24.235Z",
   "rowCounts": {
-    "feature_flags": 8,
-    "tier_feature_permissions": 30,
+    "feature_flags": 7,
+    "tier_feature_permissions": 26,
     "entitlement_grid_revision": 1,
     "look_styles": 19,
     "fal_pricing_cache": 9,

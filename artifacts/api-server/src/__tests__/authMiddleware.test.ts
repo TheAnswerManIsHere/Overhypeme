@@ -153,8 +153,6 @@ describe("authMiddleware", () => {
         lastName: null,
         profileImageUrl: null,
         membershipTier: "registered",
-        avatarStyle: "bottts",
-        avatarSource: "avatar",
         pronouns: "he/him",
       } as unknown as SessionData["user"],
       access_token: "test-token",

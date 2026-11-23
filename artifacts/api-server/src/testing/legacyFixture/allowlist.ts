@@ -185,8 +185,6 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     stripeCustomerId: "synthetic:stripe-customer",
     membershipTier: "keep",
     membershipValidUntil: "keep",
-    avatarStyle: "keep",
-    avatarSource: "keep",
     pronouns: "keep",
     emailVerifiedAt: "synthetic:verified-at-created",
     // Launch Phase 5 (0114). The fixture's people are established accounts, so

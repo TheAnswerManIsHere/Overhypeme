@@ -23,12 +23,11 @@ export interface UserProfile {
   displayName?: string | null;
   /** @nullable */
   pronouns?: string | null;
-  /** @nullable */
+  /**
+   * The member's picture, the uploaded photo they chose as their profile photo, or null (shown as their initial).
+   * @nullable
+   */
   profileImageUrl?: string | null;
-  /** @nullable */
-  avatarStyle?: string | null;
-  /** @nullable */
-  avatarSource?: string | null;
   /** OAuth providers linked to this account (e.g. ["google"], ["apple"], ["google","apple"]). Empty array for email/password-only accounts. */
   linkedProviders?: string[];
   /** Whether the account has a local password set (true for email+password and merged accounts, false for OAuth-only). */

@@ -1381,12 +1381,7 @@ components:
         profileImageUrl:
           type: string
           nullable: true
-        avatarStyle:
-          type: string
-          nullable: true
-        avatarSource:
-          type: string
-          nullable: true
+          description: The member's picture, the uploaded photo they chose as their profile photo, or null (shown as their initial).
         linkedProviders:
           type: array
           items:
@@ -1544,12 +1539,6 @@ components:
           minLength: 1
           maxLength: 80
         email:
-          type: string
-        avatarStyle:
-          type: string
-        avatarSource:
-          type: string
-        profileImageUrl:
           type: string
 
     UpdateProfileResponse:

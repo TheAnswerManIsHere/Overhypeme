@@ -2,7 +2,6 @@
  * @purpose The /users/me routes: profile read and update, notification settings, search history, uploads, own memes and AI images, upload deletion, setting the profile image, onboarding captcha completion, and spend.
  * @subsystem accounts-auth
  */
-import { can, principalFromRequest } from "../lib/featureAccess";
 import { isRealAdminRequest } from "../lib/adminIdentity";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
@@ -17,12 +16,13 @@ import { GetMySubmissionCountsQueryParams, ListMySubmissionsQueryParams, RecordS
 import crypto from "crypto";
 import { sendEmail, buildEmailChangeVerificationEmail } from "../lib/email";
 import { getSiteBaseUrl } from "../lib/siteUrl";
-import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
+import { ObjectNotFoundError } from "../lib/objectStorage";
 import { isRetryableMediaError } from "../lib/mediaBackup/preserve";
 import { sanitizeAndValidatePersonalName, sanitizeAndValidatePronouns } from "../lib/validators/personalName";
 import { getConfigInt } from "../lib/adminConfig";
 import { logger } from "../lib/logger";
-import { userOwnsUpload } from "../lib/uploadOwnership";
+import { profilePictureUrl } from "../lib/profilePicture";
+import { makeProfilePhoto } from "../lib/profilePhoto";
 import { liveContent, restoreWindowDays } from "../lib/contentVisibility";
 import {
   deleteAiImage, deleteUpload, listAiImagesPage, listMemesPage, listRecentlyDeleted, listUploadsPage,
@@ -47,44 +47,6 @@ function respondProfileImageAclFailure(res: Response, err: unknown, route: strin
   } else {
     res.status(500).json({ error: "Failed to update profile image" });
   }
-}
-
-const PROFILE_IMAGE_FIRST_PARTY_PREFIX = "/api/storage/objects/";
-const PROFILE_IMAGE_TRUSTED_HOSTS = new Set([
-  "images.unsplash.com",
-  "cdn.pixabay.com",
-]);
-
-function normalizeProfileImageUrl(raw: string): string | null {
-  const value = raw.trim();
-  if (!value) return null;
-
-  if (value.startsWith(PROFILE_IMAGE_FIRST_PARTY_PREFIX)) {
-    return value;
-  }
-
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch {
-    return null;
-  }
-
-  if (parsed.protocol !== "https:") return null;
-  if (parsed.username || parsed.password) return null;
-  if (parsed.hash) return null;
-  if (parsed.pathname === "/" || parsed.pathname.length < 2) return null;
-
-  const host = parsed.hostname.toLowerCase();
-  if (!PROFILE_IMAGE_TRUSTED_HOSTS.has(host)) return null;
-
-  const params = [...parsed.searchParams.keys()];
-  if (params.length > 2) return null;
-  const blocked = ["utm_source", "utm_medium", "utm_campaign", "gclid", "fbclid", "redirect", "url", "next", "target"];
-  if (params.some((k) => blocked.includes(k.toLowerCase()))) return null;
-
-  parsed.search = parsed.searchParams.toString() ? `?${parsed.searchParams.toString()}` : "";
-  return `${parsed.origin}${parsed.pathname}${parsed.search}`;
 }
 
 async function buildFactSummaries(facts: (typeof factsTable.$inferSelect)[], userId?: string) {
@@ -121,8 +83,6 @@ router.get("/users/me", async (req: Request, res: Response) => {
       displayName: usersTable.displayName,
       pronouns: usersTable.pronouns,
       profileImageUrl: usersTable.profileImageUrl,
-      avatarStyle: usersTable.avatarStyle,
-      avatarSource: usersTable.avatarSource,
       emailVerifiedAt: usersTable.emailVerifiedAt,
       // The effective tier. GET /users/me re-selects the raw column separately
       // from authMiddleware, so with the convergence sweep failing and a grace
@@ -194,9 +154,7 @@ router.get("/users/me", async (req: Request, res: Response) => {
     lastName: userRow?.lastName ?? null,
     displayName: userRow?.displayName ?? null,
     pronouns: userRow?.pronouns ?? null,
-    profileImageUrl: normalizeProfileImageUrl(userRow?.profileImageUrl ?? "") ?? null,
-    avatarStyle: userRow?.avatarStyle ?? "bottts",
-    avatarSource: userRow?.avatarSource ?? "avatar",
+    profileImageUrl: profilePictureUrl(userRow?.profileImageUrl),
     membershipTier: userRow?.membershipTier ?? "registered",
     linkedProviders: [
       ...(userRow?.googleLinked ? ["google"] : []),
@@ -261,18 +219,24 @@ router.patch("/users/me", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   const userId = req.user.id;
 
-  const { displayName, firstName, lastName, pronouns, email, profileImageUrl, avatarStyle, avatarSource } = req.body as {
+  const { displayName, firstName, lastName, pronouns, email, profileImageUrl } = req.body as {
     displayName?: string;
     firstName?: string;
     lastName?: string;
     pronouns?: string;
     email?: string;
-    profileImageUrl?: string;
-    avatarStyle?: string;
-    avatarSource?: string;
+    profileImageUrl?: unknown;
   };
 
-  const ALLOWED_AVATAR_STYLES = ["bottts", "pixel-art", "adventurer", "identicon", "shapes", "thumbs"];
+  // The picture has one setter, POST /users/me/profile-image, which checks
+  // the upload is the caller's, makes it public and moves the Profile marker
+  // in one transaction (plan PLAN_PHOTO_IS_YOUR_PICTURE.md). A picture sent
+  // here is refused, so the shown photo, the Profile-marked photo and the
+  // deletion-protected photo can never disagree.
+  if (profileImageUrl !== undefined) {
+    res.status(400).json({ error: "Choose your picture from your photos (POST /users/me/profile-image)." });
+    return;
+  }
 
   const updates: Record<string, unknown> = {};
 
@@ -302,71 +266,6 @@ router.patch("/users/me", async (req: Request, res: Response) => {
       const result = await sanitizeAndValidatePersonalName(lastName);
       if (!result.ok) { res.status(400).json({ error: result.error }); return; }
       updates.lastName = result.value;
-    }
-  }
-
-  if (avatarStyle !== undefined) {
-    if (!ALLOWED_AVATAR_STYLES.includes(avatarStyle)) {
-      res.status(400).json({ error: "Invalid avatar style" }); return;
-    }
-    updates.avatarStyle = avatarStyle;
-  }
-
-  if (avatarSource !== undefined) {
-    if (avatarSource !== "avatar" && avatarSource !== "photo") {
-      res.status(400).json({ error: "avatarSource must be 'avatar' or 'photo'" }); return;
-    }
-    // The custom-avatar gate lives HERE, at the display selection — never at
-    // the photo upload. Uploading and storing a photo stays entirely
-    // entitlement-free: the upload routes are the shared onboarding/profile
-    // flow, and the resulting image is the user's own meme photo. Gating the
-    // upload would break free onboarding for every registered user and remove
-    // a capability that is free today.
-    //
-    // This is the standalone, explicit selection request with no onboarding
-    // riding on it, so an unentitled caller gets a 403 rather than a silent
-    // skip. (POST /users/me/profile-image, which bundles the flip with an
-    // upload Onboard.tsx depends on, deliberately behaves differently.)
-    if (avatarSource === "photo" && !(await can(principalFromRequest(req), "custom_avatar"))) {
-      res.status(403).json({
-        error: "custom_avatar_required",
-        message: "A custom avatar photo is a Legendary feature. Upgrade your membership to unlock it.",
-      });
-      return;
-    }
-    updates.avatarSource = avatarSource;
-  }
-
-  if (profileImageUrl !== undefined) {
-    // Profile photo is a free identity asset, available to every authenticated
-    // user. Reused downstream as the face/likeness reference for memes, AI
-    // image generation, and AI video memes.
-    if (typeof profileImageUrl !== "string") {
-      res.status(400).json({ error: "Invalid profile image URL" }); return;
-    }
-    const normalizedProfileImageUrl = normalizeProfileImageUrl(profileImageUrl);
-    if (!normalizedProfileImageUrl) { res.status(400).json({ error: "Invalid profile image URL" }); return; }
-    updates.profileImageUrl = normalizedProfileImageUrl;
-
-    // Set the uploaded file as public so it can be served as an <img> to any
-    // viewer — before anything is saved, so a failure saves nothing rather
-    // than a profile photo nobody else can see.
-    if (typeof updates.profileImageUrl === "string" && updates.profileImageUrl.startsWith(PROFILE_IMAGE_FIRST_PARTY_PREFIX)) {
-      const objectPath = updates.profileImageUrl.replace("/api/storage", "");
-      // Only the caller's own upload, checked before the ACL write: making an
-      // object public and recording the caller as its owner is the one thing
-      // this branch must never do to someone else's photo (#810).
-      if (!(await userOwnsUpload(objectPath, userId))) {
-        res.status(403).json({ error: "upload_not_owned" });
-        return;
-      }
-      try {
-        const objectStorageService = new ObjectStorageService();
-        await objectStorageService.trySetObjectEntityAclPolicy(objectPath, { owner: userId, visibility: "public" });
-      } catch (err) {
-        respondProfileImageAclFailure(res, err, "PATCH /users/me");
-        return;
-      }
     }
   }
 
@@ -549,49 +448,13 @@ router.post("/users/me/profile-image", async (req: Request, res: Response) => {
     return;
   }
 
-  const newProfileImageUrl = `/api/storage${objectPath}`;
-
-  // The photo is ALWAYS stored — this endpoint always succeeds. What is gated
-  // is only the flip to `avatarSource: 'photo'`, and an unentitled caller has
-  // it silently skipped rather than being rejected.
-  //
-  // The asymmetry with PATCH /users/me is deliberate, not an oversight: this
-  // endpoint atomically bundles the upload with the flip, and Onboard.tsx calls
-  // it to finish free photo onboarding. A 403 here would fail onboarding for
-  // every non-paying registered user.
-  const mayFlipToPhoto = await can(principalFromRequest(req), "custom_avatar");
-
-  // Public first, then the database: a failed ACL change saves nothing, so
-  // the response never reports a profile photo nobody else can see.
+  let newProfileImageUrl: string;
   try {
-    const objectStorageService = new ObjectStorageService();
-    await objectStorageService.trySetObjectEntityAclPolicy(objectPath, {
-      owner: userId,
-      visibility: "public",
-    });
+    newProfileImageUrl = await makeProfilePhoto(userId, objectPath);
   } catch (err) {
     respondProfileImageAclFailure(res, err, "POST /users/me/profile-image");
     return;
   }
-
-  await db.transaction(async (tx) => {
-    await tx.execute(sql`
-      UPDATE upload_image_metadata
-      SET is_profile = false
-      WHERE user_id = ${userId} AND is_profile = true AND object_path <> ${objectPath}
-    `);
-    await tx.execute(sql`
-      UPDATE upload_image_metadata
-      SET is_profile = true, user_id = COALESCE(user_id, ${userId})
-      WHERE object_path = ${objectPath}
-    `);
-    await tx.update(usersTable)
-      .set({
-        profileImageUrl: newProfileImageUrl,
-        ...(mayFlipToPhoto ? { avatarSource: "photo" as const } : {}),
-      })
-      .where(eq(usersTable.id, userId));
-  });
 
   res.json({ success: true, profileImageUrl: newProfileImageUrl, objectPath });
 });

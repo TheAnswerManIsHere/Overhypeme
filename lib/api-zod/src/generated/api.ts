@@ -517,9 +517,12 @@ export const GetMyProfileResponse = zod.object({
   lastName: zod.string().nullish(),
   displayName: zod.string().nullish(),
   pronouns: zod.string().nullish(),
-  profileImageUrl: zod.string().nullish(),
-  avatarStyle: zod.string().nullish(),
-  avatarSource: zod.string().nullish(),
+  profileImageUrl: zod
+    .string()
+    .nullish()
+    .describe(
+      "The member's picture, the uploaded photo they chose as their profile photo, or null (shown as their initial).",
+    ),
   linkedProviders: zod
     .array(zod.string())
     .optional()
@@ -596,9 +599,6 @@ export const UpdateMyProfileBody = zod.object({
   lastName: zod.string().max(updateMyProfileBodyLastNameMax).optional(),
   pronouns: zod.string().min(1).max(updateMyProfileBodyPronounsMax).optional(),
   email: zod.string().optional(),
-  avatarStyle: zod.string().optional(),
-  avatarSource: zod.string().optional(),
-  profileImageUrl: zod.string().optional(),
 });
 
 export const UpdateMyProfileResponse = zod.object({

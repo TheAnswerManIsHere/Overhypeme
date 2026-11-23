@@ -131,8 +131,9 @@ describe("GET /users/me", () => {
     assert.equal(res.body.membershipTier, "registered");
     assert.equal("isPremium" in res.body, false);
     assert.equal(res.body.hasPassword, false);
-    assert.equal(res.body.avatarStyle, "bottts");
-    assert.equal(res.body.avatarSource, "avatar");
+    // The avatar system is removed (plan PLAN_PHOTO_IS_YOUR_PICTURE.md).
+    assert.equal("avatarStyle" in res.body, false);
+    assert.equal("avatarSource" in res.body, false);
     assert.deepEqual(res.body.likedFacts, []);
     assert.deepEqual(res.body.favoriteHashtags, []);
     assert.deepEqual(res.body.searchHistory, []);
@@ -224,18 +225,6 @@ describe("PATCH /users/me — validation", () => {
     assert.match(r.res.body.error, /50 characters or fewer/);
   });
 
-  it("rejects an unknown avatarStyle", async () => {
-    const { res } = await authedPatch({ avatarStyle: "monkey" });
-    assert.equal(res.status, 400);
-    assert.deepEqual(res.body, { error: "Invalid avatar style" });
-  });
-
-  it("rejects an avatarSource that isn't 'avatar' or 'photo'", async () => {
-    const { res } = await authedPatch({ avatarSource: "drawing" });
-    assert.equal(res.status, 400);
-    assert.deepEqual(res.body, { error: "avatarSource must be 'avatar' or 'photo'" });
-  });
-
   it("rejects empty pronouns", async () => {
     const { res } = await authedPatch({ pronouns: "  " });
     assert.equal(res.status, 400);
@@ -254,43 +243,14 @@ describe("PATCH /users/me — validation", () => {
     assert.deepEqual(res.body, { error: "A valid email address is required" });
   });
 
-  it("accepts a valid profileImageUrl from a registered (free) user — photo is a free identity asset", async () => {
-    const { res, userId } = await authedPatch({ profileImageUrl: "https://images.unsplash.com/photo-1" });
-    assert.equal(res.status, 200);
-    assert.equal(res.body.success, true);
-    const [row] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
-    assert.ok(row.profileImageUrl?.startsWith("https://images.unsplash.com/photo-1"));
-  });
-
-  it("rejects profileImageUrl on unknown hosts", async () => {
-    const userId = await createTestUser({ membershipTier: "registered" });
-    const sid = await bearerForUser(userId);
-    const res = await request(makeApp())
-      .patch("/users/me")
-      .set("authorization", `Bearer ${sid}`)
-      .send({ profileImageUrl: "https://evil.example.com/x.png" });
-    assert.equal(res.status, 400);
-  });
-
-  it("rejects profileImageUrl with tracking-heavy query params", async () => {
-    const userId = await createTestUser({ membershipTier: "registered" });
-    const sid = await bearerForUser(userId);
-    const res = await request(makeApp())
-      .patch("/users/me")
-      .set("authorization", `Bearer ${sid}`)
-      .send({ profileImageUrl: "https://images.unsplash.com/photo-1?utm_source=a&utm_medium=b&utm_campaign=c" });
-    assert.equal(res.status, 400);
-  });
-
-  it("rejects a profileImageUrl that isn't on a supported scheme", async () => {
-    const userId = await createTestUser({ membershipTier: "registered" });
-    const sid = await bearerForUser(userId);
-    const res = await request(makeApp())
-      .patch("/users/me")
-      .set("authorization", `Bearer ${sid}`)
-      .send({ profileImageUrl: "ftp://example.com/x.png" });
-    assert.equal(res.status, 400);
-    assert.deepEqual(res.body, { error: "Invalid profile image URL" });
+  it("refuses any picture: the picture is chosen only from your own photos (POST /users/me/profile-image)", async () => {
+    for (const url of ["https://images.unsplash.com/photo-1", "https://evil.example.com/x.png", "/api/storage/objects/uploads/x.jpg", "ftp://example.com/x.png"]) {
+      const { res, userId } = await authedPatch({ profileImageUrl: url });
+      assert.equal(res.status, 400, url);
+      assert.match(res.body.error, /Choose your picture from your photos/);
+      const [row] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+      assert.equal(row.profileImageUrl, null, `${url} is not stored`);
+    }
   });
 });
 
@@ -308,8 +268,6 @@ describe("PATCH /users/me — success", () => {
         firstName: "  Pat  ",
         lastName: "  Doe  ",
         pronouns: "  they/them  ",
-        avatarStyle: "pixel-art",
-        avatarSource: "avatar",
       });
     assert.equal(res.status, 200);
     assert.equal(res.body.success, true);
@@ -319,7 +277,6 @@ describe("PATCH /users/me — success", () => {
     assert.equal(row.firstName, "Pat");
     assert.equal(row.lastName, "Doe");
     assert.equal(row.pronouns, "they/them");
-    assert.equal(row.avatarStyle, "pixel-art");
   });
 
   it("treats whitespace-only firstName/lastName as null", async () => {
@@ -334,22 +291,9 @@ describe("PATCH /users/me — success", () => {
     assert.equal(row.lastName, null);
   });
 
-  it("accepts and normalizes trusted remote profile image URLs", async () => {
+  it("shows no picture in /users/me for a stored value that is not a first-party photo", async () => {
     const userId = await createTestUser({ membershipTier: "legendary" });
-    const sid = await bearerForUser(userId);
-    const res = await request(makeApp())
-      .patch("/users/me")
-      .set("authorization", `Bearer ${sid}`)
-      .send({ profileImageUrl: "  https://images.unsplash.com/photo-1?w=128&h=128  " });
-    assert.equal(res.status, 200);
-
-    const [row] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
-    assert.equal(row.profileImageUrl, "https://images.unsplash.com/photo-1?w=128&h=128");
-  });
-
-  it("hides legacy unsafe profileImageUrl values in /users/me", async () => {
-    const userId = await createTestUser({ membershipTier: "legendary" });
-    await db.update(usersTable).set({ profileImageUrl: "https://evil.example.com/tracker.png" }).where(eq(usersTable.id, userId));
+    await db.update(usersTable).set({ profileImageUrl: "https://images.unsplash.com/photo-1" }).where(eq(usersTable.id, userId));
     const sid = await bearerForUser(userId);
     const res = await request(makeApp())
       .get("/users/me")
@@ -656,13 +600,8 @@ describe("POST /users/me/profile-image — task #507", () => {
     assert.equal(res.status, 403);
   });
 
-  it("tags the row is_profile=true, clears any prior tag, and updates users.profileImageUrl + avatarSource", async () => {
-    // Legendary, because the flip to `avatarSource: 'photo'` is now the
-    // `custom_avatar` entitlement. The unentitled case is the test below: the
-    // photo still stores and the endpoint still returns 200 — only the flip is
-    // skipped, because this endpoint bundles the upload with the flip and
-    // Onboard.tsx calls it to finish free photo onboarding.
-    const userId = await createTestUser({ membershipTier: "legendary" });
+  it("tags the row is_profile=true, clears any prior tag, and makes it the member's picture", async () => {
+    const userId = await createTestUser({ membershipTier: "registered" });
     const sid = await bearerForUser(userId);
 
     const oldPath = `/objects/uploads/${randomUUID()}-old.jpg`;
@@ -691,12 +630,17 @@ describe("POST /users/me/profile-image — task #507", () => {
     assert.equal(newRow?.isProfile, true);
 
     const [user] = await db
-      .select({ profileImageUrl: usersTable.profileImageUrl, avatarSource: usersTable.avatarSource })
+      .select({ profileImageUrl: usersTable.profileImageUrl })
       .from(usersTable)
       .where(eq(usersTable.id, userId));
     assert.equal(user.profileImageUrl, `/api/storage${newPath}`);
-    assert.equal(user.avatarSource, "photo");
     assert.equal(await visibilityOf(newPath), "public", "the profile photo is public");
+    // The shown photo, the Profile-marked photo and the deletion-protected
+    // photo are one (plan PLAN_PHOTO_IS_YOUR_PICTURE.md, C1).
+    const me = await request(makeApp()).get("/users/me").set("authorization", `Bearer ${sid}`);
+    assert.equal(me.body.profileImageUrl, `/api/storage${newPath}`, "a free member is pictured by it");
+    const del = await request(makeApp()).delete(`/users/me/uploads?path=${encodeURIComponent(newPath)}`).set("authorization", `Bearer ${sid}`);
+    assert.equal(del.status, 409, "and it cannot be deleted while it is the picture");
   });
 
   it("saves nothing when the photo is missing from storage, rather than reporting a photo nobody can see", async () => {
@@ -743,114 +687,6 @@ describe("POST /users/me/profile-image — task #507", () => {
     const res = await request(makeApp()).post("/users/me/profile-image").set("authorization", `Bearer ${sid}`).send({ objectPath: path });
     assert.equal(res.status, 403);
     assert.equal(await visibilityOf(path), "private", "the photo stays private");
-  });
-
-  it("PATCH /users/me refuses another member's photo, and leaves it private and theirs (#810)", async () => {
-    const ownerId = await createTestUser();
-    const otherId = await createTestUser();
-    const sid = await bearerForUser(otherId);
-    const path = `/objects/uploads/${randomUUID()}-not-yours.jpg`;
-    await db.insert(uploadImageMetadataTable).values({ objectPath: path, width: 1, height: 1, fileSizeBytes: 1, userId: ownerId });
-    await storePhoto(path, ownerId);
-    const res = await request(makeApp())
-      .patch("/users/me")
-      .set("authorization", `Bearer ${sid}`)
-      .send({ profileImageUrl: `/api/storage${path}` });
-    assert.equal(res.status, 403);
-    assert.equal(res.body.error, "upload_not_owned");
-    assert.equal(await visibilityOf(path), "private", "the photo stays private");
-    const { ObjectStorageService } = await import("../lib/objectStorage.js");
-    const { getObjectAclPolicy } = await import("../lib/objectAcl.js");
-    const acl = await getObjectAclPolicy(await new ObjectStorageService().getObjectEntityFile(path));
-    assert.equal(acl?.owner, ownerId, "and its owner is unchanged");
-    const [user] = await db.select({ profileImageUrl: usersTable.profileImageUrl }).from(usersTable).where(eq(usersTable.id, otherId));
-    assert.notEqual(user.profileImageUrl, `/api/storage${path}`);
-  });
-
-  it("PATCH /users/me refuses a photo path no member owns (#810)", async () => {
-    const userId = await createTestUser();
-    const sid = await bearerForUser(userId);
-    const path = `/objects/uploads/${randomUUID()}-no-row.jpg`;
-    await storePhoto(path, "someone-else");
-    const res = await request(makeApp())
-      .patch("/users/me")
-      .set("authorization", `Bearer ${sid}`)
-      .send({ profileImageUrl: `/api/storage${path}` });
-    assert.equal(res.status, 403);
-    assert.equal(await visibilityOf(path), "private");
-  });
-
-  it("PATCH /users/me sets the caller's own photo and makes it public", async () => {
-    const userId = await createTestUser();
-    const sid = await bearerForUser(userId);
-    const path = `/objects/uploads/${randomUUID()}-mine.jpg`;
-    await db.insert(uploadImageMetadataTable).values({ objectPath: path, width: 1, height: 1, fileSizeBytes: 1, userId });
-    await storePhoto(path, userId);
-    const res = await request(makeApp())
-      .patch("/users/me")
-      .set("authorization", `Bearer ${sid}`)
-      .send({ profileImageUrl: `/api/storage${path}` });
-    assert.equal(res.status, 200);
-    assert.equal(await visibilityOf(path), "public");
-    const [user] = await db.select({ profileImageUrl: usersTable.profileImageUrl }).from(usersTable).where(eq(usersTable.id, userId));
-    assert.equal(user.profileImageUrl, `/api/storage${path}`);
-  });
-
-  it("stores the photo but skips the avatarSource flip for an unentitled user", async () => {
-    // The onboarding path. A 403 here would fail free photo onboarding for
-    // every non-paying registered user, and would remove a capability that is
-    // free today — the stored image is also the identity photo PuLID meme and
-    // video generation consume, so the upload itself is never gated.
-    const userId = await createTestUser({ membershipTier: "registered" });
-    const sid = await bearerForUser(userId);
-
-    const path = `/objects/uploads/${randomUUID()}-free.jpg`;
-    await db.insert(uploadImageMetadataTable).values({
-      objectPath: path, width: 100, height: 100, fileSizeBytes: 1, userId, isProfile: false,
-    });
-    await storePhoto(path, userId);
-
-    const res = await request(makeApp())
-      .post("/users/me/profile-image")
-      .set("authorization", `Bearer ${sid}`)
-      .send({ objectPath: path });
-
-    assert.equal(res.status, 200, "onboarding upload must still succeed");
-    assert.equal(res.body.profileImageUrl, `/api/storage${path}`);
-
-    const [user] = await db
-      .select({ profileImageUrl: usersTable.profileImageUrl, avatarSource: usersTable.avatarSource })
-      .from(usersTable)
-      .where(eq(usersTable.id, userId));
-    assert.equal(user.profileImageUrl, `/api/storage${path}`, "the photo is stored");
-    assert.equal(user.avatarSource, "avatar", "but the paid flip is silently skipped");
-  });
-
-  it("rejects a standalone avatarSource:photo selection from an unentitled user", async () => {
-    // PATCH /users/me is the standalone, explicit selection request with no
-    // onboarding riding on it, so it fails loudly rather than silently.
-    const userId = await createTestUser({ membershipTier: "registered" });
-    const sid = await bearerForUser(userId);
-
-    const res = await request(makeApp())
-      .patch("/users/me")
-      .set("authorization", `Bearer ${sid}`)
-      .send({ avatarSource: "photo" });
-
-    assert.equal(res.status, 403);
-    assert.equal(res.body.error, "custom_avatar_required");
-  });
-
-  it("allows a standalone avatarSource:photo selection from an entitled user", async () => {
-    const userId = await createTestUser({ membershipTier: "legendary" });
-    const sid = await bearerForUser(userId);
-
-    const res = await request(makeApp())
-      .patch("/users/me")
-      .set("authorization", `Bearer ${sid}`)
-      .send({ avatarSource: "photo" });
-
-    assert.equal(res.status, 200);
   });
 
   it("is idempotent — re-posting the same path keeps the row tagged", async () => {

@@ -226,7 +226,7 @@ await db.insert(t.uploadImageMetadataTable).values([
   // refused its transform "phase2_v2" on every insert, and #806 removed the write.
 ]);
 // The form the product stores (routes/users.ts:326 strips it back off).
-await db.update(t.usersTable).set({ profileImageUrl: `/api/storage${profilePath}`, avatarSource: "photo" }).where(sql`id = ${userId}`);
+await db.update(t.usersTable).set({ profileImageUrl: `/api/storage${profilePath}` }).where(sql`id = ${userId}`);
 
 // Memes: a legacy composite, an upload recipe, a stock recipe, a quarantined one (excluded).
 const meme = (slug: string, extra: Record<string, unknown>) => ({

@@ -32,7 +32,6 @@ import { eq, like, inArray } from "drizzle-orm";
 import factsRouter from "../routes/facts.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
-import { generatedIconUrl } from "../lib/effectiveAvatar.js";
 
 
 const USER_PREFIX = "t_routes_f_";
@@ -483,32 +482,29 @@ describe("GET /facts/:factId/comments", () => {
   });
 });
 
-describe("public avatar projection on a fact's author", () => {
-  it("logged out, submittedByImage and comment authorImage are the generated icon for an author with a stored but unselected photo", async () => {
-    const userId = await createTestUser();
+describe("a member's picture on a fact and its comments (plan PLAN_PHOTO_IS_YOUR_PICTURE.md)", () => {
+  it("is their uploaded photo for a free member, and null for a member with no photo or only a non-first-party picture", async () => {
+    const withPhoto = await createTestUser();
+    const noPhoto = await createTestUser();
+    const providerOnly = await createTestUser();
     // This user's own path: a stored upload path shared by two users is a state
     // the product cannot produce, and migration 0055's backfill refuses it.
-    const photo = `/api/storage/objects/uploads/${userId}.jpg`;
-    // A registered author who uploaded an identity photo but never selected it
-    // as their avatar (avatarSource stays the default, not 'photo').
-    await db.update(usersTable)
-      .set({ profileImageUrl: photo, avatarSource: "avatar", membershipTier: "registered" })
-      .where(eq(usersTable.id, userId));
-    const [author] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
-    const icon = generatedIconUrl(author.avatarStyle, userId);
+    const photo = `/api/storage/objects/uploads/${withPhoto}.jpg`;
+    await db.update(usersTable).set({ profileImageUrl: photo, membershipTier: "registered" }).where(eq(usersTable.id, withPhoto));
+    await db.update(usersTable).set({ profileImageUrl: "https://lh3.googleusercontent.com/a/xyz=s96-c" }).where(eq(usersTable.id, providerOnly));
 
-    const factId = await insertFact("avatar-fact", { submittedById: userId });
-    await db.insert(commentsTable).values({ factId, authorId: userId, text: "avatar-comment", status: "approved", flagged: false });
+    for (const [userId, expected] of [[withPhoto, photo], [noPhoto, null], [providerOnly, null]] as const) {
+      const factId = await insertFact(`picture-fact-${userId}`, { submittedById: userId });
+      await db.insert(commentsTable).values({ factId, authorId: userId, text: "picture-comment", status: "approved", flagged: false });
 
-    const detail = await request(makeApp()).get(`/facts/${factId}`);
-    assert.equal(detail.status, 200);
-    assert.equal(detail.body.submittedByImage, icon);
-    assert.notEqual(detail.body.submittedByImage, photo);
+      const detail = await request(makeApp()).get(`/facts/${factId}`);
+      assert.equal(detail.status, 200);
+      assert.equal(detail.body.submittedByImage, expected);
 
-    const comments = await request(makeApp()).get(`/facts/${factId}/comments`);
-    assert.equal(comments.status, 200);
-    assert.equal(comments.body.comments.length, 1);
-    assert.equal(comments.body.comments[0].authorImage, icon);
-    assert.notEqual(comments.body.comments[0].authorImage, photo);
+      const comments = await request(makeApp()).get(`/facts/${factId}/comments`);
+      assert.equal(comments.status, 200);
+      assert.equal(comments.body.comments[0].authorImage, expected);
+    }
   });
 });
+
