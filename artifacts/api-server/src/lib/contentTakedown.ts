@@ -7,7 +7,7 @@ import { adminActionsTable, memesTable, uploadImageMetadataTable, usersTable } f
 import { and, eq, isNull, ne, or, sql } from "drizzle-orm";
 import type { AdminAction } from "@workspace/api-zod";
 
-import { restorable } from "./contentVisibility";
+import { liveContent, restorable } from "./contentVisibility";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -19,11 +19,12 @@ export type TakedownResult =
 
 /**
  * Live, or deleted and still restorable: what an admin can take down. A row
- * already past its window is the purger's, and a pre-window tombstone
- * (`purge_after` null) is not touched.
+ * already past its window is the purger's, a pre-window tombstone
+ * (`purge_after` null) is not touched, and content of an account being
+ * deleted is already on its way out with the account.
  */
 function takeable(table: typeof memesTable | typeof uploadImageMetadataTable, now: Date) {
-  return or(isNull(table.deletedAt), restorable(table, now));
+  return or(liveContent(table), restorable(table, now));
 }
 
 export async function takeDownContent(
