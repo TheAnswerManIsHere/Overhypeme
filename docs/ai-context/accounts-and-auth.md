@@ -471,7 +471,7 @@ keeps its "removed" 410.
 ## Age, audience and the NSFW opt-in
 
 - **An account requires 18+** (launch Phase 14, Q3; `MINIMUM_AGE = 18` in
-  `lib/eligibility.ts`). **Age is a date, derived at read** (`date_of_birth`,
+  `artifacts/api-server/src/lib/eligibility.ts`). **Age is a date, derived at read** (`date_of_birth`,
   required at onboarding, no fallback), so an account turns 18 with no job
   and no migration. The question is neutral: a full date, no age stated
   before it is answered.
@@ -526,7 +526,7 @@ keeps its "removed" 410.
   writes `lib/db/src/generated/legalVersions.ts` (`CURRENT_LEGAL_VERSIONS`)
   from `docs/legal/`, beside the web pages, and its check fails on drift, so
   the server and the pages cannot name different versions. A client names
-  the versions it showed; `checkAcceptance` (`lib/legalAcceptance.ts`)
+  the versions it showed; `checkAcceptance` (`artifacts/api-server/src/lib/legalAcceptance.ts`)
   refuses a missing one (`LEGAL_ACCEPTANCE_MISSING`) or one that is not
   current (`LEGAL_VERSION_OUTDATED`), so an old or invented version is
   never recorded.

@@ -77,8 +77,8 @@ the right screen.
    the site is for adults and can only sign out or ask to be deleted, the
    form can't be sent again with another date, and the browser remembers,
    so a fresh sign-up there gets the same answer. Nothing is deleted
-   because of it; a set-up that's never finished is cleaned up after 30
-   days as usual. A mistyped date is fixed through support.
+   because of it; a set-up that's never finished is cleaned up in the usual
+   way. A mistyped date is fixed through support.
 3. **Act.** From then on the account can do everything its membership
    allows, including uploading a profile photo. Age is worked out from the
    date of birth each time it's needed, never stored as a flag, so an
