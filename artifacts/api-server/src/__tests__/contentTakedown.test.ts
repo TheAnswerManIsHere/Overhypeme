@@ -132,20 +132,4 @@ describe("admin takedown of a member's meme or photo (#875 R9)", () => {
     const [row] = await db.select({ deletedAt: uploadImageMetadataTable.deletedAt }).from(uploadImageMetadataTable).where(eq(uploadImageMetadataTable.objectPath, photo));
     assert.equal(row!.deletedAt, null, "untouched");
   });
-
-  it("the trace names a takedown target from the content itself, so a meme or photo with no provenance record can still be taken down (Codex 4662294951)", async () => {
-    const trace = async (q: string) => (await request(app(admin)).get("/api/admin/provenance/trace").query({ q })).body as { matches: unknown[]; takedown: unknown };
-    const photo = await photos.seed(owner);
-    const saved = await createMemeRecord({ userId: owner, factId, imageSource: { type: "upload", uploadKey: photo }, textOptions: { topText: "{NAME}" }, aspectRatio: "square", decisions: ALLOW_ALL });
-
-    const meme = await trace(`https://overhype.me/m/${saved.permalinkSlug}`);
-    assert.deepEqual(meme.takedown, { kind: "meme", key: saved.permalinkSlug });
-    const pic = await trace(`/api/storage${photo}`);
-    assert.deepEqual(pic.takedown, { kind: "photo", key: photo });
-
-    assert.equal((await trace("/objects/uploads/nobody-uploaded-this.jpg")).takedown, null, "an unknown path is no target");
-    assert.equal((await trace("https://overhype.me/m/no-such-meme")).takedown, null);
-    await db.update(uploadImageMetadataTable).set({ arachnidMatchType: "exact" }).where(eq(uploadImageMetadataTable.objectPath, photo));
-    assert.equal((await trace(`/api/storage${photo}`)).takedown, null, "quarantined content is never a target");
-  });
 });

@@ -209,25 +209,4 @@ describe("AdminTrace — take down a member's meme or photo (#875 R9)", () => {
     await screen.findByText(/meme since deleted/);
     expect(screen.queryByTestId("takedown")).toBeNull();
   });
-
-  it("offers the takedown for a meme made before tracing, which has no record (Codex 4662294951)", async () => {
-    const calls: Array<{ url: string; body?: string }> = [];
-    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
-      calls.push({ url: String(url), body: init?.body as string | undefined });
-      if (String(url).includes("/takedown")) return { ok: true, json: async () => ({ success: true, wasProfile: false }) } as unknown as Response;
-      return { ok: true, json: async () => ({
-        method: null, matches: [], tried: ["meme link old123: 0 records"],
-        note: "This meme was made before image tracing began, so it has no provenance record.",
-        takedown: { kind: "meme", key: "old123" },
-      }) } as unknown as Response;
-    }));
-    render(<AdminTrace />);
-    trace("old123");
-    expect(await screen.findByText(/made before image tracing began/)).toBeTruthy();
-    fireEvent.click(screen.getByTestId("takedown-open"));
-    fireEvent.change(screen.getByLabelText("Reason for the takedown"), { target: { value: "old spam" } });
-    fireEvent.click(screen.getByTestId("takedown-confirm"));
-    expect(await screen.findByTestId("takedown-done")).toBeTruthy();
-    expect(JSON.parse(calls.find((c) => c.url.includes("/takedown"))!.body!)).toEqual({ kind: "meme", key: "old123", reason: "old spam" });
-  });
 });

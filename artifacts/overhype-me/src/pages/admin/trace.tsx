@@ -78,8 +78,6 @@ interface TraceResult {
   matches: TracedRecord[];
   tried: string[];
   note: string | null;
-  /** The member's meme or photo the pasted link names, read from the content itself (#875 R9). */
-  takedown?: { kind: "meme" | "photo"; key: string } | null;
 }
 
 const KIND_LABEL: Record<string, string> = {
@@ -439,10 +437,6 @@ export default function AdminTrace() {
               <div className="rounded-sm border border-border bg-background p-3 text-sm space-y-1">
                 <p className="font-bold text-foreground">No record found.</p>
                 {result.note && <p className="text-foreground">{result.note}</p>}
-                {/* Content made before tracing has no record to carry the control. */}
-                {result.takedown && (
-                  <div className="pt-2"><TakedownControl kind={result.takedown.kind} itemKey={result.takedown.key} /></div>
-                )}
               </div>
             )}
             {result.matches.map((t) => <RecordCard key={t.record.id} t={t} />)}
