@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useGetFact, getGetFactQueryKey } from "@workspace/api-client-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useToast } from "@/hooks/use-toast";
+import { CACHED_COPY_NOTICE } from "@/lib/cachedCopyNotice";
 import { Layout } from "@/components/layout/Layout";
 import { AlertCircle, Ban, ArrowLeft, Lock } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -230,7 +231,7 @@ export default function MemePage() {
       body: JSON.stringify({ isPublic: next }),
     });
     if (!ok) return;
-    toast({ title: next ? "Your meme is public" : "Your meme is private" });
+    toast(next ? { title: "Your meme is public" } : { title: "Your meme is private", description: CACHED_COPY_NOTICE });
     void queryClient.invalidateQueries({ queryKey: ["meme-page", slug] });
     void queryClient.invalidateQueries({ queryKey: ["profile-my-memes"] });
     if (factId) void queryClient.invalidateQueries({ queryKey: ["listFactMemes", factId] });

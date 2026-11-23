@@ -21,6 +21,7 @@ import { lazyWithRetry } from "@/lib/lazy-retry";
 import { AdminMediaInfo, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
 import { roleToIdentity } from "@/components/meme-builder/integration/studioAdapter";
 import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
+import { CACHED_COPY_NOTICE } from "@/lib/cachedCopyNotice";
 
 const MemeBuilderWizard = lazyWithRetry(() =>
   import("@/components/meme-builder/wizard").then(m => ({ default: m.MemeBuilderWizard })),
@@ -360,7 +361,7 @@ export default function FactDetail() {
                         aspectRatio={MEME_ASPECT_CLASS[meme.aspectRatio ?? "landscape"] ?? "aspect-video"}
                         actions={isMyMeme ? ["delete", "copyLink", "openFull"] : ["copyLink", "openFull"]}
                         onDelete={isMyMeme ? () => handleDeleteMeme(meme.permalinkSlug) : undefined}
-                        deleteConfirmMessage="Delete this meme? It leaves Overhype.me now and moves to Recently deleted in your Library, where you can restore it. A copy someone already loaded can stay visible to them for up to a day."
+                        deleteConfirmMessage={`Delete this meme? It leaves Overhype.me now and moves to Recently deleted in your Library, where you can restore it. ${CACHED_COPY_NOTICE}`}
                         permalink={memePermalink}
                         askBefore={askBefore}
                         footer={<AdminMediaInfo fileName={getFileNameFromUrl(meme.imageUrl)} fileSizeBytes={meme.uploadFileSizeBytes} mimeType={getMimeTypeFromUrl(meme.imageUrl)} width={meme.originalWidth} height={meme.originalHeight} />}

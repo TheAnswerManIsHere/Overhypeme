@@ -14,6 +14,7 @@ import { ArrowRight, Crown, Download, Globe, Library, Lock, Share2, Trash2, Uplo
 import { useState } from "react";
 import { Link } from "wouter";
 import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
+import { CACHED_COPY_NOTICE } from "@/lib/cachedCopyNotice";
 
 /* ─── shared atoms ───────────────────────────────────────────────────────── */
 
@@ -244,7 +245,7 @@ export function CTABarOwn({
           </PausedWhenReadOnly>
           {confirming && (
             <p className="sm:col-span-2 text-xs text-muted-foreground" data-testid="own-delete-message">
-              It leaves Overhype.me now and moves to Recently deleted in your Library, where you can restore it.
+              It leaves Overhype.me now and moves to Recently deleted in your Library, where you can restore it. {CACHED_COPY_NOTICE}
             </p>
           )}
         </div>

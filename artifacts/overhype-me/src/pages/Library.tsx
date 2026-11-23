@@ -17,6 +17,7 @@ import {
   FileText, ImageIcon, Images, Lock, Plus, RotateCcw, ThumbsUp, Trash2,
 } from "lucide-react";
 import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
+import { CACHED_COPY_NOTICE } from "@/lib/cachedCopyNotice";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
@@ -454,7 +455,7 @@ export default function Library() {
                           aspectRatio="aspect-video"
                           actions={["delete", "copyLink", "openFull"]}
                           onDelete={() => deleteMeme(meme.permalinkSlug)}
-                          deleteConfirmMessage={`Delete this meme? It leaves Overhype.me now and moves to Recently deleted, where you can restore it for ${windowDays} days. A copy someone already loaded can stay visible to them for up to a day.`}
+                          deleteConfirmMessage={`Delete this meme? It leaves Overhype.me now and moves to Recently deleted, where you can restore it for ${windowDays} days. ${CACHED_COPY_NOTICE}`}
                           permalink={memePermalink}
                            imageOverlay={!meme.isPublic ? (
                              <div

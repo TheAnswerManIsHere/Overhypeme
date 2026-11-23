@@ -25,6 +25,8 @@ vi.mock("@/components/layout/Layout", () => ({
 }));
 vi.mock("@/components/memes/MemeHeartButton", () => ({ MemeHeartButton: () => null }));
 vi.mock("@/components/share/MemeShareModal", () => ({ MemeShareModal: () => null }));
+const toastSpy = vi.fn();
+vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: toastSpy }) }));
 
 const meme = {
   id: 7,
@@ -158,6 +160,10 @@ describe("MemePage — the owner's visibility and delete controls (#875)", () =>
     const patch = calls.find((c) => c.method === "PATCH")!;
     expect(patch.url).toBe("/api/memes/abc/visibility");
     expect(JSON.parse(patch.body!)).toEqual({ isPublic: false });
+    // A copy cached while it was public can outlive the switch; the owner is told (Phase 5 answer 5(b)).
+    await waitFor(() => expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Your meme is private", description: expect.stringMatching(/up to a day/),
+    })));
   });
 
   it("a free owner is shown that private memes are Legendary, with no private switch", async () => {
@@ -172,7 +178,9 @@ describe("MemePage — the owner's visibility and delete controls (#875)", () =>
     const location = renderAt("/m/abc");
     const [first] = await screen.findAllByTestId("own-delete");
     fireEvent.click(first!);
-    expect((await screen.findAllByTestId("own-delete-message"))[0]!.textContent).toMatch(/Recently deleted/);
+    const message = (await screen.findAllByTestId("own-delete-message"))[0]!.textContent;
+    expect(message).toMatch(/Recently deleted/);
+    expect(message).toMatch(/up to a day/);
     expect(calls.some((c) => c.method === "DELETE")).toBe(false);
     fireEvent.click(screen.getAllByTestId("own-delete-confirm")[0]!);
     await waitFor(() => expect(location.history.at(-1)).toBe("/library?tab=deleted"));
