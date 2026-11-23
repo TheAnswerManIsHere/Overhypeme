@@ -6,6 +6,7 @@
 import {
   castIsCurrent,
   collectRenderedTextEntries,
+  hasPlainSubjectReference,
   unboundSpeakers,
   setRenderedTextAtPath,
   type FactGagsView,
@@ -81,15 +82,21 @@ export const gagApi = {
     call("POST", `${base(factId)}/${gagId}/renders`, { kinds, ...(redraw ? { redraw: true } : {}), ...scope(reviewId) }),
 };
 
+/** The scene: the one field re-sent while it holds a plain subject reference (a bubble line may be a speaker's own words). */
+const SCENE_PATH = "coreSceneOverride";
+
 export type TokenizeResult =
   | { ok: true; content: VisualPromptStrategyOverride }
   | { ok: false; content: VisualPromptStrategyOverride; fieldErrors: Record<string, string>; error: string | null };
 
 /**
  * Tokenize the text a moderator changed against `baseline` (the version the
- * edit started from), so a typed name becomes `{NAME}` before the save. Only
- * the changed, non-empty fields are sent; a field error blocks the save and is
- * shown on that field.
+ * edit started from), so a typed name becomes `{NAME}` before the save. The
+ * changed, non-empty fields are sent, and so is the scene when it still holds
+ * a plain subject name or pronoun ("his", "he's"), changed or not: a scene
+ * stored that way is otherwise never tokenized again, and every render of it
+ * keeps the stored words whoever the subject is. A field error blocks the
+ * save and is shown on that field.
  */
 export async function tokenizeGag(
   content: VisualPromptStrategyOverride,
@@ -97,7 +104,9 @@ export async function tokenizeGag(
   subjectNames: string[],
 ): Promise<TokenizeResult> {
   const before = new Map(baseline ? collectRenderedTextEntries(baseline).map((e) => [e.path, e.value]) : []);
-  const changed = collectRenderedTextEntries(content).filter((e) => e.value.trim() !== "" && e.value !== before.get(e.path));
+  const changed = collectRenderedTextEntries(content).filter((e) => e.value.trim() !== "" && (
+    e.value !== before.get(e.path) || (e.path === SCENE_PATH && hasPlainSubjectReference(e.value, subjectNames))
+  ));
   if (changed.length === 0) return { ok: true, content };
   let r: Response;
   try {
