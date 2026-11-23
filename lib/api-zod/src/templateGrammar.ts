@@ -433,3 +433,69 @@ export function applyDeterministicGrammar(template: string): string {
   const conjugated = autoConjugatePersonSubjectVerbs(contractionExpanded);
   return collapseIdenticalConjugationBranches(conjugated);
 }
+
+// ─── Plain subject references ──────────────────────────────────────────────
+// Shared by the server's tokenizer (its skip-the-model predicates) and the
+// gag editor (which re-sends a stored scene that still holds one), so the two
+// can never disagree about what still needs tokenizing.
+
+/**
+ * Mask every `{…}` brace span (replacing it with a single space) before doing
+ * plain-text word matching, so a token like `{NAME}` or `{NAME_POSSESSIVE}`
+ * is never mistaken for a literal plain-text occurrence of a subject who
+ * happens to be named "Name", and a name inside a conjugation pair's
+ * alternatives can't match either.
+ */
+function maskBraceSpans(text: string): string {
+  return text.replace(/\{[^{}]*\}/g, " ");
+}
+
+function escapeForRegex(word: string): string {
+  return word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Individual words (>=3 chars) drawn from every subject name, deduped. */
+function subjectNameWords(subjectNames: readonly string[]): string[] {
+  const words = new Set<string>();
+  for (const name of subjectNames) {
+    for (const word of name.split(/\s+/)) {
+      const trimmed = word.trim();
+      if (trimmed.length >= 3) words.add(trimmed);
+    }
+  }
+  return [...words];
+}
+
+/** True when a word of a subject name appears in plain text, outside any brace span. */
+export function containsPlainSubjectNameWord(text: string, subjectNames: readonly string[]): boolean {
+  const masked = maskBraceSpans(text);
+  return subjectNameWords(subjectNames).some((word) =>
+    new RegExp(`\\b${escapeForRegex(word)}\\b`, "i").test(masked),
+  );
+}
+
+// Deliberately small: pronouns that can refer to the personalized subject.
+// A heuristic, not a grammar guarantee: a false positive costs one extra model
+// call; a pronoun missing here is one the skip predicates may leave plain.
+const SUBJECT_PRONOUN_WHITELIST = [
+  "he", "him", "his", "she", "her", "hers",
+  "they", "them", "their", "theirs",
+  "himself", "herself", "themself", "themselves",
+];
+
+/** True when a pronoun that could name the subject appears in plain text, outside any brace span. */
+export function containsSubjectPronoun(text: string): boolean {
+  const masked = maskBraceSpans(text);
+  return SUBJECT_PRONOUN_WHITELIST.some((pronoun) =>
+    new RegExp(`\\b${pronoun}\\b`, "i").test(masked),
+  );
+}
+
+/**
+ * True when `text` may still refer to the personalized subject in plain words —
+ * a subject-name word or a subject pronoun outside any token — so a tokenizer
+ * pass could still change it.
+ */
+export function hasPlainSubjectReference(text: string, subjectNames: readonly string[] = []): boolean {
+  return containsPlainSubjectNameWord(text, subjectNames) || containsSubjectPronoun(text);
+}

@@ -13,5 +13,6 @@ export {
   applyDeterministicGrammar,
   HAS_ONLY_FOLLOWING_WORDS,
   ALLOWED_SIMPLE_TOKENS,
+  hasPlainSubjectReference,
   type GrammarValidationResult,
 } from "@workspace/api-zod";
