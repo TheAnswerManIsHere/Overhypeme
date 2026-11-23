@@ -29,20 +29,16 @@ on:
       - artifacts/api-server/src/testing/**
       - artifacts/api-server/src/lib/aiDouble/**
       - artifacts/api-server/fixtures/legacy/**
-      # What shapes a recorded AI request: a change here changes a request's
-      # fingerprint, so the recordings must be proved against it before merge
-      # (PR #941 set the gag writer to medium effort without this run, and
-      # every later replay missed its recording).
-      - artifacts/api-server/src/lib/engines/**
-      - artifacts/api-server/src/lib/imagePrompt/**
-      - artifacts/api-server/src/lib/*Config.ts
-      - artifacts/api-server/src/lib/codeOwnedPrompts.ts
-      - artifacts/api-server/src/lib/openaiChatParams.ts
-      - artifacts/api-server/src/lib/utilityLLM.ts
-      - artifacts/api-server/src/lib/imageEngineRouting.ts
-      - artifacts/api-server/src/lib/imageEngineRequest.ts
-      - artifacts/api-server/src/lib/imageRequestBuilder.ts
-      - artifacts/api-server/src/lib/engineInterpreter.ts
+      # What shapes a recorded AI request: any server or shared-library
+      # source, not a hand-picked list. A change there can change a request's
+      # fingerprint, so the recordings are proved against it before merge.
+      # The hand-picked list missed twice: PR #941 (the gag writer's effort)
+      # and the template-grammar fixes (PR #1145, #1153, #1164, #1171), which
+      # changed the cast step's rendered scene and left main red until PR #1172
+      # (Issue #1162). The run replays recordings, so it costs nothing.
+      - artifacts/api-server/src/**
+      - lib/api-zod/src/**
+      - lib/db/src/**
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
