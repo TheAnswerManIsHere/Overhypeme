@@ -80,8 +80,12 @@ export const GATE_EXCEPTIONS: Readonly<Record<Exclude<Eligibility, "eligible">, 
   ],
   // Launch Phase 14, increment 4: sign out or ask for deletion, and nothing
   // else — not cancelling a deletion, not resubmitting set-up. Its reads are
-  // narrowed too (UNDER_AGE_READS).
-  underage: ["POST /auth/logout", ...SUPPORT, "POST /users/me/deletion"],
+  // narrowed too (UNDER_AGE_READS). The Apple callback is the deletion
+  // request's identity proof for an Apple-only account (a fresh sign-in the
+  // delete form sends it through, which returns by POST), not a third
+  // capability: it reads nothing of the session and signs in whoever Apple
+  // vouches for (PR #1178 round 1).
+  underage: ["POST /auth/logout", ...SUPPORT, "POST /users/me/deletion", "POST /callback/apple"],
   // Reads everything; writes only to accept, to leave, or to ask for help.
   terms_unaccepted: [...RECOVERY, ...SUPPORT, "POST /users/me/legal-acceptance", "POST /users/me/deletion"],
 };

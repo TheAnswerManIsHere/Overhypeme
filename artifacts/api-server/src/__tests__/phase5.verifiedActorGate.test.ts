@@ -46,7 +46,9 @@ const PLAN_EXCEPTIONS = {
   // Launch Phase 14, increment 4 (plan PLAN_PHASE14_COMPLIANCE.md, item 4):
   // under 18, sign out or ask for deletion only; Terms not accepted, read but
   // do not act until accepting.
-  underage: ["POST /auth/logout", ...SUPPORT, "POST /users/me/deletion"],
+  // The Apple callback is the deletion request's identity proof for an
+  // Apple-only account, not a third capability (PR #1178 round 1).
+  underage: ["POST /auth/logout", ...SUPPORT, "POST /users/me/deletion", "POST /callback/apple"],
   terms_unaccepted: [...RECOVERY, ...SUPPORT, "POST /users/me/legal-acceptance", "POST /users/me/deletion"],
 };
 
@@ -278,5 +280,9 @@ describe("an under-age account reads nothing as itself (launch Phase 14, increme
     const b = await request(app).get("/api/auth/user").set("authorization", `Bearer ${adult}`);
     assert.equal(a.body?.user?.eligibility ?? a.body?.eligibility, "underage");
     assert.equal(b.body?.user?.eligibility ?? b.body?.eligibility, "eligible");
+    // Its deletion journey stays open: the Apple re-sign-in's callback reaches
+    // its handler rather than the gate's refusal (PR #1178 round 1).
+    const apple = await request(app).post("/api/callback/apple").set("authorization", `Bearer ${minor}`).send({});
+    assert.notEqual(apple.body?.code, "UNDER_AGE");
   });
 });

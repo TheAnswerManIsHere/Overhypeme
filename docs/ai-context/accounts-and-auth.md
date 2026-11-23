@@ -111,8 +111,10 @@ the server enforces it:
   deletion request (a verified account that never finished set-up may still
   leave) for an un-onboarded one, "Keep my account" (`POST /users/me/deletion/cancel`)
   (beside the recovery routes) for a pending deletion, only logout for
-  a suspended account, logout and a deletion request for an under-age
-  account (not cancelling it, not resubmitting set-up), and the recovery
+  a suspended account, logout, a deletion request and the Apple sign-in
+  callback for an under-age account (the callback is the deletion request's
+  identity proof for an Apple-only account; not cancelling a deletion, not
+  resubmitting set-up, no other sign-in or recovery route), and the recovery
   routes, `POST /users/me/legal-acceptance` and a deletion request for one
   that has not accepted the current Terms. The contact form is open in
   every state. **An under-age account's reads are narrowed too**: every GET
