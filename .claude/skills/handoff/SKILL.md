@@ -289,6 +289,11 @@ decision to stay short has failed at the only thing it does.
 Before handing back: `unsubscribe_pr_activity` for anything this session was
 watching that the new session now owns, disarm any scheduled wake, and state
 in one line what this session is still on the hook for — normally nothing.
+A UAT run owed on the workstream this hand-off carries goes with it, since
+the new session inherits it (the `uat` skill, section 1 item 0); one owed
+on a workstream the hand-off left behind, or a run this session started
+and left unfinished, stays here and is named (the `archive` skill, Step 1
+item 8). Where Step 5 fell back to a pasted prompt, nothing has gone yet.
 An abandoned subscription is worse than none, because it looks like coverage.
 
 Then report: the issue written, the prompt, the new session's title and id,
@@ -300,9 +305,11 @@ and every hand-back says what it did*, rule 2).
 Astra sign-in (item 3 of the prompt), which is a 🛑 in *that* session and
 rings him by the alert hook (`claude-core.md`, interaction rule 6) from the
 place that actually needs him; a banner here too would ring him twice for
-one thing. The summary says the new session is running and that this one
-has nothing left — `/archive` is his when he wants it, since only an
-explicit `/archive` archives. **Where Step 5 fell back** to a pasted
+one thing. The summary says the new session is running and what this one
+still holds — nothing, or a UAT run that stayed here (Step 6). `/archive`
+is his when he wants it, since only an explicit `/archive` archives, and it
+starts that run rather than archiving over it (the `archive` skill, Step 1
+item 8). **Where Step 5 fell back** to a pasted
 prompt, the hand-off waits on him, and the hand-back is a 🛑 banner —
 opening the new session with the prompt above — as before.
 

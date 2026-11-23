@@ -1,6 +1,6 @@
 ---
 name: archive
-description: Answer one question cheaply — "are we done with everything this session needs to do, and should we archive it?" — and archive the session when the answer is yes. Use when David says /archive, "can we archive this", "are we done here", or "should I close this session". Checks only what dies with the session (unpushed work, a PR this session watches, armed check-ins, running tasks, unpaid close-out, unpersisted learnings, an open ask), returns one of three verdicts — continue, hand off, archive — and on archive schedules the session's own archiving a minute after the verdict is shown. NOT /handoff (which moves context and costs far more) and NOT /next or /status (which rank or report work); this skill reads no workstream but its own.
+description: Answer one question cheaply — "are we done with everything this session needs to do, and should we archive it?" — and archive the session when the answer is yes. Use when David says /archive, "can we archive this", "are we done here", or "should I close this session". Checks only what dies with the session (unpushed work, a PR this session watches, armed check-ins, running tasks, unpaid close-out, unpersisted learnings, an open ask, a UAT run it owes — its own work's, or one it started and left unfinished), returns one of three verdicts — continue, hand off, archive — starts /uat instead of archiving when a run is owed, and on archive schedules the session's own archiving a minute after the verdict is shown. NOT /handoff (which moves context and costs far more) and NOT /next or /status (which rank or report work); this skill reads no workstream but its own.
 ---
 
 <!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
@@ -14,7 +14,8 @@ to just answer the one question of 'should we archive?'"*).
 
 **It is cheap on purpose.** No ranking (`/next`), no repo-wide fetch
 (`/status-all`), no prompt-writing (`/handoff`). It reads this session's own
-branch, its own PRs and its own scheduled wakes, and nothing else. A check that
+branch, its own PRs, its own scheduled wakes and the UAT record on its own
+workstreams, and nothing else. A check that
 needs more than that is not this skill's.
 
 **It runs in the main loop, never a subagent** — the same bar the `handoff`
@@ -32,7 +33,7 @@ means *not yet*.
 
 ## Step 1 — The checklist
 
-Each item is a read or an enumeration, each produces one line. Run all seven;
+Each item is a read or an enumeration, each produces one line. Run all eight;
 do not stop at the first hit, since David wants the whole list once.
 
 1. **Unpushed work.** `git status --porcelain` and, for every local branch with
@@ -63,6 +64,30 @@ do not stop at the first hit, since David wants the whole list once.
    written to its file, or a `/document` owed and not noted on the issue.
 7. **An open 🛑 ask** David has not answered. Archiving discards the context
    his answer would land in.
+8. **A UAT run this session owes** (David, 2026-11-23: *"needs
+   to check if there's any existing /uat open for that session prior to
+   agreeing to archive it. If there is a UAT owed, it should not archive and
+   should instead start the UAT."*). Two kinds of unit, each run through
+   the `uat` skill's own script lookup and run record:
+   - **Work this session finished** — the `uat` skill's section 1 item 0,
+     applied unchanged: a unit this session merged or delivered, or
+     inherited by a `/handoff` prompt, whose PR body carries a `## UAT`
+     section (or a legacy doc on current `origin/main`) and whose
+     workstream has no finished run record, a run recorded `in progress`
+     included. **A workstream this session handed to a session the
+     `handoff` skill started is not a hit here**: its run went with it,
+     since that skill's item 0 makes it the new session's by inheritance.
+     A hand-off that fell back to a pasted prompt releases nothing until
+     that session exists.
+   - **A run this session started or resumed** and left unfinished,
+     whatever work it tests — a session opened to test someone else's
+     PR included — read from the run record's `in progress` verdict
+     (the `uat` skill, section 5).
+
+   The session holds the context that run starts from; archiving sends it
+   to a cold repository-wide search. Either kind is carried into the `uat`
+   skill by name, so its named-run and resume rules apply rather than its
+   search.
 
 ## Step 2 — The verdict
 
@@ -73,6 +98,14 @@ Exactly one, first match wins:
 | **continue** | Any checklist hit, or approved work in this session's plan is still startable here. Name each hit and the action that clears it. |
 | **hand off** | No hit, the next work is in a different workstream, and this session holds context worth carrying (the `handoff` skill's Step 1 test). Under `/archive`, run the `handoff` skill, which starts the new session itself, or hands David the prompt where it cannot (the `handoff` skill, Step 5); on a build report's **Session** line, it runs after the report (`claude-core.md`, *Watching the PRs I open*). |
 | **archive** | No hit, and nothing worth carrying: the work is done, or the next work starts cold just as well. |
+
+**A UAT owed is a *continue* that starts the run** (item 8): under an
+explicit `/archive` I do not archive and do not stop on the verdict — once
+every other hit I can clear is cleared, I start the `uat` skill in the same
+turn, which finishes any close-out of mine still short of `stage:uat`
+before step 1 (its section 1, item 0). On a build report's **Session**
+line, where the merge report already hands the UAT to David, it is stated
+as *continue* and starts nothing, like every verdict there.
 
 A *continue* whose every hit I can clear myself is not a verdict to stop on:
 clear them (push, post the comment, persist the note), say so, and re-run
@@ -109,9 +142,14 @@ asking (`claude-core.md`, *A reversible choice proceeds*).
 ```
 ARCHIVE — nothing left here.
   Pushed and merged: #231. No open PR, no armed wake, no running task.
-  Close-out paid; nothing held only in chat.
+  Close-out paid; no UAT owed; nothing held only in chat.
 
 ✅ **PLAN DONE** — the work here is done; archiving at 14:05 unless you write first
+```
+
+```
+CONTINUE — a UAT is owed here, so I'm not archiving.
+  PR #233 merged here and its UAT has not been run. Starting /uat now.
 ```
 
 ```

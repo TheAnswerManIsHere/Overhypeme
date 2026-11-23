@@ -585,7 +585,10 @@ versioned files don't. `/compact` is an in-session relief valve, not the memory.
   Planning rule 3 for a plan).
 - **`/archive`** answers only whether this session is finished — what dies
   with it, checked cheaply — and archives it when nothing does. Main loop,
-  like `/handoff`, which it runs on a *hand off* verdict.
+  like `/handoff`, which it runs on a *hand off* verdict; a UAT run this
+  session owes is never archived over, and starts `/uat`
+  instead (David, 2026-11-23;
+  [`archive`, Step 1 item 8](../../.claude/skills/archive/SKILL.md#step-1--the-checklist)).
 - **`/document`** is the batched harvest of durable learnings (see below).
 - [`docs/handoff/`](../../docs/handoff/README.md) is cross-*tool* transit, which a
   session handoff never writes to.
