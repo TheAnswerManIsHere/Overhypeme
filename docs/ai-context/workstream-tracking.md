@@ -276,9 +276,10 @@ of issue links, which survives any session ending:
 1. **On discovery**, whoever intakes the bug (bugfix mode, or feature mode
    when the rabbit hole turns out to be a rebuild) opens the new issue
    **and** adds `Blocked by: #new` to the interrupted workstream, plus one
-   line in its State of Play recording **which UAT step failed**. That last
-   detail is what makes resumption "resume at step 4" instead of "run the
-   whole thing again."
+   line in its State of Play recording **which UAT step failed**, by its
+   static ID (`T4`, `R2`: [`uat-doc-format.md`](../tests/uat-doc-format.md),
+   *The rule that makes it deterministic*). That last detail is what makes resumption
+   "resume at T4" instead of "run the whole thing again."
 2. **Depth is unbounded.** If the descent hits its own blocker, the chain
    nests. Nothing needs to know how deep it is.
 3. **Priority propagates down the chain: an item inherits the highest rank
@@ -289,7 +290,7 @@ of issue links, which survives any session ending:
    finishing it is what unwinds the stack back to an almost-done UAT.
 4. **The stack pops mechanically.** When a blocker closes, its parent
    becomes actionable again and surfaces immediately as the top
-   recommendation — "resume UAT on #213 at step 4."
+   recommendation — "resume UAT on #213 at T4."
 
 **The escape hatch, because a deep stack can pin the queue for weeks.**
 That's correct behavior pre-launch, but not unconditionally: if a descent

@@ -206,7 +206,10 @@ export function scanBody(body, { exists = (rel) => existsSync(join(ROOT, rel)) }
     return hs;
   };
 
-  const steps = checkIds(at("### Steps"), "### Steps", /^(\d+)\.\s+\S/, (i) => `${i}.`);
+  // A feature step's ID is `T<n>`, the static form David answers with
+  // ("T3: pass"), parallel to a question's `Q<n>` (David, 2026-11-23;
+  // uat-doc-format.md, *The rule that makes it deterministic*).
+  const steps = checkIds(at("### Steps"), "### Steps", /^T(\d+)\.\s+\S/, (i) => `T${i}.`);
   const regs = checkIds(at("### Regression"), "### Regression", /^R(\d+)\.\s+\S/, (i) => `R${i}.`, true);
 
   // --- every step carries exactly one Do and one Expect -------------------

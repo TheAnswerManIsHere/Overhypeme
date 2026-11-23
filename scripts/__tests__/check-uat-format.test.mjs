@@ -28,7 +28,7 @@ const body = ({ setup, steps, regression, tail = "", before = "", after = "" } =
     "",
     "### Steps",
     "",
-    steps ?? ["#### 1. Open it", "", "**Do:** Click Help.", "", "**Expect:** The Manual.", "", "**Lane:** human", "", "**Judgement:** whether it reads well."].join("\n"),
+    steps ?? ["#### T1. Open it", "", "**Do:** Click Help.", "", "**Expect:** The Manual.", "", "**Lane:** human", "", "**Judgement:** whether it reads well."].join("\n"),
     "",
     "### Regression",
     "",
@@ -71,13 +71,13 @@ test("the section ends at the next ## heading, so other sections' prose is never
   const found = scanBody(body());
   assert.deepEqual(found, []);
   // and a step heading after the section's end is not a step
-  const stray = body({ after: "\n#### 2. Not a step\n\n**Do:** x\n\n**Expect:** y\n" });
+  const stray = body({ after: "\n#### T2. Not a step\n\n**Do:** x\n\n**Expect:** y\n" });
   assert.deepEqual(scanBody(stray), []);
 });
 
 test("line numbers in findings are the body's own, 1-based", () => {
-  const b = body({ steps: "#### 1. Look\n\n**Expect:** Something." });
-  const line = b.split("\n").findIndex((l) => l === "#### 1. Look") + 1;
+  const b = body({ steps: "#### T1. Look\n\n**Expect:** Something." });
+  const line = b.split("\n").findIndex((l) => l === "#### T1. Look") + 1;
   const found = scanBody(b);
   assert.ok(found.some((p) => p.startsWith(`${line}: `)), found.join("\n"));
 });
@@ -102,7 +102,7 @@ test("required sub-sections must appear in order", () => {
   const outOfOrder = [
     "## UAT",
     "### Steps",
-    "#### 1. Open it",
+    "#### T1. Open it",
     "**Do:** Click.",
     "**Expect:** It opens.",
     "### Setup",
@@ -116,8 +116,13 @@ test("required sub-sections must appear in order", () => {
 });
 
 test("step IDs must be consecutive from 1", () => {
-  const steps = ["#### 1. First", "**Do:** a", "**Expect:** b", "", "#### 3. Third", "**Do:** a", "**Expect:** b"].join("\n");
-  assert.ok(scanBody(body({ steps })).some((p) => p.includes("consecutively") && p.includes("2.")));
+  const steps = ["#### T1. First", "**Do:** a", "**Expect:** b", "", "#### T3. Third", "**Do:** a", "**Expect:** b"].join("\n");
+  assert.ok(scanBody(body({ steps })).some((p) => p.includes("consecutively") && p.includes("T2.")));
+});
+
+test("step IDs must be T-prefixed: a bare number is the retired form", () => {
+  const bare = ["#### 1. First", "**Do:** a", "**Expect:** b", "", "**Lane:** human", "", "**Judgement:** j"].join("\n");
+  assert.ok(scanBody(body({ steps: bare })).some((p) => p.includes('"#### T1. <title>"')));
 });
 
 test("regression IDs must be R-prefixed and consecutive", () => {
@@ -138,16 +143,16 @@ test("a step heading at the old level (###) is a sub-section boundary, not a ste
 });
 
 test("a compound step is rejected — two Do/Expect pairs under one heading", () => {
-  const steps = ["#### 1. Two things at once", "**Do:** First action.", "**Expect:** First result.", "**Do:** Second action.", "**Expect:** Second result."].join("\n");
+  const steps = ["#### T1. Two things at once", "**Do:** First action.", "**Expect:** First result.", "**Do:** Second action.", "**Expect:** Second result."].join("\n");
   const found = scanBody(body({ steps }));
   assert.ok(found.some((p) => p.includes("2 **Do:** lines")));
   assert.ok(found.some((p) => p.includes("2 **Expect:** lines")));
 });
 
 test("a step with no Do or no Expect is rejected", () => {
-  const noDo = ["#### 1. Look", "**Expect:** Something."].join("\n");
+  const noDo = ["#### T1. Look", "**Expect:** Something."].join("\n");
   assert.ok(scanBody(body({ steps: noDo })).some((p) => p.includes("0 **Do:** lines")));
-  const noExpect = ["#### 1. Look", "**Do:** Something."].join("\n");
+  const noExpect = ["#### T1. Look", "**Do:** Something."].join("\n");
   assert.ok(scanBody(body({ steps: noExpect })).some((p) => p.includes("0 **Expect:** lines")));
 });
 
@@ -208,7 +213,7 @@ test('a heading after "None." is validated normally, not silently exempted', () 
 // --- lanes ------------------------------------------------------------------
 
 const step = (...fields) =>
-  ["#### 1. Open it", "", "**Do:** Click Help.", "", "**Expect:** The Manual.", "", ...fields].join("\n");
+  ["#### T1. Open it", "", "**Do:** Click Help.", "", "**Expect:** The Manual.", "", ...fields].join("\n");
 const real = (rel) => rel === "e2e/help.spec.ts" || rel === "src/__tests__/help.test.ts";
 const scan = (steps) => scanBody(body({ steps }), { exists: real });
 
@@ -333,7 +338,7 @@ test("as a process: a drivable section exits 0, a broken one exits 1, no source 
     assert.match(ok.out, /drivable/);
 
     const bad = join(dir, "bad.md");
-    writeFileSync(bad, body({ steps: "#### 1. Look\n\n**Do:** x" }));
+    writeFileSync(bad, body({ steps: "#### T1. Look\n\n**Do:** x" }));
     const fail = run(["--body-file", bad]);
     assert.equal(fail.code, 1, fail.out);
     assert.match(fail.out, /0 \*\*Expect:\*\* lines/);
