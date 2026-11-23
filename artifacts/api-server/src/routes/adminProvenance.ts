@@ -16,7 +16,7 @@ import { traceIdOrLink, traceImageFile } from "../lib/provenance/trace";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import { logger } from "../lib/logger";
 import { z } from "zod";
-import { takeDownContent } from "../lib/contentTakedown";
+import { takeDownContent, takedownTargetFor } from "../lib/contentTakedown";
 import type { AuthenticatedRequest } from "../middlewares/authMiddleware";
 
 const router: IRouter = Router();
@@ -26,7 +26,10 @@ router.get("/admin/provenance/trace", requireAdmin, async (req: Request, res: Re
   const q = String(req.query["q"] ?? "").trim();
   if (!q || q.length > 2000) { res.status(400).json({ error: "Give an id or a link." }); return; }
   res.setHeader("Cache-Control", "private, no-store");
-  res.json(await traceIdOrLink(q));
+  const [traced, takedown] = await Promise.all([traceIdOrLink(q), takedownTargetFor(q)]);
+  // The takedown target comes from the content, not its records, so content
+  // made before tracing can still be taken down (#875 R9).
+  res.json({ ...traced, takedown });
 });
 
 /** A screenshot or a downloaded meme: generous, since the file is only read, never stored. */

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export interface MyImageRow {
   objectPath: string;
@@ -54,8 +54,15 @@ export function useMyImages(opts: {
 }): MyImagesResult {
   const { enabled, reloadKey } = opts;
   const [state, setState] = useState<FetchState>(EMPTY);
+  /**
+   * The list's lifecycle: every reset (disabled, reloaded, unmounted) starts a
+   * new one, and a "load more" answer from an earlier lifecycle is dropped, so
+   * an old page can never land on a fresh list (#875 R6, Codex 4662294957).
+   */
+  const generation = useRef(0);
 
   useEffect(() => {
+    generation.current += 1;
     if (!enabled) {
       setState({ ...EMPTY, isLoading: false });
       return;
@@ -85,17 +92,21 @@ export function useMyImages(opts: {
 
     return () => {
       cancelled = true;
+      generation.current += 1;
     };
   }, [enabled, reloadKey]);
 
   const loadMore = () => {
     const cursor = state.nextCursor;
     if (!cursor || state.loadingMore) return;
+    const mine = generation.current;
+    const current = () => generation.current === mine;
     setState((prev) => ({ ...prev, loadingMore: true }));
     fetch(`${URL_BASE}&cursor=${encodeURIComponent(cursor)}`, { credentials: "include" })
       .then(async (res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = (await res.json()) as UploadsResponse;
+        if (!current()) return;
         setState((prev) => ({
           ...prev,
           rows: [...prev.rows, ...data.uploads.filter((u) => !prev.rows.some((r) => r.objectPath === u.objectPath))],
@@ -103,7 +114,7 @@ export function useMyImages(opts: {
           loadingMore: false,
         }));
       })
-      .catch(() => setState((prev) => ({ ...prev, loadingMore: false })));
+      .catch(() => { if (current()) setState((prev) => ({ ...prev, loadingMore: false })); });
   };
 
   return { ...state, hasMore: !!state.nextCursor, loadMore };

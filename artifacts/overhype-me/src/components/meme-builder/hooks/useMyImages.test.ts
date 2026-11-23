@@ -32,4 +32,34 @@ describe("useMyImages", () => {
     expect(result.current.hasMore).toBe(false);
     expect(urls[1]).toBe("/api/users/me/uploads?transform=raw&cursor=c1");
   });
+
+  it("a page that answers after the list was reset is dropped, so the fresh list still pages to the end (Codex 4662294957)", async () => {
+    let releaseOld: (r: Response) => void = () => {};
+    let cursorCalls = 0;
+    const page = (uploads: unknown[], nextCursor: string | null) =>
+      new Response(JSON.stringify({ uploads, uploadCount: 4, maxUploads: 100, displayLimit: 2, nextCursor }), { status: 200 });
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      if (!url.includes("cursor=")) return Promise.resolve(page([row(1), row(2)], "c1"));
+      cursorCalls += 1;
+      // The first "load more" is held until after the reset; the second answers at once.
+      if (cursorCalls === 1) return new Promise<Response>((r) => { releaseOld = r; });
+      return Promise.resolve(page([row(3), row(4)], null));
+    }));
+    const { result, rerender } = renderHook((p: { enabled: boolean }) => useMyImages(p), { initialProps: { enabled: true } });
+    await waitFor(() => expect(result.current.rows).toHaveLength(2));
+    act(() => result.current.loadMore());
+
+    // The member leaves My photos and comes back before that page answers.
+    rerender({ enabled: false });
+    rerender({ enabled: true });
+    await waitFor(() => expect(result.current.rows).toHaveLength(2));
+    await act(async () => { releaseOld(page([row(9)], null)); await Promise.resolve(); });
+    expect(result.current.rows.map((r) => r.objectPath)).toEqual(["/objects/uploads/p1.jpg", "/objects/uploads/p2.jpg"]);
+    expect(result.current.hasMore, "the stale last page did not end the fresh list").toBe(true);
+    expect(result.current.loadingMore).toBe(false);
+
+    act(() => result.current.loadMore());
+    await waitFor(() => expect(result.current.rows).toHaveLength(4));
+    expect(result.current.hasMore).toBe(false);
+  });
 });

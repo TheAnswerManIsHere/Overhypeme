@@ -4,10 +4,11 @@
  */
 import { db } from "@workspace/db";
 import { adminActionsTable, memesTable, uploadImageMetadataTable, usersTable } from "@workspace/db/schema";
-import { and, eq, isNull, ne, or, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import type { AdminAction } from "@workspace/api-zod";
 
 import { liveContent, restorable } from "./contentVisibility";
+import { parseTraceInput } from "./provenance/trace";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -83,4 +84,29 @@ export async function takeDownContent(
       : [];
     return { status: "ok", ownerId: row.ownerId, factId: row.factId, wasProfile: cleared.length > 0 };
   }
+}
+
+/**
+ * What an admin's pasted meme link or photo path names as a takedown target,
+ * read from the content itself rather than its provenance record, so a meme
+ * or photo made before image tracing began can still be taken down (#875 R9,
+ * Codex 4662294951). Only a member's own meme or photo that a takedown would
+ * act on is a target: live or still restorable, never quarantined, a photo
+ * only when a member uploaded it.
+ */
+export async function takedownTargetFor(raw: string, now = new Date()): Promise<{ kind: TakedownKind; key: string } | null> {
+  const parsed = parseTraceInput(raw);
+  if (parsed.kind === "meme") {
+    const m = memesTable;
+    const [row] = await db.select({ slug: m.permalinkSlug }).from(m)
+      .where(and(eq(m.permalinkSlug, parsed.slug), ne(m.status, "quarantined"), takeable(m, now))).limit(1);
+    return row ? { kind: "meme", key: row.slug } : null;
+  }
+  if (parsed.kind === "object") {
+    const t = uploadImageMetadataTable;
+    const [row] = await db.select({ path: t.objectPath }).from(t)
+      .where(and(eq(t.objectPath, parsed.objectPath), isNotNull(t.userId), isNull(t.arachnidMatchType), takeable(t, now))).limit(1);
+    return row ? { kind: "photo", key: row.path } : null;
+  }
+  return null;
 }
