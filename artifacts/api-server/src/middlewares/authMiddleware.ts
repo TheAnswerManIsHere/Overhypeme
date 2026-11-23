@@ -1,5 +1,5 @@
 /**
- * @purpose Resolves the session (Bearer token, then cookie), records the id of the session that authenticated as req.authSessionId, and rebuilds req.user from the active user row: effective tier, admin over all three grants with the view-as-user toggle applied to isAdmin only, eligibility to act (verified, then onboarded) and the 13+/18+ thresholds derived from the row; a session that is expired or whose user is missing or inactive is deleted, and with none valid, the request proceeds unauthenticated.
+ * @purpose Resolves the session (Bearer token, then cookie), records the id of the session that authenticated as req.authSessionId, and rebuilds req.user from the active user row: effective tier, admin over all three grants with the view-as-user toggle applied to isAdmin only, eligibility to act (verified, onboarded, 18+ and the current Terms accepted) and the 18+ threshold derived from the row; a session that is expired or whose user is missing or inactive is deleted, and with none valid, the request proceeds unauthenticated.
  * @subsystem accounts-auth
  */
 import { type Request, type Response, type NextFunction } from "express";
@@ -18,6 +18,7 @@ import {
 import { deriveUserRole } from "../lib/userRole";
 import { effectiveTierExpr } from "../lib/membershipState";
 import { identityFieldsOf } from "../lib/eligibility";
+import { legalAcceptedExpr } from "../lib/legalAcceptance";
 import { userLeaving } from "../lib/contentVisibility";
 
 declare global {
@@ -123,6 +124,8 @@ export async function authMiddleware(
         dateOfBirth: usersTable.dateOfBirth,
         deletionPending: userLeaving(),
         suspendedAt: usersTable.suspendedAt,
+        ageRefusedAt: usersTable.ageRefusedAt,
+        legalAccepted: legalAcceptedExpr(),
       })
       .from(usersTable)
       .where(and(eq(usersTable.id, userId), eq(usersTable.isActive, true)))

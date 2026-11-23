@@ -55,12 +55,14 @@ import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/
 
 import factsRouter from "../routes/facts.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
+import { acceptCurrentLegal } from "./helpers/legalAcceptance.js";
 
 const USER_PREFIX = "t_routes_hero_";
 
 async function createTestUser(): Promise<string> {
   const id = `${USER_PREFIX}${randomUUID()}`;
   await db.insert(usersTable).values({ id, email: `${id}@test.local`, emailVerifiedAt: new Date(), onboardingCompletedAt: new Date() });
+  await acceptCurrentLegal(id);
   return id;
 }
 

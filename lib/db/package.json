@@ -12,7 +12,8 @@
     "./migrate": "./src/migrate.ts",
     "./live-fact-fixture": "./src/liveFactFixture.ts",
     "./retention-schedule": "./src/retentionSchedule.ts",
-    "./privacy-retention": "./src/privacyRetention.ts"
+    "./privacy-retention": "./src/privacyRetention.ts",
+    "./legal-versions": "./src/generated/legalVersions.ts"
   },
   "scripts": {
     "generate": "drizzle-kit generate --config ./drizzle.config.ts",

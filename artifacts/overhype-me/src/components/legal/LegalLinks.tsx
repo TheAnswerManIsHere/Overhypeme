@@ -21,11 +21,15 @@ export function LegalLinks({ className = "" }: { className?: string }) {
   );
 }
 
-/** One line under a sign-up or set-up form; it informs, it does not record acceptance (increment 4 does). */
+/**
+ * One line under the sign-up form; it informs, and records nothing (set-up's
+ * own tick records acceptance, increment 4). It states no age: the date
+ * question that follows is asked neutrally (launch Phase 14, Q3).
+ */
 export function LegalNotice() {
   return (
     <p className="text-xs text-muted-foreground text-center">
-      Overhype.me is for adults. Read our{" "}
+      Read our{" "}
       <Link href="/terms" className="underline hover:text-primary">Terms</Link>,{" "}
       <Link href="/privacy" className="underline hover:text-primary">Privacy Policy</Link> and{" "}
       <Link href="/guidelines" className="underline hover:text-primary">Community Guidelines</Link>.

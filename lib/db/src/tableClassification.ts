@@ -165,6 +165,7 @@ export const TABLE_CLASSIFICATION: Readonly<Record<string, TableEntry>> = {
   reactions: { class: "product" },
   search_history: { class: "product" },
   share_intents: { class: "product" },
+  legal_acceptances: { class: "product" },
   support_requests: { class: "product" },
   upload_image_metadata: { class: "product" },
   user_ai_images: { class: "product" },

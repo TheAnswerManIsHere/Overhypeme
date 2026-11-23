@@ -59,6 +59,7 @@ export const READ_ONLY_ROUTES: Readonly<Record<RouteKey, { allowed: boolean; why
   "GET /link/:provider": { allowed: false, why: "links a sign-in provider to an account" },
   "PUT /users/me/onboarding/draft": { allowed: false, why: "account set-up" },
   "POST /users/me/onboarding": { allowed: false, why: "account set-up" },
+  "POST /users/me/legal-acceptance": { allowed: false, why: "account set-up: agreeing to the current Terms (launch Phase 14)" },
   "POST /users/me/deletion": { allowed: false, why: "schedules an account deletion" },
 
   "PATCH /users/me/notifications": { allowed: false, why: "changes a profile setting" },

@@ -26,8 +26,6 @@ export interface AuthUser {
   eligibility?: AuthUserEligibility;
   emailVerified?: boolean | null;
   onboardingCompleted?: boolean | null;
-  /** Derived from the stored date of birth at read time; never stored. */
-  is13Plus?: boolean | null;
   /** Derived from the stored date of birth at read time; never stored. Photo uploads require it. */
   is18Plus?: boolean | null;
 }

@@ -1,7 +1,7 @@
 /**
  * The verified-actor gate (launch Phase 5, increment 3, #795; plan T1, T7).
  *
- * @purpose Proves, through the real app stack, that a signed-in account that is not yet eligible is refused every state-changing route with its state's code except the exception table's routes, that the inventoried mutating GET is refused and the public hero read keeps its read without its write, that anonymous requests are untouched, that photo uploads need an adult date of birth to the day, and that the middleware's exception table is the one this plan wrote.
+ * @purpose Proves, through the real app stack, that a signed-in account that is not yet eligible (unverified, un-onboarded, under 18, or without a current Terms acceptance) is refused every state-changing route with its state's code except the exception table's routes, that an under-age account reads every other GET route exactly as a signed-out visitor does, that the inventoried mutating GET is refused and the public hero read keeps its read without its write, that anonymous requests are untouched, that photo uploads need an adult date of birth to the day, and that the middleware's exception table is the one the plans wrote.
  * @subsystem accounts-auth
  */
 import { describe, it, before, after } from "node:test";
@@ -18,7 +18,8 @@ import { eq, like } from "drizzle-orm";
 
 import { createApp } from "../app.js";
 import { createSession, type SessionData } from "../lib/auth.js";
-import { GATE_EXCEPTIONS, MUTATING_GETS, ADULT_ONLY, REFUSAL_CODE } from "../middlewares/requireEligibleActor.js";
+import { GATE_EXCEPTIONS, MUTATING_GETS, ADULT_ONLY, REFUSAL_CODE, UNDER_AGE_READS } from "../middlewares/requireEligibleActor.js";
+import { acceptCurrentLegal } from "./helpers/legalAcceptance.js";
 
 const USER_PREFIX = "t-p5gate-";
 const ROUTES_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "routes");
@@ -42,19 +43,31 @@ const PLAN_EXCEPTIONS = {
   deletion_pending: [...RECOVERY, ...SUPPORT, "POST /users/me/deletion/cancel"],
   unverified: [...RECOVERY, ...SUPPORT],
   unonboarded: [...RECOVERY, ...SUPPORT, "PUT /users/me/onboarding/draft", "POST /users/me/onboarding", "POST /users/me/deletion"],
+  // Launch Phase 14, increment 4 (plan PLAN_PHASE14_COMPLIANCE.md, item 4):
+  // under 18, sign out or ask for deletion only; Terms not accepted, read but
+  // do not act until accepting.
+  underage: ["POST /auth/logout", ...SUPPORT, "POST /users/me/deletion"],
+  terms_unaccepted: [...RECOVERY, ...SUPPORT, "POST /users/me/legal-acceptance", "POST /users/me/deletion"],
 };
 
-type State = "unverified" | "unonboarded" | "eligible";
+type State = "unverified" | "unonboarded" | "underage" | "terms_unaccepted" | "eligible";
 
-async function userIn(state: State, dateOfBirth: string | null = null): Promise<string> {
+/** An adult's birth date, so an onboarded test account is never under 18 by accident. */
+const ADULT_DOB = "1990-01-01";
+
+async function userIn(state: State, dateOfBirth: string | null = ADULT_DOB): Promise<string> {
   const id = `${USER_PREFIX}${randomUUID()}`;
+  const onboarded = state === "eligible" || state === "terms_unaccepted";
   await db.insert(usersTable).values({
     id,
     email: `${id}@test.local`,
     emailVerifiedAt: state === "unverified" ? null : new Date(),
-    onboardingCompletedAt: state === "eligible" ? new Date() : null,
-    dateOfBirth,
+    onboardingCompletedAt: onboarded ? new Date() : null,
+    // A submitted under-age answer: the date itself is not stored.
+    ageRefusedAt: state === "underage" ? new Date() : null,
+    dateOfBirth: onboarded ? dateOfBirth : null,
   });
+  if (state === "eligible") await acceptCurrentLegal(id);
   return id;
 }
 
@@ -65,10 +78,19 @@ async function bearer(userId: string): Promise<string> {
 
 /** Every unsafe route each router file declares, as `METHOD /path` with params filled. */
 function declaredUnsafeRoutes(): Array<{ file: string; method: string; path: string; key: string }> {
+  return declaredRoutes(/router\.(post|put|patch|delete)\(\s*"([^"]+)"/g);
+}
+
+/** Every GET route each router file declares. */
+function declaredGetRoutes(): Array<{ file: string; method: string; path: string; key: string }> {
+  return declaredRoutes(/router\.(get)\(\s*"([^"]+)"/g);
+}
+
+function declaredRoutes(pattern: RegExp): Array<{ file: string; method: string; path: string; key: string }> {
   const out: Array<{ file: string; method: string; path: string; key: string }> = [];
   for (const file of readdirSync(ROUTES_DIR).filter((f) => f.endsWith(".ts"))) {
     const src = readFileSync(join(ROUTES_DIR, file), "utf8");
-    for (const m of src.matchAll(/router\.(post|put|patch|delete)\(\s*"([^"]+)"/g)) {
+    for (const m of src.matchAll(pattern)) {
       const method = m[1]!.toUpperCase();
       const key = `${method} ${m[2]}`;
       out.push({ file, method, path: m[2]!.replace(/:[A-Za-z_]+/g, "1").replace(/\*[A-Za-z_]+/g, "x"), key });
@@ -102,7 +124,7 @@ describe("the gate's exception table is the plan's", () => {
   });
 });
 
-for (const state of ["unverified", "unonboarded"] as const) {
+for (const state of ["unverified", "unonboarded", "underage", "terms_unaccepted"] as const) {
   describe(`a signed-in ${state} account`, () => {
     let userId = "";
     let sid = "";
@@ -197,10 +219,12 @@ describe("photo uploads need an adult date of birth (plan S12, T7)", () => {
   for (const path of ["/api/storage/upload-avatar", "/api/storage/upload-meme"]) {
     it(`${path}: refused the day before the 18th birthday, admitted on it`, async () => {
       const app = createApp();
+      // Under 18 by a day is now the under-age state (launch Phase 14), refused
+      // before the upload's own adult check is reached.
       const minor = await bearer(await userIn("eligible", isoYearsAgo(18, 1)));
       const refused = await request(app).post(path).set("authorization", `Bearer ${minor}`).set("content-type", "image/jpeg").send(Buffer.from([0xff]));
       assert.equal(refused.status, 403);
-      assert.equal(refused.body.code, "ADULT_REQUIRED");
+      assert.equal(refused.body.code, "UNDER_AGE");
 
       const adult = await bearer(await userIn("eligible", isoYearsAgo(18, 0)));
       const admitted = await request(app).post(path).set("authorization", `Bearer ${adult}`).set("content-type", "image/jpeg").send(Buffer.from([0xff]));
@@ -212,5 +236,47 @@ describe("photo uploads need an adult date of birth (plan S12, T7)", () => {
     const sid = await bearer(await userIn("eligible", null));
     const res = await request(createApp()).post("/api/storage/upload-avatar").set("authorization", `Bearer ${sid}`).set("content-type", "image/jpeg").send(Buffer.from([0xff]));
     assert.equal(res.body.code, "ADULT_REQUIRED");
+  });
+});
+
+describe("an under-age account reads nothing as itself (launch Phase 14, increment 4)", () => {
+  it("every GET route outside its few answers it exactly as it answers a signed-out visitor", async () => {
+    const app = createApp();
+    const sid = await bearer(await userIn("underage"));
+    const own = new Set<string>(UNDER_AGE_READS);
+    const routes = declaredGetRoutes().filter((r) => !own.has(r.key) && !MUTATING_GETS.includes(r.key as never));
+    assert.ok(routes.length > 80, `expected the full GET inventory, found ${routes.length}`);
+    for (const r of routes) {
+      const signedOut = await request(app).get(`/api${r.path}`);
+      const underAge = await request(app).get(`/api${r.path}`).set("authorization", `Bearer ${sid}`);
+      assert.equal(underAge.status, signedOut.status, `${r.key} (${r.file}): ${underAge.status} as the account, ${signedOut.status} signed out`);
+    }
+  });
+
+  it("its own account read is refused as signed out, and who it is still answers", async () => {
+    const app = createApp();
+    const sid = await bearer(await userIn("underage"));
+    const me = await request(app).get("/api/auth/user").set("authorization", `Bearer ${sid}`);
+    assert.equal(me.body?.user?.eligibility ?? me.body?.eligibility, "underage");
+    const deletion = await request(app).get("/api/users/me/deletion").set("authorization", `Bearer ${sid}`);
+    assert.equal(deletion.status, 200);
+    // Cancelling a deletion and resubmitting set-up are refused: the account can only leave.
+    for (const [method, path] of [["post", "/api/users/me/deletion/cancel"], ["post", "/api/users/me/onboarding"]] as const) {
+      const res = await request(app)[method](path).set("authorization", `Bearer ${sid}`).send({});
+      assert.equal(res.body.code, "UNDER_AGE", path);
+    }
+  });
+
+  it("an onboarded account whose stored date is under 18 is in the same state, and leaves it on the 18th birthday", async () => {
+    const app = createApp();
+    const d = new Date();
+    const dayBefore = new Date(Date.UTC(d.getUTCFullYear() - 18, d.getUTCMonth(), d.getUTCDate() + 1)).toISOString().slice(0, 10);
+    const onTheDay = new Date(Date.UTC(d.getUTCFullYear() - 18, d.getUTCMonth(), d.getUTCDate())).toISOString().slice(0, 10);
+    const minor = await bearer(await userIn("eligible", dayBefore));
+    const adult = await bearer(await userIn("eligible", onTheDay));
+    const a = await request(app).get("/api/auth/user").set("authorization", `Bearer ${minor}`);
+    const b = await request(app).get("/api/auth/user").set("authorization", `Bearer ${adult}`);
+    assert.equal(a.body?.user?.eligibility ?? a.body?.eligibility, "underage");
+    assert.equal(b.body?.user?.eligibility ?? b.body?.eligibility, "eligible");
   });
 });

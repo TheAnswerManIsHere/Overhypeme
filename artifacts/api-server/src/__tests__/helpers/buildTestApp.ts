@@ -29,6 +29,7 @@ import { eq } from "drizzle-orm";
 import { deriveUserRole } from "../../lib/userRole.js";
 import { effectiveTierExpr } from "../../lib/membershipState.js";
 import { identityFieldsOf } from "../../lib/eligibility.js";
+import { legalAcceptedExpr } from "../../lib/legalAcceptance.js";
 
 export type FakeAuth =
   | { kind: "unauthenticated" }
@@ -91,6 +92,8 @@ export function buildTestApp(
             emailVerifiedAt: usersTable.emailVerifiedAt,
             onboardingCompletedAt: usersTable.onboardingCompletedAt,
             dateOfBirth: usersTable.dateOfBirth,
+            ageRefusedAt: usersTable.ageRefusedAt,
+            legalAccepted: legalAcceptedExpr(),
           })
           .from(usersTable)
           .where(eq(usersTable.id, userId))

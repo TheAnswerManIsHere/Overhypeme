@@ -17,7 +17,7 @@ import { PendingActionRunner, ShareLinkResolver } from "@/hooks/use-identity-gat
 import { clearAllWizardStates } from "@/components/meme-builder/wizard/state/wizardStorage";
 import { FactExpansionProvider } from "@/contexts/fact-expansion-context";
 import { useAuth, AuthProvider } from "@workspace/replit-auth-web";
-import { currentDestination, setupRedirectFor } from "@/lib/setup-redirect";
+import { currentDestination, setupRedirectFor, termsDeferredThisVisit } from "@/lib/setup-redirect";
 import SentryFallback from "@/components/SentryFallback";
 
 // Pages — lazy-loaded so each route is its own JS chunk
@@ -30,6 +30,8 @@ const Onboard = lazy(() => import("@/pages/Onboard"));
 const CheckEmail = lazy(() => import("@/pages/CheckEmail"));
 const AccountDeletion = lazy(() => import("@/pages/AccountDeletion"));
 const AccountSuspended = lazy(() => import("@/pages/AccountSuspended"));
+const AccountAdultsOnly = lazy(() => import("@/pages/AccountAdultsOnly"));
+const AcceptTerms = lazy(() => import("@/pages/AcceptTerms"));
 const LegalPage = lazy(() => import("@/pages/Legal"));
 const AdminDashboard = lazy(() => import("@/pages/admin/index"));
 const AdminFacts = lazy(() => import("@/pages/admin/facts"));
@@ -148,7 +150,9 @@ function SetupRedirect() {
   const search = useSearch();
   useEffect(() => {
     if (isLoading || !isAuthenticated) return;
-    const target = setupRedirectFor(user?.eligibility, currentDestination(location, window.location.search));
+    const target = setupRedirectFor(user?.eligibility, currentDestination(location, window.location.search), {
+      termsDeferred: termsDeferredThisVisit(),
+    });
     if (target) setLocation(target);
   }, [isAuthenticated, isLoading, user?.eligibility, location, search, setLocation]);
   return null;
@@ -269,6 +273,8 @@ function Router() {
         <Route path="/check-email" component={CheckEmail} />
         <Route path="/account/deletion" component={AccountDeletion} />
         <Route path="/account/suspended" component={AccountSuspended} />
+        <Route path="/account/adults-only" component={AccountAdultsOnly} />
+        <Route path="/account/terms" component={AcceptTerms} />
         <Route path="/admin/facts" component={AdminFacts} />
         <Route path="/admin/users" component={AdminUsers} />
         <Route path="/admin/billing" component={AdminBilling} />

@@ -32,6 +32,7 @@ import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/
 
 import { createApp } from "../app.js";
 import { createSession, type SessionData } from "../lib/auth.js";
+import { acceptCurrentLegal } from "./helpers/legalAcceptance.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATION_SQL = readFileSync(
@@ -58,6 +59,7 @@ before(async () => {
   await cleanup();
   userId = `${PREFIX}${randomUUID()}`;
   await db.insert(usersTable).values({ id: userId, email: `${userId}@test.local`, emailVerifiedAt: new Date(), onboardingCompletedAt: new Date() });
+  await acceptCurrentLegal(userId);
   const data: SessionData = {
     user: { id: userId, membershipTier: "registered" } as unknown as SessionData["user"],
     access_token: "test-token",

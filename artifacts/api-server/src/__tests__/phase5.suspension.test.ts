@@ -26,6 +26,7 @@ import adminRouter from "../routes/admin.js";
 import { isReachableAdminSql } from "../lib/adminIdentity.js";
 import { createSession, revokeUserSessions, type SessionData } from "../lib/auth.js";
 import { suspendAccount } from "../lib/accountSuspension.js";
+import { acceptCurrentLegal } from "./helpers/legalAcceptance.js";
 
 const PREFIX = "t-p5susp-";
 const PASSWORD = "correct horse battery staple";
@@ -48,6 +49,7 @@ async function createUser(opts: { admin?: boolean; verified?: boolean } = {}): P
     passwordHash: await bcrypt.hash(PASSWORD, 4),
     isAdmin: opts.admin ?? false,
   });
+  await acceptCurrentLegal(id);
   return { id, email };
 }
 

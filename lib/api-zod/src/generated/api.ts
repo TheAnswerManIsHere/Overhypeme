@@ -67,23 +67,19 @@ export const GetCurrentAuthUserResponse = zod.object({
         .union([
           zod.literal("eligible"),
           zod.literal("suspended"),
+          zod.literal("underage"),
           zod.literal("deletion_pending"),
           zod.literal("unverified"),
           zod.literal("unonboarded"),
+          zod.literal("terms_unaccepted"),
           zod.literal(null),
         ])
         .nullish()
         .describe(
-          "Whether the account may act, or the first reason it may not (launch Phase 5): verify the email, then onboard, then act. A signed-in request that writes while this is not `eligible` is refused with the matching code. `suspended` and `deletion_pending` are reserved for later increments.",
+          "Whether the account may act, or the first reason it may not (launch Phase 5): verify the email, then onboard, then act. A signed-in request that writes while this is not `eligible` is refused with the matching code. `underage` (launch Phase 14): the account can only sign out or ask for deletion, and its other reads run signed out. `terms_unaccepted`: it can read but must accept the current Terms and Privacy page before it acts.",
         ),
       emailVerified: zod.boolean().nullish(),
       onboardingCompleted: zod.boolean().nullish(),
-      is13Plus: zod
-        .boolean()
-        .nullish()
-        .describe(
-          "Derived from the stored date of birth at read time; never stored.",
-        ),
       is18Plus: zod
         .boolean()
         .nullish()

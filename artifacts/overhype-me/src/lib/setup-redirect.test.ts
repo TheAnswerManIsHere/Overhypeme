@@ -1,5 +1,5 @@
 /**
- * @purpose Proves the shell sends an unverified account to "check your email" and an un-onboarded one to onboarding with where it was going, leaves an eligible account and the set-up and sign-in pages alone.
+ * @purpose Proves the shell sends an unverified account to "check your email" and an un-onboarded one to onboarding with where it was going, an under-age account to the adults-only screen from anywhere, and one without a current Terms acceptance to the accept screen unless it said "not now" this visit; leaves an eligible account and the set-up and sign-in pages alone.
  * @subsystem accounts-auth
  */
 import { describe, it, expect } from "vitest";
@@ -20,7 +20,7 @@ describe("setupRedirectFor", () => {
     for (const p of ["/account/suspended", "/login"]) expect(setupRedirectFor("suspended", p)).toBeNull();
   });
   it("the contact page is reachable from every account state (launch Phase 16, increment 5)", () => {
-    for (const state of ["suspended", "deletion_pending", "unverified", "unonboarded"] as const) {
+    for (const state of ["suspended", "underage", "deletion_pending", "unverified", "unonboarded", "terms_unaccepted"] as const) {
       expect(setupRedirectFor(state, "/support")).toBeNull();
       expect(setupRedirectFor(state, "/support?category=account")).toBeNull();
     }
@@ -43,5 +43,20 @@ describe("setupRedirectFor", () => {
   });
   it("a path that only starts with a set-up page's name is not exempt", () => {
     expect(setupRedirectFor("unonboarded", "/onboarding-tips")).toBe("/onboard?returnTo=%2Fonboarding-tips");
+  });
+  // Launch Phase 14, increment 4.
+  it("an under-age account is sent to the adults-only screen from anywhere else, the legal pages and support excepted", () => {
+    expect(setupRedirectFor("underage", "/submit")).toBe("/account/adults-only");
+    expect(setupRedirectFor("underage", "/onboarding-tips")).toBe("/account/adults-only");
+    for (const p of ["/account/adults-only", "/account/adults-only?delete=confirm", "/terms", "/privacy", "/support", "/login"]) {
+      expect(setupRedirectFor("underage", p)).toBeNull();
+    }
+  });
+  it("an account without a current Terms acceptance is asked, carrying where it was going, until it says not now", () => {
+    expect(setupRedirectFor("terms_unaccepted", "/submit")).toBe("/account/terms?returnTo=%2Fsubmit");
+    expect(setupRedirectFor("terms_unaccepted", "/submit", { termsDeferred: true })).toBeNull();
+    for (const p of ["/account/terms", "/terms", "/privacy"]) expect(setupRedirectFor("terms_unaccepted", p)).toBeNull();
+    // "Not now" defers only the Terms question, never another state's screen.
+    expect(setupRedirectFor("underage", "/submit", { termsDeferred: true })).toBe("/account/adults-only");
   });
 });
