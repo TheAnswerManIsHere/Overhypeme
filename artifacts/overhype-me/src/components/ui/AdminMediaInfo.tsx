@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useAuth } from "@workspace/replit-auth-web";
 
 export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -45,7 +46,12 @@ export interface AdminMediaInfoProps {
 }
 
 export function AdminMediaInfo({ fileName, fileSizeBytes, mimeType, width, height }: AdminMediaInfoProps) {
+  // A debugging aid for admins: every other viewer sees nothing (#875, R1).
+  // `role` is the effective role, so an admin previewing as a user sees what
+  // the user sees.
+  const { role } = useAuth();
   const parts: [string, string][] = [];
+  if (role !== "admin") return null;
   if (fileName) parts.push(["file", fileName]);
   if (fileSizeBytes != null && fileSizeBytes > 0) parts.push(["size", formatFileSize(fileSizeBytes)]);
   if (mimeType) parts.push(["type", mimeType]);
@@ -93,7 +99,8 @@ export function AdminMediaInfoForUrl({
   fileSizeBytes?: number | null;
   mimeType?: string | null;
 }) {
-  const dims = useImageDimensions(url);
+  const { role } = useAuth();
+  const dims = useImageDimensions(role === "admin" ? url : null);
   return (
     <AdminMediaInfo
       fileName={fileName ?? getFileNameFromUrl(url)}

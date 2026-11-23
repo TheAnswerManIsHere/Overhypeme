@@ -184,6 +184,9 @@ export default function FactDetail() {
       throw new Error(body?.error ?? "Failed to delete meme");
     }
     await queryClient.invalidateQueries({ queryKey: ["listFactMemes", factId] });
+    // The same meme is listed in your Library and now sits in Recently deleted.
+    void queryClient.invalidateQueries({ queryKey: ["profile-my-memes"] });
+    void queryClient.invalidateQueries({ queryKey: ["my-recently-deleted"] });
   }
 
 
@@ -357,7 +360,7 @@ export default function FactDetail() {
                         aspectRatio={MEME_ASPECT_CLASS[meme.aspectRatio ?? "landscape"] ?? "aspect-video"}
                         actions={isMyMeme ? ["delete", "copyLink", "openFull"] : ["copyLink", "openFull"]}
                         onDelete={isMyMeme ? () => handleDeleteMeme(meme.permalinkSlug) : undefined}
-                        deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
+                        deleteConfirmMessage="Delete this meme? It leaves Overhype.me now and moves to Recently deleted in your Library, where you can restore it. A copy someone already loaded can stay visible to them for up to a day."
                         permalink={memePermalink}
                         askBefore={askBefore}
                         footer={<AdminMediaInfo fileName={getFileNameFromUrl(meme.imageUrl)} fileSizeBytes={meme.uploadFileSizeBytes} mimeType={getMimeTypeFromUrl(meme.imageUrl)} width={meme.originalWidth} height={meme.originalHeight} />}
@@ -404,12 +407,14 @@ export default function FactDetail() {
             );
           })()}
 
-          {/* Private-by-default hint — only shown in Mine tab when there's content */}
+          {/* Visibility hint — only shown in Mine tab when there's content. New memes
+              are public by default (the site is for sharing); making one private
+              is a Legendary perk (David, Q15, 2026-11-23; inventory F21). */}
           {galleryTab === "mine" && isAuthenticated && (myPublicMemes.length + myPrivateMemes.length) > 0 && (
             <div className="flex gap-3 items-start p-4 bg-secondary rounded-2xl border border-border mt-2">
               <span className="text-base leading-none pt-0.5">🔒</span>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Your memes are <strong className="text-foreground">private by default</strong>. Open one to manage its visibility.
+                Your memes are <strong className="text-foreground">public by default</strong>, so others can find them. Legendary members can make a meme private from its page.
               </p>
             </div>
           )}

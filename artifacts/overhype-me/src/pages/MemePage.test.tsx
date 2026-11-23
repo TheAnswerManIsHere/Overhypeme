@@ -14,7 +14,7 @@ import MemePage from "./MemePage";
 let role = "registered";
 let user: { id: string } | null = { id: "viewer-1" };
 vi.mock("@workspace/replit-auth-web", () => ({
-  useAuth: () => ({ user, role }),
+  useAuth: () => ({ user, role, can: (k: string) => k === "meme_private_visibility" && role === "legendary" }),
 }));
 vi.mock("@workspace/api-client-react", () => ({
   useGetFact: (id: number) => ({ data: id ? { id, text: "{NAME} fought a bear and won." } : undefined }),
@@ -37,6 +37,7 @@ const meme = {
   viewerHasHearted: false,
   originalWidth: 1080,
   originalHeight: 1080,
+  isPublic: true,
 };
 
 function renderAt(path: string) {
@@ -124,5 +125,57 @@ describe("MemePage — a meme that does not exist", () => {
     renderAt("/m/abc");
     expect(await screen.findByText(/meme not found/i)).toBeTruthy();
     expect(screen.queryByTestId("meme-private")).toBeNull();
+  });
+});
+
+// #875 R3: the owner manages the meme from its own page.
+describe("MemePage — the owner's visibility and delete controls (#875)", () => {
+  let calls: Array<{ url: string; method: string; body?: string }>;
+  beforeEach(() => {
+    calls = [];
+    user = { id: "creator-9" };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, method: init?.method ?? "GET", body: init?.body as string | undefined });
+        if (init?.method === "PATCH") return new Response(JSON.stringify({ isPublic: false }), { status: 200 });
+        if (init?.method === "DELETE") return new Response(JSON.stringify({ success: true }), { status: 200 });
+        return new Response(JSON.stringify(meme), { status: 200, headers: { "Content-Type": "application/json" } });
+      }),
+    );
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    user = { id: "viewer-1" };
+  });
+
+  it("a Legendary owner can make a public meme private", async () => {
+    role = "legendary";
+    renderAt("/m/abc");
+    const [button] = await screen.findAllByTestId("own-make-private");
+    fireEvent.click(button!);
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
+    const patch = calls.find((c) => c.method === "PATCH")!;
+    expect(patch.url).toBe("/api/memes/abc/visibility");
+    expect(JSON.parse(patch.body!)).toEqual({ isPublic: false });
+  });
+
+  it("a free owner is shown that private memes are Legendary, with no private switch", async () => {
+    role = "registered";
+    renderAt("/m/abc");
+    expect((await screen.findAllByTestId("own-private-upsell")).length).toBeGreaterThan(0);
+    expect(screen.queryAllByTestId("own-make-private")).toHaveLength(0);
+  });
+
+  it("delete asks once, says where the meme goes, then deletes and opens Recently deleted", async () => {
+    role = "registered";
+    const location = renderAt("/m/abc");
+    const [first] = await screen.findAllByTestId("own-delete");
+    fireEvent.click(first!);
+    expect((await screen.findAllByTestId("own-delete-message"))[0]!.textContent).toMatch(/Recently deleted/);
+    expect(calls.some((c) => c.method === "DELETE")).toBe(false);
+    fireEvent.click(screen.getAllByTestId("own-delete-confirm")[0]!);
+    await waitFor(() => expect(location.history.at(-1)).toBe("/library?tab=deleted"));
+    expect(calls.find((c) => c.method === "DELETE")!.url).toBe("/api/memes/abc");
   });
 });

@@ -10,7 +10,8 @@
  * metadata. The structure is "primary card / secondary row / tertiary row"
  * for every variant so the visual rhythm reads consistently.
  */
-import { ArrowRight, Crown, Download, Library, Share2, Upload } from "lucide-react";
+import { ArrowRight, Crown, Download, Globe, Library, Lock, Share2, Trash2, Upload } from "lucide-react";
+import { useState } from "react";
 import { Link } from "wouter";
 import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
 
@@ -186,10 +187,23 @@ export function CTABarAnonOther({ onSignup }: { onSignup: () => void }) {
 export function CTABarOwn({
   onDownload,
   onCustomShare,
+  isPublic,
+  canMakePrivate,
+  onSetPublic,
+  onDelete,
+  busy = false,
 }: {
   onDownload: () => void;
   onCustomShare: () => void;
+  /** #875 R3: the owner manages a meme's visibility and deletes it here. */
+  isPublic?: boolean;
+  /** Making a meme private is the Legendary perk (`meme_private_visibility`). */
+  canMakePrivate?: boolean;
+  onSetPublic?: (isPublic: boolean) => void;
+  onDelete?: () => void;
+  busy?: boolean;
 }) {
+  const [confirming, setConfirming] = useState(false);
   return (
     <div className="space-y-3" data-testid="cta-own">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -200,6 +214,41 @@ export function CTABarOwn({
           <Share2 className="w-4 h-4" /> Custom share
         </PrimaryButton>
       </div>
+      {onSetPublic && onDelete && isPublic !== undefined && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <PausedWhenReadOnly className="w-full">
+            {isPublic ? (
+              canMakePrivate ? (
+                <SecondaryButton onClick={() => onSetPublic(false)} disabled={busy} testId="own-make-private">
+                  <Lock className="w-4 h-4" /> Public · make private
+                </SecondaryButton>
+              ) : (
+                <SecondaryButton href="/pricing" testId="own-private-upsell">
+                  <Crown className="w-4 h-4" /> Public · private is Legendary
+                </SecondaryButton>
+              )
+            ) : (
+              <SecondaryButton onClick={() => onSetPublic(true)} disabled={busy} testId="own-make-public">
+                <Globe className="w-4 h-4" /> Private · make public
+              </SecondaryButton>
+            )}
+          </PausedWhenReadOnly>
+          <PausedWhenReadOnly className="w-full">
+            <SecondaryButton
+              onClick={() => (confirming ? onDelete() : setConfirming(true))}
+              disabled={busy}
+              testId={confirming ? "own-delete-confirm" : "own-delete"}
+            >
+              <Trash2 className="w-4 h-4" /> {confirming ? "Confirm delete" : "Delete"}
+            </SecondaryButton>
+          </PausedWhenReadOnly>
+          {confirming && (
+            <p className="sm:col-span-2 text-xs text-muted-foreground" data-testid="own-delete-message">
+              It leaves Overhype.me now and moves to Recently deleted in your Library, where you can restore it.
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
