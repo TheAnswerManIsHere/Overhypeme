@@ -461,7 +461,7 @@ export default function Library() {
                            ) : undefined}
                           footer={<AdminMediaInfo fileName={getFileNameFromUrl(meme.imageUrl)} fileSizeBytes={meme.uploadFileSizeBytes} mimeType={getMimeTypeFromUrl(meme.imageUrl)} width={meme.originalWidth} height={meme.originalHeight} />}
                         />
-                        <div className="px-1">
+                        <div className="px-1 flex items-center justify-between gap-2">
                           <MemeHeartButton
                             memeId={meme.id}
                             initialHeartCount={meme.heartCount}
@@ -469,6 +469,10 @@ export default function Library() {
                             stopPropagation
                             size="sm"
                           />
+                          <span className="text-[11px] text-muted-foreground text-right" data-testid="library-meme-meta">
+                            {formatMadeOn(meme.createdAt)} ·{" "}
+                            <Link href={`/facts/${meme.factId}`} className="underline underline-offset-2 hover:text-foreground">Fact</Link>
+                          </span>
                         </div>
                       </div>
                     );
@@ -538,6 +542,11 @@ function deletedItemSrc(item: DeletedItem): string {
     case "generated": return `${BASE_URL}api/memes/ai-user/image?storagePath=${encodeURIComponent(item.storagePath)}`;
     case "meme": return `${BASE_URL}api/memes/${encodeURIComponent(item.slug)}/image`;
   }
+}
+
+/** A meme's creation date, short and in the reader's locale ("23 Nov 2026"). */
+function formatMadeOn(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 }
 
 /** Whole days until the purge, at least one while it is still listed. */
