@@ -591,7 +591,7 @@ them without archaeology:
    `loadSourceSnapshots` leaves out a source whose `livemode` doesn't match
    `stripe_live_mode`, so a test-mode membership grants nothing once the site
    is live. Rows that predate the column were marked test mode (migration
-   0160, David's launch-plan call). A null `livemode` (an admin grant, or a
+   0161, David's launch-plan call). A null `livemode` (an admin grant, or a
    row written outside the verified paths) is not filtered.
 
 The **grace sweep** (`membershipGraceSweep.ts`, hourly by default —
