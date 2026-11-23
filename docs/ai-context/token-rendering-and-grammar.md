@@ -125,7 +125,9 @@ canonical grammar-only cleanup, run in this exact order:
    coordinating conjunction (`{NAME} eats cake and {drinks|drink} soda` → `…
    and drinks soda`); the object-separated reach stops at any brace or
    clause-boundary punctuation (`. , ; : ? ! newline "`), so it can't cross a
-   different subject token or into a new clause. A pair with a letter joined
+   different subject token or into a new clause. It repeats until nothing
+   changes, so every such pair after one `{NAME}` collapses in one call
+   (`… and {drinks|drink} soda and {sleeps|sleep} late`, #1156). A pair with a letter joined
    directly after it is never collapsed here (#1131, PR #1145 round 1): it keeps
    its braces so `validateTemplate` refuses it, instead of becoming a non-word
    such as "addses" that nothing could catch.

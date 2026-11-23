@@ -414,3 +414,25 @@ describe("a negative contraction joined after a pair stays valid (PR #1145 follo
     assert.equal(applyDeterministicGrammar("{NAME} calmly {adds|add}s it"), "{NAME} calmly adds it");
   });
 });
+
+// #1156: the object-separated pass fixed one pair per {NAME}, so a third verb
+// with its own object stayed a choice, and the net was not a fixed point.
+describe("every object-separated verb after a name collapses in one pass (#1156)", () => {
+  it("collapses all of them, and a second pass changes nothing", () => {
+    const cases: Array<[string, string]> = [
+      ["{NAME} eats cake and {drinks|drink} soda and {sleeps|sleep} late", "{NAME} eats cake and drinks soda and sleeps late"],
+      ["{NAME} {doesn't|don't} run and {doesn't|don't} hide and {doesn't|don't} stop", "{NAME} doesn't run and doesn't hide and doesn't stop"],
+      ["{NAME} reads a book or {eats|eat} lunch and {calls|call} mom and {feeds|feed} the cat", "{NAME} reads a book or eats lunch and calls mom and feeds the cat"],
+    ];
+    for (const [input, expected] of cases) {
+      const out = applyDeterministicGrammar(input);
+      assert.equal(out, expected, input);
+      assert.equal(applyDeterministicGrammar(out), out, `not a fixed point: ${input}`);
+    }
+  });
+
+  it("still stops at a different subject and at clause punctuation", () => {
+    assert.equal(applyDeterministicGrammar("{NAME} eats cake and {SUBJ} {drinks|drink} soda"), "{NAME} eats cake and {SUBJ} {drinks|drink} soda");
+    assert.equal(applyDeterministicGrammar("{NAME} eats cake. And {drinks|drink} soda"), "{NAME} eats cake. And {drinks|drink} soda");
+  });
+});
