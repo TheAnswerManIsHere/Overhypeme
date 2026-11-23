@@ -251,8 +251,8 @@ the deployment is autoscale, so a fleet-wide aggregate would need shared state
 the guard does not have. That is a named gap, not an implied capability.
 
 **What it does not cover.** The guard checks that the *credential's account* is
-the declared one. It does not record which mode created an entitlement source,
-so the test-mode-source gap under *Known, accepted gaps* below stands.
+the declared one. Which mode created an entitlement source is recorded on the
+source itself (`livemode`, #454; *Known, accepted gaps* item 2 below).
 
 ## The app database is read before the Stripe mirror
 
@@ -589,10 +589,19 @@ them without archaeology:
    Closed 2026-11-23 (#454): each provider-backed source stores the
    `livemode` of the Stripe object it was verified from, and
    `loadSourceSnapshots` leaves out a source whose `livemode` doesn't match
-   `stripe_live_mode`, so a test-mode membership grants nothing once the site
-   is live. Rows that predate the column were marked test mode (migration
-   0161, David's launch-plan call). A null `livemode` (an admin grant, or a
-   row written outside the verified paths) is not filtered.
+   `stripe_live_mode`. Because the stored tier only moves when a user is
+   recomputed, **saving the mode recomputes every user who holds a
+   Stripe-backed source** (`recomputeMembershipsForModeChange`, awaited by the
+   `stripe_live_mode` branch of `PATCH /admin/config/:key`; a failure answers
+   500 and saving the mode again retries it), so a test-mode membership stops
+   granting Legendary at the switch, in either direction, while an admin grant
+   or a source of the new mode keeps it. Rows that predate the column were
+   marked test mode (migration 0161, David's launch-plan call); on a database
+   already in live mode, saving the mode once after the migration applies it.
+   A null `livemode` (an admin grant, or a row written outside the verified
+   paths) is not filtered. A purchase already mid-write when the mode is
+   switched can finish under the old mode after its user was recomputed; saving
+   the mode again repairs it.
 
 The **grace sweep** (`membershipGraceSweep.ts`, hourly by default —
 `grace_sweep_interval_seconds`, operator-configurable) is not a mitigation for

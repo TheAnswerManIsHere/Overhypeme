@@ -19,8 +19,9 @@ import express, { type Express } from "express";
 import request from "supertest";
 
 import { db } from "@workspace/db";
-import { adminConfigTable, usersTable } from "@workspace/db/schema";
-import { eq, like } from "drizzle-orm";
+import { adminConfigTable, membershipEntitlementsTable, membershipHistoryTable, usersTable } from "@workspace/db/schema";
+import { eq, like, sql } from "drizzle-orm";
+import { getEffectiveMembership } from "../lib/membershipState.js";
 
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import adminRouter from "../routes/admin.js";
@@ -130,6 +131,7 @@ describe("the Stripe mode toggle and its construction boundary", () => {
 let adminSid: string;
 
 before(async () => {
+  await db.delete(membershipHistoryTable).where(like(membershipHistoryTable.userId, `${USER_PREFIX}%`));
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
   const adminId = `${USER_PREFIX}${randomUUID()}`;
   await db.insert(usersTable).values({ id: adminId, email: `${adminId}@test.local`, isAdmin: true });
@@ -144,6 +146,7 @@ before(async () => {
 after(async () => {
   await __endCachedSyncForTests();
   _resetSyncRunnerForTests();
+  await db.delete(membershipHistoryTable).where(like(membershipHistoryTable.userId, `${USER_PREFIX}%`));
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
   await setStoredMode(false);
 });
@@ -263,6 +266,52 @@ describe("the mode toggle verifies BEFORE it writes", () => {
     assert.equal(isAccountVerified(false, "sk_test_correct"), true);
     // bustConfigCache() ran, so the lenient read agrees with the row again.
     assert.equal(await getConfigStringRaw("stripe_live_mode", "true"), "false");
+  });
+
+  it("#454 — a switch recomputes memberships: an other-mode source stops granting, grants and new-mode sources keep it", async () => {
+    configureTestValidLiveMismatched();
+    await setStoredMode(true);
+    invalidateStripeSync();
+    holdSyncLock();
+
+    const token = async () =>
+      Number((await db.execute<{ t: string }>(sql`SELECT nextval('membership_source_state_seq') AS t`)).rows[0]!.t);
+    const legendary = async (tag: string) => {
+      const id = `${USER_PREFIX}${tag}-${randomUUID()}`;
+      await db.insert(usersTable).values({ id, email: `${id}@test.local`, membershipTier: "legendary" });
+      return id;
+    };
+    const lifetime = async (userId: string, livemode: boolean) =>
+      db.insert(membershipEntitlementsTable).values({
+        userId, sourceType: "stripe_lifetime_payment", providerRef: `pi_${userId}`,
+        isMembershipProduct: true, lifecycleStatus: "active", amount: 9900, currency: "usd",
+        livemode, sourceStateAsOf: await token(),
+      });
+
+    // Bought while the site was live; the site now switches to test.
+    const liveBuyer = await legendary("live");
+    await lifetime(liveBuyer, true);
+    // Holds a live source AND an admin grant: the grant must keep them Legendary.
+    const granted = await legendary("granted");
+    await lifetime(granted, true);
+    await db.insert(membershipEntitlementsTable).values({
+      userId: granted, sourceType: "admin_grant", lifecycleStatus: "active",
+      grantedByAdminLabel: "test admin", grantReason: "kept through a mode switch",
+      sourceStateAsOf: await token(),
+    });
+    // Holds a source of the mode being switched to.
+    const testBuyer = await legendary("test");
+    await lifetime(testBuyer, false);
+
+    const res = await request(makeApp())
+      .patch("/admin/config/stripe_live_mode")
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ value: "false" });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+
+    assert.equal((await getEffectiveMembership(liveBuyer))?.tier, "registered", "an other-mode purchase grants nothing after the switch");
+    assert.equal((await getEffectiveMembership(granted))?.tier, "legendary", "an admin grant still qualifies");
+    assert.equal((await getEffectiveMembership(testBuyer))?.tier, "legendary", "a source of the new mode still qualifies");
   });
 
   it("a target mode with no credentials is refused rather than switched into", async () => {

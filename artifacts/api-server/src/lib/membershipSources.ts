@@ -23,7 +23,7 @@ import {
   isTerminalDisputeStatus,
   type EntitlementSourceType,
 } from "@workspace/db/schema";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 
 import {
   deriveEffectiveMembership,
@@ -88,6 +88,34 @@ export async function loadSourceSnapshots(
     sourceType: row.sourceType as EntitlementSourceType,
     hasOpenDispute: row.hasOpenDispute === true,
   }));
+}
+
+/**
+ * Recompute every user who holds a Stripe-backed source, after the Stripe mode
+ * changes (#454). The stored tier is a projection that only per-user writers
+ * update, so a switch of `stripe_live_mode` reaches nobody on its own: a
+ * test-mode member would keep Legendary after the site goes live. The mode is
+ * read inside `loadSourceSnapshots`, so each recompute sees the new one.
+ *
+ * Both directions, admin grants untouched (they have no `livemode`, and their
+ * users are recomputed only when they also hold a Stripe source, which keeps
+ * the grant qualifying). One transaction per user, like the grace sweep, so one
+ * failure does not undo the rest; the caller re-saves the mode to retry.
+ */
+export async function recomputeMembershipsForModeChange(): Promise<{ examined: number; changed: number }> {
+  const users = await db
+    .selectDistinct({ userId: membershipEntitlementsTable.userId })
+    .from(membershipEntitlementsTable)
+    .where(isNotNull(membershipEntitlementsTable.livemode));
+
+  let changed = 0;
+  for (const { userId } of users) {
+    const result = await db.transaction((tx) =>
+      recomputeMembership(tx, userId, { transitionEvent: { event: "stripe_mode_switch" } }),
+    );
+    if (result?.changed) changed += 1;
+  }
+  return { examined: users.length, changed };
 }
 
 // ---------------------------------------------------------------------------
