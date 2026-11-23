@@ -1128,6 +1128,13 @@
       "when": 1789300000000,
       "tag": "0160_taxonomy_drops",
       "breakpoints": true
+    },
+    {
+      "idx": 161,
+      "version": "7",
+      "when": 1789400000000,
+      "tag": "0161_membership_entitlement_livemode",
+      "breakpoints": true
     }
   ]
 }

@@ -108,6 +108,8 @@ export interface VerifiedLifetimePurchase {
   /** From the authoritative PaymentIntent, never from the session or a caller. */
   amount: number;
   currency: string;
+  /** The PaymentIntent's Stripe mode (#454). */
+  livemode: boolean;
 }
 
 export interface VerifiedSubscription {
@@ -121,6 +123,8 @@ export interface VerifiedSubscription {
   plan: string | null;
   currentPeriodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
+  /** The subscription's Stripe mode (#454). */
+  livemode: boolean;
 }
 
 export type OneTimeVerification = VerifiedLifetimePurchase | VerificationFailure;
@@ -332,6 +336,7 @@ export async function verifyOneTimeMembershipPurchase(
     lifecycleStatus: "active",
     amount: paymentIntent.amount,
     currency: paymentIntent.currency,
+    livemode: paymentIntent.livemode === true,
   };
 }
 
@@ -436,6 +441,7 @@ export async function verifyMembershipSubscription(
     plan: planLabelFromInterval(membershipItem?.price?.recurring?.interval),
     currentPeriodEnd: typeof periodEnd === "number" ? new Date(periodEnd * 1000) : null,
     cancelAtPeriodEnd: subscription.cancel_at_period_end === true,
+    livemode: subscription.livemode === true,
   };
 }
 

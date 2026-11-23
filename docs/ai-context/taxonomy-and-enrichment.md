@@ -10,7 +10,7 @@
 > a run writes the classifier's own result through `taxonomyColumns`
 > (`artifacts/api-server/src/lib/factEnrichment.ts`), and the Facts editor
 > shows it with only "Re-run" (`FactTaxonomyPanel.tsx`). Increment 2.1b keeps
-> every run as history (`fact_taxonomy_runs`). Increment 2.1c's migration 0160
+> every run as history (`fact_taxonomy_runs`). Increment 2.1c's migration 0161
 > dropped the override, signature and projection columns, the enrichment
 > versions, the override history and the engine-revision record; the modules
 > named below as gone are at tag `pre-cut/taxonomy-health`

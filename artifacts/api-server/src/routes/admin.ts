@@ -1669,6 +1669,20 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
     } catch (err) {
       logger.error({ err }, "[admin] Stripe full sync error after mode toggle");
     }
+    // A membership recorded under the other mode grants nothing (#454), but the
+    // stored tier only moves when a user is recomputed. Awaited, so a failure
+    // reaches the operator; saving the mode again retries it.
+    try {
+      const { recomputeMembershipsForModeChange } = await import("../lib/membershipSources");
+      const result = await recomputeMembershipsForModeChange();
+      logger.info(result, "[admin] memberships recomputed after Stripe mode change");
+    } catch (err) {
+      logger.error({ err }, "[admin] membership recompute failed after Stripe mode change");
+      res.status(500).json({
+        error: "The Stripe mode was switched, but memberships could not all be recalculated. Save the mode again to retry.",
+      });
+      return;
+    }
   }
 
   res.json(updated);

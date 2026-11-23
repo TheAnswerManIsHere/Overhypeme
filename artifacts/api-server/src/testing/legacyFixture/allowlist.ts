@@ -497,6 +497,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
       plan: "synthetic:stripe-price",
       currentPeriodEnd: "keep",
       cancelAtPeriodEnd: "keep",
+      livemode: "keep",
       amount: "keep",
       currency: "keep",
       graceStartedAt: "keep",
