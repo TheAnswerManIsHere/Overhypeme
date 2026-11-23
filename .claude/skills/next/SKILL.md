@@ -349,7 +349,7 @@ Whenever the top recommendation sits under a blocked parent, show the
 chain, so David can see how deep he is and what finishing actually buys:
 
 ```
-Issue #213 — Launch UAT (step 4) ← Issue #405 — Admin permissions
+Issue #213 — Launch UAT (T4) ← Issue #405 — Admin permissions
   ← Issue #422 — Plan 1b: write-side permission enforcement (code review)
 ```
 
@@ -433,7 +433,7 @@ NEXT — Issue #422 — Plan 1b: write-side permission enforcement
   Code review, Codex round 3 landed 4h ago, 2 threads open.
   Why: closest to done, and it unblocks the UAT of Issue #405 — Admin
   permissions, and then of Issue #213 — Launch UAT.
-  Stack: Issue #213 — Launch UAT (step 4) ← Issue #405 — Admin permissions
+  Stack: Issue #213 — Launch UAT (T4) ← Issue #405 — Admin permissions
   ← Issue #422 — Plan 1b: write-side permission enforcement
 
 THEN

@@ -95,10 +95,13 @@ interface ActionMenuProps {
   onOpenFull?: () => void;
   onClose: () => void;
   anchorRef: React.RefObject<HTMLElement | null>;
+  /** Shown above "Confirm Delete" on desktop, as the mobile sheet already does (#875, R2). */
+  deleteConfirmMessage?: string;
 }
 
 function ActionMenu({
   actions,
+  deleteConfirmMessage,
   onDeleteConfirm,
   onDeleteRequest,
   onCopy,
@@ -340,6 +343,16 @@ function ActionMenu({
             <span>{confirmDelete ? "Confirm Delete" : "Delete"}</span>
           </button>
           </PausedWhenReadOnly>
+        )}
+
+        {/* What deleting does, on desktop too (#875, R2) */}
+        {confirmDelete && deleteConfirmMessage && (
+          <p
+            data-testid="image-card-delete-message"
+            style={{ margin: "4px 12px 2px", fontSize: 11, lineHeight: 1.4, color: "rgba(255,255,255,0.6)", maxWidth: 220 }}
+          >
+            {deleteConfirmMessage}
+          </p>
         )}
 
         {/* Inline cancel for delete confirm */}
@@ -689,6 +702,7 @@ export function ImageCard({
       {menuOpen && (
         <ActionMenu
           actions={visibleActions}
+          deleteConfirmMessage={deleteConfirmMessage}
           onDeleteConfirm={visibleActions.includes("delete") && onDelete ? handleDeleteConfirm : undefined}
           onDeleteRequest={visibleActions.includes("delete") && onDelete ? handleDeleteRequest : undefined}
           onCopy={visibleActions.includes("copyLink") && permalink ? () => { void handleCopy(); } : undefined}
