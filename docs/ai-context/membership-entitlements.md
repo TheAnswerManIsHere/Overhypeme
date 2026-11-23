@@ -585,12 +585,14 @@ them without archaeology:
    for the design constraint that makes the delivery-failure half harder than
    "write the job": it can't enumerate from local rows, because a first
    purchase whose checkout webhook never landed leaves no row to scan.
-2. **Entitlement sources don't record which Stripe mode created them.** A
-   test-mode membership keeps granting Legendary after an operator flips
-   `stripe_live_mode` to live. See
-   [`current-roadmap.md`](./current-roadmap.md#pre-launch-hardening-must-do-before-go-live)
-   for the fix shape and why the backfill semantics are a product decision,
-   not a mechanic.
+2. ~~**Entitlement sources don't record which Stripe mode created them.**~~
+   Closed 2026-11-23 (#454): each provider-backed source stores the
+   `livemode` of the Stripe object it was verified from, and
+   `loadSourceSnapshots` leaves out a source whose `livemode` doesn't match
+   `stripe_live_mode`, so a test-mode membership grants nothing once the site
+   is live. Rows that predate the column were marked test mode (migration
+   0160, David's launch-plan call). A null `livemode` (an admin grant, or a
+   row written outside the verified paths) is not filtered.
 
 The **grace sweep** (`membershipGraceSweep.ts`, hourly by default —
 `grace_sweep_interval_seconds`, operator-configurable) is not a mitigation for

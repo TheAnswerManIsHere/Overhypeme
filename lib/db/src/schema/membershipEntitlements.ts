@@ -162,6 +162,12 @@ export const membershipEntitlementsTable = pgTable(
     plan: varchar("plan"),
     currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
     cancelAtPeriodEnd: boolean("cancel_at_period_end"),
+    /**
+     * The `livemode` of the Stripe object this source was verified from (#454).
+     * A source recorded under the other Stripe mode grants nothing. Null for
+     * admin grants, which have no Stripe object.
+     */
+    livemode: boolean("livemode"),
     /** Payment-backed only. Deliberately absent for subscriptions — see the matrix. */
     amount: integer("amount"),
     currency: varchar("currency"),

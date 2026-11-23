@@ -69,7 +69,19 @@ export async function loadSourceSnapshots(
       )`,
     })
     .from(membershipEntitlementsTable)
-    .where(eq(membershipEntitlementsTable.userId, userId));
+    .where(
+      and(
+        eq(membershipEntitlementsTable.userId, userId),
+        // A source recorded under the other Stripe mode grants nothing (#454): a
+        // test-mode purchase made before the switch to live payments cannot keep
+        // granting Legendary. Read in the same statement as the rows, from the
+        // setting `isLiveMode()` reads, so the two cannot disagree mid-derivation.
+        // Null is an admin grant (no Stripe object) or a row written outside
+        // the verified paths.
+        sql`(${membershipEntitlementsTable.livemode} IS NULL OR ${membershipEntitlementsTable.livemode} = coalesce(
+          (SELECT value = 'true' FROM admin_config WHERE key = 'stripe_live_mode'), false))`,
+      ),
+    );
 
   return rows.map((row) => ({
     ...row,
@@ -181,6 +193,8 @@ export interface SubscriptionSourceState {
   plan: string | null;
   currentPeriodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
+  /** The verified subscription's Stripe mode (#454). */
+  livemode: boolean;
 }
 
 /** What a verified one-time purchase writes. Frozen after creation. */
@@ -192,6 +206,8 @@ export interface LifetimeSourceState {
   lifecycleStatus: "active" | "refunded";
   amount: number | null;
   currency: string | null;
+  /** The verified PaymentIntent's Stripe mode (#454). */
+  livemode: boolean;
 }
 
 /**
@@ -321,6 +337,7 @@ export async function applySubscriptionSource(
         plan: state.plan,
         currentPeriodEnd: state.currentPeriodEnd,
         cancelAtPeriodEnd: state.cancelAtPeriodEnd,
+        livemode: state.livemode,
         graceStartedAt,
         graceExpiresAt,
         sourceStateAsOf: token,
@@ -354,6 +371,7 @@ export async function applySubscriptionSource(
       plan: state.plan,
       currentPeriodEnd: state.currentPeriodEnd,
       cancelAtPeriodEnd: state.cancelAtPeriodEnd,
+      livemode: state.livemode,
       graceStartedAt,
       graceExpiresAt,
       sourceStateAsOf: token,
@@ -393,6 +411,7 @@ export async function createLifetimeSource(
       lifecycleStatus: state.lifecycleStatus,
       amount: state.amount,
       currency: state.currency,
+      livemode: state.livemode,
       sourceStateAsOf: token,
     })
     .onConflictDoNothing()

@@ -802,6 +802,7 @@ async function applySubscription(
       plan: verified.plan,
       currentPeriodEnd: verified.currentPeriodEnd,
       cancelAtPeriodEnd: verified.cancelAtPeriodEnd,
+      livemode: verified.livemode,
     },
     { graceStartedAt: prepared.graceStartedAt },
   );
@@ -891,6 +892,7 @@ async function applyLifetimePurchase(
     lifecycleStatus: "active",
     amount: verified.amount,
     currency: verified.currency,
+    livemode: verified.livemode,
   });
 
   if (created) {

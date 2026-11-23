@@ -296,6 +296,18 @@ describe("verifyMembershipSubscription", () => {
     assert.deepEqual(result.currentPeriodEnd, new Date(1_800_000_000 * 1000));
   });
 
+  it("records the Stripe mode of the retrieved objects (#454)", async () => {
+    const world = membershipWorld();
+    const test = await verifyMembershipSubscription("sub_ok", makeDeps(world));
+    assert.equal(test.ok && test.livemode, false);
+    world.subscriptions.sub_ok!.livemode = true;
+    world.paymentIntents.pi_1!.livemode = true;
+    const live = await verifyMembershipSubscription("sub_ok", makeDeps(world));
+    assert.equal(live.ok && live.livemode, true);
+    const purchase = await verifyOneTimeMembershipPurchase("cs_ok", makeDeps(world));
+    assert.equal(purchase.ok && purchase.livemode, true);
+  });
+
   it("derives plan from the item that actually grants membership, not items[0]", async () => {
     const world = membershipWorld();
     world.subscriptionItems.sub_ok = [
