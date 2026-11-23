@@ -141,8 +141,13 @@ where I put it and treat it as binding.
    ID, and only these: an action only he can take (a sign-in code,
    `/model`), a scope's or a plan's approval (each question inside the
    approval ask has its own),
-   and a `/uat` step's Pass/Fail verdict, which the step's own number
-   identifies. An irreversible-list ask is a question and carries one, and
+   and a `/uat` step's Pass/Fail verdict, which the step's own static ID
+   identifies — `T1`, `T2`, … for a feature step and `R1`, `R2`, … for a
+   regression check, fixed by the script's headings like a `Q` ID is fixed
+   when asked (David, 2026-11-23: *"the test steps should be numbered in
+   the same way that questions you ask me are numbered so I can respond to
+   them accurately. Let's use T1, T2, etc."*; `uat-doc-format.md`, *The rule
+   that makes it deterministic*). An irreversible-list ask is a question and carries one, and
    so does any other question in a walkthrough. The bugfix
    tier checklist's two triggers, labelled Q1 and Q2 in `working-modes.md`,
    are written "tier check 1" and "tier check 2" in anything he reads, a

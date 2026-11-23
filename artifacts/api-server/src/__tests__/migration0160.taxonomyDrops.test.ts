@@ -119,7 +119,7 @@ describe("migration 0160: today's taxonomy into history, then the taxonomy drops
 
   it("skips a fact with no taxonomy, and counts every state", async () => {
     assert.deepEqual(await runsOf(f.none!), []);
-    assert.match(first[0]!, /seeded into history [2-9]\d*, already held \(no-op\) [1-9]\d*, skipped \(no taxonomy\) [1-9]\d*, failed 0/);
+    assert.match(first[0]!, /seeded into history (?:[2-9]|[1-9]\d+), already held \(no-op\) [1-9]\d*, skipped \(no taxonomy\) [1-9]\d*, failed 0/);
   });
 
   it("a second run seeds nothing new", async () => {

@@ -339,10 +339,20 @@ const NAME_OBJECT_SEPARATED_PAIR_RE = new RegExp(
  */
 function collapseNameObjectSeparatedConjugationPair(template: string): string {
   if (!template) return template;
-  return template.replace(
-    NAME_OBJECT_SEPARATED_PAIR_RE,
-    (_match, prefix: string, pair: string) => `${prefix}${pair.replace(CHAIN_PAIR_RE, "$1")}`,
-  );
+  // One match consumes everything from {NAME} to the pair it collapses, so a
+  // single replace fixes one pair per {NAME}: "{NAME} eats cake and {drinks|drink}
+  // soda and {sleeps|sleep} late" left the second pair (#1156). Repeat until
+  // nothing changes. Each round only removes braces, never adds them, so it
+  // ends within as many rounds as the template has pairs.
+  let current = template;
+  for (;;) {
+    const next = current.replace(
+      NAME_OBJECT_SEPARATED_PAIR_RE,
+      (_match, prefix: string, pair: string) => `${prefix}${pair.replace(CHAIN_PAIR_RE, "$1")}`,
+    );
+    if (next === current) return current;
+    current = next;
+  }
 }
 
 /**
@@ -432,4 +442,70 @@ export function applyDeterministicGrammar(template: string): string {
   const contractionExpanded = expandSubjectContractions(nameCollapsed);
   const conjugated = autoConjugatePersonSubjectVerbs(contractionExpanded);
   return collapseIdenticalConjugationBranches(conjugated);
+}
+
+// ─── Plain subject references ──────────────────────────────────────────────
+// Shared by the server's tokenizer (its skip-the-model predicates) and the
+// gag editor (which re-sends a stored scene that still holds one), so the two
+// can never disagree about what still needs tokenizing.
+
+/**
+ * Mask every `{…}` brace span (replacing it with a single space) before doing
+ * plain-text word matching, so a token like `{NAME}` or `{NAME_POSSESSIVE}`
+ * is never mistaken for a literal plain-text occurrence of a subject who
+ * happens to be named "Name", and a name inside a conjugation pair's
+ * alternatives can't match either.
+ */
+function maskBraceSpans(text: string): string {
+  return text.replace(/\{[^{}]*\}/g, " ");
+}
+
+function escapeForRegex(word: string): string {
+  return word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Individual words (>=3 chars) drawn from every subject name, deduped. */
+function subjectNameWords(subjectNames: readonly string[]): string[] {
+  const words = new Set<string>();
+  for (const name of subjectNames) {
+    for (const word of name.split(/\s+/)) {
+      const trimmed = word.trim();
+      if (trimmed.length >= 3) words.add(trimmed);
+    }
+  }
+  return [...words];
+}
+
+/** True when a word of a subject name appears in plain text, outside any brace span. */
+export function containsPlainSubjectNameWord(text: string, subjectNames: readonly string[]): boolean {
+  const masked = maskBraceSpans(text);
+  return subjectNameWords(subjectNames).some((word) =>
+    new RegExp(`\\b${escapeForRegex(word)}\\b`, "i").test(masked),
+  );
+}
+
+// Deliberately small: pronouns that can refer to the personalized subject.
+// A heuristic, not a grammar guarantee: a false positive costs one extra model
+// call; a pronoun missing here is one the skip predicates may leave plain.
+const SUBJECT_PRONOUN_WHITELIST = [
+  "he", "him", "his", "she", "her", "hers",
+  "they", "them", "their", "theirs",
+  "himself", "herself", "themself", "themselves",
+];
+
+/** True when a pronoun that could name the subject appears in plain text, outside any brace span. */
+export function containsSubjectPronoun(text: string): boolean {
+  const masked = maskBraceSpans(text);
+  return SUBJECT_PRONOUN_WHITELIST.some((pronoun) =>
+    new RegExp(`\\b${pronoun}\\b`, "i").test(masked),
+  );
+}
+
+/**
+ * True when `text` may still refer to the personalized subject in plain words —
+ * a subject-name word or a subject pronoun outside any token — so a tokenizer
+ * pass could still change it.
+ */
+export function hasPlainSubjectReference(text: string, subjectNames: readonly string[] = []): boolean {
+  return containsPlainSubjectNameWord(text, subjectNames) || containsSubjectPronoun(text);
 }

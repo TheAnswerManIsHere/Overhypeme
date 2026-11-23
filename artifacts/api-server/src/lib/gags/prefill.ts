@@ -27,8 +27,8 @@
  * request has its own key, so a request is never folded into an earlier job.
  */
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, isNull, like } from "drizzle-orm";
-import { IN_FLIGHT_JOB_STATUSES, asyncJobsTable, db, factGagsTable, factsTable, pendingReviewsTable, type FactGag, type GagPrefilledFrom } from "@workspace/db";
+import { and, asc, desc, eq, isNull, like, sql } from "drizzle-orm";
+import { IN_FLIGHT_JOB_STATUSES, asyncJobsTable, db, factGagsTable, factsTable, pendingReviewsTable, usersTable, type FactGag, type GagPrefilledFrom } from "@workspace/db";
 import {
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
   canApproveGags,
@@ -279,6 +279,15 @@ export async function runGagPrefill(payload: GagPrefillPayload, deps: GagPrefill
     // Overtaken: other ideas, or another note, since this run decided.
     if (!nowBlob || nowBlob.generatedAt !== blob.generatedAt) return 0;
     const gags = await nonRemovedGags(factId, tx, true);
+    // The admin who asked is resolved at the write, not trusted from the
+    // payload: one whose account was deleted while the fill was queued is
+    // recorded as nobody, so attribution can never refuse the write and roll
+    // it back (Issue #1148; the taxonomy history's rule, PR #1141). No lock on
+    // the user: a deletion committing between this lookup and the foreign-key
+    // check costs one retry, which then finds nobody.
+    const actor = payload.adminId
+      ? sql<string | null>`(SELECT ${usersTable.id} FROM ${usersTable} WHERE ${usersTable.id} = ${payload.adminId})`
+      : null;
     let count = 0;
     for (const { target, content } of prepared) {
       const from: GagPrefilledFrom = { ...ideaShape(target.idea), humorNote: blob.humorNoteUsed?.trim() || null };
@@ -288,9 +297,9 @@ export async function runGagPrefill(payload: GagPrefillPayload, deps: GagPrefill
           factId,
           slot: 1,
           pendingContent: content,
-          pendingBy: payload.adminId ?? null,
+          pendingBy: actor,
           pendingAt: new Date(),
-          createdBy: payload.adminId ?? null,
+          createdBy: actor,
           prefilledFrom: from,
         });
         count++;
@@ -302,7 +311,7 @@ export async function runGagPrefill(payload: GagPrefillPayload, deps: GagPrefill
       await clearPendingExamples(tx, [gag.id]);
       await tx.update(factGagsTable).set({
         pendingContent: content,
-        pendingBy: payload.adminId ?? null,
+        pendingBy: actor,
         pendingAt: new Date(),
         prefilledFrom: from,
         updatedAt: new Date(),

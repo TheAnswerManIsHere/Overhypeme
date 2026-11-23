@@ -75,7 +75,7 @@ the mandatory live check had no recorded command for close-out to run).
    drives the run by enumerating `#### ` headings inside `### Steps` and
    `### Regression` of that section, so a section outside the format is one
    that cannot be driven. Setup lines, step shape (`Do:` / `Expect:`),
-   regression IDs and the deliberate omissions all live there rather than
+   step and regression IDs (`T1`…, `R1`…) and the deliberate omissions all live there rather than
    being restated here.
 
    **It is a section of the body, not a file (David, 2026-10-21)** — the
@@ -120,7 +120,7 @@ the mandatory live check had no recorded command for close-out to run).
    never repeats it** (David, 2026-11-13; the `uat` skill, section 3): a
    `ci` check runs in the required gate; a `scripted` proof runs before the
    merge, at the head that merges, and its output is recorded on the PR —
-   a comment naming the step, the command, the commit and what it printed,
+   a comment naming the step by its ID, the command, the commit and what it printed,
    posted at close-out's step 8 (`pr-watch`) so a review fix cannot leave it
    on a superseded head — or `/uat` has to run it after all; and a `live` step's check is also a
    step of this PR's *Post-merge verification* section, so close-out runs
@@ -149,7 +149,7 @@ the mandatory live check had no recorded command for close-out to run).
    whose machine check cannot exist yet, because the double or fixture it
    needs lands later, keeps its machine step `**Deferred:** #N` to that
    owner, and **the owed check is recorded on issue #N when the line is
-   written** (one comment naming the PR, the step and the check), so whoever
+   written** (one comment naming the PR, the step by its ID and the check), so whoever
    lands #N knows it. **The PR that lands #N pays that debt in the same PR**:
    it writes the check and, in every merged PR's `## UAT` section that
    defers to #N, replaces the `**Deferred:**` line with the runnable

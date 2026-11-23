@@ -4,7 +4,7 @@
     "endpoint": "fal-ai/nano-banana-2"
   },
   "fingerprint": "7e1ad022eb564b5dc7c395f6554b0f619d41de9300eef102ed2c1eee7ad80138",
-  "recordedAt": "2026-11-17T19:22:00.428Z",
+  "recordedAt": "2026-11-23T05:24:23.302Z",
   "clients": {
     "@fal-ai/client": "1.9.5",
     "openai": "6.33.0"
