@@ -191,7 +191,7 @@ export default function Library() {
       credentials: "include",
       ...(body ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}),
     });
-    if (!res.ok) throw await failure(res, method === "DELETE" ? "Delete failed" : "Restore failed");
+    if (!res.ok) throw await failure(res, method === "DELETE" || url.endsWith("/purge") ? "Delete failed" : "Restore failed");
     await Promise.all([...lists, "my-recently-deleted"].map((key) => queryClient.invalidateQueries({ queryKey: [key] })));
   }
 
@@ -201,6 +201,10 @@ export default function Library() {
     change(`${BASE_URL}api/users/me/uploads?path=${encodeURIComponent(objectPath)}`, "DELETE", ["my-uploads"]);
   const deleteAiImage = (id: number) =>
     change(`${BASE_URL}api/users/me/ai-images/${id}`, "DELETE", ["my-ai-images"]);
+
+  /** "Delete now": ends the item's restore window; the purger removes it within the hour. */
+  const purgeNow = (item: DeletedItem) =>
+    change(`${BASE_URL}api/users/me/recently-deleted/purge`, "POST", [], { kind: item.kind, key: item.key });
 
   function restore(item: DeletedItem) {
     switch (item.kind) {
@@ -484,7 +488,7 @@ export default function Library() {
           )}
 
           {activeTab === "deleted" && (
-            <RecentlyDeletedPanel data={deletedData} isLoading={isDeletedLoading} windowDays={windowDays} onRestore={restore} />
+            <RecentlyDeletedPanel data={deletedData} isLoading={isDeletedLoading} windowDays={windowDays} onRestore={restore} onPurge={purgeNow} />
           )}
         </div>
       </div>
@@ -546,14 +550,31 @@ function daysLeft(purgeAfter: string): number {
  * deleted that can still come back, with how long each has left. Restoring
  * puts it back where it was, as it was.
  */
-function RecentlyDeletedPanel({ data, isLoading, windowDays, onRestore }: {
+function RecentlyDeletedPanel({ data, isLoading, windowDays, onRestore, onPurge }: {
   data: RecentlyDeleted | undefined;
   isLoading: boolean;
   windowDays: number;
   onRestore: (item: DeletedItem) => Promise<void>;
+  onPurge: (item: DeletedItem) => Promise<void>;
 }) {
   const { toast } = useToast();
   const [restoring, setRestoring] = useState<string | null>(null);
+  /** The item whose "Delete now" is waiting for its confirmation, and the one being deleted. */
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [purging, setPurging] = useState<string | null>(null);
+
+  async function purgeItem(item: DeletedItem) {
+    setPurging(`${item.kind}:${item.key}`);
+    try {
+      await onPurge(item);
+      toast({ title: `${KIND_LABEL[item.kind]} deleted for good` });
+    } catch (err) {
+      toast({ variant: "destructive", title: "Delete failed", description: err instanceof Error ? err.message : undefined });
+    } finally {
+      setPurging(null);
+      setConfirming(null);
+    }
+  }
 
   async function restoreItem(item: DeletedItem) {
     setRestoring(`${item.kind}:${item.key}`);
@@ -571,7 +592,8 @@ function RecentlyDeletedPanel({ data, isLoading, windowDays, onRestore }: {
     <div>
       <p className="text-sm text-muted-foreground mb-6">
         Photos, images and memes you deleted. Each stays here for {windowDays} days after you delete it,
-        then it is removed from Overhype.me for good. Restore puts it back exactly as it was.
+        then it is removed from Overhype.me for good. Restore puts it back exactly as it was; Delete now
+        removes it for good straight away. Click an image to open it full size.
       </p>
       {isLoading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
@@ -587,21 +609,45 @@ function RecentlyDeletedPanel({ data, isLoading, windowDays, onRestore }: {
               const left = daysLeft(item.purgeAfter);
               return (
                 <div key={id} className="bg-card border-2 border-border rounded-sm overflow-hidden flex flex-col">
-                  <div className={`${item.kind === "meme" ? "aspect-video" : "aspect-square"} bg-secondary`}>
+                  <a href={deletedItemSrc(item)} target="_blank" rel="noopener noreferrer"
+                    className={`${item.kind === "meme" ? "aspect-video" : "aspect-square"} bg-secondary block`}
+                    data-testid="deleted-item-open" title="Open full size">
                     <img src={deletedItemSrc(item)} alt={`Deleted ${KIND_LABEL[item.kind].toLowerCase()}`}
                       className="w-full h-full object-cover opacity-60" loading="lazy" />
-                  </div>
+                  </a>
                   <div className="p-3 flex flex-col gap-2">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-xs font-bold uppercase tracking-wider text-foreground">{KIND_LABEL[item.kind]}</span>
-                      <span className="font-mono text-[11px] text-muted-foreground" title={`Removed for good on ${new Date(item.purgeAfter).toLocaleString()}`}>
+                      <span className="font-mono text-[11px] text-muted-foreground">
                         {left} {left === 1 ? "day" : "days"} left
                       </span>
                     </div>
+                    <p className="text-[11px] text-muted-foreground" data-testid="deleted-item-purge-date">
+                      Removed for good on {new Date(item.purgeAfter).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
+                    </p>
                     <PausedWhenReadOnly>
-                    <Button size="sm" variant="outline" className="gap-2" disabled={restoring === id} onClick={() => void restoreItem(item)}>
+                    <Button size="sm" variant="outline" className="gap-2" disabled={restoring === id || purging === id} onClick={() => void restoreItem(item)}>
                       <RotateCcw className="w-4 h-4" /> {restoring === id ? "RESTORING…" : "RESTORE"}
                     </Button>
+                    {confirming === id ? (
+                      <div className="flex flex-col gap-1" data-testid="deleted-item-confirm">
+                        <p className="text-[11px] text-destructive">This can't be undone.</p>
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="danger" className="flex-1" disabled={purging === id}
+                            data-testid="deleted-item-confirm-delete" onClick={() => void purgeItem(item)}>
+                            {purging === id ? "DELETING…" : "DELETE"}
+                          </Button>
+                          <Button size="sm" variant="outline" className="flex-1" disabled={purging === id} onClick={() => setConfirming(null)}>
+                            KEEP
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <Button size="sm" variant="ghost" className="gap-2 text-destructive" disabled={restoring === id}
+                        data-testid="deleted-item-delete-now" onClick={() => setConfirming(id)}>
+                        <Trash2 className="w-4 h-4" /> DELETE NOW
+                      </Button>
+                    )}
                     </PausedWhenReadOnly>
                   </div>
                 </div>

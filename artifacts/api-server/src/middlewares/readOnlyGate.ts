@@ -65,6 +65,7 @@ export const READ_ONLY_ROUTES: Readonly<Record<RouteKey, { allowed: boolean; why
   "POST /users/me/profile-image": { allowed: false, why: "changes a profile" },
   "DELETE /users/me/uploads": { allowed: false, why: "deletes uploads" },
   "POST /users/me/uploads/restore": { allowed: false, why: "restores uploads" },
+  "POST /users/me/recently-deleted/purge": { allowed: false, why: "permanently deletes content" },
   "DELETE /users/me/ai-images/:id": { allowed: false, why: "deletes an image" },
   "POST /users/me/ai-images/:id/restore": { allowed: false, why: "restores an image" },
   "POST /storage/upload-avatar": { allowed: false, why: "uploads a photo" },
