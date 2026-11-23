@@ -426,13 +426,42 @@ export function expandSubjectContractions(template: string): string {
   );
 }
 
+const PRONOUN_TOKEN_CAPITALIZED: Readonly<Record<string, string>> = {
+  SUBJ: "Subj",
+  OBJ: "Obj",
+  POSS: "Poss",
+  POSS_PRO: "Poss_Pro",
+  REFL: "Refl",
+};
+
+// A lower-case pronoun token at the very start of the template, or after a
+// sentence-ending mark and whitespace, with any opening quotes or brackets
+// between. Group 1 is everything before the token; group 2 the token name.
+const SENTENCE_INITIAL_PRONOUN_RE =
+  /(^[\s"'“‘(\[]*|[.!?]["'”’)\]]*\s+["'“‘(\[]*)\{(SUBJ|OBJ|POSS|POSS_PRO|REFL)\}/g;
+
+/**
+ * Capitalize a pronoun token that starts a sentence: "{POSS} pin is…" →
+ * "{Poss} pin is…", so it renders "His pin is…" rather than "his pin is…".
+ * The tokenizer's prompt asks the model for the capitalized form there, and
+ * the model does not always comply; this is the deterministic net. Pure and
+ * idempotent — a capitalized token never re-matches.
+ */
+export function capitalizeSentenceInitialPronounTokens(template: string): string {
+  if (!template) return template;
+  return template.replace(
+    SENTENCE_INITIAL_PRONOUN_RE,
+    (_match: string, lead: string, token: string) => `${lead}{${PRONOUN_TOKEN_CAPITALIZED[token]}}`,
+  );
+}
+
 /**
  * The single canonical deterministic grammar-only cleanup sequence, run at
  * every template-writing ingress (and inside the AI tokenizer's own
  * post-processing, so the two paths can never drift): collapse
  * {NAME}-subject pairs, expand subject-pronoun contractions, auto-conjugate
- * missed person-subject verbs, then collapse identical conjugation branches.
- * Excludes `stripUnknownTokens` — hallucinated-token cleanup is model-specific
+ * missed person-subject verbs, collapse identical conjugation branches, then
+ * capitalize sentence-initial pronoun tokens. Excludes `stripUnknownTokens` — hallucinated-token cleanup is model-specific
  * policy that write routes should not silently apply to admin/user input;
  * they should validate and reject unknown tokens instead. Pure and
  * idempotent.
@@ -441,7 +470,7 @@ export function applyDeterministicGrammar(template: string): string {
   const nameCollapsed = collapseNameSubjectConjugationPairs(repairGluedConjugationSuffixes(template));
   const contractionExpanded = expandSubjectContractions(nameCollapsed);
   const conjugated = autoConjugatePersonSubjectVerbs(contractionExpanded);
-  return collapseIdenticalConjugationBranches(conjugated);
+  return capitalizeSentenceInitialPronounTokens(collapseIdenticalConjugationBranches(conjugated));
 }
 
 // ─── Plain subject references ──────────────────────────────────────────────

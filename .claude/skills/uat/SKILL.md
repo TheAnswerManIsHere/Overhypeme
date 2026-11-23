@@ -107,7 +107,7 @@ session, then it should do what it does today."*).
 3. **One candidate → start it. Several → ask which**, one question under its ID (`claude-core.md`, interaction rule 4).
    **None → say so** and don't invent a run.
 
-Then give him a **three-line preview before step 1**, never the whole script:
+Then give him a **three-line preview before the first step**, never the whole script:
 how many machine-lane checks are settled and how many steps are his, in
 `### Steps` and in `### Regression` (section 3), what I'm setting up for him
 (section 2), and anything he needs on hand — an admin login, a phone, a fresh browser tab. The script's
@@ -115,10 +115,10 @@ narrative preamble is mine to have read, not his to sit through.
 
 ## 2. Setup is mine, and so is putting it back
 
-**Anything mechanical that stands between David and step 1, I do** (David,
+**Anything mechanical that stands between David and the first step, I do** (David,
 2026-08-21). Seeding rows, creating a test account, putting config in a
 known state, confirming the Repl is synced and the app is up. He should
-arrive at step 1 with the app already in the state the test needs.
+arrive at the first step with the app already in the state the test needs.
 
 Four rules, because setup writes to the live app:
 
@@ -371,6 +371,18 @@ label over a screen fact went into the machine block, above — so the
 preview says both counts ("9 machine-lane checks — 7 settled at merge and
 close-out, 2 run now, all passed; 3 steps for you").
 
+**Every step is shown under its static ID** (David, 2026-11-23: *"the test
+steps should be numbered in the same way that questions you ask me are
+numbered so I can respond to them accurately. Let's use T1, T2, etc."*):
+`T1`, `T2`, … for `### Steps` and `R1`, `R2`, … for `### Regression`, read
+from the script's own headings (`uat-doc-format.md`, *The rule that makes it
+deterministic*), so a step keeps its ID when machine-lane steps are settled
+around it, when the run pauses and resumes, and when it is re-presented. A
+turn opens with the ID in bold — `**T3 — Search results read as the right
+answers**` — and he may answer with it ("T3: pass", "T3: the second result
+is wrong") or with a bare reply, which belongs to the one step on screen. A
+legacy script numbered `1.`, `2.` is shown as `T1`, `T2`.
+
 **One step per turn.** What to do, what to expect, nothing else — not the
 next step, not the section after, not the reasoning behind the expectation
 unless he asks, and not a hand-back summary: a walkthrough turn is the step
@@ -399,7 +411,7 @@ steps that cannot produce a signal.
 **"It sort of worked" gets one question, never a forced verdict.** The
 question is a real one — did the result differ from what was expected, or
 was it just slow, ugly, or awkward? — and the answer often splits the step:
-record it honestly as partial ("1–2 fine, 3 wrong") rather than flattening
+record it honestly as partial ("parts 1–2 fine, part 3 wrong") rather than flattening
 it into one Pass or one Fail. A multi-part step is allowed to have a
 multi-part result; the roll-up in section 6 handles it.
 
@@ -456,7 +468,7 @@ In order, in the same turn:
    ends up in.
 5. **Record the way back, in the same edit** — `Blocked by: #<bug>` on this
    workstream, plus a State of Play line naming **which step failed**. This
-   is what makes resumption "step 4" instead of a full re-run, and it goes
+   is what makes resumption "T4" instead of a full re-run, and it goes
    in now, at intake, because a session that ends before it is written loses
    the link entirely. `bugfix` step 1 owns this contract; I'm executing it
    at the earlier moment, because I'm the one holding the context.
@@ -501,7 +513,7 @@ So, from that moment:
 
 - **The bug becomes a private draft Project item**, per CLAUDE.md's
   disclosure rule, with a short stable reference of my choosing
-  (`UAT-<PR>-<step>`) written into the item.
+  (`UAT-<PR>-<step ID>`, the step's `T` or `R` ID) written into the item.
 - **The run record goes manual, and I say so.** A draft Project item is
   write-only to me — no available tool reads or writes Projects v2 item
   fields (`workstream-tracking.md`), so it cannot hold a record I checkpoint
@@ -513,7 +525,7 @@ So, from that moment:
   exactly this path — an accepted cost of not leaking the symptom, stated
   out loud at the moment it starts, never silently.
 - **The public workstream issue keeps only a content-free pointer**:
-  `Blocked by: private tracking (UAT-472-2)` and a State of Play line saying
+  `Blocked by: private tracking (UAT-472-T2)` and a State of Play line saying
   which step failed **without saying how**. That reads as prose rather than
   the anchored `Blocked by: #N` marker, so it does not gate automatically —
   which means I say so plainly to David rather than assuming the stack pops
@@ -543,10 +555,10 @@ have no reliable way to tell which is current.
 
 | Step | Status | Note |
 | --- | --- | --- |
-| 1 · Manual renders (ci) | Pass | settled at merge — PR gate (`adminHelp.spec.ts`) |
-| 2 · Deep link (human, run in browser) | Fail | #903 — landed at chapter top, not the heading; a screen fact, read by me at 1440 px, so the lane is corrected in the PR body at close-out |
-| 3 · Search results read as the right answers (human) | Pass | |
-| 4 · Nothing feels missing from the chapter list (human) | — | not yet run |
+| T1 · Manual renders (ci) | Pass | settled at merge — PR gate (`adminHelp.spec.ts`) |
+| T2 · Deep link (human, run in browser) | Fail | #903 — landed at chapter top, not the heading; a screen fact, read by me at 1440 px, so the lane is corrected in the PR body at close-out |
+| T3 · Search results read as the right answers (human) | Pass | |
+| T4 · Nothing feels missing from the chapter list (human) | — | not yet run |
 | R1 · Sidebar unchanged (ci) | Pass | settled at merge — PR gate (`adminHelp.spec.ts`) |
 | R2 · Chapter diagram drawn in the Manual (capture) | Pass | shot `manual-diagram` at the commit under test, evidence `<link at the evidence commit>`; read: every box labelled, arrows run left to right |
 | R3 · Readable on his own phone (human, his device) | — | not yet run |
@@ -555,8 +567,8 @@ have no reliable way to tell which is current.
 2500.00 captured, restored at pause)
 **Bugs filed:** #903 (major)
 **Product notes:** none
-**Lifecycle gaps:** step 2 — screen fact labelled `human` (lane corrected in PR #472's body)
-**Resume at:** step 4 (2 judgement steps remaining, 4 and R3; step 2's screen fact was mine and is recorded; the 3 machine-lane checks are settled: 2 at merge, the capture at this commit)
+**Lifecycle gaps:** T2 — screen fact labelled `human` (lane corrected in PR #472's body)
+**Resume at:** T4 (2 judgement steps remaining, T4 and R3; T2's screen fact was mine and is recorded; the 3 machine-lane checks are settled: 2 at merge, the capture at this commit)
 ```
 
 **The `Lifecycle gaps` line is how the scripts learn** (my recommendation,
@@ -691,7 +703,7 @@ interaction rule 6 unusable exactly where he's most present. So, **scoped to
 an active run**: ordinary step-by-step turn-taking — including the
 continue-or-pause question right after a failure — gets **no banner and no
 `PushNotification` call**. A step's Pass/Fail verdict carries no question
-ID, since the step's number identifies it; every other question in the run
+ID of the `Q` kind, since the step's own `T` or `R` ID identifies it; every other question in the run
 (the "sort of worked" question, continue-or-pause, which priority) carries
 its ID like any question (`claude-core.md`, interaction rule 4). He's at the keyboard; that's the premise of the
 session. The alert hook rings nothing on those turns either: a walkthrough
