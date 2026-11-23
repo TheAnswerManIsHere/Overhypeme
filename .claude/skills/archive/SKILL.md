@@ -107,7 +107,7 @@ Exactly one, first match wins:
 explicit `/archive` I do not archive and do not stop on the verdict — once
 every other hit I can clear is cleared, I start the `uat` skill in the same
 turn, which finishes any close-out of mine still short of `stage:uat`
-before step 1 (its section 1, item 0). On a build report's **Session**
+before the walkthrough's first step (its section 1, item 0). On a build report's **Session**
 line, where the merge report already hands the UAT to David, it is stated
 as *continue* and starts nothing, like every verdict there.
 
