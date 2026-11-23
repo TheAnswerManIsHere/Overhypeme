@@ -316,9 +316,7 @@ export function collectRenderedTextEntries(
   }
   // `?? []` on EVERY list: the parsed type says these are always present (the
   // schema `.default([])`s them), but this collector is reached with blobs that
-  // were never schema-parsed — a stored `enrichment.visualPromptStrategyOverride`
-  // is copied verbatim into `resolveEnrichment` on the refresh path, and legacy
-  // blobs (plus hand-built fixtures) predate fields that were added later. A
+  // were never schema-parsed — legacy blobs (plus hand-built fixtures) predate fields that were added later. A
   // missing list is read as empty, exactly as `bubbles` already was; a pure
   // read-only collector must never throw on a partial blob.
   (ov.requiredVisualDetails ?? []).forEach((value, i) =>

@@ -10,7 +10,8 @@ import { factsTable } from "./facts";
  * and 2B; Issue #1018, increment 2.1b). One row per classifier call, failures
  * included, written by runEnrichmentForFact in the transaction that stores (or
  * declines to store) its result. Migration 0159 converted the legacy
- * fact_enrichment_versions rows into `legacy_*` rows. Rows are never updated by
+ * fact_enrichment_versions rows into `legacy_*` rows, and 0160 added each
+ * fact's taxonomy as it stood (`legacy_current`) before dropping that table. Rows are never updated by
  * the app; they go with their fact.
  *
  *   outcome  ok        — the output was stored as the fact's taxonomy
@@ -18,11 +19,13 @@ import { factsTable } from "./facts";
  *            discarded — the call returned but the fact changed while it ran,
  *                        so the output was kept here and not stored
  *   origin   provisional_approval | rerun | unrecorded (a job queued before
- *            2.1b) | legacy_promoted | legacy_superseded (0159)
+ *            2.1b) | legacy_promoted | legacy_superseded (0159, from a legacy
+ *            enrichment version) | legacy_current (0160, the taxonomy a fact
+ *            held when the legacy tables were dropped)
  */
 export const FACT_TAXONOMY_RUN_OUTCOMES = ["ok", "failed", "discarded"] as const;
 export const FACT_TAXONOMY_RUN_ORIGINS = [
-  "provisional_approval", "rerun", "unrecorded", "legacy_promoted", "legacy_superseded",
+  "provisional_approval", "rerun", "unrecorded", "legacy_promoted", "legacy_superseded", "legacy_current",
 ] as const;
 export type FactTaxonomyRunOutcome = (typeof FACT_TAXONOMY_RUN_OUTCOMES)[number];
 export type FactTaxonomyRunOrigin = (typeof FACT_TAXONOMY_RUN_ORIGINS)[number];
@@ -38,7 +41,7 @@ export const factTaxonomyRunsTable = pgTable("fact_taxonomy_runs", {
   error: text("error"),
   /** The admin who asked for a Re-run; null otherwise. */
   requestedBy: varchar("requested_by").references(() => usersTable.id, { onDelete: "set null" }),
-  /** The fact_enrichment_versions row this was converted from (0159); its idempotency key. */
+  /** The legacy fact_enrichment_versions row this was converted from (0159; the table was dropped by 0160). */
   legacyVersionId: bigint("legacy_version_id", { mode: "number" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
@@ -47,7 +50,7 @@ export const factTaxonomyRunsTable = pgTable("fact_taxonomy_runs", {
   check("fact_taxonomy_runs_outcome_valid", sql`${t.outcome} IN ('ok', 'failed', 'discarded')`),
   check(
     "fact_taxonomy_runs_origin_valid",
-    sql`${t.origin} IN ('provisional_approval', 'rerun', 'unrecorded', 'legacy_promoted', 'legacy_superseded')`,
+    sql`${t.origin} IN ('provisional_approval', 'rerun', 'unrecorded', 'legacy_promoted', 'legacy_superseded', 'legacy_current')`,
   ),
   check("fact_taxonomy_runs_output_matches_outcome", sql`(${t.outcome} = 'failed') = (${t.output} IS NULL)`),
   check(

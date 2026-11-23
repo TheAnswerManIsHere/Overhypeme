@@ -419,11 +419,10 @@ export interface MaterializedEnrichmentColumns {
 /**
  * THE single write-shape for a fact's stored taxonomy. The taxonomy is
  * read-only AI output (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 2A): there are no
- * manual overrides, so the stored blob is the classifier's own result. The four
- * projection columns (primary_archetype, subtype, overhype_fit,
- * adult_suitability) are no longer written or read: a reader takes the field
- * from `enrichment`, so no second copy can drift (2B), and increment 2.1c drops
- * them. A fact's gags are not part of it (fact_gags, migration 0139).
+ * manual overrides, so the stored blob is the classifier's own result. There
+ * is no projection of it into columns (migration 0160 dropped the four): a
+ * reader takes a field from `enrichment`, so no second copy can drift (2B). A
+ * fact's gags are not part of it (fact_gags, migration 0139).
  */
 export function taxonomyColumns(enrichment: FactEnrichment): MaterializedEnrichmentColumns {
   // Since migration 0139 a gag lives only in fact_gags: the stored taxonomy

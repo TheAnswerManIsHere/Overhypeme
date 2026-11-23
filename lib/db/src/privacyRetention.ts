@@ -191,8 +191,7 @@ export const PRIVACY_RETENTION_ROWS: readonly PrivacyRetentionRow[] = [
     information: "Records of what our staff did",
     howLong: "Kept; a staff member's name is removed when their account is deleted",
     covers: [
-      "admin_actions", "engine_revision_bumps", "tier_feature_permission_audit", "enrichment_override_history",
-      "fact_enrichment_versions", "fact_taxonomy_runs", "fact_readings", "fact_text_edit_history", "fact_gags", "fact_gag_examples",
+      "admin_actions", "tier_feature_permission_audit", "fact_taxonomy_runs", "fact_readings", "fact_text_edit_history", "fact_gags", "fact_gag_examples",
       "eval_runs", "prompt_recipe_versions", "prompt_recipe_promotions", "comparison_sets", "comparison_panels",
       "comparison_cells", "comparison_picks", "comparison_runs", "comparison_reservations",
     ],

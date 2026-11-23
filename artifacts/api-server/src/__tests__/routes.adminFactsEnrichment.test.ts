@@ -27,7 +27,7 @@ import request from "supertest";
 import { db, factGagsTable } from "@workspace/db";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import { factsTable, usersTable, asyncJobsTable, pendingReviewsTable, factTaxonomyRunsTable } from "@workspace/db/schema";
-import { eq, inArray, like, and, asc, sql } from "drizzle-orm";
+import { eq, inArray, like, and, asc } from "drizzle-orm";
 import {
   buildPlaceholderFactEnrichment,
   buildPlaceholderGag,
@@ -347,9 +347,8 @@ describe("taxonomy run history (plan item 16; Issue #1018, increment 2.1b)", () 
     assert.equal((await request(adminApp).get(`/api/admin/facts/0/taxonomy-runs`)).status, 400);
   });
 
-  it("the Facts list reads the archetype from the stored taxonomy, not the retired projection column", async () => {
+  it("the Facts list reads the archetype from the stored taxonomy (the projection column is gone, 0160)", async () => {
     const id = await insertFact({ enrichment: OTHER, enrichmentStatus: "ok" });
-    await db.execute(sql`UPDATE facts SET primary_archetype = 'stale_projection' WHERE id = ${id}`);
     const [row] = await db.select({ text: factsTable.text }).from(factsTable).where(eq(factsTable.id, id));
     const res = await request(adminApp).get(`/api/admin/facts`).query({ search: row!.text, visibility: "both" });
     assert.equal(res.status, 200);

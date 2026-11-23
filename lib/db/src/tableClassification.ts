@@ -98,7 +98,6 @@ export const TABLE_CLASSIFICATION: Readonly<Record<string, TableEntry>> = {
   },
 
   // ── Runtime state ─────────────────────────────────────────────────────────
-  engine_revision_bumps: { class: "runtime" },
   entitlement_grid_revision: { class: "runtime" },
   fal_pricing_cache: { class: "runtime" },
   feature_permissions_migration_log: { class: "runtime" },
@@ -135,7 +134,6 @@ export const TABLE_CLASSIFICATION: Readonly<Record<string, TableEntry>> = {
   admin_actions: { class: "product" },
   fact_readings: { class: "product" },
   comments: { class: "product" },
-  enrichment_override_history: { class: "product" },
   comparison_cells: { class: "product" },
   comparison_panels: { class: "product" },
   comparison_picks: { class: "product" },
@@ -144,7 +142,6 @@ export const TABLE_CLASSIFICATION: Readonly<Record<string, TableEntry>> = {
   comparison_sets: { class: "product" },
   eval_runs: { class: "product" },
   external_links: { class: "product" },
-  fact_enrichment_versions: { class: "product" },
   fact_taxonomy_runs: { class: "product" },
   fact_gags: { class: "product" },
   fact_gag_examples: { class: "product" },
