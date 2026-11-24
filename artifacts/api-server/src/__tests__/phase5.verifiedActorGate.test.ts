@@ -49,7 +49,15 @@ const PLAN_EXCEPTIONS = {
   // The Apple callback is the deletion request's identity proof for an
   // Apple-only account, not a third capability (PR #1178 round 1).
   underage: ["POST /auth/logout", ...SUPPORT, "POST /users/me/deletion", "POST /callback/apple"],
-  terms_unaccepted: [...RECOVERY, ...SUPPORT, "POST /users/me/legal-acceptance", "POST /users/me/deletion"],
+  // Cancelling a membership is a way out, not an act on the site (Q25: 1).
+  terms_unaccepted: [
+    ...RECOVERY,
+    ...SUPPORT,
+    "POST /users/me/legal-acceptance",
+    "POST /users/me/deletion",
+    "POST /stripe/portal",
+    "POST /stripe/subscription/cancel",
+  ],
 };
 
 type State = "unverified" | "unonboarded" | "underage" | "terms_unaccepted" | "eligible";
@@ -187,6 +195,21 @@ for (const state of ["unverified", "unonboarded", "underage", "terms_unaccepted"
     });
   });
 }
+
+describe("an account that has not agreed to the current Terms can still stop paying (Q25: 1)", () => {
+  it("reaches both membership-cancelling handlers, while every other billing write stays refused", async () => {
+    const app = createApp();
+    for (const path of ["/stripe/portal", "/stripe/subscription/cancel"]) {
+      const sid = await bearer(await userIn("terms_unaccepted"));
+      const res = await request(app).post(`/api${path}`).set("authorization", `Bearer ${sid}`).send({});
+      assert.notEqual(res.body?.code, REFUSAL_CODE.terms_unaccepted, `${path} was refused by the gate`);
+    }
+    const sid = await bearer(await userIn("terms_unaccepted"));
+    const res = await request(app).post("/api/stripe/checkout").set("authorization", `Bearer ${sid}`).send({});
+    assert.equal(res.status, 403);
+    assert.equal(res.body.code, REFUSAL_CODE.terms_unaccepted);
+  });
+});
 
 describe("the public hero read keeps its read and skips its write for an account that cannot act", () => {
   it("answers with a fact and writes no preference row", async () => {

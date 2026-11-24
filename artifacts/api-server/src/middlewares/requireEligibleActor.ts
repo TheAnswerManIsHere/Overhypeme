@@ -86,8 +86,17 @@ export const GATE_EXCEPTIONS: Readonly<Record<Exclude<Eligibility, "eligible">, 
   // capability: it reads nothing of the session and signs in whoever Apple
   // vouches for (PR #1178 round 1).
   underage: ["POST /auth/logout", ...SUPPORT, "POST /users/me/deletion", "POST /callback/apple"],
-  // Reads everything; writes only to accept, to leave, or to ask for help.
-  terms_unaccepted: [...RECOVERY, ...SUPPORT, "POST /users/me/legal-acceptance", "POST /users/me/deletion"],
+  // Reads everything; writes only to accept, to leave, to ask for help, or to
+  // stop paying: a member need not agree to a new version to cancel a
+  // membership the Terms say can be cancelled at any time (David, Q25: 1).
+  terms_unaccepted: [
+    ...RECOVERY,
+    ...SUPPORT,
+    "POST /users/me/legal-acceptance",
+    "POST /users/me/deletion",
+    "POST /stripe/portal",
+    "POST /stripe/subscription/cancel",
+  ],
 };
 
 /**
