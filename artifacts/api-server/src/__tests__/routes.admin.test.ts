@@ -33,7 +33,6 @@ import {
   adminConfigTable,
   usersTable,
   factsTable,
-  factTextEditHistoryTable,
   pendingReviewsTable,
   asyncJobsTable,
   membershipEntitlementsTable,
@@ -529,156 +528,18 @@ describe("POST /admin/users/:id/grant-lifetime", () => {
 
 // ── PATCH /admin/facts/:id ────────────────────────────────────────────────────
 
-describe("PATCH /admin/facts/:id", () => {
-  it("returns 401 with no credentials", async () => {
-    const res = await request(makeApp())
-      .patch("/admin/facts/some-id")
-      .send({ isActive: true });
-    assert.equal(res.status, 401);
-    assert.equal(res.body.error, "Unauthorized");
-  });
-
-  it("returns 403 admin_required for a non-admin user", async () => {
-    const res = await request(makeApp())
-      .patch("/admin/facts/some-id")
-      .set("authorization", `Bearer ${userSid}`)
-      .send({ isActive: true });
-    assert.equal(res.status, 403);
-    assert.equal(res.body.error, "admin_required");
-  });
-
-  it("refuses a change to a fact's wording, confirmed or not, and writes nothing (plan PLAN_THREE_GAGS.md, increment 3)", async () => {
-    const original = `${FACT_PREFIX}${randomUUID()} original text`;
-    const factId = await createTestFact(original);
-    for (const body of [
-      { text: "{Subj} keeps it locked in {POSS} back yard." },
-      { text: "{Subj} keeps it locked in {POSS} back yard.", confirmTextEdit: { phrase: "anything", reason: "a long enough reason here", expectedOldTextHash: "x" } },
-      { text: "bad token {FOO}" },
-    ]) {
-      const res = await request(makeApp()).patch(`/admin/facts/${factId}`).set("authorization", `Bearer ${adminSid}`).send(body);
-      assert.equal(res.status, 409, JSON.stringify(res.body));
-      assert.equal(res.body.code, "WORDING_LOCKED");
-    }
-    const [row] = await db.select().from(factsTable).where(eq(factsTable.id, factId));
-    assert.equal(row?.text, original);
-    await assert.rejects(db.update(factsTable).set({ text: "edited around the route" }).where(eq(factsTable.id, factId)), "the database refuses it too");
-  });
-
-  it("accepts a PATCH that carries the stored wording unchanged, applying its other fields", async () => {
-    const original = `${FACT_PREFIX}${randomUUID()} unchanged text`;
-    const factId = await createTestFact(original);
-    const res = await request(makeApp()).patch(`/admin/facts/${factId}`).set("authorization", `Bearer ${adminSid}`).send({ text: original, shareCount: 7 });
-    assert.equal(res.status, 200, JSON.stringify(res.body));
-    const [row] = await db.select().from(factsTable).where(eq(factsTable.id, factId));
-    assert.equal(row?.text, original);
-    assert.equal(row?.shareCount, 7);
-  });
-
-  it("deactivating a fact via this PATCH touches only that fact", async () => {
-    const targetId = await createTestFact(`${FACT_PREFIX}${randomUUID()} deactivate target`);
-    const otherId = await createTestFact(`${FACT_PREFIX}${randomUUID()} deactivate bystander`);
-    const res = await request(makeApp())
-      .patch(`/admin/facts/${targetId}`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ isActive: false });
-    assert.equal(res.status, 200);
-
-    const rows = await db.select({ id: factsTable.id, isActive: factsTable.isActive }).from(factsTable).where(inArray(factsTable.id, [targetId, otherId]));
-    const byId = new Map(rows.map((r) => [r.id, r.isActive]));
-    assert.equal(byId.get(targetId), false);
-    assert.equal(byId.get(otherId), true, "another fact is untouched");
-  });
-
-  it("ignores a parentId in the body: no fact can be linked to another", async () => {
-    const targetId = await createTestFact(`${FACT_PREFIX}${randomUUID()} link target`);
-    const otherId = await createTestFact(`${FACT_PREFIX}${randomUUID()} link other`);
-    const res = await request(makeApp())
-      .patch(`/admin/facts/${targetId}`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ parentId: otherId, useCase: "x" });
-    assert.equal(res.status, 200, JSON.stringify(res.body));
-    assert.equal("parentId" in res.body.fact, false);
-    assert.equal("useCase" in res.body.fact, false);
-  });
-
-  // ── Activation is moderation-only ──────────────────────────────────────────
-  //
-  // A content-safety invariant, not a tidiness one. The admin Active toggle may
-  // DEACTIVATE a fact (covered above), but a false→true flip here would bypass
-  // the entire production gate approveForProduction/activateFact enforce — the
-  // approved-gag check, the pending_reviews transition, production-approval recording and submitter notification. A
-  // regression would silently let a deactivated fact go live around moderation,
-  // which is precisely the failure nothing would have noticed before these.
-  it("rejects flipping an INACTIVE fact to active — activation is moderation-only", async () => {
-    const inactiveFact = await createDeactivatedFact(`${FACT_PREFIX}${randomUUID()} deactivated, wants back live`);
-    const res = await request(makeApp())
-      .patch(`/admin/facts/${inactiveFact}`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ isActive: true });
-    assert.equal(res.status, 400);
-    assert.equal(res.body.code, "ACTIVATION_REQUIRES_MODERATION");
-    // Re-moderation was removed with resubmission (increment 1.2a): the refusal
-    // must not point an admin at it. It also fires for a fact still in
-    // moderation, so it names the one way a fact goes live.
-    assert.doesNotMatch(res.body.error, /re-?moderat/i);
-    assert.match(res.body.error, /Approve for production/);
-
-    const [row] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, inactiveFact));
-    assert.equal(row.isActive, false, "the fact must still be inactive — activation must not have been written");
-  });
-
-  // The guard returns before ANY write, so it rejects the whole request rather
-  // than the isActive field alone. Without this, a guard that dropped isActive
-  // and carried on would still pass the assertion above.
-  it("rejects the whole request — a field sent alongside the activation attempt is not written either", async () => {
-    const inactiveFact = await createDeactivatedFact(`${FACT_PREFIX}${randomUUID()} activation with a passenger field`);
-    const res = await request(makeApp())
-      .patch(`/admin/facts/${inactiveFact}`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ isActive: true, upvotes: 4242 });
-    assert.equal(res.status, 400);
-    assert.equal(res.body.code, "ACTIVATION_REQUIRES_MODERATION");
-
-    const [row] = await db.select({ isActive: factsTable.isActive, upvotes: factsTable.upvotes }).from(factsTable).where(eq(factsTable.id, inactiveFact));
-    assert.equal(row.isActive, false, "the fact must still be inactive");
-    assert.notEqual(row.upvotes, 4242, "the co-submitted field must not have been written either");
-  });
-
-  // A PATCH carrying `text` unchanged takes the same path. The activation guard sits ahead of that fork, and this is what holds it
-  // there.
-  it("rejects flipping an INACTIVE fact to active when text is also present (text-edit path)", async () => {
-    const original = `${FACT_PREFIX}${randomUUID()} inactive, activation via text path`;
-    const inactiveFact = await createDeactivatedFact(original);
-    const res = await request(makeApp())
-      .patch(`/admin/facts/${inactiveFact}`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ text: original, isActive: true });
-    assert.equal(res.status, 400);
-    assert.equal(res.body.code, "ACTIVATION_REQUIRES_MODERATION");
-
-    const [row] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, inactiveFact));
-    assert.equal(row.isActive, false, "the fact must still be inactive — the text path must not activate either");
-  });
-
-  // The deliberate no-op half of the rule: asserting isActive=true on a fact
-  // that is ALREADY active is not an activation, so it is dropped rather than
-  // rejected. This is what stops the guard from breaking an ordinary admin save
-  // that round-trips the fact's current state.
-  it("accepts isActive=true on an ALREADY-ACTIVE fact as a harmless no-op", async () => {
-    const activeFact = await createTestFact(`${FACT_PREFIX}${randomUUID()} already active, asserted active`);
-    const res = await request(makeApp())
-      .patch(`/admin/facts/${activeFact}`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ isActive: true, upvotes: 7 });
-    assert.equal(res.status, 200);
-
-    const [row] = await db.select({ isActive: factsTable.isActive, upvotes: factsTable.upvotes }).from(factsTable).where(eq(factsTable.id, activeFact));
-    assert.equal(row.isActive, true, "the fact must still be active");
-    assert.equal(row.upvotes, 7, "the rest of the request must still have been applied");
+describe("the old side editor's routes are removed (plan item 23, 3B)", () => {
+  it("PATCH /admin/facts/:id and GET /admin/facts/:id/text-edit-history no longer exist, and a fact's counters and wording are unchanged", async () => {
+    const factId = await createTestFact(`${FACT_PREFIX}${randomUUID()} removed editor`);
+    const [before] = await db.select({ text: factsTable.text, upvotes: factsTable.upvotes, shareCount: factsTable.shareCount, isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, factId));
+    const patched = await request(makeApp()).patch(`/admin/facts/${factId}`).set("authorization", `Bearer ${adminSid}`).send({ text: "{NAME} rewritten.", upvotes: 99, shareCount: 7, isActive: false });
+    assert.equal(patched.status, 404, JSON.stringify(patched.body));
+    const history = await request(makeApp()).get(`/admin/facts/${factId}/text-edit-history`).set("authorization", `Bearer ${adminSid}`);
+    assert.equal(history.status, 404);
+    const [after] = await db.select({ text: factsTable.text, upvotes: factsTable.upvotes, shareCount: factsTable.shareCount, isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, factId));
+    assert.deepEqual(after, before);
   });
 });
-
-// ── The admin variant routes are gone with variants ───────────────────────────
 
 describe("admin variant routes — retired", () => {
   it("POST /admin/facts/:id/variants and DELETE /admin/facts/variants/:id no longer exist", async () => {
@@ -743,25 +604,6 @@ describe("POST /admin/facts/:id/deactivate", () => {
     assert.deepEqual(actions, [{ action: "deactivate", actorId: adminUserId }]);
   });
 });
-
-describe("PATCH /admin/facts/:id", () => {
-  it("an edit that turns Active off records a deactivation; one that changes a field records an edit", async () => {
-    const targetId = await createTestFact(`${FACT_PREFIX}${randomUUID()} patch target`);
-    const res = await request(makeApp())
-      .patch(`/admin/facts/${targetId}`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ isActive: false, upvotes: 7 });
-    assert.equal(res.status, 200);
-    const actions = await db.select({ action: adminActionsTable.action, detail: adminActionsTable.detail })
-      .from(adminActionsTable).where(eq(adminActionsTable.factId, targetId)).orderBy(adminActionsTable.id);
-    assert.deepEqual(actions, [
-      { action: "deactivate", detail: {} },
-      { action: "fact_edit", detail: { changed: { upvotes: 7 } } },
-    ]);
-  });
-});
-
-// ── PATCH /admin/config/:key ──────────────────────────────────────────────────
 
 describe("PATCH /admin/config/:key", () => {
   it("returns 401 with no credentials", async () => {
@@ -851,39 +693,6 @@ describe("PATCH /admin/config/:key", () => {
         await db.delete(adminConfigTable).where(eq(adminConfigTable.key, "ncmec_safety_alert_email"));
       }
     }
-  });
-});
-
-describe("GET /admin/facts/:id/text-edit-history", () => {
-  it("requires admin", async () => {
-    const res = await request(makeApp()).get("/admin/facts/1/text-edit-history");
-    assert.equal(res.status, 401);
-  });
-
-  it("returns fact-scoped entries newest-first with a deleted-actor fallback", async () => {
-    const factId = await createTestFact(`${FACT_PREFIX}${randomUUID()} history fact`);
-    // Two rows: one by the admin, one by an already-deleted admin (performedBy null).
-    await db.insert(factTextEditHistoryTable).values([
-      { factId, oldText: "a", newText: "b", reason: "first edit reason here", performedBy: null },
-      { factId, oldText: "b", newText: "c", reason: "second edit reason here", performedBy: adminUserId },
-    ]);
-    const res = await request(makeApp())
-      .get(`/admin/facts/${factId}/text-edit-history`)
-      .set("authorization", `Bearer ${adminSid}`);
-    assert.equal(res.status, 200);
-    assert.equal(res.body.total, 2);
-    // Newest-first: the second insert (by id desc) comes first.
-    assert.equal(res.body.entries[0].newText, "c");
-    assert.ok(res.body.entries[0].actor, "actor present for a live admin");
-    assert.equal(res.body.entries[1].newText, "b");
-    assert.equal(res.body.entries[1].actor, null, "null actor for a deleted admin");
-  });
-
-  it("404s for a missing fact", async () => {
-    const res = await request(makeApp())
-      .get("/admin/facts/999999999/text-edit-history")
-      .set("authorization", `Bearer ${adminSid}`);
-    assert.equal(res.status, 404);
   });
 });
 
