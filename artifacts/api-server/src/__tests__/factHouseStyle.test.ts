@@ -19,74 +19,9 @@ import {
 import { ensureStagingFact } from "../lib/moderationStaging.js";
 import { factTextForFreshness } from "../lib/visualConceptJobs.js";
 import { renderCanonical } from "../lib/renderCanonical.js";
+import { HOUSE_STYLE_TABLE } from "./helpers/houseStyleCases.js";
 
-/** [as written, in the house style] — the plan's rule table, row by row. */
-const TABLE: ReadonlyArray<readonly [string, string]> = [
-  // Spacing
-  ["  lots   of\tspace  ", "Lots of space."],
-  ["two\n\nlines", "Two lines."],
-  // Start
-  ["chuck norris can divide by zero", "Chuck norris can divide by zero."],
-  ['"when {NAME} sneezes, the earth moves"', '"When {NAME} sneezes, the earth moves."'],
-  ["'twas {NAME}", "'Twas {NAME}."],
-  ["{NAME} beats the sun", "{NAME} beats the sun."],
-  ["{NAME_POSSESSIVE} shadow runs", "{NAME_POSSESSIVE} shadow runs."],
-  ["{SUBJ} wins", "{Subj} wins."],
-  ["{POSS_PRO} is the best", "{Poss_Pro} is the best."],
-  ["{does|do} {SUBJ} ever lose", "{Does|Do} {SUBJ} ever lose."],
-  ["{doesn't|don't} {SUBJ} sleep", "{Doesn't|Don't} {SUBJ} sleep."],
-  ["7 days a week {NAME} works", "7 days a week {NAME} works."],
-  ["ßtraße bows to {NAME}", "ßtraße bows to {NAME}."],
-  // Q3: a brand-style first word stays as written
-  ["iPhone fears {NAME}", "iPhone fears {NAME}."],
-  ["eBay sells {POSS} shadows", "eBay sells {POSS} shadows."],
-  // End: kept
-  ["Done.", "Done."],
-  ["Really?!", "Really?!"],
-  ["Wait...", "Wait..."],
-  ["And then…", "And then…"],
-  ['{NAME} said "no!"', '{NAME} said "no!"'],
-  // End: Q5 replaced
-  ["divide by zero,", "Divide by zero."],
-  ["{NAME} wins;", "{NAME} wins."],
-  ["{NAME} wins:", "{NAME} wins."],
-  // End: Q4 emoji left
-  ["{NAME} wins 🏆", "{NAME} wins 🏆"],
-  ["{NAME} wins 👍🏽", "{NAME} wins 👍🏽"],
-  ["{NAME} flies to 🇺🇸", "{NAME} flies to 🇺🇸"],
-  // End: added, placed around closers and tokens
-  ["costs $5", "Costs $5."],
-  ["{NAME} beats {NAME}", "{NAME} beats {NAME}."],
-  ["{NAME} {doesn't|don't} sleep", "{NAME} {doesn't|don't} sleep."],
-  ['said "no"', 'Said "no."'],
-  ["said “no”", "Said “no.”"],
-  ["zero (really)", "Zero (really)."],
-  ['("no")', '("No.")'],
-  ["[{NAME} wins]", "[{NAME} wins.]"],
-  ['"he did it (twice)"', '"He did it (twice)."'],
-  ["said 'no'", "Said 'no.'"],
-  ["said ‘no’", "Said ‘no.’"],
-  ["the Joneses'", "The Joneses'."],
-  ["don't say 'no'", "Don't say 'no.'"],
-  ["the Joneses' dog said 'hi'", "The Joneses' dog said 'hi.'"],
-  ["{NAME}'s dog", "{NAME}'s dog."],
-  // End: a trailing bracket is matched to its own opener (PR #1213 round 1)
-  ["(unlike others) {NAME} can divide by zero (really)", "(Unlike others) {NAME} can divide by zero (really)."],
-  ["({NAME} wins) (really)", "({NAME} wins) (really)."],
-  ["({NAME} wins (really))", "({NAME} wins (really).)"],
-  ["(({NAME} wins) twice)", "(({NAME} wins) twice.)"],
-  ["[{NAME} wins (really)]", "[{NAME} wins (really).]"],
-  ["[(a) b] c (d)", "[(A) b] c (d)."],
-  ['{NAME} said ("no")', '{NAME} said ("no").'],
-  ["{NAME} wins :)", "{NAME} wins :)."],
-  // End: a mark already inside a trailing bracket is kept, with nothing added
-  ["{NAME} counted to infinity. (Twice.)", "{NAME} counted to infinity. (Twice.)"],
-  ["{NAME} can divide by zero (yes, really!)", "{NAME} can divide by zero (yes, really!)"],
-  ["{NAME} wins. [Citation needed.]", "{NAME} wins. [Citation needed.]"],
-  ["(unlike others) {NAME} counted to infinity. (Twice.)", "(Unlike others) {NAME} counted to infinity. (Twice.)"],
-  ['{NAME} said (and meant "no!")', '{NAME} said (and meant "no!")'],
-  ["{NAME} won (🏆)", "{NAME} won (🏆)"],
-];
+const TABLE = HOUSE_STYLE_TABLE;
 
 describe("applyHouseStyle — the rule table", () => {
   for (const [input, expected] of TABLE) {
@@ -116,11 +51,12 @@ describe("applyHouseStyle — must not change", () => {
     }
   });
 
-  it("keeps the caption split and the has-pronouns flag", () => {
-    for (const [input] of TABLE) {
-      const spaced = input.replace(/\s+/gu, " ").trim();
+  it("keeps the caption split and the has-pronouns flag of the wording as written", () => {
+    // Raw input, untidied spacing included: Phase 2's pass keeps each fact's
+    // stored split, so the rule must not move it from the wording as stored.
+    for (const [input] of [...TABLE, ["  two  spaces   here and there ", ""] as const, ["tabs\tand\nlines here", ""] as const]) {
       const out = applyHouseStyle(input);
-      assert.equal(computeSplitTokenIndex(out), computeSplitTokenIndex(spaced), JSON.stringify(input));
+      assert.equal(computeSplitTokenIndex(out), computeSplitTokenIndex(input), JSON.stringify(input));
       assert.equal(hasFactPronounMarkersForStorage(out), hasFactPronounMarkersForStorage(input), JSON.stringify(input));
     }
   });
