@@ -1,43 +1,7 @@
 /**
- * Center-crop an image to a square and re-encode as JPEG, downscaled to
- * `maxSize` on the long edge. The cropped image is the user's reusable
- * identity asset — meme overlays and AI image generation both consume a square face crop, so we normalise on upload.
- *
- * @purpose Client image prep and upload: center-crops or downscales to JPEG, or sends the file unchanged with preprocess none, then POSTs to /api/storage/upload-meme or upload-avatar and throws on a non-OK response.
+ * @purpose Client image prep and upload: downscales to JPEG, or sends the file unchanged with preprocess none (the profile-photo crop editor's square JPEG, a GIF avatar), then POSTs to /api/storage/upload-meme or upload-avatar and throws on a non-OK response.
  * @subsystem studio
  */
-export async function cropToSquareJpeg(file: File, maxSize = 1024): Promise<File> {
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(typeof r.result === "string" ? r.result : "");
-    r.onerror = () => reject(new Error("Could not read image"));
-    r.readAsDataURL(file);
-  });
-  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const i = new globalThis.Image();
-    i.onload = () => resolve(i);
-    i.onerror = () => reject(new Error("Could not decode image"));
-    i.src = dataUrl;
-  });
-  const side = Math.min(img.naturalWidth, img.naturalHeight);
-  if (side <= 0) throw new Error("Image has no pixels");
-  const sx = Math.floor((img.naturalWidth - side) / 2);
-  const sy = Math.floor((img.naturalHeight - side) / 2);
-  const out = Math.min(side, maxSize);
-  const canvas = document.createElement("canvas");
-  canvas.width = out;
-  canvas.height = out;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Canvas not supported");
-  ctx.drawImage(img, sx, sy, side, side, 0, 0, out, out);
-  const blob = await new Promise<Blob | null>((resolve) =>
-    canvas.toBlob((b) => resolve(b), "image/jpeg", 0.9),
-  );
-  if (!blob) throw new Error("Could not encode image");
-  const baseName = file.name.replace(/\.[^.]+$/, "") || "photo";
-  return new File([blob], `${baseName}.jpg`, { type: "image/jpeg" });
-}
-
 export const CLIENT_MAX_DIMENSION = 6000;
 export const CLIENT_JPEG_QUALITY = 0.9;
 export const CLIENT_MAX_UPLOAD_MB = 15;
@@ -113,7 +77,7 @@ export async function preProcessImageFile(
 // `uploadUserImage` is the single entry point for every user image upload in
 // the app. Use it for meme backgrounds, profile photos, AI reference photos,
 // and any future surface that takes an image from the user. It picks the
-// correct server endpoint, preprocesses the file (fit / square / none),
+// correct server endpoint, preprocesses the file (fit / none),
 // transmits the bytes, and surfaces the server response in a single shape —
 // keeping the CSAM/NSFW pipeline, rate limiting, ACLs, and metadata logging
 // behind one consistent client call.
@@ -129,11 +93,11 @@ export type UploadUserImageKind = "meme" | "avatar";
 /**
  * - "fit"    — `preProcessImageFile` (downscale to maxDimension, encode JPEG,
  *              iteratively recompress to fit maxUploadBytes). Default.
- * - "square" — `cropToSquareJpeg` (center-crop to a square, encode JPEG).
- * - "none"   — send the bytes verbatim (caller already preprocessed, or wants
- *              to preserve animation, e.g. a GIF avatar).
+ * - "none"   — send the bytes verbatim (caller already preprocessed — the
+ *              profile-photo crop editor's square JPEG — or wants to preserve
+ *              animation, e.g. a GIF avatar).
  */
-export type UploadUserImagePreprocess = "fit" | "square" | "none";
+export type UploadUserImagePreprocess = "fit" | "none";
 
 export interface UploadUserImageOptions {
   kind: UploadUserImageKind;
@@ -142,8 +106,6 @@ export interface UploadUserImageOptions {
   maxDimension?: number;
   jpegQuality?: number;
   maxUploadBytes?: number;
-  /** Override for `square` preprocessing. */
-  squareSize?: number;
 }
 
 export interface UploadUserImageResult {
@@ -180,10 +142,6 @@ export async function uploadUserImage(
     contentType = "image/jpeg";
     preWidth = processed.width;
     preHeight = processed.height;
-  } else if (preprocess === "square") {
-    const cropped = await cropToSquareJpeg(file, options.squareSize ?? 1024);
-    body = cropped;
-    contentType = "image/jpeg";
   } else {
     body = file;
     contentType = file.type || "application/octet-stream";

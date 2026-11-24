@@ -7,11 +7,12 @@ import { Link, useLocation } from "wouter";
 import { shownLegalVersions } from "@/lib/legal-versions";
 import { ADULTS_ONLY_PATH, isAgeRefusedBrowser, isPastAgeMark, markAgeRefusedBrowser } from "@/lib/age-refusal";
 import { useAuth } from "@workspace/replit-auth-web";
-import { Camera, Upload, Loader2, RotateCw } from "lucide-react";
+import { Camera, Upload, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Turnstile, type TurnstileHandle } from "@/components/ui/Turnstile";
 import { PronounEditor } from "@/components/ui/PronounEditor";
-import { cropToSquareJpeg, uploadUserImage } from "@/lib/image-upload";
+import { uploadUserImage } from "@/lib/image-upload";
+import { PhotoCropEditor } from "@/components/PhotoCropEditor";
 import { returnToFromSearch } from "@/lib/safe-return-to";
 import { inferPronounsFromName } from "@/lib/infer-pronouns";
 import { usePersonName } from "@/hooks/use-person-name";
@@ -121,8 +122,8 @@ export default function Onboard() {
   const [error, setError] = useState("");
   const [legalAgreed, setLegalAgreed] = useState(false);
 
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [photoPreview, setPhotoPreview] = useState<string>("");
+  // The photo the member picked, framed in the crop editor until they confirm it.
+  const [photoSource, setPhotoSource] = useState<File | null>(null);
   const [photoError, setPhotoError] = useState("");
   const [photoUploading, setPhotoUploading] = useState(false);
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -148,14 +149,6 @@ export default function Onboard() {
     const qs = params.toString();
     window.history.replaceState(window.history.state, "", `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`);
   }, []);
-
-  // Revoke any outstanding object URL on unmount to avoid memory leaks if the
-  // user navigates away mid-flow.
-  useEffect(() => {
-    return () => {
-      if (photoPreview) URL.revokeObjectURL(photoPreview);
-    };
-  }, [photoPreview]);
 
   const returnTo = typeof window === "undefined" ? "/" : returnToFromSearch(window.location.search);
 
@@ -318,31 +311,27 @@ export default function Onboard() {
       setPhotoError("Image must be under 15 MB.");
       return;
     }
-    try {
-      const cropped = await cropToSquareJpeg(file, 1024);
-      setPhotoFile(cropped);
-      if (photoPreview) URL.revokeObjectURL(photoPreview);
-      setPhotoPreview(URL.createObjectURL(cropped));
-    } catch {
-      setPhotoError("Could not process that image. Try another one.");
-    }
+    // The member frames it in the crop editor; nothing is uploaded until they confirm.
+    setPhotoSource(file);
   }
 
   function clearPhoto() {
-    if (photoPreview) URL.revokeObjectURL(photoPreview);
-    setPhotoFile(null);
-    setPhotoPreview("");
+    setPhotoSource(null);
     setPhotoError("");
   }
 
-  async function handleUsePhoto() {
-    if (!photoFile) return;
+  function handlePhotoUndecodable() {
+    setPhotoSource(null);
+    setPhotoError("Could not process that image. Try another one.");
+  }
+
+  async function handleUsePhoto(cropped: File) {
     setPhotoError("");
     setPhotoUploading(true);
     try {
-      // photoFile was already center-cropped at pickFile() time so it could
-      // drive the preview — send it through the unified upload helper as-is.
-      const { objectPath } = await uploadUserImage(photoFile, {
+      // The crop editor already produced the framed square JPEG — send it
+      // through the unified upload helper as-is.
+      const { objectPath } = await uploadUserImage(cropped, {
         kind: "avatar",
         preprocess: "none",
       });
@@ -424,77 +413,53 @@ export default function Onboard() {
             onChange={handlePhotoPicked}
           />
 
-          {photoPreview ? (
-            <div className="space-y-3">
-              <div className="relative mx-auto w-48 h-48 rounded-full overflow-hidden border-2 border-primary shadow-[0_0_24px_rgba(249,115,22,0.25)]">
-                <img
-                  src={photoPreview}
-                  alt="Selected photo"
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <p className="text-center text-xs text-muted-foreground">
-                We cropped it square — that's how memes use it.
-              </p>
-              <div className="flex gap-2 justify-center">
+          {photoSource ? (
+            <PhotoCropEditor
+              file={photoSource}
+              onConfirm={handleUsePhoto}
+              onCancel={clearPhoto}
+              onDecodeError={handlePhotoUndecodable}
+              busy={photoUploading}
+              error={photoError}
+            />
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3">
                 <button
                   type="button"
-                  onClick={clearPhoto}
-                  disabled={photoUploading}
-                  className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 underline transition-colors disabled:opacity-50"
+                  onClick={() => cameraInputRef.current?.click()}
+                  className="flex flex-col items-center justify-center gap-2 p-5 border-2 border-dashed border-border hover:border-primary hover:bg-primary/5 rounded-lg transition-colors"
                 >
-                  <RotateCw className="w-3 h-3" /> Pick a different one
+                  <Camera className="w-7 h-7 text-primary" />
+                  <span className="text-sm font-bold text-foreground">Take photo</span>
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                    Use camera
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex flex-col items-center justify-center gap-2 p-5 border-2 border-dashed border-border hover:border-primary hover:bg-primary/5 rounded-lg transition-colors"
+                >
+                  <Upload className="w-7 h-7 text-primary" />
+                  <span className="text-sm font-bold text-foreground">Upload</span>
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                    From device
+                  </span>
                 </button>
               </div>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => cameraInputRef.current?.click()}
-                className="flex flex-col items-center justify-center gap-2 p-5 border-2 border-dashed border-border hover:border-primary hover:bg-primary/5 rounded-lg transition-colors"
-              >
-                <Camera className="w-7 h-7 text-primary" />
-                <span className="text-sm font-bold text-foreground">Take photo</span>
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                  Use camera
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="flex flex-col items-center justify-center gap-2 p-5 border-2 border-dashed border-border hover:border-primary hover:bg-primary/5 rounded-lg transition-colors"
-              >
-                <Upload className="w-7 h-7 text-primary" />
-                <span className="text-sm font-bold text-foreground">Upload</span>
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                  From device
-                </span>
-              </button>
-            </div>
-          )}
 
-          {photoError && (
-            <p className="text-destructive text-sm font-medium text-center">
-              {photoError}
-            </p>
-          )}
+              {photoError && (
+                <p className="text-destructive text-sm font-medium text-center">
+                  {photoError}
+                </p>
+              )}
 
-          <PausedWhenReadOnly className="w-full">
-          <Button
-            onClick={handleUsePhoto}
-            disabled={!photoFile || photoUploading}
-            className="w-full gap-2"
-          >
-            {photoUploading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" /> Uploading…
-              </>
-            ) : (
-              <>Use this photo</>
-            )}
-          </Button>
-          </PausedWhenReadOnly>
+              <Button disabled className="w-full gap-2">
+                Use this photo
+              </Button>
+            </>
+          )}
 
           <div className="flex items-center justify-between">
             <button

@@ -18,7 +18,7 @@
     "e2e": "playwright test",
     "e2e:smoke": "playwright test routeLoadSmoke",
     "e2e:surfaces": "playwright test adminQueueHealth readOnlyMode readOnlyDisabledActions adminHelp adminPermissions comparisonJudging evalPage moderationHumorNote moderationReading bubbleSpeakers moderationTestRenders submitDuplicate submitHouseStyle",
-    "e2e:screens": "playwright test publicScreens adminScreens uploadConversion identityFlow librarySubmissions",
+    "e2e:screens": "playwright test publicScreens adminScreens uploadConversion identityFlow librarySubmissions profilePhotoCrop",
     "e2e:accounts": "playwright test testAccounts",
     "e2e:auth": "playwright test authJourney oauthJourney analyticsOutbound",
     "e2e:storage": "playwright test photoUpload",

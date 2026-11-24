@@ -18,6 +18,8 @@ import { Sentry } from "@/lib/sentry";
 import { trackUpgradeOnce } from "@/lib/analytics";
 import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
 import { uploadUserImage } from "@/lib/image-upload";
+import { PhotoCropEditor } from "@/components/PhotoCropEditor";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { hasUploadedProfilePhoto } from "@/lib/profile-photo";
 import { STRIPE_UNVERIFIED_CODE, STRIPE_UNVERIFIED_CONFIRM_MESSAGE } from "@workspace/api-zod";
 import { confirmNotReadOnly, isReadOnlyNow, isReadOnlyRefusal, noteReadOnlyRefusal, READ_ONLY_REFUSED_FULL } from "@/lib/readOnlyNotice";
@@ -191,6 +193,9 @@ export default function Profile() {
 
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoError, setPhotoError] = useState("");
+  // A picked (non-GIF) photo being framed in the crop dialog; nothing uploads until it is confirmed.
+  const [cropFile, setCropFile] = useState<File | null>(null);
+  const [cropError, setCropError] = useState("");
   const [removePictureConfirm, setRemovePictureConfirm] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editFormRef = useRef<HTMLDivElement>(null);
@@ -640,15 +645,51 @@ export default function Profile() {
     }
 
     setPhotoError("");
+    // A GIF is sent verbatim so its animation is preserved; any other photo is
+    // framed by the member in the crop editor first.
+    if (file.type === "image/gif") {
+      try {
+        await uploadAndSetPhoto(file);
+      } catch (err: unknown) {
+        const errObj = err as { message?: string };
+        setPhotoError(errObj?.message ?? "Photo upload failed.");
+      }
+      return;
+    }
+    setCropError("");
+    setCropFile(file);
+  }
+
+  /** The framed square from the crop editor (which has already refused it if a pause began while framing), saved. */
+  async function handleCropConfirm(cropped: File) {
+    setCropError("");
+    try {
+      await uploadAndSetPhoto(cropped);
+      setCropFile(null);
+    } catch (err: unknown) {
+      const errObj = err as { message?: string };
+      setCropError(errObj?.message ?? "Photo upload failed.");
+    }
+  }
+
+  function handleCropUndecodable() {
+    setCropFile(null);
+    setPhotoError("Could not process that image. Try another one.");
+  }
+
+  /**
+   * Upload a ready file (the crop editor's square JPEG, or a GIF verbatim) as the
+   * member's profile photo. Throws on failure, leaving the current photo in place.
+   */
+  async function uploadAndSetPhoto(file: File): Promise<void> {
     setPhotoUploading(true);
     try {
       // The profile photo becomes the user's reusable identity asset (their
-      // picture and photo memes), stored as a square face crop — except for
-      // GIFs, which are sent verbatim so animation is preserved.
+      // picture and photo memes): a square face crop the member framed, or a
+      // GIF verbatim so its animation is preserved.
       const { objectPath } = await uploadUserImage(file, {
         kind: "avatar",
-        preprocess: file.type === "image/gif" ? "none" : "square",
-        squareSize: 1024,
+        preprocess: "none",
       });
 
       // Task #507: the photo is now a library upload tagged with
@@ -657,9 +698,6 @@ export default function Profile() {
       // re-asserts the public ACL — all in one transaction.
       await setProfileImageFromUpload(objectPath);
       await refreshPicture();
-    } catch (err: unknown) {
-      const errObj = err as { message?: string };
-      setPhotoError(errObj?.message ?? "Photo upload failed.");
     } finally {
       setPhotoUploading(false);
     }
@@ -1041,6 +1079,25 @@ export default function Profile() {
               className="hidden"
               onChange={handlePhotoChange}
             />
+            <Dialog open={cropFile !== null} onOpenChange={(open) => { if (!open && !photoUploading) setCropFile(null); }}>
+              <DialogContent className="max-w-sm" data-testid="profile-photo-crop-dialog">
+                <DialogTitle className="font-display uppercase tracking-tight">Frame your photo</DialogTitle>
+                <DialogDescription className="text-xs">
+                  Memes use the square inside the circle.
+                </DialogDescription>
+                {cropFile && (
+                  <PhotoCropEditor
+                    file={cropFile}
+                    onConfirm={handleCropConfirm}
+                    onCancel={() => setCropFile(null)}
+                    onDecodeError={handleCropUndecodable}
+                    busy={photoUploading}
+                    error={cropError}
+                    cancelLabel="Cancel"
+                  />
+                )}
+              </DialogContent>
+            </Dialog>
             <PausedWhenReadOnly>
             <button
               onClick={() => fileInputRef.current?.click()}
