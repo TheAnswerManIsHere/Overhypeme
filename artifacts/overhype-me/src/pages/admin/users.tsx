@@ -25,6 +25,10 @@ interface User {
   stripeCustomerId: string | null;
   emailVerifiedAt: string | null;
   onboardingCompletedAt: string | null;
+  /** `YYYY-MM-DD`, or null before set-up (and after an under-18 answer, which is not stored). */
+  dateOfBirth: string | null;
+  /** When the account answered set-up with a date under 18 (launch Phase 14, increment 4). */
+  ageRefusedAt: string | null;
   monthlyGenerationLimitOverrideUsd: string | null;
   createdAt: string;
   updatedAt: string;
@@ -175,6 +179,9 @@ export default function AdminUsers() {
   /** The suspend form's reason; null while the form is closed. */
   const [suspendReason, setSuspendReason] = useState<string | null>(null);
   const [suspending, setSuspending] = useState(false);
+  /** The corrected date of birth being entered, `YYYY-MM-DD`. */
+  const [dobCorrection, setDobCorrection] = useState("");
+  const [correctingDob, setCorrectingDob] = useState(false);
 
   const [administrators, setAdministrators] = useState<Administrator[]>([]);
   const administratorsById = useMemo(
@@ -267,6 +274,7 @@ export default function AdminUsers() {
       monthlyGenerationLimitOverrideUsd: user.monthlyGenerationLimitOverrideUsd,
     });
     setSaveResult(null);
+    setDobCorrection("");
     fetchMembership(user.id);
   }
 
@@ -274,6 +282,7 @@ export default function AdminUsers() {
     setSelectedUser(null);
     setDraft(null);
     setSaveResult(null);
+    setDobCorrection("");
     setMembershipData(null);
     setLifetimeActionResult(null);
   }
@@ -317,6 +326,41 @@ export default function AdminUsers() {
       setLifetimeActionResult({ type: "error", message: err instanceof Error ? err.message : "Revoke failed" });
     } finally {
       setLifetimeActionLoading(false);
+    }
+  }
+
+  /**
+   * Support's correction of a mistyped date of birth (launch Phase 14,
+   * increment 4): stores the corrected date, 18 or over, and clears an
+   * under-18 refusal, so the person can finish set-up.
+   */
+  async function correctDateOfBirth() {
+    if (!selectedUser || !dobCorrection) return;
+    setCorrectingDob(true);
+    setSaveResult(null);
+    try {
+      const res = await fetch(`/api/admin/users/${selectedUser.id}/correct-date-of-birth`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ dateOfBirth: dobCorrection }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Correction failed");
+      const updated: User = { ...selectedUser, dateOfBirth: dobCorrection, ageRefusedAt: null };
+      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+      setSelectedUser(updated);
+      setDobCorrection("");
+      setSaveResult({
+        type: "success",
+        message: updated.onboardingCompletedAt
+          ? "Date of birth corrected."
+          : "Date of birth corrected. They can sign in and finish set-up now; it shows this date.",
+      });
+    } catch (err) {
+      setSaveResult({ type: "error", message: err instanceof Error ? err.message : "Correction failed" });
+    } finally {
+      setCorrectingDob(false);
     }
   }
 
@@ -1255,6 +1299,30 @@ export default function AdminUsers() {
                   {verifyingEmail ? "Verifying…" : "Mark as Verified"}
                 </button>
               )}
+            </div>
+
+            {/* Date of birth: support's correction (launch Phase 14, increment 4) */}
+            <div className="space-y-2" data-testid="admin-dob">
+              <FieldLabel>Date of Birth</FieldLabel>
+              <p className="text-xs text-muted-foreground">
+                {selectedUser.ageRefusedAt
+                  ? `Gave a date under 18 at set-up on ${new Date(selectedUser.ageRefusedAt).toLocaleDateString()}; it was not stored, and the account is shown the adults-only screen.`
+                  : selectedUser.dateOfBirth
+                    ? `Stored: ${selectedUser.dateOfBirth}.`
+                    : "None stored yet."}
+              </p>
+              <div className="flex gap-2">
+                <Input
+                  type="date"
+                  aria-label="Corrected date of birth"
+                  value={dobCorrection}
+                  onChange={(e) => setDobCorrection(e.target.value)}
+                  className="flex-1"
+                />
+                <Button variant="outline" onClick={correctDateOfBirth} isLoading={correctingDob} disabled={!dobCorrection}>
+                  Correct date of birth
+                </Button>
+              </div>
             </div>
 
             {/* Save result */}

@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { shownLegalVersions } from "@/lib/legal-versions";
-import { ADULTS_ONLY_PATH, isAgeRefusedBrowser, markAgeRefusedBrowser } from "@/lib/age-refusal";
+import { ADULTS_ONLY_PATH, isAgeRefusedBrowser, isPastAgeMark, markAgeRefusedBrowser } from "@/lib/age-refusal";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Camera, Upload, Loader2, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -43,6 +43,14 @@ interface OnboardingState {
   displayName: string | null;
   providerFirstName: string | null;
   draft: OnboardingDraft | null;
+  /** A date support stored when it corrected a mistyped one; set-up keeps it. Null for everyone else. */
+  dateOfBirth: string | null;
+}
+
+/** The three form parts of a stored `YYYY-MM-DD` date, without leading zeros. */
+export function dobParts(date: string): { dobYear: string; dobMonth: string; dobDay: string } {
+  const [y = "", m = "", d = ""] = date.split("-");
+  return { dobYear: y, dobMonth: String(Number(m)), dobDay: String(Number(d)) };
 }
 
 /**
@@ -91,7 +99,7 @@ export function ageFromParts(y: string, m: string, d: string, now: Date = new Da
 export default function Onboard() {
   const readOnly = useReadOnly();
   const [, setLocation] = useLocation();
-  const { isAuthenticated, isLoading, refreshUser } = useAuth();
+  const { isAuthenticated, isLoading, refreshUser, user } = useAuth();
   const device = usePersonName();
   const captchaRef = useRef<TurnstileHandle>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -105,6 +113,8 @@ export default function Onboard() {
   const [dobYear, setDobYear] = useState("");
   const [dobMonth, setDobMonth] = useState("");
   const [dobDay, setDobDay] = useState("");
+  /** True when support corrected this account's date: shown, not asked. */
+  const [dobCorrected, setDobCorrected] = useState(false);
   const [marketingOptIn, setMarketingOptIn] = useState(false);
   const [captchaToken, setCaptchaToken] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -151,9 +161,15 @@ export default function Onboard() {
 
   // Someone in this browser already gave a date under 18: a fresh sign-up
   // here is told the same without being asked again (launch Phase 14, Q3).
+  // Decided once the account is known: an account with an adult date on file
+  // (corrected by support, or set-up just finished) goes past, so the re-read
+  // after Finish does not send it away; the mark stays for everyone else.
   useEffect(() => {
-    if (isAgeRefusedBrowser()) setLocation(ADULTS_ONLY_PATH);
-  }, [setLocation]);
+    if (isLoading) return;
+    if (isAgeRefusedBrowser() && !isPastAgeMark({ eligibility: user?.eligibility, is18Plus: user?.is18Plus })) {
+      setLocation(ADULTS_ONLY_PATH);
+    }
+  }, [isLoading, user?.eligibility, user?.is18Plus, setLocation]);
 
   function finish() {
     setLocation(returnTo);
@@ -184,9 +200,13 @@ export default function Onboard() {
         );
         setDisplayName(startName);
         setPronouns(startPronouns);
-        setDobYear(state.draft?.dobYear ?? "");
-        setDobMonth(state.draft?.dobMonth ?? "");
-        setDobDay(state.draft?.dobDay ?? "");
+        const dob = state.dateOfBirth
+          ? dobParts(state.dateOfBirth)
+          : { dobYear: state.draft?.dobYear ?? "", dobMonth: state.draft?.dobMonth ?? "", dobDay: state.draft?.dobDay ?? "" };
+        setDobYear(dob.dobYear);
+        setDobMonth(dob.dobMonth);
+        setDobDay(dob.dobDay);
+        setDobCorrected(!!state.dateOfBirth);
         const marketing = state.draft?.marketingOptIn ?? state.marketingDefault;
         setMarketingOptIn(marketing);
         // What the form opens with is already saved, or is the default: no
@@ -194,9 +214,7 @@ export default function Onboard() {
         lastSavedDraft.current = JSON.stringify({
           displayName: startName,
           pronouns: startPronouns,
-          dobYear: state.draft?.dobYear ?? "",
-          dobMonth: state.draft?.dobMonth ?? "",
-          dobDay: state.draft?.dobDay ?? "",
+          ...dob,
           marketingOptIn: marketing,
         });
         setStep("details");
@@ -533,6 +551,12 @@ export default function Onboard() {
 
         <section className="space-y-2" aria-labelledby="onboard-dob">
           <h2 id="onboard-dob" className="text-sm font-semibold text-foreground">Date of birth</h2>
+          {dobCorrected ? (
+            <p className="text-sm text-foreground" data-testid="onboard-dob-corrected">
+              {dobMonth}/{dobDay}/{dobYear}{" "}
+              <span className="text-muted-foreground">— corrected by support.</span>
+            </p>
+          ) : (
           <div className="grid grid-cols-[1fr_1fr_1.4fr] gap-2">
             <input
               aria-label="Month"
@@ -562,6 +586,7 @@ export default function Onboard() {
               className={dobInput}
             />
           </div>
+          )}
           {dobYear.length === 4 && !!dobMonth && !!dobDay && age == null && (
             <p className="text-destructive text-sm font-medium" role="alert">That isn't a real date.</p>
           )}

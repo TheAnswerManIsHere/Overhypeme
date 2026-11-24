@@ -130,7 +130,7 @@ router.get("/auth/onboarding", async (req: Request, res: Response) => {
   }
   // The rest is on req.user already; only the draft is not.
   const [row] = await db
-    .select({ onboardingDraft: usersTable.onboardingDraft })
+    .select({ onboardingDraft: usersTable.onboardingDraft, dateOfBirth: usersTable.dateOfBirth })
     .from(usersTable)
     .where(eq(usersTable.id, req.user.id))
     .limit(1);
@@ -147,6 +147,10 @@ router.get("/auth/onboarding", async (req: Request, res: Response) => {
     displayName: req.user.displayName ?? null,
     providerFirstName: req.user.firstName ?? null,
     draft: (row?.onboardingDraft as OnboardingDraft | null) ?? null,
+    // A date already on an un-onboarded account was stored by support's
+    // correction (launch Phase 14, increment 4); set-up keeps it, so the form
+    // shows it rather than asking. A fresh account has none.
+    dateOfBirth: row?.dateOfBirth ?? null,
   });
 });
 
@@ -183,7 +187,14 @@ router.post("/users/me/onboarding", async (req: Request, res: Response) => {
   const body = (req.body ?? {}) as DraftBody & { captchaToken?: unknown; legalAcceptance?: unknown };
   const draft = toDraft(body);
 
-  const dob = birthDateOf(draft);
+  // A date support stored when it corrected a mistyped one is the answer, and
+  // whatever the form sends cannot replace it (launch Phase 14, increment 4).
+  const [stored] = await db
+    .select({ dateOfBirth: usersTable.dateOfBirth })
+    .from(usersTable)
+    .where(eq(usersTable.id, req.user.id))
+    .limit(1);
+  const dob = stored?.dateOfBirth ?? birthDateOf(draft);
   const age = ageInYears(dob);
   if (!dob || age == null) {
     res.status(400).json({ error: "Enter your date of birth.", field: "dateOfBirth" });

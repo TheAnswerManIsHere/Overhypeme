@@ -153,7 +153,21 @@ the server enforces it:
   nothing is written, and no refusal is recorded: a draft is not an answer),
   and `POST /users/me/onboarding` (a submitted date under 18 is recorded as
   `age_refused_at` on the account — the date itself is not stored, nothing
-  is destroyed — and answered `UNDER_AGE`; otherwise the current Terms and
+  is destroyed — and answered `UNDER_AGE`. A mistyped date is corrected
+  through support: an admin's "Correct date of birth" on the user page
+  (`POST /admin/users/:id/correct-date-of-birth`, `routes/ageCorrection.ts`)
+  stores a corrected date of 18 or over and clears `age_refused_at` in one
+  write, logged without the date; set-up then keeps that stored date whatever
+  the form sends, and shows it instead of asking. The browser's own mark
+  (`artifacts/overhype-me/src/lib/age-refusal.ts`, no expiry) is never
+  lifted. It holds only accounts that have not given an adult date: no
+  account, a fresh sign-up, an unverified or an under-age one. An account that
+  is not under age and is 18 or over by a stored date (`isPastAgeMark`) — a
+  support-corrected one, or one whose set-up is finished — is never asked the
+  date, so the set-up page lets it through (a corrected one finishes set-up and
+  reaches the photo step) and the adults-only screen moves it on home; both use
+  the one condition, so neither sends an account the other sends back.
+  Otherwise the current Terms and
   Privacy versions the screen showed, `legalAcceptance: { terms, privacy }`,
   checked server-side, then a fresh Turnstile token, then date of birth,
   pronouns, the consent record — `marketing_consent_at`, `_method`

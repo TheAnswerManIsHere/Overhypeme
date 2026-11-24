@@ -47,7 +47,9 @@ export interface EligibilityRow {
  * Under 18 for this product's purposes: a submitted under-age answer, or an
  * onboarded account whose stored date says so. Derived at read time, so an
  * account that turns 18 is no longer under age with no job and no migration
- * (plan S-c). A refusal is permanent: the form cannot be resubmitted.
+ * (plan S-c). A refusal holds whatever date is later stored: the form cannot
+ * be resubmitted, and only support's correction clears it
+ * (`routes/ageCorrection.ts`).
  */
 export function isUnderAge(row: EligibilityRow, now: Date = new Date()): boolean {
   if (row.ageRefusedAt != null) return true;
