@@ -6,6 +6,12 @@ import { isReadOnlyRefusal, READ_ONLY_REFUSED_FULL } from "@/lib/readOnlyNotice"
 
 export interface ResendResult {
   sent: boolean;
+  /**
+   * The address is already verified, so nothing was sent (#884). The server
+   * answers this only to an `ifNoneOut` request; the caller moves the person
+   * on rather than claiming a link.
+   */
+  verified?: true;
   /** What to tell the visitor: the confirmation, or why nothing was sent. */
   message: string;
 }
@@ -21,7 +27,13 @@ export async function resendVerification(options: { ifNoneOut?: boolean } = {}):
       credentials: "include",
       ...(options.ifNoneOut ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ifNoneOut: true }) } : {}),
     });
-    if (res.ok) return { sent: true, message: RESEND_SENT_MESSAGE };
+    if (res.ok) {
+      const ok = (await res.json().catch(() => null)) as { status?: unknown; message?: unknown } | null;
+      if (ok?.status === "verified") {
+        return { sent: false, verified: true, message: typeof ok.message === "string" && ok.message ? ok.message : "Your email is already verified." };
+      }
+      return { sent: true, message: RESEND_SENT_MESSAGE };
+    }
     const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
     if (isReadOnlyRefusal(res, body)) return { sent: false, message: READ_ONLY_REFUSED_FULL };
     return { sent: false, message: typeof body?.error === "string" && body.error ? body.error : RESEND_FAILED_MESSAGE };

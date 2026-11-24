@@ -12,12 +12,13 @@ vi.mock("wouter", () => ({
   useLocation: () => ["/check-email", vi.fn()],
   Link: ({ href, children, className }: { href: string; children: React.ReactNode; className?: string }) => <a href={href} className={className}>{children}</a>,
 }));
+const { refreshUserSpy } = vi.hoisted(() => ({ refreshUserSpy: vi.fn() }));
 vi.mock("@workspace/replit-auth-web", () => ({
   useAuth: () => ({
     isAuthenticated: true,
     isLoading: false,
     user: { email: "sam@example.com", eligibility: "unverified" },
-    refreshUser: vi.fn(),
+    refreshUser: refreshUserSpy,
   }),
 }));
 vi.mock("@/hooks/use-sign-out", () => ({ useSignOut: () => vi.fn() }));
@@ -25,6 +26,7 @@ vi.mock("@/hooks/use-sign-out", () => ({ useSignOut: () => vi.fn() }));
 const fetchMock = vi.fn();
 beforeEach(() => {
   fetchMock.mockReset();
+  refreshUserSpy.mockReset();
   vi.stubGlobal("fetch", fetchMock);
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -60,5 +62,13 @@ describe("CheckEmail — the claim follows a send (#868)", () => {
     await screen.findByText(/couldn't send a link/);
     expect(screen.queryByText(/We sent a link/)).toBeNull();
     expect(screen.getByRole("alert").textContent).toMatch(/Too many links sent/);
+  });
+
+  it("never claims a link when the server says the address is already verified, and refreshes the session instead (#884)", async () => {
+    fetchMock.mockImplementation(() => answer(200, { status: "verified", message: "Your email is already verified." }));
+    render(<CheckEmail />);
+    await waitFor(() => expect(refreshUserSpy).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText(/We sent a link/)).toBeNull();
+    expect(screen.queryByText(/couldn't send a link/)).toBeNull();
   });
 });

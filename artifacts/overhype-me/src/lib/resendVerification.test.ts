@@ -24,4 +24,8 @@ describe("resendVerification", () => {
     reply(429, { error: "Too many requests" });
     expect(await resendVerification()).toEqual({ sent: false, message: "Too many requests" });
   });
+  it("never claims a send when the server answers that the address is already verified (#884)", async () => {
+    reply(200, { status: "verified", message: "Your email is already verified." });
+    expect(await resendVerification({ ifNoneOut: true })).toEqual({ sent: false, verified: true, message: "Your email is already verified." });
+  });
 });
