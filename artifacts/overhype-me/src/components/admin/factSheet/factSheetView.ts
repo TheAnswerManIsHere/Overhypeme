@@ -59,7 +59,8 @@ export interface FactSheetView {
   hasUnpublishedChanges: boolean;
   reviewId: number | null;
   hashtags: string[];
-  usage: { memes: number; aiPictures: number };
+  /** What members have attached, as the delete counts it: every meme, AI picture and comment row, whatever a comment's review status. */
+  usage: { memes: number; aiPictures: number; comments: number };
   pictures: FactSheetGagPictures[];
   reading: ReviewReadingView & { approvedByName: string | null };
 }
@@ -70,7 +71,7 @@ export async function loadFactSheet(factId: number): Promise<FactSheetView> {
   return (await r.json()) as FactSheetView;
 }
 
-async function send<T>(method: "PUT" | "POST", url: string, body: unknown, fallback: string): Promise<T> {
+async function send<T>(method: "PUT" | "POST" | "DELETE", url: string, body: unknown, fallback: string): Promise<T> {
   const r = await fetch(url, {
     method,
     credentials: "include",
@@ -94,10 +95,14 @@ export async function saveHumorNote(factId: number, text: string): Promise<{ tex
 }
 
 /** An approved fact's lifecycle actions (api-server lib/factLifecycle.ts). */
-export type FactLifecycleAction = "publish" | "discard" | "deactivate" | "reactivate";
+export type FactLifecycleAction = "publish" | "discard" | "deactivate" | "reactivate" | "delete";
 
 /** Run one; throws the server's refusal in words (a go-live gap names the gag and the renders it needs). */
 export async function runFactAction(factId: number, action: FactLifecycleAction): Promise<void> {
+  if (action === "delete") {
+    await send("DELETE", `/api/admin/facts/${factId}`, undefined, "That didn't work. Nothing was deleted.");
+    return;
+  }
   await send("POST", `/api/admin/facts/${factId}/${action}`, undefined, "That didn't work. Nothing was changed.");
 }
 

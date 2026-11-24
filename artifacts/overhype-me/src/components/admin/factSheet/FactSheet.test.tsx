@@ -39,7 +39,7 @@ const SHEET: FactSheetView = {
   hasUnpublishedChanges: false,
   reviewId: 9,
   hashtags: ["staring", "sun"],
-  usage: { memes: 5, aiPictures: 1 },
+  usage: { memes: 5, aiPictures: 1, comments: 3 },
   pictures: [
     { gagId: 1, slot: 1, approvedKinds: ["male"], missingKinds: ["female", "pet"] },
     { gagId: 2, slot: 2, approvedKinds: ["male", "female", "pet"], missingKinds: [] },
@@ -446,6 +446,46 @@ describe("FactSheet", () => {
     await screen.findByTestId("sheet-wording");
     fireEvent.click(screen.getByTestId("sheet-tab-history"));
     expect((await screen.findByTestId("sheet-history-empty")).textContent).toContain("No admin actions");
+  });
+
+  it("a deactivated fact with nothing attached can be deleted, after its number is typed back", async () => {
+    const calls = stub({ ...SHEET, isActive: false, commentCount: 0, usage: { memes: 0, aiPictures: 0, comments: 0 } });
+    const { onChanged, onClose } = open();
+    fireEvent.click(await screen.findByTestId("delete-fact-button"));
+    const confirm = screen.getByTestId("delete-fact-confirm") as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    fireEvent.change(screen.getByTestId("delete-fact-typed"), { target: { value: "41" } });
+    expect(confirm.disabled).toBe(true);
+    fireEvent.change(screen.getByTestId("delete-fact-typed"), { target: { value: "42" } });
+    expect(confirm.disabled).toBe(false);
+    fireEvent.click(confirm);
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(onChanged).toHaveBeenCalled();
+    expect(calls.some((c) => c.method === "DELETE" && c.url.endsWith("/api/admin/facts/42"))).toBe(true);
+  });
+
+  it("delete is held, with the reason, while members' content is attached; a live fact offers none", async () => {
+    stub({ ...SHEET, isActive: false });
+    open();
+    expect(((await screen.findByTestId("delete-fact-button")) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("sheet-delete-held").textContent).toBe("Members have 5 memes, 1 AI picture and 3 comments on it, so it can't be deleted.");
+  });
+
+  it("a comment not yet approved holds the delete: the sheet counts every comment, as the server does", async () => {
+    stub({ ...SHEET, isActive: false, commentCount: 0, usage: { memes: 0, aiPictures: 0, comments: 1 } });
+    open();
+    expect(((await screen.findByTestId("delete-fact-button")) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("sheet-delete-held").textContent).toBe("Members have 1 comment on it, so it can't be deleted.");
+    const usage = screen.getByTestId("sheet-group-usage").textContent ?? "";
+    expect(usage).toContain("Approved comments");
+    expect(usage).toContain("All comments, any status");
+  });
+
+  it("a live fact offers no permanent delete", async () => {
+    stub();
+    open();
+    await screen.findByTestId("deactivate-fact-button");
+    expect(screen.queryByTestId("delete-fact-button")).toBeNull();
   });
 
   it("a fact that is not approved says it isn't on the Facts page", async () => {

@@ -15,7 +15,8 @@
  * (lib/reviewLocks.ts): the fact row, then its gag rows.
  */
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
-import { db, factsTable, factGagsTable } from "@workspace/db";
+import { db, factsTable, factGagsTable, factHashtagsTable, memesTable, userAiImagesTable, commentsTable } from "@workspace/db";
+import { detachHashtags } from "./factHashtags";
 import { recordAdminAction } from "./adminActions";
 import type { Executor } from "./visualConceptOwner";
 import { clearPendingExamples } from "./gags/examples";
@@ -28,7 +29,9 @@ export type FactLifecycleRefusal =
   | { kind: "not_found" }
   | { kind: "no_changes" }
   | { kind: "already"; isActive: boolean }
-  | { kind: "go_live"; check: GoLiveCheck; error: string };
+  | { kind: "go_live"; check: GoLiveCheck; error: string }
+  | { kind: "still_live" }
+  | { kind: "attached"; attached: AttachedContent };
 
 export type FactLifecycleResult<T> = { kind: "done"; value: T } | FactLifecycleRefusal;
 
@@ -151,5 +154,62 @@ export async function reactivateFact(factId: number, adminId: string): Promise<F
     await tx.update(factsTable).set({ isActive: true }).where(eq(factsTable.id, factId));
     await recordAdminAction({ factId }, adminId, "reactivate", {}, tx);
     return { kind: "done", value: { isActive: true } } as const;
+  });
+}
+
+/** Members' content attached to a fact: what a permanent delete would destroy. */
+export interface AttachedContent {
+  memes: number;
+  aiPictures: number;
+  comments: number;
+}
+
+/**
+ * What members have attached to a fact: every meme, AI picture and comment
+ * row, whatever a comment's review status. One definition, read by the delete
+ * and by the fact sheet, so the sheet offers the delete exactly when the
+ * server would allow it. (The public comment counter counts approved comments
+ * only, so it cannot be this.)
+ */
+export async function attachedContent(factId: number, executor: Executor = db): Promise<AttachedContent> {
+  const [[memes], [aiPictures], [comments]] = await Promise.all([
+    executor.select({ n: sql<number>`count(*)::int` }).from(memesTable).where(eq(memesTable.factId, factId)),
+    executor.select({ n: sql<number>`count(*)::int` }).from(userAiImagesTable).where(eq(userAiImagesTable.factId, factId)),
+    executor.select({ n: sql<number>`count(*)::int` }).from(commentsTable).where(eq(commentsTable.factId, factId)),
+  ]);
+  return { memes: memes?.n ?? 0, aiPictures: aiPictures?.n ?? 0, comments: comments?.n ?? 0 };
+}
+
+/**
+ * Permanent delete (plan 3B, oracle item 21): refused while any member's meme,
+ * AI picture or comment is attached, naming the counts, and offered only for a
+ * deactivated fact, so a delete is never the first removal.
+ *
+ * The check and the delete are one protected operation. The fact row is taken
+ * `FOR UPDATE`; inserting a meme, AI picture or comment takes `FOR KEY SHARE`
+ * on the fact row through its foreign key, and the two conflict. So a member
+ * attaching content at the same moment either committed first, and the count
+ * sees it, or waits for this transaction and then fails on the deleted fact.
+ * The foreign keys cascade, so a count followed by a delete outside one
+ * transaction would not keep the promise.
+ *
+ * The record is written before the row goes, with the fact's id and wording in
+ * its detail: the delete nulls the record's fact reference.
+ */
+export async function deleteFact(factId: number, adminId: string): Promise<FactLifecycleResult<{ deleted: true }>> {
+  return db.transaction(async (tx) => {
+    const [fact] = await tx.select({ id: factsTable.id, isActive: factsTable.isActive, approvedAt: factsTable.approvedAt, text: factsTable.text })
+      .from(factsTable).where(eq(factsTable.id, factId)).for("update").limit(1);
+    if (!fact || fact.approvedAt == null) return { kind: "not_found" } as const;
+    if (fact.isActive) return { kind: "still_live" } as const;
+    const attached = await attachedContent(factId, tx);
+    if (attached.memes + attached.aiPictures + attached.comments > 0) return { kind: "attached", attached } as const;
+    await recordAdminAction({ factId }, adminId, "delete", { factId, text: fact.text }, tx);
+    // The join rows would go by cascade, which skips each hashtag's fact count;
+    // detaching first lowers the counts through their one writer.
+    const tags = await tx.select({ id: factHashtagsTable.hashtagId }).from(factHashtagsTable).where(eq(factHashtagsTable.factId, factId));
+    await detachHashtags(tx, factId, tags.map((t) => t.id));
+    await tx.delete(factsTable).where(eq(factsTable.id, factId));
+    return { kind: "done", value: { deleted: true } } as const;
   });
 }
