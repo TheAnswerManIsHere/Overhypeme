@@ -16,7 +16,7 @@ const invites = () => fetchMock.mock.calls.filter(([u]) => u === "/api/share/inv
 
 async function typeAddress() {
   render(<ShareModal open onClose={() => {}} path="/" />);
-  fireEvent.change(screen.getByPlaceholderText(/e\.g\. Alex/), { target: { value: "Sam" } });
+  fireEvent.change(screen.getByPlaceholderText(/e\.g\. David/), { target: { value: "Sam" } });
   fireEvent.click(await screen.findByRole("button", { name: /next/i }));
   const email = await screen.findByPlaceholderText(/@example\.com/);
   fireEvent.change(email, { target: { value: "sam@example.com" } });
