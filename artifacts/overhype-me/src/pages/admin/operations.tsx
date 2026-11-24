@@ -61,7 +61,7 @@ interface OperationsPayload {
   alerts?: { status: "ok"; health: AlertVerdict } | { status: "unavailable" };
   incidents:
     | { status: "ok"; incidents: Incident[] }
-    | { status: "unavailable"; reason: "not_configured" | "unreachable" };
+    | { status: "unavailable"; reason: "not_configured" | "refused" | "unreachable" };
   /** Read-only mode as the server that answered is enforcing it. */
   readOnly?: ReadOnlyState;
 }
@@ -406,7 +406,9 @@ export default function AdminOperations() {
                 <p className="text-sm text-amber-600" data-testid="operations-incidents-unavailable">
                   {data.incidents.reason === "not_configured"
                     ? "Unavailable: the server has no Sentry token, so it cannot list incidents. Alerts are sent by Sentry, not by this page."
-                    : "Unavailable: Sentry could not be reached just now. Alerts are sent by Sentry, not by this page."}
+                    : data.incidents.reason === "refused"
+                      ? "Unavailable: Sentry rejected the server's access key (SENTRY_API_TOKEN), so it cannot list incidents. The key needs replacing; retrying will not help. Alerts are sent by Sentry, not by this page."
+                      : "Unavailable: Sentry could not be reached just now. Alerts are sent by Sentry, not by this page."}
                 </p>
               ) : data.incidents.incidents.length === 0 ? (
                 <p className="text-sm text-muted-foreground" data-testid="operations-incidents-none">

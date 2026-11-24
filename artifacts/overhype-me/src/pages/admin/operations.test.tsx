@@ -44,6 +44,14 @@ describe("Operations page", () => {
     expect(screen.getByTestId("operations-lanes").textContent).toContain("running");
   });
 
+  it("says the access key needs replacing, not that Sentry is unreachable, when Sentry rejects it", async () => {
+    stub({ checkedAt: new Date().toISOString(), lanes: { status: "ok", lanes: [LANE] }, incidents: { status: "unavailable", reason: "refused" } });
+    render(<AdminOperations />);
+    const text = (await screen.findByTestId("operations-incidents-unavailable")).textContent ?? "";
+    expect(text).toContain("rejected the server's access key");
+    expect(text).not.toContain("could not be reached");
+  });
+
   it("lists incidents with their source and a link to Sentry", async () => {
     stub({
       checkedAt: new Date().toISOString(),
