@@ -74,7 +74,7 @@ describe("Operations page, database readable but not writable, real request path
     __setAlertCaptureForTest(() => {});
     __resetIncidentCacheForTest();
     __setOperationalHealthDepsForTest({
-      payments: async () => ({ status: "ok", expected: 0, unprocessed: 0, oldestUnprocessedAt: null }),
+      payments: async () => ({ status: "ok", expected: 0, unprocessed: 0, oldestUnprocessedAt: null, missing: [] }),
     });
   });
 

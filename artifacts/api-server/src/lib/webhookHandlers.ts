@@ -212,7 +212,7 @@ export interface PreparedDomainEvent {
  * BEFORE the claim (the dispute alert) can still skip a redelivery of work that
  * already completed.
  */
-async function eventAlreadyProcessed(eventId: string): Promise<boolean> {
+export async function eventAlreadyProcessed(eventId: string): Promise<boolean> {
   const [row] = await db
     .select({ eventId: stripeProcessedEventsTable.eventId })
     .from(stripeProcessedEventsTable)
@@ -1036,10 +1036,115 @@ export function __setWebhookSyncForTest(fn: (() => ReturnType<typeof getStripeSy
   syncProvider = fn ?? getStripeSync;
 }
 
-export class WebhookHandlers {
-  private static async audit(eventId: string, eventType: string, state: "received" | "processed" | "ignored_duplicate" | "failed", detail?: string) {
-    await db.insert(stripeWebhookAuditTable).values({ eventId, eventType, state, detail });
+/** How a verified event reached processing: Stripe's delivery, or an admin replay (Issue #1244). */
+export type EventSource = "webhook" | "replay";
+export type ProcessOutcome = "processed" | "already_processed";
+
+/**
+ * The audit row for one stage of one event. A replayed event's rows say so, so
+ * the webhook audit log shows a replay for what it is; a webhook's rows are
+ * written exactly as before.
+ */
+async function auditEvent(
+  event: Stripe.Event,
+  state: "received" | "processed" | "ignored_duplicate" | "failed",
+  via: EventSource,
+  detail?: string,
+): Promise<void> {
+  const marked = via === "replay" ? (detail ? `admin replay: ${detail}` : "admin replay") : detail;
+  await db.insert(stripeWebhookAuditTable).values({ eventId: event.id, eventType: event.type, state, detail: marked });
+}
+
+/**
+ * Process one event already known to be genuine — its signature verified by
+ * the sync library, or read by id from Stripe with the verified client — for
+ * its domain effect: the received audit row, prepare, the retryable-noop
+ * refusal, ONE transaction holding the idempotency claim and the domain
+ * writes, the processed audit row, and the after-commit work. The webhook and
+ * the admin replay both call exactly this, so there is one implementation of
+ * what an event does (PLAN_REPLAY_MISSED_STRIPE_EVENT.md, design item 1).
+ *
+ * Returns `already_processed` only when the claim's own primary key refuses
+ * the insert; every other failure throws, with a `failed` audit row.
+ */
+export async function processAuthenticEvent(stripe: StripeApi, event: Stripe.Event, via: EventSource): Promise<ProcessOutcome> {
+  await auditEvent(event, "received", via);
+
+  let prepared: PreparedDomainEvent | undefined;
+
+  // The idempotency claim and the domain processing share ONE transaction.
+  //
+  // Claimed-then-processed as two commits drops events: the claim survives a
+  // handler throw, so Stripe's retry sees the event as already processed and
+  // the work never happens. In one transaction a throw rolls the claim back
+  // and the retry can succeed.
+  //
+  // The AUDIT writes stay OUTSIDE it, deliberately. A `failed` audit row that
+  // rolled back with the claim would destroy the only evidence the failure
+  // ever happened — which is exactly the record you need when an event
+  // silently did not apply.
+  try {
+    // Phase A — prepare. Every Stripe retrieval and the per-source lease,
+    // with no transaction open.
+    prepared = await prepareDomainEvent(stripe, event);
+
+    // A noop is not automatically a settled fact. `source_busy` (lease
+    // contention), `retrieval_failed` and `incomplete_enumeration` (a Stripe
+    // call or pagination pass that didn't complete) describe OUR inability to
+    // observe the object right now, not something about the object itself —
+    // unlike e.g. `not_membership_product`, which will never become true on a
+    // retry. Committing the idempotency claim on a retryable noop would
+    // permanently ack a transient failure: Stripe would never redeliver it, and
+    // nothing else reconstructs a one-time grant or dispute transition from
+    // scratch. So this throws BEFORE the claim, same as any other failure.
+    if (prepared.entitlement.kind === "noop" && RETRYABLE_NOOP_REASONS.has(prepared.entitlement.reason)) {
+      throw new Error(`retryable prepare failure: ${prepared.entitlement.reason}`);
+    }
+
+    // Phase B — apply. The claim and every domain write, one transaction, no
+    // network. A throw rolls the claim back so Stripe's retry can succeed.
+    const readyToApply = prepared;
+    const notifications = await runBoundedApply(async (tx) => {
+      // Fails on duplicate under concurrent deliveries. Inside the transaction
+      // it also holds the row lock for the whole of processing, so two
+      // simultaneous deliveries of one event cannot both proceed.
+      await tx.insert(stripeProcessedEventsTable).values({ eventId: event.id });
+      return applyDomainEvent(tx, readyToApply);
+    });
+
+    await auditEvent(event, "processed", via);
+
+    // Phase C — after the commit, and only if it committed.
+    await runAfterCommit(readyToApply, notifications);
+    return "processed";
+  } catch (err) {
+    // ONLY the claim's own unique violation means "already processed".
+    //
+    // This catch spans preparation, the whole domain transaction, auditing and
+    // post-commit work, so a broad 23505 test convicts the wrong error: two
+    // first-purchase events racing in `linkCustomerToUser` make the loser
+    // violate the unique Stripe-customer constraint during PREPARE, before any
+    // claim exists. Calling that a duplicate returns 200, so Stripe never
+    // redelivers and a real purchase is dropped — the exact failure the
+    // claim-inside-the-transaction design exists to prevent, reached through
+    // the error path instead. Matching on the constraint name is what makes
+    // "already claimed" mean it. The message-substring test is gone with it:
+    // "unique" appears in plenty of unrelated errors.
+    const isDuplicateClaim = isConstraintViolation(err, PROCESSED_EVENTS_PK);
+    if (isDuplicateClaim) {
+      await auditEvent(event, "ignored_duplicate", via);
+      logger.info({ eventId: event.id, eventType: event.type, via }, "Webhook event already processed — skipping (idempotency)");
+      return "already_processed";
+    }
+    await auditEvent(event, "failed", via, err instanceof Error ? err.message.slice(0, 400) : String(err));
+    logger.error({ err, eventType: event.type, via }, "Webhook domain handler error");
+    throw err;
+  } finally {
+    if (prepared) await releasePrepared(prepared.entitlement);
   }
+}
+
+export class WebhookHandlers {
   /**
    * Process a pre-constructed Stripe event object directly through the domain event switch,
    * skipping Stripe sync and signature verification. For use in test mode QA only.
@@ -1146,79 +1251,6 @@ export class WebhookHandlers {
       logger.error({ err: parseErr }, "Failed to parse webhook event payload");
       return;
     }
-    await this.audit(event.id, event.type, "received");
-
-    let prepared: PreparedDomainEvent | undefined;
-
-    // The idempotency claim and the domain processing share ONE transaction.
-    //
-    // Claimed-then-processed as two commits drops events: the claim survives a
-    // handler throw, so Stripe's retry sees the event as already processed and
-    // the work never happens. In one transaction a throw rolls the claim back
-    // and the retry can succeed.
-    //
-    // The AUDIT writes stay OUTSIDE it, deliberately. A `failed` audit row that
-    // rolled back with the claim would destroy the only evidence the failure
-    // ever happened — which is exactly the record you need when an event
-    // silently did not apply.
-    try {
-      // Phase A — prepare. Every Stripe retrieval and the per-source lease,
-      // with no transaction open. At this point stripe is guaranteed non-null:
-      // either we acquired it in phase 1, or we returned early above.
-      prepared = await prepareDomainEvent(stripe!, event);
-
-      // A noop is not automatically a settled fact. `source_busy` (lease
-      // contention), `retrieval_failed` and `incomplete_enumeration` (a Stripe
-      // call or pagination pass that didn't complete) describe OUR inability to
-      // observe the object right now, not something about the object itself —
-      // unlike e.g. `not_membership_product`, which will never become true on a
-      // retry. Committing the idempotency claim on a retryable noop would
-      // permanently ack a transient failure: Stripe would never redeliver it, and
-      // nothing else reconstructs a one-time grant or dispute transition from
-      // scratch. So this throws BEFORE the claim, same as any other failure.
-      if (prepared.entitlement.kind === "noop" && RETRYABLE_NOOP_REASONS.has(prepared.entitlement.reason)) {
-        throw new Error(`retryable prepare failure: ${prepared.entitlement.reason}`);
-      }
-
-      // Phase B — apply. The claim and every domain write, one transaction, no
-      // network. A throw rolls the claim back so Stripe's retry can succeed.
-      const readyToApply = prepared;
-      const notifications = await runBoundedApply(async (tx) => {
-        // Fails on duplicate under concurrent deliveries. Inside the transaction
-        // it also holds the row lock for the whole of processing, so two
-        // simultaneous deliveries of one event cannot both proceed.
-        await tx.insert(stripeProcessedEventsTable).values({ eventId: event.id });
-        return applyDomainEvent(tx, readyToApply);
-      });
-
-      await this.audit(event.id, event.type, "processed");
-
-      // Phase C — after the commit, and only if it committed.
-      await runAfterCommit(readyToApply, notifications);
-    } catch (err) {
-      // ONLY the claim's own unique violation means "already processed".
-      //
-      // This catch spans preparation, the whole domain transaction, auditing and
-      // post-commit work, so a broad 23505 test convicts the wrong error: two
-      // first-purchase events racing in `linkCustomerToUser` make the loser
-      // violate the unique Stripe-customer constraint during PREPARE, before any
-      // claim exists. Calling that a duplicate returns 200, so Stripe never
-      // redelivers and a real purchase is dropped — the exact failure the
-      // claim-inside-the-transaction design exists to prevent, reached through
-      // the error path instead. Matching on the constraint name is what makes
-      // "already claimed" mean it. The message-substring test is gone with it:
-      // "unique" appears in plenty of unrelated errors.
-      const isDuplicateClaim = isConstraintViolation(err, PROCESSED_EVENTS_PK);
-      if (isDuplicateClaim) {
-        await this.audit(event.id, event.type, "ignored_duplicate");
-        logger.info({ eventId: event.id, eventType: event.type }, "Webhook event already processed — skipping (idempotency)");
-        return;
-      }
-      await this.audit(event.id, event.type, "failed", err instanceof Error ? err.message.slice(0, 400) : String(err));
-      logger.error({ err, eventType: event.type }, "Webhook domain handler error");
-      throw err;
-    } finally {
-      if (prepared) await releasePrepared(prepared.entitlement);
-    }
+    await processAuthenticEvent(stripe!, event, "webhook");
   }
 }

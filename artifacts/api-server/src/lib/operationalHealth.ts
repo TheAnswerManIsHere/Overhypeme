@@ -107,8 +107,15 @@ const STRIPE_PAGE_SIZE = 100;
 /** Pages read before the comparison gives up as incomplete (unhealthy). */
 export const STRIPE_MAX_PAGES = 10;
 
+/** One event the comparison counts as unprocessed: what the admin Billing page lists for replay. */
+export interface MissingStripeEvent {
+  id: string;
+  type: string;
+  created: Date;
+}
+
 export type StripeComparison =
-  | { status: "ok"; expected: number; unprocessed: number; oldestUnprocessedAt: Date | null }
+  | { status: "ok"; expected: number; unprocessed: number; oldestUnprocessedAt: Date | null; missing: MissingStripeEvent[] }
   | { status: "unjudgeable"; reason: "stripe_unavailable" | "incomplete" | "read_failed" };
 
 export interface StripeComparisonDeps {
@@ -139,7 +146,7 @@ async function defaultStripeDeps(): Promise<Omit<StripeComparisonDeps, "now">> {
  * a first purchase whose webhook never arrived has no local record, and the
  * webhook records every event it is sent, the other business's included.
  */
-const NOTHING_EXPECTED: StripeComparison = { status: "ok", expected: 0, unprocessed: 0, oldestUnprocessedAt: null };
+const NOTHING_EXPECTED: StripeComparison = { status: "ok", expected: 0, unprocessed: 0, oldestUnprocessedAt: null, missing: [] };
 
 export async function compareStripeEvents(deps: Partial<StripeComparisonDeps> = {}): Promise<StripeComparison> {
   const complete = deps.stripe && deps.supportedTypes && deps.db;
@@ -199,6 +206,9 @@ export async function compareStripeEvents(deps: Partial<StripeComparisonDeps> = 
     expected: expected.length,
     unprocessed: missing.length,
     oldestUnprocessedAt: oldest === null ? null : new Date(oldest * 1000),
+    // The very set the count is taken from, so the admin list and the alert
+    // cannot disagree about which events are unprocessed (Issue #1244).
+    missing: missing.map((e) => ({ id: e.id, type: e.type, created: new Date(e.created * 1000) })),
   };
 }
 
@@ -248,6 +258,15 @@ export function __setOperationalHealthDepsForTest(next: Partial<OperationalHealt
   cached = null;
   inFlight = null;
   paymentsCached = null;
+}
+
+/**
+ * Drop the cached payments comparison and verdict, so the next read of the
+ * alert re-compares. Called after an admin replays an event (Issue #1244).
+ */
+export function forgetPaymentsVerdict(): void {
+  paymentsCached = null;
+  cached = null;
 }
 
 async function judge<T>(what: string, read: () => Promise<T>, healthy: (t: T) => boolean): Promise<Part<T>> {

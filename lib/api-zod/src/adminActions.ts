@@ -41,6 +41,8 @@ export const ADMIN_ACTION_VALUES = [
   "import",
   // A member's meme or photo taken down (image-surface audit R9, #875)
   "content_takedown",
+  // A missed Stripe event replayed from the admin Billing page (Issue #1244)
+  "stripe_event_replayed",
 ] as const;
 
 export type AdminAction = (typeof ADMIN_ACTION_VALUES)[number];

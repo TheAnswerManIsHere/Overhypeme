@@ -31,8 +31,11 @@ export interface StripeApi {
   checkout: { sessions: Pick<Stripe["checkout"]["sessions"], "create" | "list" | "listLineItems" | "retrieve"> };
   customers: Pick<Stripe["customers"], "create" | "retrieve">;
   disputes: Pick<Stripe["disputes"], "retrieve">;
-  /** Read by the payments health check (launch Phase 16): events the webhook should have processed. */
-  events: Pick<Stripe["events"], "list">;
+  /**
+   * `list`: the payments health check (launch Phase 16), events the webhook
+   * should have processed. `retrieve`: the admin replay of one of them (Issue #1244).
+   */
+  events: Pick<Stripe["events"], "list" | "retrieve">;
   invoicePayments: Pick<Stripe["invoicePayments"], "list">;
   invoices: Pick<Stripe["invoices"], "createPreview" | "list" | "retrieve">;
   paymentIntents: Pick<Stripe["paymentIntents"], "retrieve">;
@@ -50,6 +53,7 @@ export type StripeSyncApi = Pick<
   | "findOrCreateManagedWebhook"
   | "syncBackfill"
   | "processWebhook"
+  | "processEvent"
   | "syncProducts"
   | "syncPrices"
   | "syncPlans"

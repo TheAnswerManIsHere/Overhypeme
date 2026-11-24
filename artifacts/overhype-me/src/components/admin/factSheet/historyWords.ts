@@ -110,6 +110,7 @@ export const HISTORY_WORDS: Record<AdminAction, { title: string; detail?: (d: De
   },
   import: { title: "Imported" },
   content_takedown: { title: "A member's meme or photo taken down" },
+  stripe_event_replayed: { title: "Missed Stripe event replayed" },
 };
 
 /** One record in words; an action this build does not know is shown by its name. */
