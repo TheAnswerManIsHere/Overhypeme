@@ -9,6 +9,7 @@ import {
 } from "@workspace/api-zod";
 import { useCaptionFont } from "@/lib/captionFontLoader";
 import { captionFontOf } from "../captionFont";
+import { builderCaptionFont } from "../captionLayout";
 import type { AspectRatio, MemeTextOptions } from "../types";
 
 const watermarkFont = captionFontById(WATERMARK_FONT_ID);
@@ -109,7 +110,6 @@ export function LivePreview({
       // watermark face never hides the caption (#872).
       const captionReady = fontStatus === "ready";
       const watermarkReady = watermarkStatus === "ready";
-      const fontStyle = textOptions.italic ? "italic" : "normal";
       drawMeme(ctx, {
         image: bgImage,
         drawImage: (image, x, y, w, h) => ctx.drawImage(image, x, y, w, h),
@@ -119,7 +119,7 @@ export function LivePreview({
           ? memeCaption(factText, textOptions, name || "___", pronouns || "they/them")
           : { mode: "single", text: [] },
         style: textOptions,
-        captionFont: (size) => `${fontStyle} ${captionFont.weight} ${size}px ${captionFontStack(captionFont)}`,
+        captionFont: builderCaptionFont(textOptions),
         watermarkFont: (size) => `${watermarkFont.weight} ${size}px ${captionFontStack(watermarkFont)}`,
         watermark: watermarkReady,
       });

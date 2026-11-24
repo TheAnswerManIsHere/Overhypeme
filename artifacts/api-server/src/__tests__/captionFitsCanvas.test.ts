@@ -8,7 +8,12 @@
  * (David, 2026-11-24): the whole caption fits inside the picture, with no line
  * cut by an edge.
  *
- * @purpose Proves every line of a drawn caption lies inside the picture, for every aspect ratio, caption position, caption length and font size the builder can produce, on the shared drawing and on the server's rendered file.
+ * #1260: the top and bottom blocks could also be drawn over each other, and the
+ * builder's position sliders took their limits from a guess (a line count of
+ * split/8, a 64 px font, a 720 px canvas) instead of from the drawing. One
+ * layout (`captionLayout`) now decides all of it.
+ *
+ * @purpose Proves every line of a drawn caption lies inside the picture and the top and bottom blocks never overlap, for every aspect ratio, caption position, caption length and font size the builder can produce, on the shared drawing and on the server's rendered file, and that the position ranges the layout reports are exactly the positions it draws unchanged.
  * @subsystem meme-studio
  */
 import { describe, it } from "node:test";
@@ -18,6 +23,7 @@ import sharp from "sharp";
 import {
   MEME_CANVAS_DIMS,
   CAPTION_BASELINE_EM,
+  captionLayout,
   drawMeme,
   memeCaption,
   type MemeCanvasAspectRatio,
@@ -48,6 +54,9 @@ function recordingContext() {
   };
   return { ctx: ctx as unknown as MemeCanvasContext, placed };
 }
+
+/** The recording canvas's widths, for `captionLayout` called directly: half an em per character. */
+const measure = (text: string, size: number) => text.length * size * 0.5;
 
 const RATIOS: MemeCanvasAspectRatio[] = ["portrait", "square", "landscape"];
 const POSITIONS = [0, 5, 17, 50, 88, 95, 100];
@@ -88,6 +97,93 @@ describe("caption fits the canvas: the shared drawing", () => {
       }
     }
     assert.equal(checked, RATIOS.length * FONT_SIZES.length * LENGTHS.length * POSITIONS.length * 3);
+  });
+
+  it("never overlaps the top and bottom blocks, and keeps both inside the picture, whatever the positions, lengths and font size (#1260)", () => {
+    let checked = 0;
+    for (const aspectRatio of RATIOS) {
+      const { h } = MEME_CANVAS_DIMS[aspectRatio];
+      for (const fontSize of FONT_SIZES) {
+        for (const topWords of [1, 10, 30, 90]) {
+          for (const bottomWords of [1, 5, 30, 90]) {
+            for (const topY of POSITIONS) {
+              for (const bottomY of POSITIONS) {
+                const topText = "word ".repeat(topWords).trim();
+                const bottomText = "word ".repeat(bottomWords).trim();
+                const layout = captionLayout(measure, {
+                  aspectRatio,
+                  caption: memeCaption(`${topText} ${bottomText}`, { topText, bottomText }, "David", "he/him"),
+                  style: { fontSize, topY, bottomY },
+                });
+                const where = `${aspectRatio}, top ${topWords} words at ${topY}%, bottom ${bottomWords} words at ${bottomY}%, font ${fontSize ?? "default"}`;
+                const [top, bottom] = layout.blocks;
+                assert.equal(layout.blocks.length, 2, where);
+                assert.ok(top!.inkTop >= 0, `${where}: the top block starts ${top!.inkTop.toFixed(1)} px above the top edge`);
+                assert.ok(bottom!.inkBottom <= h, `${where}: the bottom block ends ${(bottom!.inkBottom - h).toFixed(1)} px below the bottom edge`);
+                assert.ok(top!.inkBottom < bottom!.inkTop, `${where}: the blocks overlap by ${(top!.inkBottom - bottom!.inkTop).toFixed(1)} px`);
+                checked++;
+              }
+            }
+          }
+        }
+      }
+    }
+    assert.equal(checked, RATIOS.length * FONT_SIZES.length * 16 * POSITIONS.length * POSITIONS.length);
+  });
+
+  it("fits the two longest halves the save validator accepts, in every ratio", () => {
+    const half = "wwww ".repeat(100).trim(); // 499 characters
+    for (const aspectRatio of RATIOS) {
+      const { h } = MEME_CANVAS_DIMS[aspectRatio];
+      const layout = captionLayout(measure, {
+        aspectRatio, caption: memeCaption(half, { topText: half, bottomText: half }, "David", "he/him"), style: { fontSize: 100 },
+      });
+      const [top, bottom] = layout.blocks;
+      assert.ok(top!.inkTop >= 0 && bottom!.inkBottom <= h && top!.inkBottom < bottom!.inkTop, `${aspectRatio}: drawn at ${layout.fontSize} px`);
+    }
+  });
+
+  it("draws David's screenshot case apart: portrait pushups, top at 51%, bottom at 72%", () => {
+    const topText = "When David Franklin does pushups, he doesn't push himself up –";
+    const bottomText = "He pushes the Earth down.";
+    const layout = captionLayout(measure, {
+      aspectRatio: "portrait", caption: memeCaption("", { topText, bottomText }, "David", "he/him"), style: { topY: 51, bottomY: 72 },
+    });
+    const [top, bottom] = layout.blocks;
+    assert.ok(top!.inkBottom < bottom!.inkTop, `the blocks overlap by ${(top!.inkBottom - bottom!.inkTop).toFixed(1)} px`);
+  });
+
+  it("gives each slider a range in which every position is drawn exactly where it says, and the two ranges meet without overlap", () => {
+    for (const aspectRatio of RATIOS) {
+      for (const fontSize of FONT_SIZES) {
+        for (const [topWords, bottomWords] of [[10, 5], [3, 3], [30, 12]] as const) {
+          const topText = "word ".repeat(topWords).trim();
+          const bottomText = "word ".repeat(bottomWords).trim();
+          const caption = memeCaption("", { topText, bottomText }, "David", "he/him");
+          const at = (topY: number, bottomY: number) => captionLayout(measure, { aspectRatio, caption, style: { fontSize, topY, bottomY } });
+          const start = at(17, 88);
+          const [top, bottom] = start.blocks;
+          const where = `${aspectRatio}, ${topWords}/${bottomWords} words, font ${fontSize ?? "default"}`;
+          // The integer positions a slider offers.
+          const topMin = Math.ceil(top!.minPct), topMax = Math.floor(top!.maxPct);
+          const bottomMin = Math.ceil(bottom!.minPct), bottomMax = Math.floor(bottom!.maxPct);
+          assert.ok(top!.minPct <= top!.yPct + 1e-9 && top!.yPct <= top!.maxPct + 1e-9, `${where}: the top block sits inside its own range`);
+          assert.ok(bottom!.minPct <= bottom!.yPct + 1e-9 && bottom!.yPct <= bottom!.maxPct + 1e-9, `${where}: the bottom block sits inside its own range`);
+          for (const v of [topMin, topMax]) {
+            if (topMin > topMax) break;
+            const moved = at(v, bottom!.yPct);
+            assert.ok(Math.abs(moved.blocks[0]!.yPct - v) < 1e-9, `${where}: top slider at ${v}% is drawn at ${moved.blocks[0]!.yPct.toFixed(3)}%`);
+            assert.ok(Math.abs(moved.blocks[1]!.yPct - bottom!.yPct) < 1e-9, `${where}: moving the top slider to ${v}% moved the bottom block`);
+          }
+          for (const v of [bottomMin, bottomMax]) {
+            if (bottomMin > bottomMax) break;
+            const moved = at(top!.yPct, v);
+            assert.ok(Math.abs(moved.blocks[1]!.yPct - v) < 1e-9, `${where}: bottom slider at ${v}% is drawn at ${moved.blocks[1]!.yPct.toFixed(3)}%`);
+            assert.ok(Math.abs(moved.blocks[0]!.yPct - top!.yPct) < 1e-9, `${where}: moving the bottom slider to ${v}% moved the top block`);
+          }
+        }
+      }
+    }
   });
 
   it("leaves a caption that already fits exactly where its position puts it", () => {

@@ -28,27 +28,3 @@ export function intelligentSplit(factText: string): number {
   }
   return mid;
 }
-
-export interface VerticalCollisionInput {
-  topLines: number;
-  fontSize: number;
-  canvasH: number;
-  topY: number;
-  bottomY: number;
-}
-
-/**
- * Returns the maximum legal `topY` and minimum legal `bottomY` percentages
- * given the current text block heights. Matches `MemeBuilder.tsx:855-869` so
- * the wizard sliders never let top and bottom text collide.
- */
-export function computeTextCollisionConstraints(
-  input: VerticalCollisionInput,
-): { maxTopY: number; minBottomY: number } {
-  const { topLines, fontSize, canvasH, topY, bottomY } = input;
-  // Each line ≈ 1.15× the font size — same heuristic the canvas uses.
-  const topBlockPx = topLines * fontSize * 1.15;
-  const maxTopY = Math.max(0, Math.floor(bottomY - (topBlockPx / canvasH) * 100));
-  const minBottomY = Math.min(100, Math.ceil(topY + (topBlockPx / canvasH) * 100));
-  return { maxTopY, minBottomY };
-}
