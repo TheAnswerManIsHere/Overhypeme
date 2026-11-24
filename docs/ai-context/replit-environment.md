@@ -437,6 +437,35 @@ address. With no key set, the shortcut is refused through the preview.
 Direct local requests (`curl localhost:8080`, the Repl agent's checks) are
 never gated, and the published deployment never is.
 
+## Secrets: four traps, measured on 2026-11-24
+
+Measured on this Repl from David's screenshots, during Issue #1220 (the
+Stripe sandbox split). The platform-wide picture is
+[`replit-platform.md`](replit-platform.md), *Secrets and environment*; these
+four are what it does not say yet.
+
+- **A change on the Republish page's Production app secrets is a draft.**
+  The page says *"Secret changes here are saved only when this publish
+  succeeds"*, and a publish cancelled or never started discards it. An
+  unsync made there and left unpublished was gone an hour later, and the
+  secret followed the workspace again. So an unsync and the value it needs
+  are made **in the same visit as the publish**, and checked on the page just
+  before Republish.
+- **Three kinds of value, one Secrets pane.** *Project Secrets* belong to this
+  app. *Linked Account Secrets* (🔗 icon) come from David's account
+  (Account Settings → Account Secrets), one value shared by every app that
+  links it, and cannot be edited from the app. *Configurations* are the
+  non-secret values from `.replit`'s `[userenv.*]` blocks: one shared value,
+  or a testing and a published value (`STRIPE_ACCOUNT_ID_TEST` is the second
+  kind).
+- **A linked Account Secret overrides a Project Secret of the same name**,
+  with only a banner to say so (*"The Account Secret's value takes
+  precedence"*).
+- **Unlink removes the secret from the app at once.** No project copy is left
+  behind, so the value has to be re-created as a Project Secret before
+  anything restarts. An account can link at most 10 secrets into one app.
+  The move off Account Secrets is Issue #1228.
+
 ## Dev and production are two separate databases
 
 **`heliumdb`** (on the `helium` host) is the **development** database — the

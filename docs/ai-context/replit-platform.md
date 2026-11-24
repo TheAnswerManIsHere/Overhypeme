@@ -281,30 +281,6 @@ unsynced there no longer follows the workspace. Secrets are
 unavailable to Static deployments, and an organisation member who cannot see
 a value can still print it from the environment (docs, *secrets*).
 
-**Four traps, measured on Overhype.me on 2026-11-24** (Issue #1220, from
-David's screenshots):
-
-- **A change on the Republish page's Production app secrets is a draft.**
-  The page says *"Secret changes here are saved only when this publish
-  succeeds"*, and a publish cancelled or never started discards it. An
-  unsync made there and left unpublished was gone an hour later, and the
-  secret followed the workspace again. So an unsync and the value it needs
-  are made **in the same visit as the publish**, then checked on the page
-  just before Republish.
-- **Three kinds of value, one Secrets pane.** *Project Secrets* belong to
-  this app. *Linked Account Secrets* (🔗 icon) come from the owner's
-  account (Account Settings → Account Secrets), one value shared by every
-  app that links it, and cannot be edited from the app. *Configurations*
-  are the non-secret values from `.replit`'s `[userenv.*]` blocks: one
-  shared value, or a testing and a published value.
-- **A linked Account Secret overrides a Project Secret of the same name**,
-  with only a banner to say so (*"The Account Secret's value takes
-  precedence"*).
-- **Unlink removes the secret from the app at once**: no project copy is
-  left behind, so the value has to be re-created as a Project Secret before
-  anything restarts. An account can link at most 10 secrets into one app.
-  The move off Account Secrets is Issue #1228.
-
 ## Domains and access
 
 - Default `<name>.replit.app`; custom domains through a guided DNS flow or by
