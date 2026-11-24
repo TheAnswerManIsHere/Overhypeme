@@ -341,6 +341,39 @@ function ReadingTab({ fact, onSaved, onDirtyChange }: { fact: FactSheetView; onS
 /** What the footer is asking the admin to confirm. */
 type Confirming = "deactivate" | "discard" | null;
 
+const CONFIRM = {
+  deactivate: {
+    testId: "deactivate",
+    confirmTestId: "deactivate-fact-confirm",
+    text: "Takes the fact off the site. Members' memes, pictures and comments are kept, and so are any unpublished changes. It can be reactivated later.",
+    label: "Deactivate",
+    icon: EyeOff,
+  },
+  discard: {
+    testId: "discard",
+    confirmTestId: "discard-changes-confirm",
+    text: "Throws away every unpublished change to the gags and their pictures. Gags that were never published are removed. Members' view doesn't change.",
+    label: "Discard changes",
+    icon: Undo2,
+  },
+} as const;
+
+function ConfirmPanel({ testId, confirmTestId, text, label, icon: Icon, busy, acting, onConfirm, onCancel }: (typeof CONFIRM)[keyof typeof CONFIRM] & {
+  busy: boolean; acting: boolean; onConfirm: () => void; onCancel: () => void;
+}) {
+  return (
+    <div className="space-y-2" data-testid={`sheet-${testId}-confirm`}>
+      <p className="text-sm text-muted-foreground">{text}</p>
+      <div className="flex gap-2">
+        <Button size="sm" onClick={onConfirm} isLoading={acting} data-testid={confirmTestId}>
+          <Icon className="w-4 h-4" /> {label}
+        </Button>
+        <Button size="sm" variant="outline" onClick={onCancel} disabled={busy}>Cancel</Button>
+      </div>
+    </div>
+  );
+}
+
 const ACTION_DONE: Record<FactLifecycleAction, string> = {
   publish: "Published. Members now see the new gags.",
   discard: "Changes discarded. The gags are back to what members see.",
@@ -555,30 +588,14 @@ export function FactSheet({
             {actionError && <p className="text-sm text-destructive flex items-start gap-1.5" role="alert" data-testid="sheet-action-error"><AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" /> {actionError}</p>}
             {actionDone && !actionError && <p className="text-sm text-green-600 dark:text-green-400 flex items-center gap-1.5" data-testid="sheet-action-done"><CheckCircle2 className="w-4 h-4" /> {actionDone}</p>}
 
-            {confirming === "deactivate" ? (
-              <div className="space-y-2" data-testid="sheet-deactivate-confirm">
-                <p className="text-sm text-muted-foreground">
-                  Takes the fact off the site. Members' memes, pictures and comments are kept, and so are any unpublished changes. It can be reactivated later.
-                </p>
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={() => void act("deactivate")} isLoading={acting === "deactivate"} data-testid="deactivate-fact-confirm">
-                    <EyeOff className="w-4 h-4" /> Deactivate
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => setConfirming(null)} disabled={busy}>Cancel</Button>
-                </div>
-              </div>
-            ) : confirming === "discard" ? (
-              <div className="space-y-2" data-testid="sheet-discard-confirm">
-                <p className="text-sm text-muted-foreground">
-                  Throws away every unpublished change to the gags and their pictures. Gags that were never published are removed. Members' view doesn't change.
-                </p>
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={() => void act("discard")} isLoading={acting === "discard"} data-testid="discard-changes-confirm">
-                    <Undo2 className="w-4 h-4" /> Discard changes
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => setConfirming(null)} disabled={busy}>Cancel</Button>
-                </div>
-              </div>
+            {confirming ? (
+              <ConfirmPanel
+                {...CONFIRM[confirming]}
+                busy={busy}
+                acting={acting === confirming}
+                onConfirm={() => void act(confirming)}
+                onCancel={() => setConfirming(null)}
+              />
             ) : (
               <div className="flex flex-wrap items-center justify-between gap-2">
                 {fact.isActive ? (

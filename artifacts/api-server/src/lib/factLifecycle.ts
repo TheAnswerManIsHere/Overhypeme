@@ -17,11 +17,11 @@
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db, factsTable, factGagsTable } from "@workspace/db";
 import { recordAdminAction } from "./adminActions";
+import type { Executor } from "./visualConceptOwner";
 import { clearPendingExamples } from "./gags/examples";
 import { checkGoLive, describeGoLive, GoLiveError, type GoLiveCheck } from "./gags/goLive";
 import { publishDraft, type PublishResult } from "./gags/publish";
 
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /** Why a lifecycle action was refused. */
 export type FactLifecycleRefusal =
@@ -32,31 +32,31 @@ export type FactLifecycleRefusal =
 
 export type FactLifecycleResult<T> = { kind: "done"; value: T } | FactLifecycleRefusal;
 
-/** A gag row that differs between the draft and the published set. */
+/** A gag row that differs between the draft and the published set: one definition, used by both forms below. */
 export const gagHasDraftChange = sql`(${factGagsTable.removedAt} IS NULL AND (${factGagsTable.pendingContent} IS NOT NULL OR ${factGagsTable.draftRemoved}))`;
 
 /**
  * SQL: the fact (in an outer query over `facts`) has unpublished gag changes.
- * The outer column is written qualified: as a top-level column of a
- * single-table select, Drizzle renders `${factsTable.id}` as a bare "id"
- * (measured: `select "id", EXISTS (... WHERE g.fact_id = "id" ...) from
- * "facts"`), which inside this subquery binds to fact_gags.id.
+ * The EXISTS is wrapped in a second fragment on purpose: as a bare top-level
+ * column of a single-table select, Drizzle renders column references
+ * unqualified (measured: `select "id", EXISTS (... WHERE "fact_id" = "id" ...)
+ * from "facts"`), so the outer "id" would bind to fact_gags.id; nested, it
+ * renders `"fact_gags"."fact_id" = "facts"."id"`.
  */
-export const factHasUnpublishedChanges = sql<boolean>`EXISTS (
-  SELECT 1 FROM fact_gags g
-  WHERE g.fact_id = "facts"."id" AND g.removed_at IS NULL
-    AND (g.pending_content IS NOT NULL OR g.draft_removed)
-)`;
+export const factHasUnpublishedChanges = sql<boolean>`(${sql`EXISTS (
+  SELECT 1 FROM ${factGagsTable}
+  WHERE ${factGagsTable.factId} = ${factsTable.id} AND ${gagHasDraftChange}
+)`})`;
 
 /** Whether one fact's draft differs from its published set. */
-export async function hasUnpublishedChanges(factId: number, executor: Tx | typeof db = db): Promise<boolean> {
+export async function hasUnpublishedChanges(factId: number, executor: Executor = db): Promise<boolean> {
   const [row] = await executor.select({ id: factGagsTable.id }).from(factGagsTable)
     .where(and(eq(factGagsTable.factId, factId), gagHasDraftChange)).limit(1);
   return row != null;
 }
 
 /** Lock an approved fact's row; null when there is no such approved fact. */
-async function lockApprovedFact(tx: Tx, factId: number): Promise<{ id: number; isActive: boolean } | null> {
+async function lockApprovedFact(tx: Executor, factId: number): Promise<{ id: number; isActive: boolean } | null> {
   const [fact] = await tx.select({ id: factsTable.id, isActive: factsTable.isActive, approvedAt: factsTable.approvedAt })
     .from(factsTable).where(eq(factsTable.id, factId)).for("no key update").limit(1);
   if (!fact || fact.approvedAt == null) return null;
