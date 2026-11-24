@@ -10,7 +10,7 @@ import { eq, and, or, sql, isNull, gt, getTableColumns } from "drizzle-orm";
 import { createSession, createSignInSession, SuspendedAccountError, updateSession, deleteSession, getSessionId, revokeUserSessions, type SessionData } from "../lib/auth";
 import { isDevAdminLoginEnabled } from "../lib/devAdminLogin";
 import { previewKeyAdmits, refuseDevPreview } from "../middlewares/devPreviewGate";
-import { getSafeReturnTo } from "../lib/safeReturnTo";
+import { getSafeReturnTo, getSafeSignupReturnTo } from "../lib/safeReturnTo";
 import { isAdminById } from "./auth";
 import { sendEmail, buildPasswordResetEmail, buildEmailVerificationEmail, buildEmailChangeVerificationEmail } from "../lib/email";
 import { getSiteBaseUrl } from "../lib/siteUrl";
@@ -113,7 +113,8 @@ router.post("/auth/register", async (req: Request, res: Response) => {
     return;
   }
 
-  const { password, email, displayName, pronouns, firstName, lastName } = req.body as {
+  const { password, email, displayName, pronouns, firstName, lastName, returnTo } = req.body as {
+    returnTo?: unknown;
     password?: string;
     email?: string;
     displayName?: string;
@@ -204,6 +205,10 @@ router.post("/auth/register", async (req: Request, res: Response) => {
       isActive: true,
       // A self-registration: cleaned up if never onboarded (0118).
       registeredUnderOnboarding: true,
+      // The page they signed up from (Issue #1203, Q6): any confirmation
+      // link, first or resent, returns them here after set-up. Unsafe values,
+      // the home page and sign-in-flow pages store nothing.
+      signupReturnTo: getSafeSignupReturnTo(returnTo),
     })
     .returning();
 
@@ -544,6 +549,7 @@ router.get("/auth/verify-email", async (req: Request, res: Response) => {
     return;
   }
 
+  let signupReturnTo: string | null = null;
   if (record.pendingEmail) {
     // Email change verification — promote pendingEmail to email. This is a
     // SECOND path (besides PATCH /admin/users/:id) that can cross the
@@ -588,11 +594,21 @@ router.get("/auth/verify-email", async (req: Request, res: Response) => {
       throw err;
     }
   } else {
-    // New account email verification
-    await db
-      .update(usersTable)
-      .set({ emailVerifiedAt: new Date() })
-      .where(eq(usersTable.id, record.userId));
+    // New account email verification. The page they signed up from is read
+    // and cleared in the same transaction (Issue #1203): it is handed back
+    // once, and an email change never reads it.
+    signupReturnTo = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .select({ signupReturnTo: usersTable.signupReturnTo })
+        .from(usersTable)
+        .where(eq(usersTable.id, record.userId))
+        .for("update");
+      await tx
+        .update(usersTable)
+        .set({ emailVerifiedAt: new Date(), signupReturnTo: null })
+        .where(eq(usersTable.id, record.userId));
+      return getSafeSignupReturnTo(row?.signupReturnTo);
+    });
   }
 
   await db
@@ -636,7 +652,7 @@ router.get("/auth/verify-email", async (req: Request, res: Response) => {
     }
   }
 
-  res.status(200).json({ success: true, message: "Email verified successfully!" });
+  res.status(200).json({ success: true, message: "Email verified successfully!", returnTo: signupReturnTo });
 });
 
 router.get("/auth/email-status", async (req: Request, res: Response) => {

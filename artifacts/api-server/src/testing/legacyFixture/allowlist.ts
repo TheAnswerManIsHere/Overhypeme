@@ -173,6 +173,8 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     // 0164: can record an admin's takedown of a real person's photo; the
     // fixture's people take the default (Google's picture allowed).
     noAutoPicture: "drop",
+    // 0166: the page a sign-up came from, cleared at verification; per-account state.
+    signupReturnTo: "drop",
     passwordHash: "drop",
     googleLinked: "keep",
     appleLinked: "keep",
