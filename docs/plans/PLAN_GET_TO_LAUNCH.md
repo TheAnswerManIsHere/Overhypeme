@@ -881,6 +881,9 @@ multi-step thing by definition). Phase 6's settled scope is on #873.*
   David and how long it took, how the product degraded against its design,
   and whether recovery needed a human (measured and reported; no deadline or
   automatic recovery is required); read-only mode exercised live.
+  *Both moved to Phase 18's readiness check (the Seed readiness pass) by
+  the Phase 16 plan's amendment 6 (David, Q33: 1, 2026-11-24); Phase 16
+  closes without them, and row 8's proof stays open until Seed.*
 - **Tier:** internal/product. **Lane:** Operations and money, early.
 
 ### Phase 17 — UX polish pass
