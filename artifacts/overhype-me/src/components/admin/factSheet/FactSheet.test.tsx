@@ -62,7 +62,7 @@ function gagsView(extra: Record<string, unknown> = {}) {
   return { factId: 42, isActive: true, review: null, gags: [], maxGags: 3, draftReady: { ok: true, reason: null }, filling: false, fillFailed: false, ...extra };
 }
 
-function stub(sheet: FactSheetView = SHEET, opts: { gags?: unknown; refuse?: Record<string, string>; sheetAfterAction?: FactSheetView } = {}) {
+function stub(sheet: FactSheetView = SHEET, opts: { gags?: unknown; refuse?: Record<string, string>; sheetAfterAction?: FactSheetView; history?: unknown[] } = {}) {
   let acted = false;
   const calls: Call[] = [];
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
@@ -78,6 +78,7 @@ function stub(sheet: FactSheetView = SHEET, opts: { gags?: unknown; refuse?: Rec
     else if (u.endsWith("/hashtags")) json = { hashtags: [...(body as { hashtags: string[] }).hashtags].sort() };
     else if (u.endsWith("/humor-note")) json = { humorNote: { text: (body as { text: string }).text, approvedAt: "2026-11-24T10:00:00Z" } };
     else if (u.endsWith("/taxonomy-runs")) json = { runs: [] };
+    else if (u.endsWith("/history")) json = { history: opts.history ?? [], limit: 500 };
     else if (u.endsWith("/gags")) json = opts.gags ?? gagsView();
     else if (u.match(/\/api\/admin\/facts\/42$/) && method === "GET") json = { id: 42, enrichment: buildPlaceholderFactEnrichment(), enrichmentStatus: "ok" };
     return new Response(JSON.stringify(json), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -93,12 +94,12 @@ function open(onChanged = vi.fn(), onClose = vi.fn()) {
 }
 
 describe("FactSheet", () => {
-  it("shows the four tabs, the wording, the status and the known reasons", async () => {
+  it("shows the five tabs, the wording, the status and the known reasons", async () => {
     stub();
     open();
     expect((await screen.findByTestId("sheet-wording")).textContent).toContain(SHEET.text);
     expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(FACT_SHEET_TABS.map((t) => t.label));
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Overview", "Reading and taxonomy", "Gags", "Renders"]);
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Overview", "Reading and taxonomy", "Gags", "Renders", "History"]);
     expect((screen.getByTestId("sheet-status")).textContent).toContain("Live");
     const header = screen.getByTestId("fact-sheet").querySelector("header")!;
     expect(header.textContent).toContain("Example missing");
@@ -413,6 +414,38 @@ describe("FactSheet", () => {
     expect(held[1]!.body.hashtags).toEqual(["staring", "sun", "one", "two"]);
     held[1]!.release();
     await waitFor(() => expect(screen.getByTestId("sheet-hashtags-status").textContent).toContain("Saved"));
+  });
+
+  it("History: every recorded action, newest first, in words, with who and the review", async () => {
+    const calls = stub(SHEET, {
+      history: [
+        { id: 3, action: "publish", reviewId: null, actorId: "a1", actorName: "Dee Admin", detail: { published: 1, removed: 0, unchanged: 1 }, createdAt: "2026-11-24T12:00:00Z" },
+        { id: 2, action: "hashtags_save", reviewId: null, actorId: null, actorName: null, detail: { added: ["sun"], removed: ["moon"] }, createdAt: "2026-11-23T12:00:00Z" },
+        { id: 1, action: "duplicate_check", reviewId: 9, actorId: null, actorName: null, detail: { outcome: "distinct" }, createdAt: "2026-11-01T12:00:00Z" },
+        { id: 0, action: "an_action_from_a_later_build", reviewId: null, actorId: "a1", actorName: "Dee Admin", detail: {}, createdAt: "2026-10-01T12:00:00Z" },
+      ],
+    });
+    open();
+    await screen.findByTestId("sheet-wording");
+    fireEvent.click(screen.getByTestId("sheet-tab-history"));
+    const entries = await screen.findAllByTestId("sheet-history-entry");
+    expect(entries.map((e) => e.querySelector("span")!.textContent)).toEqual(["Changes published", "Hashtags changed", "Duplicate check", "an_action_from_a_later_build"]);
+    expect(entries[0]!.textContent).toContain("1 gag published");
+    expect(entries[0]!.textContent).toContain("Dee Admin");
+    expect(entries[1]!.textContent).toContain("added #sun; removed #moon");
+    expect(entries[1]!.textContent).toContain("No admin on record");
+    expect(entries[1]!.textContent).not.toContain("system");
+    expect(entries[2]!.textContent).toContain("No admin on record");
+    expect(entries[2]!.textContent).toContain("review #9");
+    expect(calls.some((c) => c.url.endsWith("/api/admin/facts/42/history"))).toBe(true);
+  });
+
+  it("History with nothing recorded says so", async () => {
+    stub();
+    open();
+    await screen.findByTestId("sheet-wording");
+    fireEvent.click(screen.getByTestId("sheet-tab-history"));
+    expect((await screen.findByTestId("sheet-history-empty")).textContent).toContain("No admin actions");
   });
 
   it("a fact that is not approved says it isn't on the Facts page", async () => {

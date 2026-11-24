@@ -27,7 +27,7 @@ import { normalizeFactTemplateForStorage } from "../lib/normalizeFactTemplateFor
 import { logActivity } from "../lib/activity";
 import { recordAdminAction } from "../lib/adminActions";
 import { publishFactChanges, discardFactChanges, deactivateFact, reactivateFact, factHasUnpublishedChanges, type FactLifecycleResult } from "../lib/factLifecycle";
-import { FACT_HASHTAG_LIMIT, factSheet, saveFactHashtags, saveFactHumorNote } from "../lib/factSheet";
+import { FACT_HASHTAG_LIMIT, FACT_HISTORY_LIMIT, factHistory, factSheet, saveFactHashtags, saveFactHumorNote } from "../lib/factSheet";
 import { factEnrichmentPayload } from "../lib/enrichmentJobs";
 import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConfig";
 import {
@@ -1111,6 +1111,17 @@ router.get("/admin/facts/:id/sheet", requireAdmin, async (req: Request, res: Res
   const sheet = await factSheet(id);
   if (!sheet) { res.status(404).json({ error: "Fact not found" }); return; }
   res.json(sheet);
+});
+
+// GET /admin/facts/:id/history — every admin action on the fact, newest first,
+// with who and when (plan 3C, oracle item 22). A 404 for a fact the Facts page
+// does not list, as the sheet is.
+router.get("/admin/facts/:id/history", requireAdmin, async (req: Request, res: Response) => {
+  const id = Number(req.params["id"]);
+  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
+  const history = await factHistory(id);
+  if (!history) { res.status(404).json({ error: "Fact not found" }); return; }
+  res.json({ history, limit: FACT_HISTORY_LIMIT });
 });
 
 const FactHashtagsBody = z.object({ hashtags: z.array(z.string()).max(FACT_HASHTAG_LIMIT) }).strict();

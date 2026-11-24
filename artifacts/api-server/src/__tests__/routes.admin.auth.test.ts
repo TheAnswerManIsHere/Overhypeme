@@ -68,6 +68,7 @@ const ADMIN_AUTH_ROUTES: readonly RouteEntry[] = [
   { method: "post",   path: "/admin/facts/:id/enrich" },
   { method: "get",    path: "/admin/facts/:id/taxonomy-runs" },
   { method: "get",    path: "/admin/facts/:id/sheet" },
+  { method: "get",    path: "/admin/facts/:id/history" },
   { method: "put",    path: "/admin/facts/:id/hashtags" },
   { method: "put",    path: "/admin/facts/:id/humor-note" },
   { method: "post",   path: "/admin/facts/:id/publish" },
