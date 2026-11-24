@@ -83,13 +83,13 @@ describe("addresses leave as route patterns", () => {
   });
 
   it("an unknown address can carry no text out", () => {
-    expect(routePattern("/Alice-Smith")).toBe("/(other)");
+    expect(routePattern("/Raena-Franklin")).toBe("/(other)");
     expect(routePattern("/facts/7/comments/extra")).toBe("/(other)");
   });
 
   it("a referrer is this site's pattern or another site's origin only", () => {
     expect(cleanReferrer(`${window.location.origin}/facts/9?displayName=David`)).toBe(`${window.location.origin}/facts/:id`);
-    expect(cleanReferrer("https://mail.example.com/inbox/Alice?thread=1")).toBe("https://mail.example.com");
+    expect(cleanReferrer("https://mail.example.com/inbox/Raena?thread=1")).toBe("https://mail.example.com");
     expect(cleanReferrer("")).toBe("");
   });
 });
@@ -411,9 +411,9 @@ describe("what PostHog adds by itself is scrubbed before sending", () => {
         $browser: "Chrome",
         $session_entry_url: "https://overhype.me/facts/1?displayName=Raena",
         $session_entry_pathname: "/facts/1",
-        some_future_url: "https://elsewhere.example/Alice?x=1",
+        some_future_url: "https://elsewhere.example/Raena?x=1",
       },
-      $set_once: { $initial_current_url: "https://overhype.me/facts/1?displayName=Raena", $initial_referrer: "https://x.example/Alice" },
+      $set_once: { $initial_current_url: "https://overhype.me/facts/1?displayName=Raena", $initial_referrer: "https://x.example/Raena" },
     } as never)!;
     const text = JSON.stringify(out);
     expect(text).not.toContain("Raena");
