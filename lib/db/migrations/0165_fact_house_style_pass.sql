@@ -103,7 +103,7 @@ BEGIN
     RETURN t;
   END IF;
 
-  first_word := coalesce(substring(rest FROM '^[^\t\n\v\f\r    -     　﻿{]+'), '');
+  first_word := coalesce(substring(rest FROM '^[^\t\n\v\f\r \u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF{]+'), '');
   IF substr(first_word, 2) ~ '[[:upper:]]' THEN RETURN t; END IF; -- Q3
   RETURN head || pg_temp.house_style_upper_first(rest);
 END;
@@ -122,11 +122,11 @@ BEGIN
     ch := c[i];
     prev := coalesce(c[i - 1], '');
     nxt := coalesce(c[i + 1], '');
-    IF ch = '‘' OR (ch = '''' AND (i = 1 OR prev ~ '^[\t\n\v\f\r    -     　﻿("“[]$') AND nxt <> '' AND nxt !~ '^[\t\n\v\f\r    -     　﻿]$') THEN
+    IF ch = '‘' OR (ch = '''' AND (i = 1 OR prev ~ '^[\t\n\v\f\r \u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF("“[]$') AND nxt <> '' AND nxt !~ '^[\t\n\v\f\r \u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]$') THEN
       open_count := open_count + 1;
       CONTINUE;
     END IF;
-    IF ch IN ('''', '’') AND prev <> '' AND prev !~ '^[\t\n\v\f\r    -     　﻿]$' AND nxt !~ '^[[:alnum:]]$' AND open_count > 0 THEN
+    IF ch IN ('''', '’') AND prev <> '' AND prev !~ '^[\t\n\v\f\r \u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]$' AND nxt !~ '^[[:alnum:]]$' AND open_count > 0 THEN
       open_count := open_count - 1;
     END IF;
   END LOOP;
@@ -211,7 +211,7 @@ DECLARE
   spaced text;
 BEGIN
   IF t IS NULL THEN RETURN NULL; END IF;
-  spaced := regexp_replace(regexp_replace(t, '[\t\n\v\f\r    -     　﻿]+', ' ', 'g'), '^ | $', '', 'g');
+  spaced := regexp_replace(regexp_replace(t, '[\t\n\v\f\r \u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]+', ' ', 'g'), '^ | $', '', 'g');
   RETURN pg_temp.house_style_end(pg_temp.house_style_start(spaced));
 END;
 $fn$;--> statement-breakpoint

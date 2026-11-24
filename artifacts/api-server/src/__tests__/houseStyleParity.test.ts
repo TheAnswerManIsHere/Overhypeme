@@ -83,7 +83,7 @@ describe("migration 0165's SQL rule matches applyHouseStyle", () => {
         WHERE (cp < 55296 OR cp > 57343) AND chr(cp) ~ ('^[' || $1 || ']$')`,
       [cls],
     );
-    const re = /^(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|[\u{1F3FB}-\u{1F3FF}️⃣‍\u{E0020}-\u{E007F}])$/u;
+    const re = /^(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|[\u{1F3FB}-\u{1F3FF}\uFE0F\u20E3\u200D\u{E0020}-\u{E007F}])$/u;
     const js: number[] = [];
     for (let cp = 1; cp <= 0x10ffff; cp++) {
       if (cp >= 0xd800 && cp <= 0xdfff) continue;
