@@ -356,7 +356,7 @@ export function ShareModal({ open, onClose, path = "/", factId, shareText }: Sha
                     ref={nameInputRef}
                     {...nameField.inputProps}
                     onKeyDown={(e) => e.key === "Enter" && applyEnabled && handleNext()}
-                    placeholder="e.g. Alex, Sam, Jordan…"
+                    placeholder="e.g. David, Raena, Sam…"
                     className="flex-1 bg-secondary border border-border rounded-[14px] px-3 py-2 text-sm font-bold text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground placeholder:font-normal"
                   />
                   {aiLoading && (

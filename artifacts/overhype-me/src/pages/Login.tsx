@@ -307,7 +307,7 @@ export default function Login() {
                   <Input
                     type="text"
                     {...displayNameField.inputProps}
-                    placeholder="How facts will address you (e.g. Alex Smith)"
+                    placeholder="How facts will address you (e.g. David Franklin)"
                     required
                     autoComplete="name"
                   />

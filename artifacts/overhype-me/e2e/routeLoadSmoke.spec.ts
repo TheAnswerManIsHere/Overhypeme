@@ -526,7 +526,7 @@ test.describe("7b — admin screens in regular use (PR287, PR288, PR293, PR308, 
     try {
       await page.getByRole("button", { name: "Add User" }).click();
       const modal = page.locator("div.max-w-md").filter({ has: page.getByRole("heading", { name: "Add User" }) });
-      await modal.getByPlaceholder("Name inserted into personalized facts (e.g. Alex Smith)").fill("E2E 7b Created");
+      await modal.getByPlaceholder("Name inserted into personalized facts (e.g. David Franklin)").fill("E2E 7b Created");
       await modal.getByPlaceholder("user@example.com").fill(email);
       await modal.getByPlaceholder("Min. 8 characters").fill("e2e-7b-password");
       await modal.getByRole("button", { name: "Legendary" }).click();

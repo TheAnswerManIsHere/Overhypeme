@@ -725,7 +725,7 @@ export default function AdminUsers() {
               <FieldLabel>Display Name <span className="text-destructive">*</span></FieldLabel>
               <Input
                 {...addNameField.inputProps}
-                placeholder="Name inserted into personalized facts (e.g. Alex Smith)"
+                placeholder="Name inserted into personalized facts (e.g. David Franklin)"
               />
               <NameFieldHint hint={addNameField.hint} />
             </div>
