@@ -201,6 +201,25 @@ describe("the detector's verdict", () => {
     assert.equal(await same("{NAME} {does|do} it", "NAME doesdo it"), false);
   });
 
+  it("the two spellings of the possessive name are one wording: {NAME}'s and {NAME_POSSESSIVE}", async () => {
+    const same = async (a: string, b: string) => (await db.execute(sql`SELECT ${duplicateMatchText(a)} = ${duplicateMatchText(b)} AS eq`)).rows[0]!.eq;
+    assert.equal(await same("{NAME}'s pin is the last four digits of pi.", "{NAME_POSSESSIVE} pin is the last four digits of pi."), true);
+    assert.equal(await same("{NAME}’s pin is pi", "{name_possessive} pin is pi"), true);
+    assert.equal(await same("{Subj} beats {NAME_POSSESSIVE} record", "{Subj} beats {NAME}'s record"), true);
+    // Still distinct: the name alone, and a pronoun possessive.
+    assert.equal(await same("{NAME_POSSESSIVE} pin is pi", "{NAME} pin is pi"), false);
+    assert.equal(await same("{NAME_POSSESSIVE} pin is pi", "{Poss} pin is pi"), false);
+  });
+
+  it("a fact stored with {NAME}'s refuses the same fact tokenized as {NAME_POSSESSIVE}", async () => {
+    const id = await fact(`{NAME}'s pin is the last four digits of pi ${RUN}.`);
+    const r = await check(`{NAME_POSSESSIVE} pin is the last four digits of pi ${RUN}.`);
+    assert.equal(r.outcome, "duplicate");
+    assert.equal(r.matchingFactId, id);
+    assert.equal(r.confidence, 100);
+    assert.equal(embedCalls + llmCalls, 0);
+  });
+
   it("an exact match with another pending review names it, and never matches the review itself", async () => {
     const text = `{NAME} juggles thunderstorms ${RUN}`;
     const other = await review(`${text}.`);
