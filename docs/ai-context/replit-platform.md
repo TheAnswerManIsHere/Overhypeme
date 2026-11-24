@@ -25,7 +25,9 @@ Built 2026-10-29 from four sources, and each claim says which:
   DojoOS Repl's Publishing pages, its preview-deploy flow and his account's
   Usage page on 2026-10-29 (from about 22:10 UTC). As good as a
   measurement for what the interface offers; it says nothing about what a
-  control does until someone uses it.
+  control does until someone uses it. *Secrets and environment*'s four
+  traps add his screenshots of the Overhype.me Repl on 2026-11-24, taken
+  before and after he used the controls, so those say what they do.
 
 Anything still open is listed at the end under *Open*, with what would settle
 it.
@@ -280,6 +282,39 @@ checked by name in that list before anything depends on it**, since one
 unsynced there no longer follows the workspace. Secrets are
 unavailable to Static deployments, and an organisation member who cannot see
 a value can still print it from the environment (docs, *secrets*).
+
+**Four traps, measured on the Overhype.me Repl on 2026-11-24** (screen,
+during Overhype.me Issue #1220's Stripe sandbox fix; Replit's *Secrets* page
+corroborates the second: *"Linked secrets stay in sync with your
+account secrets"*, and a value per environment through *"New published app
+configuration or New testing configuration"*):
+
+- **A change on the Republish page's *Production app secrets* is a draft
+  until a publish succeeds.** The page says so — *"Secret changes here are
+  saved only when this publish succeeds. To keep them across publish
+  attempts, update the secret in your workspace with syncing on."* — and a
+  publish cancelled or never started discards it: an unsync made there and
+  left unpublished was gone an hour later, the secret following the
+  workspace again. So an unsync and the production value it needs are made
+  **in the same visit as the publish**, and read back on the page just
+  before **Republish**.
+- **One Secrets pane holds three kinds of value.** *Project Secrets* belong
+  to the app. *Linked Account Secrets*, marked 🔗, come from the owner's
+  account (Account Settings → Account Secrets): one value shared by every
+  app that links it, and not editable from the app. *Configurations* are
+  the non-secret values from `.replit`'s `[userenv.*]` blocks: one shared
+  value, or separate testing and published values. A secret's name alone
+  does not say which kind it is, or whether changing it touches other apps.
+- **A linked Account Secret overrides a Project Secret of the same name**,
+  and the only sign is a banner: *"A linked Account Secret has the same
+  name as a Project Secret. The Account Secret's value takes precedence;
+  use different names to avoid conflicts."* A Project Secret edited to fix
+  a value therefore changes nothing while a same-named link exists.
+- **Unlink removes the secret from the app at once**, with no Project
+  Secret left behind: a key that had only ever been linked was simply gone
+  after its unlink. So a value moving from linked to per-project has to be
+  re-created as a Project Secret before anything restarts. And an account
+  can link at most ten secrets into one app (*"You've reached the limit of 10 linked secrets"*).
 
 ## Domains and access
 
