@@ -568,6 +568,11 @@ describe("checkBudget — a config-READ failure also fails closed (#409 round 1)
     const userId = await createTestUser({ tier: "registered" });
 
     await db.execute(sql`ALTER TABLE admin_config RENAME TO admin_config_409tmp`);
+    // Cleared after the rename, not only before it: the settings cache is
+    // module-wide, and any test sharing this process can reload it between an
+    // earlier clear and the rename, so checkBudget would read the cached
+    // settings instead of failing (Build on 4fa6dfb).
+    bustConfigCache();
     try {
       await assert.rejects(
         () => checkBudget(userId, 0.01),
@@ -594,6 +599,11 @@ describe("checkBudget — a config-READ failure also fails closed (#409 round 1)
     const userId = await createTestUser({ tier: "registered" });
 
     await db.execute(sql`ALTER TABLE admin_config RENAME TO admin_config_409tmp`);
+    // Cleared after the rename, not only before it: the settings cache is
+    // module-wide, and any test sharing this process can reload it between an
+    // earlier clear and the rename, so checkBudget would read the cached
+    // settings instead of failing (Build on 4fa6dfb).
+    bustConfigCache();
     try {
       const outcome = await checkBudget(userId, 0.01).then(
         (status) => ({ resolved: true as const, status }),
@@ -610,6 +620,11 @@ describe("checkBudget — a config-READ failure also fails closed (#409 round 1)
     const userId = await createTestUser({ isAdmin: true });
 
     await db.execute(sql`ALTER TABLE admin_config RENAME TO admin_config_409tmp`);
+    // Cleared after the rename, not only before it: the settings cache is
+    // module-wide, and any test sharing this process can reload it between an
+    // earlier clear and the rename, so checkBudget would read the cached
+    // settings instead of failing (Build on 4fa6dfb).
+    bustConfigCache();
     try {
       const status = await checkBudget(userId, 99999);
       assert.equal(status.allowed, true);
