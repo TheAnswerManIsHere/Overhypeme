@@ -182,9 +182,18 @@ const PROCESSED_EVENTS_PK = "stripe_processed_events_pkey";
  * violated", and every table a handler writes to has its own.
  */
 export function isConstraintViolation(err: unknown, constraint: string): boolean {
-  if (!(err instanceof Error)) return false;
-  const pg = err as unknown as { code?: string; constraint?: string };
-  return pg.code === "23505" && pg.constraint === constraint;
+  // drizzle wraps the driver's error in a `DrizzleQueryError` that does NOT copy
+  // the SQLSTATE or the constraint up; the pg error sits on `.cause`. Checking
+  // only the top level meant the real claim insert's duplicate was never
+  // recognised (Issue #1261), so walk the chain, as stripeSyncRunner.ts and
+  // asyncJobs.ts already do.
+  let cur: unknown = err;
+  for (let depth = 0; depth < 5 && cur instanceof Error; depth++) {
+    const pg = cur as unknown as { code?: string; constraint?: string; cause?: unknown };
+    if (pg.code === "23505" && pg.constraint === constraint) return true;
+    cur = pg.cause;
+  }
+  return false;
 }
 
 export interface PreparedDomainEvent {

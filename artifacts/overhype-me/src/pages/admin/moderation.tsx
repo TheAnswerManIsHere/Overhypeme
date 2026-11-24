@@ -369,18 +369,17 @@ function ReviewModal({
 
 
   // Moderator-curated FINAL discovery tags — what actually ships on approval.
-  // Seeded from the submitter's tags, or the taxonomy's suggestions when the
-  // submitter left none, so the editor opens on what would ship.
+  // Seeded from the submitter's tags, the one place hashtags are generated (the
+  // submit form's AI suggester, reviewed by the submitter); moderation adds or
+  // removes by hand and generates none (David, 2026-11-24).
   // `finalHashtagsDirtyRef` keeps the moderator's edits from being reseeded by
   // polling. Sent in the approve body; a fact can't be approved with none.
   const [finalHashtags, setFinalHashtags] = useState<string[]>([]);
   const finalHashtagsDirtyRef = useRef(false);
-  const suggestedHashtags = classification?.suggestedHashtags;
   useEffect(() => {
     if (finalHashtagsDirtyRef.current) return;
-    const submitter = review.hashtags ?? [];
-    setFinalHashtags(submitter.length > 0 ? submitter : (suggestedHashtags ?? []));
-  }, [review.hashtags, suggestedHashtags]);
+    setFinalHashtags(review.hashtags ?? []);
+  }, [review.hashtags]);
   const onFinalHashtagsChange = (tags: string[]) => {
     finalHashtagsDirtyRef.current = true;
     setFinalHashtags(tags);
@@ -858,7 +857,6 @@ function ReviewModal({
                   <FinalHashtagsEditor
                     finalHashtags={finalHashtags}
                     onFinalHashtagsChange={onFinalHashtagsChange}
-                    aiSuggestions={suggestedHashtags ?? []}
                   />
                 </div>
               )}

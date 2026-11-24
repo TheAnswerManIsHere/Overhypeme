@@ -5,9 +5,10 @@ import { FieldLabel } from "./FieldInfo";
 
 /**
  * The moderator-curated FINAL discovery-tag list — the tags that actually ship
- * when a fact is approved. Seeded by the caller from the submitter's tags; the
- * AI's `suggestedHashtags` become a source to pull from, not the thing that
- * ships.
+ * when a fact is approved. Seeded by the caller from the submitter's tags.
+ * Hashtags are generated once, by the AI suggester on the submit form where the
+ * submitter reviews them; moderation edits that list by hand and generates none
+ * of its own (David, 2026-11-24).
  *
  * A section of its own on the moderation review's Test Renders step, above the
  * gags (plan PLAN_GAG_EXAMPLES.md, which retired the review-wide render grid
@@ -35,13 +36,10 @@ const COPY = {
 export function FinalHashtagsEditor({
   finalHashtags,
   onFinalHashtagsChange,
-  aiSuggestions,
   context = "moderation",
 }: {
   finalHashtags: string[];
   onFinalHashtagsChange: (tags: string[]) => void;
-  /** The AI's suggested tags — offered as a source to add from, not shipped. */
-  aiSuggestions: string[];
   /** Where the editor sits: a review being moderated (the default), or an approved fact's sheet. */
   context?: keyof typeof COPY;
 }) {
@@ -65,9 +63,6 @@ export function FinalHashtagsEditor({
     setInput("");
   };
   const removeHashtag = (h: string) => onFinalHashtagsChange(finalTags.filter((x) => x !== h));
-  // AI suggestions are denylist-stripped upstream, but filter defensively so a
-  // stale/legacy suggestion can never be pulled in or swept in by "Add all".
-  const aiSuggestionsNotInFinal = aiSuggestions.filter((t) => !finalTags.includes(t) && !isDeniedHashtag(t));
 
   return (
     <div className="rounded-sm border border-border bg-card p-3 space-y-3" data-testid="final-hashtags-editor">
@@ -121,36 +116,6 @@ export function FinalHashtagsEditor({
         </p>
       </div>
 
-      {/* AI suggested — a source the moderator can pull from (not what ships). */}
-      {aiSuggestionsNotInFinal.length > 0 && (
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <FieldLabel docKey="aiSuggestedHashtags" className="mb-0" />
-            <button
-              type="button"
-              onClick={() => onFinalHashtagsChange(Array.from(new Set([...finalTags, ...aiSuggestionsNotInFinal])))}
-              className="text-xs text-primary hover:underline"
-            >
-              Add all
-            </button>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {aiSuggestionsNotInFinal.map((tag) => (
-              <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border bg-muted/60 border-border text-muted-foreground">
-                {tag}
-                <button
-                  type="button"
-                  title="Add to final hashtags"
-                  onClick={() => addHashtag(tag)}
-                  className="hover:text-primary transition-colors"
-                >
-                  +
-                </button>
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

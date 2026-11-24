@@ -16,12 +16,12 @@ import { eq, inArray } from "drizzle-orm";
 import {
   validateEnrichment,
   normalizeHashtag,
+  factEnrichmentWireSchema,
   type FactEnrichment,
 } from "@workspace/api-zod";
 import {
   enrichFactWithModel,
   taxonomyColumns,
-  stripDeniedHashtags,
   EnrichmentError,
   type EnrichInput,
 } from "../lib/factEnrichment.js";
@@ -35,7 +35,6 @@ const VALID: FactEnrichment = {
   overhypeFit: "strong",
   adultSuitability: "safe",
   adultSuitabilityNotes: "",
-  suggestedHashtags: ["strength", "pushups", "earth", "legendary"],
   taxonomyConfidence: 0.95,
   adminReviewNotes: "",
   culturalReferences: [],
@@ -90,21 +89,23 @@ describe("validateEnrichment — archetype/subtype pairing", () => {
   });
 });
 
-describe("validateEnrichment — hashtags", () => {
-  it("normalizes hashtags to lowercase alphanumeric", () => {
-    const r = validateEnrichment({ ...VALID, suggestedHashtags: ["#Strength", "Push Ups!", "EARTH"] });
-    assert.equal(r.ok, true);
-    if (r.ok) assert.deepEqual(r.data.suggestedHashtags, ["strength", "pushups", "earth"]);
+// Regression (David, 2026-11-24): hashtags are generated once, by the submit
+// form's suggester where the submitter reviews them. Enrichment generated a
+// second set, which carried the placeholder name into tags like "alexpower".
+describe("validateEnrichment — enrichment generates no hashtags", () => {
+  it("accepts a classification with no suggestedHashtags at all", () => {
+    const r = validateEnrichment(VALID);
+    assert.equal(r.ok, true, r.ok ? "" : r.error);
+    if (r.ok) assert.equal(r.data.suggestedHashtags, undefined);
   });
 
-  it("rejects fewer than 3 hashtags (after normalization)", () => {
-    const r = validateEnrichment({ ...VALID, suggestedHashtags: ["one", "two"] });
-    assert.equal(r.ok, false);
+  it("still accepts a pre-v8 stored blob that carries suggestedHashtags", () => {
+    const r = validateEnrichment({ ...VALID, suggestedHashtags: ["strength", "alexpower"] });
+    assert.equal(r.ok, true, r.ok ? "" : r.error);
   });
 
-  it("rejects more than 8 hashtags", () => {
-    const r = validateEnrichment({ ...VALID, suggestedHashtags: ["a", "b", "c", "d", "e", "f", "g", "h", "i"] });
-    assert.equal(r.ok, false);
+  it("the model's structured-output schema has no suggestedHashtags key", () => {
+    assert.equal("suggestedHashtags" in factEnrichmentWireSchema.shape, false);
   });
 
   it("normalizeHashtag strips # and punctuation", () => {
@@ -307,64 +308,6 @@ describe("enrichFactWithModel — orchestration", () => {
     const result = await enrichFactWithModel(INPUT, async () => JSON.stringify(polluted));
     const surfaces = result.semanticEntities.map((e) => e.surfaceText);
     assert.deepEqual(surfaces, ["Earth"], JSON.stringify(result.semanticEntities));
-  });
-
-  it("strips subject-name / app-name hashtags without a retry when enough real tags remain", async () => {
-    let calls = 0;
-    // Model returns the subject name + the app name (various forms) plus real tags.
-    const withDenied = {
-      ...VALID,
-      suggestedHashtags: ["Alex", "#Overhype.me", "overhype", "strength", "legendary", "earth"],
-    };
-    const result = await enrichFactWithModel(INPUT, async () => { calls++; return JSON.stringify(withDenied); });
-    assert.equal(calls, 1, "no retry needed — 3+ real tags survived");
-    assert.deepEqual(result.suggestedHashtags, ["strength", "legendary", "earth"]);
-  });
-
-  it("recovers when the first response has BOTH a bad subtype and a hashtag shortfall", async () => {
-    // subtypeMismatch selects the subtype corrective; it must ALSO carry the
-    // hashtag reminder so the single retry fixes the subtype AND supplies real
-    // tags (otherwise the one surviving tag would still fail min-3).
-    let calls = 0;
-    const result = await enrichFactWithModel(INPUT, async () => {
-      calls++;
-      if (calls === 1) {
-        return JSON.stringify({ ...SUBTYPE_MISMATCH, suggestedHashtags: ["electriccar", "alex", "overhype"] });
-      }
-      return JSON.stringify({ ...VALID, suggestedHashtags: ["electriccar", "innovation", "engineering"] });
-    });
-    assert.equal(calls, 2);
-    assert.equal(result.subtype, "force_scaled_action");
-    assert.deepEqual(result.suggestedHashtags, ["electriccar", "innovation", "engineering"]);
-  });
-
-  it("re-runs the model when stripping denied hashtags drops below the minimum of 3", async () => {
-    let calls = 0;
-    const result = await enrichFactWithModel(INPUT, async () => {
-      calls++;
-      // First call: only one real tag survives the strip → forces a retry.
-      if (calls === 1) return JSON.stringify({ ...VALID, suggestedHashtags: ["electriccar", "alex", "overhype"] });
-      // Retry: the model now supplies enough allowed discovery tags.
-      return JSON.stringify({ ...VALID, suggestedHashtags: ["electriccar", "innovation", "engineering"] });
-    });
-    assert.equal(calls, 2, "stripping below 3 triggered exactly one corrective retry");
-    assert.deepEqual(result.suggestedHashtags, ["electriccar", "innovation", "engineering"]);
-  });
-});
-
-describe("stripDeniedHashtags", () => {
-  it("removes the subject name and the app name in any casing/punctuation, keeps real tags", () => {
-    assert.deepEqual(
-      stripDeniedHashtags(["Alex", "alex", "Overhype", "overhype.me", "OverhypeMe", "strength", "earth"]),
-      ["strength", "earth"],
-    );
-  });
-  it("removes the POSSESSIVE subject form (Alex's → alexs)", () => {
-    // {NAME_POSSESSIVE} renders "Alex's"; normalizeHashtag drops the apostrophe → "alexs".
-    assert.deepEqual(stripDeniedHashtags(["Alex's", "alexs", "strength", "earth"]), ["strength", "earth"]);
-  });
-  it("is a no-op when nothing is denied", () => {
-    assert.deepEqual(stripDeniedHashtags(["strength", "legendary", "earth"]), ["strength", "legendary", "earth"]);
   });
 });
 

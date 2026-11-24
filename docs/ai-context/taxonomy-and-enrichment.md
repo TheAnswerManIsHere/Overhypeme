@@ -30,8 +30,12 @@ Durable, structured **classification metadata** describing *how the joke works*:
 `primaryArchetype` (the 11-value joke mechanism), `subtype`, `modifiers`,
 `overhypeFit`, `adultSuitability`, `visualLiteralness`, `visualComplexity`,
 `culturalReferences`, `semanticEntities` (capitalization-aware referents),
-`suggestedHashtags`, `taxonomyConfidence`, and admin notes. Produced via OpenAI
-Structured Outputs, validated against the taxonomy schema.
+`taxonomyConfidence`, and admin notes. Produced via OpenAI
+Structured Outputs, validated against the taxonomy schema. It suggests **no
+hashtags** (since `CLASSIFICATION_PROMPT_VERSION` v8): hashtags are generated
+once, by the submit form's suggester, where the submitter reviews them, and
+moderation edits that list by hand (David, 2026-11-24). A blob enriched before
+v8 may still carry a `suggestedHashtags` array; nothing reads it.
 
 **The fact character list** (`characters`, Issue #968) is part of enrichment
 too, but has its own producer: a dedicated, versioned call

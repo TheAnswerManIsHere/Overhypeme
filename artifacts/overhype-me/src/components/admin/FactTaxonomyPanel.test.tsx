@@ -11,6 +11,7 @@ const STORED: FactEnrichment = {
   ...buildPlaceholderFactEnrichment(),
   primaryArchetype: "superhuman_physical_feat",
   subtype: "force_scaled_action",
+  // A pre-v8 stored blob may still carry the retired enrichment tags.
   suggestedHashtags: ["strength", "pushups", "earth"],
 };
 
@@ -41,7 +42,8 @@ describe("FactTaxonomyPanel", () => {
     const { container } = render(<FactTaxonomyPanel factId={7} initialStatus="ok" />);
     const summary = await screen.findByTestId("taxonomy-summary");
     expect(summary.textContent).toContain("superhuman_physical_feat");
-    expect(summary.textContent).toContain("strength, pushups, earth");
+    // Enrichment's retired tags are not shown: hashtags are made once, on the submit form.
+    expect(summary.textContent).not.toContain("strength, pushups, earth");
     expect(container.querySelectorAll("input, textarea, select")).toHaveLength(0);
     await screen.findByTestId("taxonomy-run-history-empty");
     expect(screen.getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Re-run"]);

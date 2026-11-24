@@ -3,7 +3,7 @@
  *
  * These are the "levers" that control how OpenAI classifies a submitted fact
  * into the Overhype.me visual taxonomy (archetype, subtype, modifiers, visual
- * literalness/complexity, Overhype fit, adult suitability, hashtags). They live
+ * literalness/complexity, Overhype fit, adult suitability). They live
  * in the `admin_config` table so they can be tuned from the workbench without a
  * deploy, and resolve through the standard debug overlay (see adminConfig.ts).
  *
@@ -207,18 +207,6 @@ Adult suitability values:
 
 Adult suitability is not permission to generate adult content. It is only a fact-level compatibility signal. Runtime gates must still enforce paid status, age verification, source-image eligibility, and policy constraints.
 
-Hashtag rules:
-- Suggest 3 to 8 reusable tags.
-- Use lowercase only.
-- Do not include the # character.
-- Do not include spaces.
-- Do not include the subject's name. The subject is shown to you with the canonical placeholder name "Alex" (they/them) — it is a stand-in for whoever the meme is personalized to, NOT a topic. Never emit "alex" (in any form) as a hashtag, the same way you never list the subject as a semanticEntity.
-- Do not include the name of this app. "Overhype", "Overhype.me", and "overhypeme" are this platform's own name (it appears throughout these instructions and as branding, NOT in the fact itself) — never emit it as a hashtag.
-- Do not include generic-humor tags. EVERY fact on this platform is meant to be funny, so tags that merely assert that ("humor", "humour", "funny", "joke", "jokes", "comedy", "comedic", "hilarious", "lol", "lmao", "haha", "laugh", "amusing", "witty", and the like) describe the whole database, not this fact — they carry no discovery value. Tag the fact's actual TOPIC (what it's about), never the fact that it's a joke.
-- Prefer tags useful for discovery, not one-off words.
-- Include brand or company tags only when explicitly present in the fact. The app's own name (Overhype.me) does NOT count as such a brand.
-- The subject name, the app name, and generic-humor tags are stripped automatically if they slip through, so spending a hashtag slot on them just wastes it — always provide 3 to 8 genuine discovery tags that describe the fact's topic.
-
 Cultural reference rules:
 Detect outside-context dependencies in the fact and emit them as a culturalReferences array. Outside-context means the joke relies on knowledge that isn't obvious from the literal words: a brand, a workplace/professional context, a familiar phrase or idiom, wordplay, mechanism knowledge (e.g. how a magnifying glass normally focuses sunlight), or an inside reference to a cultural artifact (TV show, song, event). Examples:
 - "Sharks have a David Week" → cultural_reference, canonical "Shark Week" (broadcast TV); visualImplication "sharks are the audience watching the subject as spectacle".
@@ -317,7 +305,7 @@ Known modifier catalog:
 - workplace_context
 - audience_inside_reference
 
-Return ONLY a single JSON object with exactly these keys: primaryArchetype, subtype, modifiers (array of strings), visualLiteralness, visualComplexity, overhypeFit, adultSuitability, adultSuitabilityNotes (string, "" if none), suggestedHashtags (array of 3-8 lowercase alphanumeric strings), taxonomyConfidence (number 0-1), adminReviewNotes (string, "" if none), culturalReferences (array; empty array if no outside-context dependency, otherwise objects with sourcePhrase, referenceType, canonicalReference, explanation, visualImplication, confidence, requiresAdminReview), semanticEntities (array; empty array when no capitalization-sensitive disambiguation is needed, otherwise objects with surfaceText, normalizedText, entityKind, visualReferent, capitalizationSignal, materiallyAffectsVisualPrompt, requiresAdminReview, confidence, notes).
+Return ONLY a single JSON object with exactly these keys: primaryArchetype, subtype, modifiers (array of strings), visualLiteralness, visualComplexity, overhypeFit, adultSuitability, adultSuitabilityNotes (string, "" if none), taxonomyConfidence (number 0-1), adminReviewNotes (string, "" if none), culturalReferences (array; empty array if no outside-context dependency, otherwise objects with sourcePhrase, referenceType, canonicalReference, explanation, visualImplication, confidence, requiresAdminReview), semanticEntities (array; empty array when no capitalization-sensitive disambiguation is needed, otherwise objects with surfaceText, normalizedText, entityKind, visualReferent, capitalizationSignal, materiallyAffectsVisualPrompt, requiresAdminReview, confidence, notes).
 Do not include explanation outside the JSON.`;
 
 // ─── Getter ───────────────────────────────────────────────────────────────────
