@@ -138,6 +138,15 @@ signed in can still look around, but everything it tries to do is refused
 and it's shown one screen: *"This account is suspended."* It never says
 why.
 
+The member is **emailed** when it happens. The email says what suspension
+means, that their content stays and their membership isn't cancelled (so
+charges carry on unless they cancel), and that they can reach support
+without signing in. The admin can add an optional **note to the member**,
+written separately from the reason, and the email carries it; the reason
+itself never leaves the admin console. Lifting the suspension sends a second
+email saying they can sign in again. Doing either again when nothing changes
+sends nothing, and the admin is told whether the email was queued.
+
 Suspension blocks the **person**, not the catalogue: the account's facts,
 memes and comments stay live, and its membership billing is left alone. An
 admin can lift it at any time, and the account carries on as before; a

@@ -358,6 +358,13 @@ export const visualConceptCandidatesBlobSchema = z.object({
   jokeRead: z.string().optional(),
   /** v3: the approved humor note the gags were generated under; null when none. */
   humorNoteUsed: z.string().nullable().optional(),
+  /**
+   * The fact wording these ideas were drafted for (plan
+   * PLAN_FACT_HOUSE_STYLE.md, R1). The freshness check hashes it in place of
+   * the fact's wording only while the fact's wording is its house-style form,
+   * so tidying a fact's capital and period does not stale its ideas.
+   */
+  factTextUsed: z.string().optional(),
 });
 export type VisualConceptCandidatesBlob = z.infer<typeof visualConceptCandidatesBlobSchema>;
 

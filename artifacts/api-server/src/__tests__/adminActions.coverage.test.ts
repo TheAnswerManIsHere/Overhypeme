@@ -25,6 +25,8 @@ const EXEMPT: Record<string, string> = {
   "POST /admin/facts/backfill-ai-memes": "a system maintenance run over every fact, not an action on one",
   "POST /admin/facts/backfill-embeddings": "a system maintenance run over every fact, not an action on one",
   "POST /admin/references/research": "researches text it is given and changes no fact",
+  "PUT /admin/facts/:id/hashtags": "saveFactHashtags records in its transaction (lib/factSheet.ts)",
+  "PUT /admin/facts/:id/humor-note": "saveFactHumorNote records in its transaction (lib/factSheet.ts)",
 };
 
 interface Handler { key: string; body: string }

@@ -1,414 +1,161 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+/**
+ * The admin Facts page (plan docs/plans/PLAN_FACT_LIFECYCLE_REBUILD.md, items
+ * 18–19; Issue #1018, increment 3.1): approved facts only, live or
+ * deactivated, searchable, each row carrying the reasons it needs attention.
+ * A row opens the fact sheet, the one editor for a fact's data. The counts
+ * strip, filtering by reason, bulk actions and step-through are 3.3's.
+ */
+import { useCallback, useEffect, useState } from "react";
+import { Search } from "lucide-react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
-import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { Trash2, Search, AlertCircle, CheckCircle, Pencil, X, Save, Brain, EyeOff, Loader2, Sparkles, ChevronRight, ChevronDown } from "lucide-react";
-import { FactTaxonomyPanel } from "@/components/admin/FactTaxonomyPanel";
 import { GagFoldPanel } from "@/components/admin/GagFoldPanel";
-import { GagsPanel } from "@/components/admin/gags/GagsPanel";
-import { DEFAULT_SUBJECT_EXAMPLE_NAMES } from "@/components/admin/subjectExampleNames";
-import { useDraftForm, CommitInterruption } from "@/components/admin/useDraftForm";
-import { patchFactDraft } from "@/components/admin/patchFactDraft";
-import { FactTextEditHistory } from "@/components/admin/FactTextEditHistory";
+import { FactSheet } from "@/components/admin/factSheet/FactSheet";
+import { ATTENTION_WORDS, knownReasons } from "@/components/admin/factSheet/factSheetView";
 
-interface Fact {
+/** One row of GET /admin/facts. */
+interface FactRow {
   id: number;
   text: string;
-  canonicalText: string | null;
   isActive: boolean;
-  hasEmbedding: boolean;
   upvotes: number;
   downvotes: number;
-  score: number;
   wilsonScore: number;
-  commentCount: number;
-  shareCount: number;
-  submittedById: string | null;
-  splitTokenIndex: number | null;
   createdAt: string;
-  updatedAt: string;
-  // The stored AI taxonomy's projection (present from the list query; the
-  // full output is loaded on demand by the taxonomy panel).
-  primaryArchetype?: string | null;
-  enrichmentStatus?: string | null;
-  hasEnrichment?: boolean;
+  attention?: string[];
 }
 
 interface FactsResponse {
-  facts: Fact[];
+  facts: FactRow[];
   total: number;
-  page: number;
-  limit: number;
 }
 
 type FactsTab = "facts" | "utilities";
 type FactVisibilityFilter = "active" | "inactive" | "both";
 
-type EditDraft = Omit<Fact, "id" | "createdAt" | "updatedAt" | "hasEmbedding" | "splitTokenIndex">;
+const LIMIT = 25;
 
-/** Blank baseline used by the edit form while no fact is selected. */
-const EMPTY_EDIT_DRAFT: EditDraft = {
-  text: "",
-  canonicalText: null,
-  isActive: true,
-  upvotes: 0,
-  downvotes: 0,
-  score: 0,
-  wilsonScore: 0,
-  commentCount: 0,
-  shareCount: 0,
-  submittedById: "",
-};
-
-/** Project a fact (the server source of truth) into the editable form value. */
-function factToEditDraft(fact: Fact): EditDraft {
-  return {
-    text: fact.text,
-    canonicalText: fact.canonicalText ?? null,
-    isActive: fact.isActive,
-    upvotes: fact.upvotes,
-    downvotes: fact.downvotes,
-    score: fact.score,
-    wilsonScore: fact.wilsonScore ?? 0,
-    commentCount: fact.commentCount ?? 0,
-    shareCount: fact.shareCount ?? 0,
-    submittedById: fact.submittedById ?? "",
-  };
-}
-
-function FieldLabel({ children }: { children: React.ReactNode }) {
+/** One row in the Facts list: the fact, its state and the reasons it needs a look. */
+function FactListRow({ fact, onOpen }: { fact: FactRow; onOpen: () => void }) {
+  const reasons = knownReasons(fact.attention);
   return (
-    <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">
-      {children}
-    </label>
-  );
-}
-
-function ReadOnlyField({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div>
-      <FieldLabel>{label}</FieldLabel>
-      <div className="h-9 px-3 flex items-center bg-muted/40 border border-border rounded-sm text-sm text-muted-foreground font-mono select-all">
-        {value}
-      </div>
-    </div>
-  );
-}
-
-
-/**
- * A selected fact's gags and its stored AI taxonomy, both read-only. A live
- * fact's gags are not edited between Phase 1 and Phase 3 of the fact lifecycle
- * rebuild (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1F), and the taxonomy is never
- * edited (2A): it keeps only "Re-run". Collapsible; starts closed.
- */
-function FactGagsAndTaxonomyPanel({ fact }: { fact: Fact }) {
-  const [expanded, setExpanded] = useState(false);
-  return (
-    <div className="rounded-sm border border-border bg-muted/20" data-testid="fact-enrichment-panel">
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="w-full flex items-center justify-between gap-2 p-3 text-left"
-      >
-        <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-          <Sparkles className="w-3.5 h-3.5 text-primary" /> Gags and AI taxonomy
-        </span>
-        {expanded ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
-      </button>
-
-      {expanded && (
-        <div className="px-3 pb-3 space-y-3">
-          <p className="text-xs text-muted-foreground" data-testid="gags-read-only-note">
-            Gags can't be changed here. A fact in moderation is edited from its review; editing a live fact's gags comes with the new fact page.
-          </p>
-          <GagsPanel
-            factId={fact.id}
-            reviewId={null}
-            rendersEnabled={false}
-            subjectNames={[...DEFAULT_SUBJECT_EXAMPLE_NAMES]}
-            reloadKey={0}
-            disabled
-          />
-          <FactTaxonomyPanel factId={fact.id} initialStatus={fact.enrichmentStatus ?? null} />
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** One row in the Facts list. */
-function FactListRow({
-  fact,
-  isSelected,
-  onSelect,
-  onDelete,
-}: {
-  fact: Fact;
-  isSelected: boolean;
-  onSelect: () => void;
-  onDelete: () => void;
-}) {
-  return (
-    <div
-      onClick={onSelect}
-      className={`flex items-start gap-2 px-4 py-3 cursor-pointer group transition-colors ${
-        isSelected ? "bg-primary/10 border-l-2 border-primary" : "hover:bg-muted/40 border-l-2 border-transparent"
-      } ${!fact.isActive ? "opacity-50" : ""}`}
+    <button
+      type="button"
+      onClick={onOpen}
+      data-testid={`fact-row-${fact.id}`}
+      className="w-full text-left flex items-start gap-3 px-4 py-3 hover:bg-muted/40 transition-colors"
     >
-      <div className="mt-1 shrink-0">
-        <div className={`w-2 h-2 rounded-full ${fact.isActive ? "bg-green-500" : "bg-red-500"}`} title={fact.isActive ? "Active" : "Inactive"} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm text-foreground leading-snug line-clamp-2">{fact.text}</p>
-        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-xs text-muted-foreground">
+      <span
+        className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${fact.isActive ? "bg-green-500" : "bg-red-500"}`}
+        title={fact.isActive ? "Live" : "Deactivated"}
+      />
+      <span className="flex-1 min-w-0">
+        <span className={`block text-sm leading-snug line-clamp-2 ${fact.isActive ? "text-foreground" : "text-muted-foreground"}`}>{fact.text}</span>
+        <span className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs text-muted-foreground">
           <span className="font-mono">#{fact.id}</span>
-          <span>↑{fact.upvotes} ↓{fact.downvotes}</span>
-          <span>W:{(fact.wilsonScore ?? 0).toFixed(3)}</span>
-          <span title={fact.hasEmbedding ? "Embedding present" : "No embedding — won't appear in duplicate check"}>
-            <Brain className={`inline w-3 h-3 ${fact.hasEmbedding ? "text-green-500" : "text-destructive"}`} />
-            {fact.hasEmbedding ? "" : " no embed"}
-          </span>
-          {fact.hasEnrichment && (
+          {!fact.isActive && <span className="font-semibold text-red-500">Deactivated</span>}
+          <span className="font-mono">↑{fact.upvotes} ↓{fact.downvotes}</span>
+          <span className="font-mono">W {(fact.wilsonScore ?? 0).toFixed(3)}</span>
+          <span className="font-mono">{new Date(fact.createdAt).toLocaleDateString()}</span>
+          {reasons.map((r) => (
             <span
-              className="inline-flex items-center gap-1 text-primary"
-              title={fact.primaryArchetype ? `Enriched — ${fact.primaryArchetype}` : "Has visual taxonomy enrichment"}
+              key={r}
+              data-testid={`fact-row-${fact.id}-reason-${r}`}
+              className="px-1.5 py-0.5 rounded-sm border border-amber-500/40 bg-amber-500/10 text-amber-600 font-semibold"
+              title={ATTENTION_WORDS[r].sentence}
             >
-              <Sparkles className="inline w-3 h-3" />
-              {fact.enrichmentStatus === "pending" ? "classifying…" : (fact.primaryArchetype ?? "enriched")}
+              {ATTENTION_WORDS[r].label}
             </span>
-          )}
-          <span>{new Date(fact.createdAt).toLocaleDateString()}</span>
-        </div>
-      </div>
-      <div className="flex items-center gap-1 shrink-0">
-        <Pencil className={`w-3.5 h-3.5 transition-opacity ${isSelected ? "text-primary opacity-100" : "text-muted-foreground opacity-0 group-hover:opacity-100"}`} />
-        <button
-          onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          className="p-1 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-all"
-          title="Delete fact"
-        >
-          <Trash2 className="w-4 h-4" />
-        </button>
-      </div>
-    </div>
+          ))}
+        </span>
+      </span>
+    </button>
   );
+}
+
+/** The fact a link opens: ?focus=<id>. */
+function focusFromUrl(): number | null {
+  const id = Number(new URLSearchParams(window.location.search).get("focus"));
+  return Number.isInteger(id) && id > 0 ? id : null;
 }
 
 export default function AdminFacts() {
-  const [facts, setFacts] = useState<Fact[]>([]);
-  const [refreshNonce, setRefreshNonce] = useState(0);
+  const [facts, setFacts] = useState<FactRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [refreshNonce, setRefreshNonce] = useState(0);
   const [activeTab, setActiveTab] = useState<FactsTab>("facts");
   const [visibilityFilter, setVisibilityFilter] = useState<FactVisibilityFilter>("active");
-
-  const [selectedFact, setSelectedFact] = useState<Fact | null>(null);
-  const selectedFactRef = useRef<Fact | null>(null);
-  selectedFactRef.current = selectedFact;
-  const [saveResult, setSaveResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
-
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-
-  // The fact edit form follows the universal local-draft model:
-  // edits autosave to localStorage, "Save Changes" commits to the server (new
-  // baseline), and "Discard" reverts to the server source of truth. The baseline
-  // comes from the in-memory selected fact (the list already carries every
-  // editable field); no separate fetch is needed.
-  const editForm = useDraftForm<EditDraft, Fact>({
-    storageKey: selectedFact ? `fact-edit-draft::${selectedFact.id}` : "fact-edit-draft::none",
-    emptyValue: EMPTY_EDIT_DRAFT,
-    debounceMs: 1000,
-    fetchServer: async () => selectedFactRef.current,
-    selectValue: (fact) => factToEditDraft(fact),
-    commit: async (v) => {
-      const sf = selectedFactRef.current;
-      if (!sf) throw new Error("No fact selected.");
-      // A fact's wording is locked once accepted (plan PLAN_THREE_GAGS.md,
-      // increment 3): the editor shows it read-only and never sends it.
-      const body: Record<string, unknown> = {
-        isActive: v.isActive,
-        upvotes: Number(v.upvotes),
-        downvotes: Number(v.downvotes),
-        score: Number(v.score),
-        wilsonScore: Number(v.wilsonScore),
-        commentCount: Number(v.commentCount),
-        shareCount: Number(v.shareCount),
-        submittedById: v.submittedById || null,
-      };
-      const result = await patchFactDraft<Fact>(sf.id, body);
-      switch (result.kind) {
-        case "saved":
-          setFacts((prev) => prev.map((f) => (f.id === result.fact.id ? result.fact : f)));
-          setSelectedFact(result.fact);
-          setSaveResult({ type: "success", message: "Saved successfully." });
-          // Adopt the server-normalized row as the new baseline (kills a phantom
-          // "unsaved change" from normalization).
-          return factToEditDraft(result.fact);
-        case "wording_locked":
-          setSaveResult({ type: "error", message: result.message });
-          throw new CommitInterruption();
-        case "error":
-          throw new Error(result.message);
-      }
-    },
-  });
-  const draft = editForm.value;
-
-  const LIMIT = 25;
+  const [openFactId, setOpenFactId] = useState<number | null>(focusFromUrl);
 
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 400);
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 400);
     return () => clearTimeout(t);
   }, [search]);
 
   useEffect(() => { setPage(1); }, [debouncedSearch, visibilityFilter]);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
+    setLoadError("");
     const params = new URLSearchParams({
       page: String(page),
       limit: String(LIMIT),
+      visibility: visibilityFilter,
       ...(debouncedSearch ? { search: debouncedSearch } : {}),
-      ...(visibilityFilter !== "active" ? { visibility: visibilityFilter } : {}),
     });
     fetch(`/api/admin/facts?${params}`, { credentials: "include" })
       .then(async (r) => {
-        const data = (await r.json()) as Partial<FactsResponse>;
-        if (r.ok && Array.isArray(data.facts)) {
-          setFacts(data.facts);
-          setTotal(data.total ?? 0);
-        }
+        const data = (await r.json().catch(() => ({}))) as Partial<FactsResponse> & { error?: string };
+        if (!r.ok || !Array.isArray(data.facts)) throw new Error(data.error ?? `Could not load the facts (${r.status}).`);
+        if (cancelled) return;
+        setFacts(data.facts);
+        setTotal(data.total ?? 0);
       })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+      .catch((err: unknown) => { if (!cancelled) setLoadError(err instanceof Error ? err.message : "Could not load the facts."); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [page, debouncedSearch, visibilityFilter, refreshNonce]);
 
-  function selectFact(fact: Fact) {
-    setSelectedFact(fact);
-    setSaveResult(null);
-  }
-
-  function clearSelection() {
-    setSelectedFact(null);
-    setSaveResult(null);
-  }
-
-  // On mount: if ?focus=<id> is in the URL (a link to one fact),
-  // fetch that fact by ID and select it immediately, regardless of which page of
-  // the list it would appear on.
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const focusId = Number(params.get("focus"));
-    if (!Number.isInteger(focusId) || focusId <= 0) return;
-    fetch(`/api/admin/facts/${focusId}`, { credentials: "include" })
-      .then(async (r) => {
-        if (!r.ok) return;
-        const fact = (await r.json()) as Fact;
-        selectFact(fact);
-      })
-      .catch(() => {});
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Deactivate: the only removal until the fact sheet's guarded delete (plan
-  // PLAN_FACT_LIFECYCLE_REBUILD.md, 1F). Members' memes, pictures and
-  // comments stay.
-  async function deleteFact() {
-    if (!selectedFact) return;
-    setDeleting(true);
-    try {
-      const url = `/api/admin/facts/${selectedFact.id}`;
-      const res = await fetch(url, { method: "DELETE", credentials: "include" });
-      const data = (await res.json()) as { success?: boolean; error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Delete failed");
-      setFacts((prev) => prev.filter((f) => f.id !== selectedFact.id));
-      setTotal((t) => t - 1);
-      clearSelection();
-      setShowDeleteModal(false);
-    } catch (err) {
-      setSaveResult({ type: "error", message: err instanceof Error ? err.message : "Delete failed" });
-      setShowDeleteModal(false);
-    } finally {
-      setDeleting(false);
-    }
-  }
+  const reload = useCallback(() => setRefreshNonce((n) => n + 1), []);
+  const closeSheet = useCallback(() => setOpenFactId(null), []);
 
   const totalPages = Math.ceil(total / LIMIT);
-  const numField = (key: keyof EditDraft) => (
-    <input
-      type="number"
-      value={String(draft?.[key] ?? "")}
-      onChange={(e) => editForm.setValue((d) => d ? { ...d, [key]: e.target.value } : d)}
-      className="h-9 w-full px-3 bg-background border border-border rounded-sm text-sm font-mono focus:outline-none focus:border-primary"
-    />
-  );
 
   return (
     <AdminLayout title="Facts Management">
-      {/* Delete Modal */}
-      {showDeleteModal && selectedFact && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-card border border-border rounded-lg w-full max-w-sm p-6 flex flex-col gap-5 shadow-xl">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center shrink-0">
-                <EyeOff className="w-5 h-5 text-destructive" />
-              </div>
-              <div>
-                <h2 className="font-display font-bold text-foreground uppercase tracking-wide">Deactivate Fact</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">#{selectedFact.id}</p>
-              </div>
-            </div>
-            <p className="text-sm text-muted-foreground line-clamp-2 italic">"{selectedFact.text}"</p>
-            <p className="text-sm text-muted-foreground">
-              Takes the fact off the site. Members' memes, pictures and comments are kept. It can't be reactivated from the admin yet.
-            </p>
-            <div className="flex gap-3">
-              <Button onClick={() => void deleteFact()} isLoading={deleting} className="flex-1" data-testid="deactivate-fact-confirm">
-                <EyeOff className="w-4 h-4" /> Deactivate
-              </Button>
-              <Button variant="outline" onClick={() => setShowDeleteModal(false)} className="flex-1" disabled={deleting}>
-                Cancel
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      {openFactId != null && <FactSheet key={openFactId} factId={openFactId} onClose={closeSheet} onChanged={reload} />}
 
       <div className="mb-4 flex gap-2 border-b border-border">
-        <button
-          type="button"
-          onClick={() => setActiveTab("facts")}
-          className={`px-4 py-2 text-sm font-bold uppercase tracking-wide border-b-2 transition-colors ${activeTab === "facts" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-        >
-          Facts
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("utilities")}
-          className={`px-4 py-2 text-sm font-bold uppercase tracking-wide border-b-2 transition-colors ${activeTab === "utilities" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-        >
-          Utilities
-        </button>
+        {(["facts", "utilities"] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setActiveTab(t)}
+            className={`px-4 py-2 text-sm font-bold uppercase tracking-wide border-b-2 transition-colors ${activeTab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+          >
+            {t === "facts" ? "Facts" : "Utilities"}
+          </button>
+        ))}
       </div>
 
       {activeTab === "facts" ? (
-      <div className={`grid grid-cols-1 gap-6 xl:items-start ${selectedFact ? "xl:grid-cols-2" : ""}`}>
-
-        {/* Left — fact list */}
-        <div className="bg-card border border-border rounded-lg overflow-hidden flex flex-col xl:h-[calc(100dvh-7rem)]">
-          <div className="p-4 border-b border-border flex items-center gap-3">
-            <div className="relative flex-1">
+        <div className="bg-card border border-border rounded-lg overflow-hidden flex flex-col" data-testid="facts-list">
+          <div className="p-4 border-b border-border flex flex-wrap items-center gap-3">
+            <div className="relative flex-1 min-w-[12rem]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search facts…"
+                placeholder="Search wording or fact number…"
                 className="pl-9"
+                aria-label="Search facts"
               />
             </div>
             <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground shrink-0">
@@ -419,31 +166,26 @@ export default function AdminFacts() {
                 className="h-9 rounded-sm border border-border bg-background px-2 text-xs font-medium text-foreground focus:outline-none focus:border-primary"
                 aria-label="Show facts"
               >
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
+                <option value="active">Live</option>
+                <option value="inactive">Deactivated</option>
                 <option value="both">Both</option>
               </select>
             </label>
-            <span className="text-sm text-muted-foreground whitespace-nowrap">
-              {total}
-            </span>
+            <span className="text-sm text-muted-foreground whitespace-nowrap font-mono" data-testid="facts-total">{total}</span>
           </div>
+          <p className="px-4 py-2 text-xs text-muted-foreground border-b border-border">
+            Approved facts only. A submission still in moderation is on the Moderation page.
+          </p>
 
-          <div className="flex-1 overflow-auto divide-y divide-border">
-            {loading ? (
+          <div className="divide-y divide-border">
+            {loadError ? (
+              <div className="p-8 text-center text-destructive text-sm" role="alert">{loadError}</div>
+            ) : loading ? (
               <div className="p-8 text-center text-muted-foreground text-sm">Loading…</div>
             ) : facts.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground text-sm">No facts found.</div>
             ) : (
-              facts.map((fact) => (
-                <FactListRow
-                  key={fact.id}
-                  fact={fact}
-                  isSelected={selectedFact?.id === fact.id}
-                  onSelect={() => selectFact(fact)}
-                  onDelete={() => { selectFact(fact); setShowDeleteModal(true); }}
-                />
-              ))
+              facts.map((fact) => <FactListRow key={fact.id} fact={fact} onOpen={() => setOpenFactId(fact.id)} />)
             )}
           </div>
 
@@ -459,262 +201,13 @@ export default function AdminFacts() {
             </div>
           )}
         </div>
-
-        {/* Right — the edit panel */}
-        {selectedFact && draft ? (
-          <div className="bg-card border border-border rounded-lg flex flex-col xl:h-[calc(100dvh-7rem)] xl:overflow-y-auto">
-            {/* Header — sticky within the scrolling panel */}
-            <div className="flex items-center justify-between sticky top-0 bg-card z-10 px-5 pt-5 pb-4 border-b border-border shrink-0">
-              <h2 className="font-display font-bold text-foreground uppercase tracking-wide flex items-center gap-2">
-                <Pencil className="w-4 h-4 text-primary" />
-                Edit Fact #{selectedFact.id}
-              </h2>
-              <div className="flex items-center gap-3 shrink-0">
-                {/* Draft status — always visible in the pinned header */}
-                <div className="text-xs text-muted-foreground">
-                  {editForm.committing ? (
-                    <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving to server…</span>
-                  ) : editForm.commitError ? (
-                    <span className="text-destructive">{editForm.commitError}</span>
-                  ) : editForm.hasUncommittedChanges ? (
-                    <span>{editForm.draftLabel || "Unsaved changes"}</span>
-                  ) : editForm.committedAt ? (
-                    <span className="text-green-600 dark:text-green-400">Saved to server</span>
-                  ) : null}
-                </div>
-                {editForm.hasUncommittedChanges && (
-                  <button
-                    type="button"
-                    onClick={editForm.discard}
-                    className="text-xs text-primary underline hover:opacity-80"
-                  >
-                    Discard changes
-                  </button>
-                )}
-                <button
-                  onClick={clearSelection}
-                  className="flex items-center justify-center w-11 h-11 -mr-2 text-muted-foreground hover:text-foreground transition-colors rounded-sm"
-                  title="Close"
-                  aria-label="Close edit panel"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Scrollable body */}
-            <div className="p-5 flex flex-col gap-4">
-
-            {/* Status badges */}
-            <div className="flex flex-wrap gap-2 items-center">
-              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-sm border ${
-                selectedFact.isActive
-                  ? "bg-green-500/10 text-green-600 border-green-500/30"
-                  : "bg-red-500/10 text-red-500 border-red-500/30"
-              }`}>
-                <div className={`w-1.5 h-1.5 rounded-full ${selectedFact.isActive ? "bg-green-500" : "bg-red-500"}`} />
-                {selectedFact.isActive ? "Active" : "Inactive"}
-              </span>
-              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-sm border ${
-                selectedFact.hasEmbedding
-                  ? "bg-blue-500/10 text-blue-600 border-blue-500/30"
-                  : "bg-amber-500/10 text-amber-600 border-amber-500/30"
-              }`}>
-                <Brain className="w-3 h-3" />
-                {selectedFact.hasEmbedding ? "Embedding ✓" : "No Embedding"}
-              </span>
-            </div>
-
-            {/* Read-only metadata row */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <ReadOnlyField label="ID" value={selectedFact.id} />
-              <ReadOnlyField label="Created At" value={new Date(selectedFact.createdAt).toLocaleDateString()} />
-              <ReadOnlyField label="Updated At" value={new Date(selectedFact.updatedAt).toLocaleDateString()} />
-              <ReadOnlyField label="Caption Split" value={selectedFact.splitTokenIndex ?? "auto"} />
-            </div>
-
-            {/* Text */}
-            <div>
-              <FieldLabel>Text</FieldLabel>
-              <p data-testid="fact-wording" className="text-sm bg-muted/30 rounded-sm px-3 py-2 border border-border whitespace-pre-wrap">
-                {selectedFact.text}
-              </p>
-              <p data-testid="fact-wording-locked-note" className="text-xs text-muted-foreground mt-1">
-                A fact&apos;s wording can&apos;t be changed once it&apos;s accepted. If the wording is wrong, deactivate this fact and submit the corrected wording as a new fact.
-              </p>
-            </div>
-
-            {/* Canonical text (read-only) */}
-            {selectedFact.canonicalText && (
-              <div>
-                <FieldLabel>Canonical Text (used for embeddings)</FieldLabel>
-                <p className="text-xs text-muted-foreground bg-muted/50 rounded px-3 py-2 leading-relaxed border border-border italic">
-                  {selectedFact.canonicalText}
-                </p>
-              </div>
-            )}
-
-            {/* Active toggle — deactivate-only. Activation is moderation-only
-                (Phase 2 fact-lifecycle closure): the server rejects any
-                false→true PATCH, so this toggle can only ever turn a fact off,
-                never back on — disabled + explained rather than a control that
-                always errors. */}
-            <div className="flex items-center justify-between py-2 border border-border rounded-md px-3">
-              <div>
-                <p className="text-sm font-medium">Active</p>
-                <p className="text-xs text-muted-foreground">
-                  {draft.isActive
-                    ? "Inactive facts are hidden from the public."
-                    : "A deactivated fact can't be reactivated from the admin yet."}
-                </p>
-              </div>
-              <button
-                type="button"
-                disabled={!draft.isActive}
-                onClick={() => draft.isActive && editForm.setValue((d) => d ? { ...d, isActive: false } : d)}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-                  draft.isActive ? "bg-green-500" : "bg-muted-foreground/30 cursor-not-allowed opacity-60"
-                }`}
-                title={draft.isActive ? "Click to deactivate" : "Deactivated — can't be reactivated yet"}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                  draft.isActive ? "translate-x-6" : "translate-x-1"
-                }`} />
-              </button>
-            </div>
-
-            {/* Vote / score row */}
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <FieldLabel>Upvotes</FieldLabel>
-                {numField("upvotes")}
-              </div>
-              <div>
-                <FieldLabel>Downvotes</FieldLabel>
-                {numField("downvotes")}
-              </div>
-              <div>
-                <FieldLabel>Score</FieldLabel>
-                {numField("score")}
-              </div>
-            </div>
-
-            {/* Wilson / counts row */}
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <FieldLabel>Wilson Score</FieldLabel>
-                <input
-                  type="number"
-                  step="0.000001"
-                  value={String(draft.wilsonScore)}
-                  onChange={(e) => editForm.setValue((d) => d ? { ...d, wilsonScore: parseFloat(e.target.value) || 0 } : d)}
-                  className="h-9 w-full px-3 bg-background border border-border rounded-sm text-sm font-mono focus:outline-none focus:border-primary"
-                />
-              </div>
-              <div>
-                <FieldLabel>Comment Count</FieldLabel>
-                {numField("commentCount")}
-              </div>
-              <div>
-                <FieldLabel>Share Count</FieldLabel>
-                {numField("shareCount")}
-              </div>
-            </div>
-
-            {/* Identity fields */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <FieldLabel>Submitted By ID</FieldLabel>
-                <input
-                  type="text"
-                  value={draft.submittedById ?? ""}
-                  onChange={(e) => editForm.setValue((d) => d ? { ...d, submittedById: e.target.value } : d)}
-                  placeholder="user UUID or blank"
-                  className="h-9 w-full px-3 bg-background border border-border rounded-sm text-sm font-mono focus:outline-none focus:border-primary"
-                />
-              </div>
-            </div>
-
-            {/* The fact's gags and its stored AI taxonomy (read-only, with Re-run). */}
-            <div className="border-t border-border pt-3">
-              <FactGagsAndTaxonomyPanel key={selectedFact.id} fact={selectedFact} />
-            </div>
-
-            {/* Wording edits made before the wording lock (read-only history) */}
-            <div className="border-t border-border pt-3">
-              <FactTextEditHistory key={selectedFact.id} factId={selectedFact.id} />
-            </div>
-
-            {/* Runtime Compiled Prompt Preview (Phase 2C) — the ACTUAL render-time
-                engine prompt for a chosen render context. Distinct from the
-                enrichment editor's preview-only example prompts below. Shown for
-                any selected fact; it reads the fact's saved enrichment by id. The
-                component renders its own collapsible bordered header. */}
-            <div className="border-t border-border pt-3">
-              <RuntimePromptPreview factId={selectedFact.id} />
-            </div>
-
-            {/* Save result */}
-            {saveResult && (
-              <div className={`flex items-start gap-2 text-sm px-3 py-2.5 rounded-sm ${
-                saveResult.type === "success"
-                  ? "bg-green-500/10 text-green-400 border border-green-500/30"
-                  : "bg-destructive/10 text-destructive border border-destructive/30"
-              }`}>
-                {saveResult.type === "success"
-                  ? <CheckCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  : <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />}
-                {saveResult.message}
-              </div>
-            )}
-
-            {/* Actions */}
-            <div className="flex gap-3 pt-1">
-              <Button
-                onClick={() => void editForm.save()}
-                isLoading={editForm.committing}
-                disabled={!editForm.hasUncommittedChanges}
-                className="flex-1"
-              >
-                <Save className="w-4 h-4" /> Save Changes
-              </Button>
-              <Button
-                variant="outline"
-                onClick={editForm.discard}
-                disabled={!editForm.hasUncommittedChanges || editForm.committing}
-                className="flex-1"
-              >
-                Discard
-              </Button>
-              <Button variant="outline" onClick={clearSelection} className="flex-1">
-                Cancel
-              </Button>
-            </div>
-
-            {selectedFact.isActive && (
-              <div className="border-t border-border pt-3">
-                <Button
-                  variant="outline"
-                  onClick={() => setShowDeleteModal(true)}
-                  className="w-full text-destructive border-destructive/30 hover:bg-destructive/10 hover:border-destructive/60"
-                  data-testid="deactivate-fact-button"
-                >
-                  <EyeOff className="w-4 h-4" /> Deactivate Fact
-                </Button>
-              </div>
-            )}
-
-            </div>{/* end scrollable body */}
-          </div>
-        ) : null}
-      </div>
       ) : (
-          <div className="bg-card border border-border rounded-lg p-5 flex flex-col gap-4 xl:min-h-[calc(100dvh-7rem)]" data-testid="facts-utilities">
-            {/* The gag fold (Issue #982): its run on the live database is still
-                owed, so it moved here when Taxonomy Health went (plan
-                PLAN_FACT_LIFECYCLE_REBUILD.md, 2A). */}
-            <GagFoldPanel />
-          </div>
+        <div className="bg-card border border-border rounded-lg p-5 flex flex-col gap-4" data-testid="facts-utilities">
+          {/* The gag fold (Issue #982): its run on the live database is still
+              owed, so it moved here when Taxonomy Health went (plan
+              PLAN_FACT_LIFECYCLE_REBUILD.md, 2A). */}
+          <GagFoldPanel />
+        </div>
       )}
     </AdminLayout>
   );

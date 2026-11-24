@@ -183,6 +183,10 @@ discriminated union on `valid`.
   (`artifacts/api-server/src/testing/legacyFixture/placeholderFacts.ts`) also
   calls it and consumes all three derived columns.
 
+After the grammar sequence both variants apply the **fact wording house
+style** (next section), so what is saved, validated and derived from is the
+tidied wording.
+
 A pending review's metadata is derived when it becomes a staging fact:
 `ensureStagingFact` (`artifacts/api-server/src/lib/moderationStaging.ts`) computes
 the three columns itself from the already-normalized `submittedText`, without
@@ -209,6 +213,51 @@ only fail and were removed (in git history before PR #960's follow-up). A future
 repair to stored wording is its own migration that lifts the rule, on David's
 say; the subject-contraction transform it would reuse stays, tested, in
 `artifacts/api-server/src/lib/expandSubjectContractionBackfill.ts`.
+
+### The fact wording house style: `applyHouseStyle`
+
+Every fact starts with a capital and ends with terminal punctuation, applied by
+the system and never asked of the submitter (plan
+`docs/plans/PLAN_FACT_HOUSE_STYLE.md`; David, 2026-11-23 and 2026-11-24). One
+pure, idempotent function in `lib/api-zod/src/templateGrammar.ts`, shared by
+the server and the submit page:
+
+- **Spacing:** ends trimmed, runs of whitespace collapsed to one space.
+- **Start** (after any opening quote or bracket): a lower-case letter becomes
+  its capital; a lower-case pronoun token takes its capitalized form
+  (`{SUBJ}` → `{Subj}`); a conjugation pair has both branches capitalized
+  (`{does|do}` → `{Does|Do}`); `{NAME}`, digits and symbols are left; a
+  brand-style first word with a capital inside it (`iPhone`, `eBay`) is left
+  as written (Q3).
+- **End:** whether a mark is already there is read behind every trailing
+  closing quote and bracket, so `.` `!` `?` `…` there are kept, including one
+  inside a final aside (`(Twice.)`, `(yes, really!)`); an emoji ending is left
+  as written (Q4); a trailing `,` `;` `:` becomes `.` (Q5); anything else gets
+  a `.`, inside closing quotes (`said "no."`), after a bracket that closes a
+  phrase (`zero (really).`), inside a bracket only when that bracket's own
+  opener begins the fact (`("no.")`, `({NAME} wins (really).)`), and never
+  inside a token. A closer with no opener is not a bracket (`:)` → `:).`). A final `'` is a closing quote only when an
+  earlier opening single quote is unclosed; otherwise it is an apostrophe
+  (`the Joneses'.`).
+- **Nothing between** the first letter and the ending changes.
+
+It is **separate from the grammar sequence on purpose**: grammar repair
+rewrites verbs and contractions, while the house style may only touch a
+capital, an ending and spacing. It runs on **fact wording only** — submission
+and the triage edit (both normalizer variants), acceptance
+(`ensureStagingFact`, so a wording saved by a release without it is still
+locked in tidied), and the `POST /ai/tokenize-fact` response — never on gag
+scenes, bubbles or other visual-strategy text that shares the tokenizer. The
+submit page's preview renders `applyHouseStyle(template)` without rewriting the
+advanced editor's text. It changes nothing the duplicate check compares
+(`duplicateMatchText` ignores case and punctuation), the caption split or the
+has-pronouns flag (`factHouseStyle.test.ts`).
+
+Draft gag-idea sets record the wording they were drafted for
+(`factTextUsed` on the candidates blob); the freshness check hashes that
+wording in place of the fact's while the fact's wording is exactly its house
+style form (`factTextForFreshness`), so tidying a fact does not stale its
+ideas.
 
 ## Retiring `They's`
 

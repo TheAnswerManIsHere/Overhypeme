@@ -175,10 +175,12 @@ describe("the needs-attention checks (2C)", () => {
       await expectReasons(off.factId, ["taxonomy_missing"]);
     });
 
-    it("does not trip on a fact never approved", async () => {
+    // The list holds approved facts only (Issue #1018, increment 3.1), so a
+    // fact never approved is in no filter and no count.
+    it("does not trip on a fact never approved: it is in no filter", async () => {
       const [f] = await db.insert(factsTable).values({ text: `{NAME} unapproved ${RUN}`, isActive: false }).returning({ id: factsTable.id });
       factIds.push(f!.id);
-      await expectReasons(f!.id, []);
+      for (const r of ATTENTION_REASONS) assert.equal(await inFilter(r, f!.id), false, `filter ${r}`);
     });
   });
 
@@ -328,9 +330,12 @@ describe("the needs-attention checks (2C)", () => {
         .where(sql`${factsTable.id} IN ${[a.factId, b.factId]} AND (${factsTable.embedding} IS NULL OR ${factsTable.canonicalText} IS NULL)`)).map((r) => r.id);
 
       const stubEmbed = async () => Array(384).fill(0.02);
-      const one = await backfillEmbeddings({ limit: 1, embed: stubEmbed });
+      // Scoped to this test's two facts: an unscoped run rewrites every fact in
+      // the shard's shared database that lacks a fingerprint (PR #1213).
+      const onlyFactIds = [a.factId, b.factId];
+      const one = await backfillEmbeddings({ limit: 1, embed: stubEmbed, onlyFactIds });
       assert.equal(one.processed + one.failed, 1, "a capped run handles one fact");
-      await backfillEmbeddings({ limit: 1000, embed: stubEmbed });
+      await backfillEmbeddings({ limit: 1000, embed: stubEmbed, onlyFactIds });
       assert.deepEqual(await missing(), [], "both facts, live and deactivated, are filled");
       await expectReasons(b.factId, []);
     });

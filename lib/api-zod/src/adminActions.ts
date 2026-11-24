@@ -13,6 +13,7 @@ export const ADMIN_ACTION_VALUES = [
   "reading_requested",
   "reading_approval",
   "humor_note_save",
+  "hashtags_save",
   "gag_approval",
   "back_to_gags",
   "test_renders_requested",

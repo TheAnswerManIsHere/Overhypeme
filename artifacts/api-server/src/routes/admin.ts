@@ -8,7 +8,7 @@ import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, getTabl
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
 import { backfillEmbeddings } from "../lib/embeddings";
-import { ATTENTION_COUNT_COLUMNS, ATTENTION_PREDICATES, ATTENTION_REASONS, ATTENTION_REASONS_COLUMN, attentionReasonOf } from "../lib/factAttention";
+import { ATTENTION_COUNT_COLUMNS, ATTENTION_PREDICATES, ATTENTION_REASONS, ATTENTION_REASONS_COLUMN, approvedFact, attentionReasonOf } from "../lib/factAttention";
 import { enqueueJob, USE_CONFIGURED_MAX_ATTEMPTS } from "../lib/asyncJobs";
 import { emailRetryReset } from "../lib/email";
 import { laneHealth, queueHealth, queueHealthJobs } from "../lib/queueHealth";
@@ -20,11 +20,13 @@ import { revokeUserSessions } from "../lib/auth";
 import {
   checkPersonalName,
   FACT_TEXT_EDIT_CODES,
+  humorNoteSaveSchema,
 } from "@workspace/api-zod";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { normalizeFactTemplateForStorage } from "../lib/normalizeFactTemplateForStorage";
 import { logActivity } from "../lib/activity";
 import { recordAdminAction } from "../lib/adminActions";
+import { FACT_HASHTAG_LIMIT, factSheet, saveFactHashtags, saveFactHumorNote } from "../lib/factSheet";
 import { factEnrichmentPayload } from "../lib/enrichmentJobs";
 import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConfig";
 import {
@@ -823,16 +825,15 @@ const FACT_LIST_COLUMNS = {
   enrichmentStatus: factsTable.enrichmentStatus,
   hasEmbedding: sql<boolean>`(${factsTable.embedding} IS NOT NULL)`,
   hasEnrichment: sql<boolean>`(${factsTable.enrichment} IS NOT NULL)`,
-  // Eval harness (Slice 2B): golden-set membership, so the Facts editor can show
-  // + toggle it and reflect the saved state.
-  evalGolden: factsTable.evalGolden,
-  evalGoldenReason: factsTable.evalGoldenReason,
 } as const;
 
-// The Facts list, newest first, filtered by visibility, search and a
-// needs-attention reason (plan PLAN_FACT_LIFECYCLE_REBUILD.md 2C). The
-// response carries one count per reason, computed by the same predicates the
-// filter uses (lib/factAttention.ts), and each row's own reasons.
+// The Facts list, newest first: approved facts only, live or deactivated
+// (plan PLAN_FACT_LIFECYCLE_REBUILD.md, item 18; a staging fact is the
+// moderation screen's), filtered by visibility, search and a needs-attention
+// reason (2C). The response carries one count per reason, computed by the
+// same predicates the filter uses (lib/factAttention.ts) over the same
+// approved facts, and each row's own reasons. A search that is a whole
+// number also matches that fact id.
 router.get("/admin/facts", requireAdmin, async (req: Request, res: Response) => {
   const page = Math.max(1, parseInt(String(req.query["page"] ?? "1"), 10));
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query["limit"] ?? "50"), 10)));
@@ -849,9 +850,13 @@ router.get("/admin/facts", requireAdmin, async (req: Request, res: Response) => 
   const like = `%${search}%`;
 
   const visibilityFilter = visibility === "both" ? undefined : eq(factsTable.isActive, visibility !== "inactive");
-  const searchFilter = search ? ilike(factsTable.text, like) : undefined;
+  const searchId = /^\d{1,9}$/.test(search) ? Number(search) : null;
+  const searchFilter = search
+    ? (searchId != null ? or(ilike(factsTable.text, like), eq(factsTable.id, searchId)) : ilike(factsTable.text, like))
+    : undefined;
   const attentionFilter = attention ? ATTENTION_PREDICATES[attention] : undefined;
-  const where = and(...[visibilityFilter, searchFilter, attentionFilter].filter(Boolean));
+  const approved = approvedFact;
+  const where = and(...[approved, visibilityFilter, searchFilter, attentionFilter].filter(Boolean));
 
   const [facts, [{ total }], [attentionCounts]] = await Promise.all([
     db.select({ ...FACT_LIST_COLUMNS, attention: ATTENTION_REASONS_COLUMN })
@@ -861,7 +866,7 @@ router.get("/admin/facts", requireAdmin, async (req: Request, res: Response) => 
       .limit(limit)
       .offset(offset),
     db.select({ total: count() }).from(factsTable).where(where),
-    db.select(ATTENTION_COUNT_COLUMNS).from(factsTable),
+    db.select(ATTENTION_COUNT_COLUMNS).from(factsTable).where(approved),
   ]);
 
   res.json({ facts, total, page, limit, attentionCounts });
@@ -1074,11 +1079,6 @@ router.get("/admin/facts/:id", requireAdmin, async (req: Request, res: Response)
       enrichment: factsTable.enrichment,
       enrichmentStatus: factsTable.enrichmentStatus,
       hasEmbedding: sql<boolean>`(${factsTable.embedding} IS NOT NULL)`,
-      // Eval golden-set membership, so the focused/deep-linked Facts editor
-      // (e.g. /admin/facts?focus=<id>) reflects the saved state and can toggle it
-      // — matching the list projection above.
-      evalGolden: factsTable.evalGolden,
-      evalGoldenReason: factsTable.evalGoldenReason,
     })
     .from(factsTable)
     .where(eq(factsTable.id, id))
@@ -1086,6 +1086,45 @@ router.get("/admin/facts/:id", requireAdmin, async (req: Request, res: Response)
   if (!row) { res.status(404).json({ error: "Fact not found" }); return; }
 
   res.json(row);
+});
+
+// GET /admin/facts/:id/sheet — one approved fact as the fact sheet shows it
+// (plan PLAN_FACT_LIFECYCLE_REBUILD.md, items 19–20; lib/factSheet.ts). A
+// staging fact is a 404 here: it is the moderation screen's.
+router.get("/admin/facts/:id/sheet", requireAdmin, async (req: Request, res: Response) => {
+  const id = Number(req.params["id"]);
+  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
+  const sheet = await factSheet(id);
+  if (!sheet) { res.status(404).json({ error: "Fact not found" }); return; }
+  res.json(sheet);
+});
+
+const FactHashtagsBody = z.object({ hashtags: z.array(z.string()).max(FACT_HASHTAG_LIMIT) }).strict();
+
+// PUT /admin/facts/:id/hashtags — replace an approved fact's hashtags, saved at
+// once and recorded (plan item 20). Sanitized as at approval; never empty.
+router.put("/admin/facts/:id/hashtags", requireAdmin, async (req: Request, res: Response) => {
+  const id = Number(req.params["id"]);
+  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
+  const parsed = FactHashtagsBody.safeParse(req.body ?? {});
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid hashtags" }); return; }
+  const saved = await saveFactHashtags(id, parsed.data.hashtags, req.user?.id);
+  if (saved.kind === "not_found") { res.status(404).json({ error: "Fact not found" }); return; }
+  if (saved.kind === "refused") { res.status(400).json({ error: saved.error }); return; }
+  res.json({ hashtags: saved.value });
+});
+
+// PUT /admin/facts/:id/humor-note — correct an approved fact's Humor Note,
+// saved at once and recorded (plan item 20). It asks for no gag ideas and
+// changes no gag; the review-scoped save on the Gags step does that.
+router.put("/admin/facts/:id/humor-note", requireAdmin, async (req: Request, res: Response) => {
+  const id = Number(req.params["id"]);
+  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
+  const parsed = humorNoteSaveSchema.safeParse(req.body ?? {});
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid humor note" }); return; }
+  const saved = await saveFactHumorNote(id, parsed.data.text, req.user?.id);
+  if (saved.kind !== "saved") { res.status(404).json({ error: "Fact not found" }); return; }
+  res.json({ humorNote: saved.value });
 });
 
 // GET /admin/facts/:id/taxonomy-runs — the fact's taxonomy run history, newest

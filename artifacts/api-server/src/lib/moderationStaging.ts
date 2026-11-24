@@ -18,6 +18,7 @@ import {
   type ReviewWorkflowStage,
 } from "@workspace/api-zod";
 import { renderCanonical } from "./renderCanonical";
+import { applyHouseStyle } from "./templateGrammar";
 import { computeSplitTokenIndex } from "./splitTokenIndex";
 import { primaryWorkingGag } from "./gags/resolver";
 
@@ -92,16 +93,19 @@ export async function ensureStagingFact(
   if (review.stagingFactId != null) {
     return { factId: review.stagingFactId, created: false };
   }
+  // The house style again at acceptance (plan PLAN_FACT_HOUSE_STYLE.md, I1):
+  // a wording saved by a release without it is still locked in tidied.
+  const text = applyHouseStyle(review.submittedText);
   const [fact] = await tx
     .insert(factsTable)
     .values({
-      text: review.submittedText,
+      text,
       submittedById: review.submittedById ?? undefined,
       submitterDeletedAt: review.submitterDeletedAt ?? undefined,
-      hasPronouns: PRONOUN_TOKEN_RE.test(review.submittedText),
-      canonicalText: renderCanonical(review.submittedText),
+      hasPronouns: PRONOUN_TOKEN_RE.test(text),
+      canonicalText: renderCanonical(text),
       isActive: false,
-      splitTokenIndex: computeSplitTokenIndex(review.submittedText),
+      splitTokenIndex: computeSplitTokenIndex(text),
     })
     .returning({ id: factsTable.id });
   return { factId: fact.id, created: true };

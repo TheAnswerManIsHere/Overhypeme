@@ -1259,7 +1259,7 @@ export default function Profile() {
               {/* Your picture: the photo you upload or choose is your picture, for everyone */}
               <div>
                 <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-2">
-                  <Camera className="w-3.5 h-3.5" /> Your picture <span className="text-muted-foreground/70 text-[10px] font-normal normal-case tracking-normal">— free, and it stars in your memes</span>
+                  <Camera className="w-3.5 h-3.5" /> Your Profile Picture <span className="text-muted-foreground/70 text-[10px] font-normal normal-case tracking-normal">— free, and it stars in your memes</span>
                 </label>
                 <div className="flex items-center gap-4 flex-wrap">
                   {profile.profileImageUrl && (
