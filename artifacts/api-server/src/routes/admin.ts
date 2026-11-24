@@ -1458,13 +1458,6 @@ router.post("/admin/users/enable-notifications", requireAdmin, async (_req: Requ
   res.json({ success: true, updated });
 });
 
-// POST /admin/facts/backfill-ai-memes — retired with the legacy AI-background
-// generator (compiler review, Phase 2: every picture starts from a photo). It
-// answers 410 and starts nothing; the pictures it stored stay readable.
-router.post("/admin/facts/backfill-ai-memes", requireAdmin, (_req: Request, res: Response) => {
-  res.status(410).json({ error: "The legacy AI-background generator is retired: every picture starts from a photo.", code: "AI_MEME_BACKFILL_RETIRED" });
-});
-
 router.post("/admin/facts/backfill-embeddings", requireAdmin, async (_req: Request, res: Response) => {
   try {
     const result = await backfillEmbeddings();

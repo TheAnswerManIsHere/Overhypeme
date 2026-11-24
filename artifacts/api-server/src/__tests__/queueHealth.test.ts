@@ -39,7 +39,7 @@ const okHandler: JobHandler = { async run() { return { ok: true }; } };
  * would also wipe the `test_lane_*` rows workerHeartbeats.test.ts is asserting
  * on, which is exactly the cross-file failure this replaces.
  */
-const REAL_LANES = ["fast", "render", "bulk", "ai_meme_backfill"];
+const REAL_LANES = ["fast", "render", "bulk"];
 
 async function clearRealLaneHeartbeats(): Promise<void> {
   await db.delete(workerLaneHeartbeatsTable).where(inArray(workerLaneHeartbeatsTable.lane, REAL_LANES));
@@ -76,7 +76,7 @@ describe("queueHealth — derived statuses", () => {
   });
 
   it("derives `abandoned_no_retry` when the ceiling is one attempt, OR retries were never exhausted", () => {
-    // fact_ai_meme_backfill is configured never to retry, so its failures are
+    // A queue enqueued with maxAttempts: 1 never retries, so its failures are
     // `failed` after a single attempt — a different operator story from
     // "exhausted five attempts", and indistinguishable without this.
     // maxAttempts: 1 here is the persisted (non-zero) ceiling PR288's finalize
@@ -211,7 +211,7 @@ describe("queueHealth — lane liveness", () => {
   it("reports a lane stalled when no live instance has scheduled it", async () => {
     await clearRealLaneHeartbeats();
     const lanes = await laneHealth(db, 15);
-    assert.ok(lanes.length === 4, "all four lanes are always reported");
+    assert.ok(lanes.length === 3, "all three lanes are always reported");
     assert.ok(lanes.every((l) => l.stalled), "with no heartbeats at all, every lane is stalled");
     assert.ok(lanes.every((l) => l.liveInstanceCount === 0));
   });
@@ -222,15 +222,15 @@ describe("queueHealth — lane liveness", () => {
     await clearRealLaneHeartbeats();
     await db.insert(workerLaneHeartbeatsTable).values({
       instanceId: randomUUID(),
-      lane: "ai_meme_backfill",
+      lane: "bulk",
       workerProtocolVersion: WORKER_PROTOCOL_VERSION,
       lastScheduledAt: new Date(Date.now() - 60 * 60_000),
     });
 
     const lanes = await laneHealth(db, 15);
-    const backfill = lanes.find((l) => l.lane === "ai_meme_backfill");
-    assert.equal(backfill?.liveInstanceCount, 0, "a departed instance is not live");
-    assert.equal(backfill?.stalled, true);
+    const bulk = lanes.find((l) => l.lane === "bulk");
+    assert.equal(bulk?.liveInstanceCount, 0, "a departed instance is not live");
+    assert.equal(bulk?.stalled, true);
   });
 
   it("never lets the TTL cutoff undercut a lane's own stale threshold", async () => {

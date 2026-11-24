@@ -33,7 +33,6 @@ import {
 } from "./asyncJobs";
 import { heartbeatTtlMinutes, NOT_A_TASK_ROW } from "./workerHeartbeats";
 import { GAG_FOLD_SKIP_REASONS } from "./gags/foldJob";
-import { RETIRED_SKIP_RESULT } from "./aiMemeBackfillJobs";
 import { RECIPIENT_SUSPENDED_SKIP } from "./email";
 
 /** The five raw statuses `async_jobs.status` can hold (`recovering`: Issue #1000). */
@@ -46,9 +45,9 @@ export type RawJobStatus = (typeof RAW_JOB_STATUSES)[number];
  * `async-ui-status.md` makes "skipped" a first-class terminal state and forbids
  * collapsing it into a checkmark. `async_jobs` has no such status — a skip
  * finishes as `done` with `result.skipped = true` — so the distinction has to be
- * derived. Likewise `abandoned_no_retry`: `fact_ai_meme_backfill` is configured
- * never to retry, so its failures are `failed` after a single attempt, which is
- * a materially different operator story from "exhausted five attempts".
+ * derived. Likewise `abandoned_no_retry`: a queue enqueued with `maxAttempts: 1`
+ * fails after a single attempt, which is a materially different operator story
+ * from "exhausted five attempts".
  */
 export const DISPLAY_STATUSES = [
   "pending",
@@ -67,14 +66,13 @@ export type DisplayStatus = (typeof DISPLAY_STATUSES)[number];
  * Skip reasons are **sanitized against a closed set**, never passed through raw.
  *
  * The reasons the registered handlers give when they skip a job, as each
- * handler declares them: the gag fold (`gags/foldJob.ts`) and the retired
- * AI-meme backfill (`aiMemeBackfillJobs.ts`), and the email queue's
+ * handler declares them: the gag fold (`gags/foldJob.ts`) and the email queue's
  * suspended-recipient skip (`lib/email.ts`, Issue #1212). Taxonomy Health's list went with
  * that page (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 2A). Anything outside it
  * becomes `other` — a handler is free to put arbitrary text in `result`, and
  * admin surfaces should not echo it back.
  */
-export const KNOWN_SKIP_REASONS = [...GAG_FOLD_SKIP_REASONS, RETIRED_SKIP_RESULT.reason, RECIPIENT_SUSPENDED_SKIP.reason] as const;
+export const KNOWN_SKIP_REASONS = [...GAG_FOLD_SKIP_REASONS, RECIPIENT_SUSPENDED_SKIP.reason] as const;
 export type SanitizedSkipReason = (typeof KNOWN_SKIP_REASONS)[number] | "other";
 
 export function sanitizeSkipReason(raw: unknown): SanitizedSkipReason | null {

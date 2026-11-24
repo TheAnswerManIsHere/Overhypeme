@@ -114,11 +114,8 @@ const HANDLERS = new Map<string, JobHandler>();
  *   • `fast`            — short, DB-oriented admin actions with no model/image wait.
  *   • `render`          — single-item, moderator-watched external-API renders.
  *   • `bulk`             — background/batch work nobody's watching a spinner for (default).
- *   • `ai_meme_backfill` — `fact_ai_meme_backfill`, serialized (maxConcurrency 1)
- *     to preserve the "process sequentially" OpenAI rate-limit pacing the
- *     direct-call bulk route used to provide.
  */
-export type JobLane = "fast" | "render" | "bulk" | "ai_meme_backfill";
+export type JobLane = "fast" | "render" | "bulk";
 
 /** Per-queue lane assignment. Kept in lockstep with HANDLERS (same replace/reset). */
 const LANE_OF_QUEUE = new Map<string, JobLane>();
@@ -1114,7 +1111,6 @@ export async function purgeTerminalJobs(
 const DEFAULT_FAST_INTERVAL_MS = 2_000;
 const DEFAULT_RENDER_INTERVAL_MS = 5_000;
 const DEFAULT_WORKER_INTERVAL_MS = 5_000;
-const DEFAULT_AI_MEME_BACKFILL_INTERVAL_MS = 5_000;
 /** Retention purge isn't time-sensitive — don't run it every short tick. */
 const PURGE_INTERVAL_MS = 60_000;
 /**
@@ -1156,15 +1152,11 @@ export function laneIntervalsMs(): Record<JobLane, number> {
     fast: intervalEnv("ASYNC_JOBS_FAST_INTERVAL_MS", DEFAULT_FAST_INTERVAL_MS),
     render: intervalEnv("ASYNC_JOBS_RENDER_INTERVAL_MS", DEFAULT_RENDER_INTERVAL_MS),
     bulk: intervalEnv("ASYNC_JOBS_WORKER_INTERVAL_MS", DEFAULT_WORKER_INTERVAL_MS),
-    ai_meme_backfill: intervalEnv(
-      "ASYNC_JOBS_AI_MEME_BACKFILL_INTERVAL_MS",
-      DEFAULT_AI_MEME_BACKFILL_INTERVAL_MS,
-    ),
   };
 }
 
-/** All four lanes, in the order the health surface presents them. */
-export const ALL_LANES: readonly JobLane[] = ["fast", "render", "bulk", "ai_meme_backfill"];
+/** All three lanes, in the order the health surface presents them. */
+export const ALL_LANES: readonly JobLane[] = ["fast", "render", "bulk"];
 
 /**
  * `max(3 × interval, 60s)`.
@@ -1185,7 +1177,7 @@ export function staleThresholdMs(intervalMs: number): number {
 }
 
 /**
- * The loosest stall window across all four lanes, in milliseconds.
+ * The loosest stall window across all lanes, in milliseconds.
  *
  * Anything that decides whether a heartbeat row is still worth keeping —
  * `laneHealth`'s live-instance query, `pruneDepartedInstances`'s delete cutoff —
@@ -1214,8 +1206,8 @@ export function registeredQueues(): string[] {
  *
  * Exported because the health surface needs it to tell "failed after exhausting
  * five attempts" from "failed on its first and only attempt" — two states
- * `async_jobs.status` collapses into one `failed`, and the second is the one
- * `fact_ai_meme_backfill` produces by design.
+ * `async_jobs.status` collapses into one `failed`, and the second is the one a
+ * queue enqueued with `maxAttempts: 1` produces by design.
  */
 export async function effectiveMaxAttempts(queue: string, rowMaxAttempts: number): Promise<number> {
   if (rowMaxAttempts > 0) return rowMaxAttempts;
@@ -1407,12 +1399,6 @@ export function runAsyncJobsWorker(): NodeJS.Timeout[] {
       intervalMs: intervalEnv("ASYNC_JOBS_WORKER_INTERVAL_MS", DEFAULT_WORKER_INTERVAL_MS),
       maxConcurrency: ASYNC_JOBS_MAX_CONCURRENCY,
       maintenance: true,
-    },
-    {
-      lane: "ai_meme_backfill",
-      intervalMs: intervalEnv("ASYNC_JOBS_AI_MEME_BACKFILL_INTERVAL_MS", DEFAULT_AI_MEME_BACKFILL_INTERVAL_MS),
-      maxConcurrency: Math.max(1, positiveIntEnv("ASYNC_JOBS_AI_MEME_BACKFILL_MAX_CONCURRENCY", 1)),
-      maintenance: false,
     },
   ];
 

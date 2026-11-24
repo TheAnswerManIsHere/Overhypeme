@@ -27,8 +27,8 @@ import type { Express } from "express";
 import request from "supertest";
 
 import { db } from "@workspace/db";
-import { usersTable, factsTable, asyncJobsTable } from "@workspace/db/schema";
-import { and, count, eq, gte, like } from "drizzle-orm";
+import { usersTable, factsTable } from "@workspace/db/schema";
+import { like } from "drizzle-orm";
 import {
   buildPlaceholderFactEnrichment,
   buildPlaceholderGag,
@@ -36,11 +36,9 @@ import {
 
 import adminRouter from "../routes/admin.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
-import { FACT_AI_MEME_BACKFILL_QUEUE } from "../lib/aiMemeBackfillJobs.js";
 
 const USER_PREFIX = "tadminauth-";
 const FACT_TEXT_PREFIX = "tadminauth-fact ";
-const FILE_START = new Date();
 
 type Method = "get" | "post" | "put" | "patch" | "delete";
 
@@ -85,7 +83,6 @@ const ADMIN_AUTH_ROUTES: readonly RouteEntry[] = [
   { method: "get",    path: "/admin/users/:id/spend" },
   { method: "post",   path: "/admin/users/set-password" },
   { method: "post",   path: "/admin/users/enable-notifications" },
-  { method: "post",   path: "/admin/facts/backfill-ai-memes" },
   { method: "post",   path: "/admin/facts/backfill-embeddings" },
   { method: "get",    path: "/admin/config" },
   { method: "patch",  path: "/admin/config/:key" },
@@ -138,12 +135,6 @@ async function createNonAdmin(): Promise<string> {
 
 async function cleanup(): Promise<void> {
   await db.delete(factsTable).where(like(factsTable.text, `${FACT_TEXT_PREFIX}%`));
-  // The AI-meme backfill route enqueues for every active fact missing images in
-  // the database, not only this file's, so its jobs are swept by creation time.
-  await db.delete(asyncJobsTable).where(and(
-    eq(asyncJobsTable.queue, FACT_AI_MEME_BACKFILL_QUEUE),
-    gte(asyncJobsTable.createdAt, FILE_START),
-  ));
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
 }
 
@@ -205,7 +196,6 @@ describe("the x-api-key header admits no one (#455)", () => {
   for (const path of [
     "/api/admin/users/set-password",
     "/api/admin/users/enable-notifications",
-    "/api/admin/facts/backfill-ai-memes",
     "/api/admin/facts/backfill-embeddings",
     "/api/admin/stripe/full-sync",
     "/api/admin/stripe/sync",
@@ -277,11 +267,8 @@ describe("admin bulk backfill routes", () => {
     adminApp = buildTestApp({ kind: "authenticated", userId: id }, adminRouter);
   });
 
-  it("backfill-ai-memes is retired: it answers 410 and queues nothing", async () => {
-    const [before] = await db.select({ n: count() }).from(asyncJobsTable).where(eq(asyncJobsTable.queue, FACT_AI_MEME_BACKFILL_QUEUE));
+  it("the retired AI-meme backfill route is gone", async () => {
     const res = await request(adminApp).post("/api/admin/facts/backfill-ai-memes");
-    assert.equal(res.status, 410);
-    const [afterCount] = await db.select({ n: count() }).from(asyncJobsTable).where(eq(asyncJobsTable.queue, FACT_AI_MEME_BACKFILL_QUEUE));
-    assert.equal(afterCount!.n, before!.n);
+    assert.equal(res.status, 404);
   });
 });

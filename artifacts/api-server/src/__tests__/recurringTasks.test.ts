@@ -306,6 +306,6 @@ describe("the completion record", () => {
   it("task rows do not change any lane's verdict", async () => {
     await beginTaskMonitoring();
     const lanes = await laneHealth();
-    assert.deepEqual(lanes.map((l) => l.lane), ["fast", "render", "bulk", "ai_meme_backfill"]);
+    assert.deepEqual(lanes.map((l) => l.lane), ["fast", "render", "bulk"]);
   });
 });
