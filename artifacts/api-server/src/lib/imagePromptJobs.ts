@@ -64,7 +64,7 @@ import { isValidPromptIdentitySnapshot, reducePromptName } from "./imagePrompt/p
 import { resolveRenderStyle, isValidRenderStyleSnapshot } from "./imagePrompt/styleResolution";
 import { buildEngineInput } from "./engineInterpreter";
 import { downloadToBuffer, extractFirstImageUrl, imageEngineParams } from "./imageEngineRequest";
-import { ensureFalConfigured, falContentRefusal, falSubmitErrorMessage } from "./falClient";
+import { ensureFalConfigured, falContentRefusal, falPermanentRejection, falSubmitErrorMessage } from "./falClient";
 import {
   bothRefusedMessage,
   engineFallbackOf,
@@ -302,7 +302,9 @@ export const imageGenerationHandler: JobHandler = {
       return (await prepareAndSwitchFallback(attempt, priorFallback)) ?? imageGenerationHandler.run(payload, _row);
     }
     if (!attempt.compiledPrompt) {
-      return { ok: false, error: `image_generation: attempt ${p.attemptId} has no compiledPrompt` };
+      // Nothing re-compiles a stored attempt, so a retry finds it missing
+      // again: the render fails now, with its reason (Issue #1020, Q17 option 1).
+      return recordTerminalAttemptFailure(p.attemptId, RENDER_INPUT_INVALID, "the render has no compiled prompt, so there is nothing to draw");
     }
 
     const compiled = attempt.compiledPrompt as { imagePrompt?: string; prompt?: string; referenceImageUrl?: string };
@@ -434,6 +436,18 @@ export const imageGenerationHandler: JobHandler = {
           p.attemptId,
           ENGINE_REFUSED_ERROR_CODE,
           falSubmitErrorMessage(err, engine.label),
+        );
+      }
+      // fal rejected the request itself (malformed input, a reference photo it
+      // cannot fetch because its link has expired): the same request is
+      // rejected on every retry, so the render ends now instead of showing
+      // "Drawing…" for hours (Issue #1020, Q17 option 1).
+      const rejection = !drawn.ok && drawn.answered ? falPermanentRejection(err) : null;
+      if (rejection) {
+        return recordTerminalAttemptFailure(
+          p.attemptId,
+          VENDOR_REJECTED_ERROR_CODE,
+          `fal submit failed: ${engine.label} rejected this request (${rejection})`,
         );
       }
       return retryRender(p.attemptId, falSubmitErrorMessage(err, engine.label));
@@ -677,6 +691,8 @@ async function markAttemptError(attemptId: number, error: string): Promise<void>
  * cannot be built. Every retry would fail the same way (David, Q17 option 1).
  */
 const RENDER_INPUT_INVALID = "render_input_invalid";
+/** fal rejected the request for a cause a retry cannot change (not a content refusal). */
+const VENDOR_REJECTED_ERROR_CODE = "vendor_request_rejected";
 
 async function recordTerminalAttemptFailure(
   attemptId: number,

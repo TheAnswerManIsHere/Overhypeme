@@ -730,6 +730,71 @@ describe("image_generation — the photoreal fallback: GPT Image refuses, Nano B
     assert.equal((await attemptRow(noPrompt)).errorCode, "render_input_invalid");
   });
 
+  // Issue #1020: the permanent rejections that still read "Drawing…" for ~10½ hours.
+  it("fal rejecting the request itself (not on content grounds) ends the render at once, with fal's reason", async () => {
+    // A malformed request, answered with the result (fal's validation 422, no content_policy_violation).
+    const malformed = await plannedAttempt({ moderation: true });
+    const invalid = new ValidationError({ message: "Unprocessable Entity", status: 422, body: { detail: [{ loc: ["body", "image_size"], msg: "Input should be a valid enumeration member", type: "enum" }] } });
+    const a = await draw(malformed, () => invalid);
+    assert.equal((a.out as { retryable?: boolean }).retryable, false, "terminal, not retried");
+    assert.deepEqual(a.calls.map((c) => c.endpoint), [GPT], "one call; a rejection is not a refusal, so no fallback");
+    const rowA = await attemptRow(malformed);
+    assert.equal(rowA.errorCode, "vendor_request_rejected");
+    assert.equal(rowA.engineFallback, null);
+    assert.match(rowA.error ?? "", /rejected this request \(HTTP 422: Input should be a valid enumeration member\)/);
+    assert.equal(buildRenderStatusPayload(rowA).status, "failed", "the tile reads failed now, not Drawing…");
+
+    // A reference photo fal can no longer fetch (its stored link has expired), refused at submission.
+    const expired = await plannedAttempt({ moderation: true });
+    const gone = new ApiError({ message: "Bad Request", status: 400, body: { detail: "Failed to download the file. Please check if the URL is accessible." } });
+    const b = await draw(expired, () => gone);
+    assert.equal((b.out as { retryable?: boolean }).retryable, false);
+    const rowB = await attemptRow(expired);
+    assert.equal(rowB.errorCode, "vendor_request_rejected");
+    assert.match(rowB.error ?? "", /HTTP 400: Failed to download the file/);
+  });
+
+  it("a rejection a retry can clear still retries: our key or account (401/403), rate limits, and a request fal no longer knows", async () => {
+    for (const status of [401, 403, 429]) {
+      const attemptId = await plannedAttempt({ moderation: true });
+      const { out } = await draw(attemptId, () => new ApiError({ message: `HTTP ${status}`, status, body: {} }));
+      assert.notEqual((out as { retryable?: boolean }).retryable, false, `${status} is retried`);
+      assert.equal((await attemptRow(attemptId)).error, null, `${status}: still rendering`);
+    }
+    // A status read answered 404: our request is unknown or gone, which a new
+    // submission can fix, so this is never the request's own rejection.
+    const attemptId = await plannedAttempt({ moderation: true });
+    __setRenderFalForTest({
+      async submit() { return `req-${randomUUID()}`; },
+      async status() { throw new ApiError({ message: "Not Found", status: 404, body: { detail: "Request not found" } }); },
+      async result() { throw new Error("not reached"); },
+      async history() { throw new Error("no history in this test"); },
+    });
+    const priorKey = process.env["FAL_AI_API_KEY"];
+    process.env["FAL_AI_API_KEY"] = priorKey ?? "test-fal-key";
+    try {
+      const out = await imageGenerationHandler.run({ attemptId }, {} as never);
+      assert.notEqual((out as { retryable?: boolean }).retryable, false, "a lost request is retried");
+      assert.equal((await attemptRow(attemptId)).error, null);
+    } finally {
+      __setRenderFalForTest(null);
+      if (priorKey === undefined) delete process.env["FAL_AI_API_KEY"];
+      else process.env["FAL_AI_API_KEY"] = priorKey;
+    }
+  });
+
+  it("a render with no compiled prompt at all ends at once, without calling the vendor", async () => {
+    const attemptId = await plannedAttempt({ moderation: true });
+    await db.update(imagePromptAttemptsTable).set({ compiledPrompt: null }).where(eq(imagePromptAttemptsTable.id, attemptId));
+    const { out, calls } = await draw(attemptId, () => picture());
+    assert.equal((out as { retryable?: boolean }).retryable, false, "terminal");
+    assert.deepEqual(calls, []);
+    const row = await attemptRow(attemptId);
+    assert.equal(row.errorCode, "render_input_invalid");
+    assert.match(row.error ?? "", /no compiled prompt/);
+    assert.equal(buildRenderStatusPayload(row).status, "failed");
+  });
+
   it("when the queue gives up, the last failure is written to the render; a render with a picture is left alone", async () => {
     const attemptId = await plannedAttempt({ moderation: true });
     await imageGenerationHandler.onAbandon!({ payload: { attemptId }, lastError: "fal submit failed: Bad Gateway" } as never);
@@ -879,7 +944,9 @@ describe("image_generation — a resumed render collects what was already paid f
     const { attemptId, factId } = await planned();
     const fake = fakeFal();
     const prior = await earlierRequest(attemptId, factId, { vendorRequestId: "v-bad", vendorStatus: "IN_PROGRESS" });
-    fake.requests.set("v-bad", { statuses: ["COMPLETED"], answer: new ApiError({ message: "Bad Request", status: 400, body: {} }) });
+    // A failure a retry can clear (a 400 or 422 would be the request's own
+    // permanent rejection, which ends the render instead: Issue #1020).
+    fake.requests.set("v-bad", { statuses: ["COMPLETED"], answer: new ApiError({ message: "Service Unavailable", status: 503, body: {} }) });
     const first = await run(attemptId, fake);
     assert.equal(first.ok, false);
     assert.notEqual((first as { retryable?: boolean }).retryable, false, "the queue retries it, as before");
