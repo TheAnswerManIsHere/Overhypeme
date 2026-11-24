@@ -178,10 +178,14 @@ export default function AdminUsers() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteErrorStage, setDeleteErrorStage] = useState<string | null>(null);
   const [showInactive, setShowInactive] = useState(false);
-  /** The suspend form's reason; null while the form is closed. */
-  const [suspendReason, setSuspendReason] = useState<string | null>(null);
-  /** The optional note to the member, which goes in their suspension email (Issue #1110). */
-  const [suspendMemberNote, setSuspendMemberNote] = useState("");
+  /**
+   * The suspend form's draft, null while the form is closed: the admin-only
+   * reason and the optional note to the member (Issue #1110). One value, so
+   * closing the form or changing the selected account discards both at once
+   * and a note written for one member can never be sent to another
+   * (PR #1216 round 1).
+   */
+  const [suspendDraft, setSuspendDraft] = useState<{ reason: string; memberNote: string } | null>(null);
   const [suspending, setSuspending] = useState(false);
   /** The corrected date of birth being entered, `YYYY-MM-DD`. */
   const [dobCorrection, setDobCorrection] = useState("");
@@ -268,7 +272,7 @@ export default function AdminUsers() {
 
   function selectUser(user: User) {
     setSelectedUser(user);
-    setSuspendReason(null);
+    setSuspendDraft(null);
     setDraft({
       displayName: user.displayName ?? "",
       email: user.email ?? "",
@@ -284,6 +288,7 @@ export default function AdminUsers() {
 
   function clearSelection() {
     setSelectedUser(null);
+    setSuspendDraft(null);
     setDraft(null);
     setSaveResult(null);
     setDobCorrection("");
@@ -514,8 +519,8 @@ export default function AdminUsers() {
   /** Suspension (launch Phase 5, plan *Suspension*): the reason is admins' only; the person sees only that the account is suspended. */
   async function setSuspension(suspend: boolean) {
     if (!selectedUser) return;
-    const reason = (suspendReason ?? "").trim();
-    const memberNote = suspendMemberNote.trim();
+    const reason = (suspendDraft?.reason ?? "").trim();
+    const memberNote = (suspendDraft?.memberNote ?? "").trim();
     setSuspending(true);
     setSaveResult(null);
     try {
@@ -532,8 +537,7 @@ export default function AdminUsers() {
         : { ...selectedUser, suspendedAt: null, suspendedReason: null };
       setUsers((prev) => prev.map((u) => u.id === updated.id ? updated : u));
       setSelectedUser(updated);
-      setSuspendReason(null);
-      setSuspendMemberNote("");
+      setSuspendDraft(null);
       setSaveResult({ type: "success", message: suspensionResultMessage(suspend ? "suspend" : "unsuspend", data) });
     } catch (err) {
       setSaveResult({ type: "error", message: err instanceof Error ? err.message : "Request failed" });
@@ -1366,16 +1370,16 @@ export default function AdminUsers() {
                     <Ban className="w-4 h-4" /> Unsuspend User
                   </Button>
                 </>
-              ) : suspendReason !== null ? (
+              ) : suspendDraft !== null ? (
                 <div className="flex flex-col gap-2">
                   <label htmlFor="suspend-reason" className="text-xs text-muted-foreground">
                     Why? Only admins see this. They are signed out everywhere and are told the account is suspended, never this reason.
                   </label>
                   <Input
                     id="suspend-reason"
-                    value={suspendReason}
+                    value={suspendDraft.reason}
                     maxLength={500 /* SUSPENSION_REASON_MAX in the API's lib/accountSuspension.ts */}
-                    onChange={(e) => setSuspendReason(e.target.value)}
+                    onChange={(e) => setSuspendDraft({ ...suspendDraft, reason: e.target.value })}
                     placeholder="e.g. spam comments"
                   />
                   <label htmlFor="suspend-member-note" className="text-xs text-muted-foreground">
@@ -1383,27 +1387,27 @@ export default function AdminUsers() {
                   </label>
                   <Textarea
                     id="suspend-member-note"
-                    value={suspendMemberNote}
+                    value={suspendDraft.memberNote}
                     maxLength={1000 /* SUSPENSION_MEMBER_NOTE_MAX in the API's lib/email.ts */}
-                    onChange={(e) => setSuspendMemberNote(e.target.value)}
+                    onChange={(e) => setSuspendDraft({ ...suspendDraft, memberNote: e.target.value })}
                     rows={3}
                   />
                   <div className="flex gap-2">
                     <Button
                       onClick={() => setSuspension(true)}
                       isLoading={suspending}
-                      disabled={!suspendReason.trim()}
+                      disabled={!suspendDraft.reason.trim()}
                       className="flex-1 bg-destructive hover:bg-destructive/90 text-destructive-foreground border-destructive"
                     >
                       <Ban className="w-4 h-4" /> Suspend
                     </Button>
-                    <Button variant="outline" onClick={() => { setSuspendReason(null); setSuspendMemberNote(""); }} className="flex-1" disabled={suspending}>
+                    <Button variant="outline" onClick={() => setSuspendDraft(null)} className="flex-1" disabled={suspending}>
                       Cancel
                     </Button>
                   </div>
                 </div>
               ) : (
-                <Button variant="outline" onClick={() => setSuspendReason("")} className="w-full">
+                <Button variant="outline" onClick={() => setSuspendDraft({ reason: "", memberNote: "" })} className="w-full">
                   <Ban className="w-4 h-4" /> Suspend User
                 </Button>
               )}
