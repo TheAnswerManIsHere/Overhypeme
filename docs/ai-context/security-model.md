@@ -86,7 +86,11 @@ entry (David, 2026-10-21; [`decisions.md`](./decisions.md#2026-10-21--the-dev-ad
 - **Rate limits** (C4) via the DB-backed `checkSharedRateLimit`, keyed on
   **`ipFromRequest()`** (CF-Connecting-IP — the raw `X-Forwarded-For` is
   spoofable, so it is NOT used): `POST /auth/local-login` is limited per IP
-  **and**, by a separate counter, per normalized email; `POST /auth/register`
+  **and**, by a separate counter, per normalized email. The per-IP counter
+  counts only **failed** sign-ins (Q5, Issue #1043): every attempt is counted
+  on arrival, so concurrent guesses cannot slip past together, and a correct
+  password refunds its hit (`refundSharedRateLimit`). The per-email counter
+  counts every attempt; `POST /auth/register`
   is limited per IP only (`localAuth.ts:52-56`, `:100-108`, `:237-272`).
   Provider sign-in (Google, Apple) has no narrow limiter of its own.
 - **Every password change invalidates the user's other sessions** (C8;

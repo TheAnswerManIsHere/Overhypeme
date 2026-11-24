@@ -237,8 +237,8 @@ in a small corner, not how authorization works generally.
 
 Two layers of limits keep one address or one account from flooding the
 service. The narrow ones can briefly refuse legitimate use, for example
-several people signing in with a password from one shared address; a
-refusal there is the limit working, not the service failing.
+several people registering from one shared address; a refusal there is the
+limit working, not the service failing.
 
 - **A ceiling on everything under `/api`.** Each server counts requests per
   address and refuses the excess with a "Too many requests. Please slow
@@ -248,7 +248,10 @@ refusal there is the limit working, not the service failing.
   signature check. Because each server keeps its own count, the ceiling
   applies per server, not across the whole service.
 - **Narrow limits where a request costs something.** Signing in with a
-  password is limited by address and, separately, by email address;
+  password is limited by address and, separately, by email address. The
+  address limit counts only failed sign-ins, so a whole office or household
+  on one connection can sign in, while wrong guesses from one address are
+  still capped (David, 2026-11-21);
   registering is limited by address alone. Fact submission is counted per
   address and signed-in session together, since a submission lands in the
   moderation queue and accepting it spends money on AI work; past the limit
