@@ -11,7 +11,8 @@ import { logger } from "./logger";
 import { processAndStoreUserUpload } from "./userImageUpload";
 import { makeProfilePhoto } from "./profilePhoto";
 import { profilePictureUrl } from "./profilePicture";
-import { ageInYears, ADULT_AGE } from "./eligibility";
+import { ageInYears, ADULT_AGE, eligibilityOf } from "./eligibility";
+import { userLeaving } from "./contentVisibility";
 import { effectiveTierForRow } from "./membershipState";
 import { isAdminById } from "./auth";
 
@@ -24,6 +25,7 @@ const GOOGLE_SIZE = "s1024-c";
 export type CopyOutcome =
   | "copied"
   | "has_photo"
+  | "not_eligible"
   | "not_adult"
   | "no_picture"
   | "refused_url"
@@ -92,9 +94,18 @@ export async function copyProviderPictureIn(
   fetcher: PictureFetcher = fetchPicture,
 ): Promise<CopyOutcome> {
   try {
-    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
-    if (!user) return "failed";
+    const [row] = await db
+      .select({ user: usersTable, deletionPending: userLeaving() })
+      .from(usersTable)
+      .where(eq(usersTable.id, userId))
+      .limit(1);
+    if (!row) return "failed";
+    const { user } = row;
     if (profilePictureUrl(user.profileImageUrl)) return "has_photo";
+    // Signing in does not make an account able to add media: one awaiting
+    // deletion, suspended, unverified or not yet onboarded gets nothing, by
+    // the same rule the verified-actor gate enforces.
+    if (eligibilityOf({ ...user, deletionPending: row.deletionPending }) !== "eligible") return "not_eligible";
     // Photo uploads are for members 18 and over (plan S12); this is one.
     const age = ageInYears(user.dateOfBirth);
     if (age == null || age < ADULT_AGE) return "not_adult";
@@ -111,8 +122,10 @@ export async function copyProviderPictureIn(
       logger.info({ userId, status: refused() }, "[provider-picture] the upload pipeline refused the provider picture");
       return "rejected";
     }
-    await makeProfilePhoto(userId, stored.objectPath);
-    return "copied";
+    // Set only if the member still has no photo: one they chose while this
+    // was being fetched wins (plan Q13: the default lasts until they choose).
+    const set = await makeProfilePhoto(userId, stored.objectPath, { onlyIfNone: true });
+    return set ? "copied" : "has_photo";
   } catch (err) {
     logger.warn({ err, userId }, "[provider-picture] copying the provider picture in failed");
     return "failed";
