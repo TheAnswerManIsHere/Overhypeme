@@ -47,17 +47,17 @@ describe("falContentRefusal", () => {
 });
 
 describe("falSubmitErrorMessage", () => {
-  it("names the engine and the content refusal, keeping the fal-submit prefix", () => {
+  it("names the engine and the content refusal, as a sentence", () => {
     const err = new ValidationError({ message: "Unprocessable Entity", status: 422, body: REFUSAL_BODY });
     const msg = falSubmitErrorMessage(err, "GPT Image 2.6 Sunburst (edit)");
-    assert.match(msg, /^fal submit failed: /);
+    assert.doesNotMatch(msg, /^fal submit failed/, "a sentence, not the old prefix (Issue #1020)");
     assert.match(msg, /GPT Image 2\.6 Sunburst \(edit\) refused this picture under its content policy/);
     assert.match(msg, /flagged by a content checker/);
     assert.doesNotMatch(msg, /Unprocessable Entity/);
   });
 
-  it("keeps today's message for any other failure", () => {
-    assert.equal(falSubmitErrorMessage(new Error("socket hang up"), "X"), "fal submit failed: socket hang up");
-    assert.equal(falSubmitErrorMessage("boom", "X"), "fal submit failed: boom");
+  it("says the image service could not draw it, with its detail, for any other failure", () => {
+    assert.equal(falSubmitErrorMessage(new Error("socket hang up"), "X"), "the image service could not draw this picture (socket hang up)");
+    assert.equal(falSubmitErrorMessage("boom", "X"), "the image service could not draw this picture (boom)");
   });
 });
