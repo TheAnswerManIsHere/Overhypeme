@@ -1,10 +1,11 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Share2, Link as LinkIcon, Mail } from "lucide-react";
 import { useWebShareSupport } from "./useWebShareSupport";
 import { logShareIntent } from "./shareIntent";
-import { fetchShareCopy } from "./shareCopy";
+import { fetchShareCopy, type ShareCopyResponse } from "./shareCopy";
+import type { ShareIntentPlatform } from "./shareIntent";
 
 /**
  * Phase-6 meme share modal — mobile-first, three buttons.
@@ -26,7 +27,37 @@ import { fetchShareCopy } from "./shareCopy";
  * Pre-filled copy and intent URLs come from /api/share-copy/:memeId/:platform
  * (server-side; editable in admin_config without a redeploy). The component
  * itself owns zero copy.
+ *
+ * **The copy is fetched when the sheet opens, never on the tap** (#854).
+ * Browsers let `navigator.share`, `window.open` and the clipboard run only
+ * during a tap's user activation, and an `await` on a slow request uses that
+ * window up, so the phone refuses or nothing happens. Each button therefore
+ * calls its browser API synchronously, with the copy already loaded or, when
+ * it has not arrived (or failed), the fallback text below.
  */
+
+type LoadedCopy = { [P in ShareIntentPlatform]?: Extract<ShareCopyResponse, { platform: P }> | null };
+const PLATFORMS: ShareIntentPlatform[] = ["web_share", "twitter", "copy_link", "email"];
+
+/** Fetch every platform's copy while the sheet is open; a later slug starts over. */
+function useShareCopy(open: boolean, slug: string): LoadedCopy {
+  const [loaded, setLoaded] = useState<{ slug: string; copy: LoadedCopy }>({ slug, copy: {} });
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setLoaded({ slug, copy: {} });
+    for (const platform of PLATFORMS) {
+      void fetchShareCopy(slug, platform).then((copy) => {
+        if (cancelled) return;
+        setLoaded((prev) => (prev.slug === slug ? { slug, copy: { ...prev.copy, [platform]: copy } } : prev));
+      });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [open, slug]);
+  return loaded.slug === slug ? loaded.copy : {};
+}
 
 // X / Twitter glyph. Inline to avoid a lucide-react brand-icon dependency
 // (lucide deliberately dropped brand glyphs).
@@ -85,76 +116,85 @@ export function MemeShareModal({ open, onClose, slug, fallbackPermalink }: MemeS
   const { toast } = useToast();
   const webShareSupported = useWebShareSupport();
 
-  const handleWebShare = useCallback(async () => {
-    const copy = await fetchShareCopy(slug, "web_share");
-    const payload = copy
-      ? { title: copy.title, text: copy.text, url: copy.url }
-      : { title: "overhype.me", text: "Where legends are made up.", url: fallbackPermalink };
-    try {
-      await navigator.share(payload);
-      logShareIntent(slug, "web_share");
-      onClose();
-    } catch (err) {
-      // AbortError = user dismissed the share sheet without picking an app.
-      // Silent — that's a deliberate user action, not an error.
-      if (err instanceof Error && err.name === "AbortError") return;
-      toast({
-        title: "Couldn't share",
-        description: "Try Copy Link instead.",
-        variant: "destructive",
-      });
-    }
-  }, [slug, fallbackPermalink, toast, onClose]);
+  const copy = useShareCopy(open, slug);
 
-  const handleTwitter = useCallback(async () => {
-    const copy = await fetchShareCopy(slug, "twitter");
+  // Every handler calls its browser API before any await (#854): the tap's
+  // user activation does not survive a network round trip.
+  const handleWebShare = useCallback(() => {
+    const loaded = copy.web_share;
+    const payload = loaded
+      ? { title: loaded.title, text: loaded.text, url: loaded.url }
+      : { title: "overhype.me", text: "Where legends are made up.", url: fallbackPermalink };
+    navigator.share(payload).then(
+      () => {
+        logShareIntent(slug, "web_share");
+        onClose();
+      },
+      (err: unknown) => {
+        // AbortError = user dismissed the share sheet without picking an app.
+        // Silent — that's a deliberate user action, not an error.
+        if (err instanceof Error && err.name === "AbortError") return;
+        toast({
+          title: "Couldn't share",
+          description: "Try Copy Link instead.",
+          variant: "destructive",
+        });
+      },
+    );
+  }, [copy, slug, fallbackPermalink, toast, onClose]);
+
+  const handleTwitter = useCallback(() => {
     // Server-built intent URL is correctly encoded; fall back to a minimal
-    // composer if the fetch failed entirely.
-    const url = copy?.intentUrl
+    // composer when the copy has not loaded or the fetch failed.
+    const url = copy.twitter?.intentUrl
       ?? `https://twitter.com/intent/tweet?url=${encodeURIComponent(fallbackPermalink)}`;
     window.open(url, "_blank", "noopener,noreferrer");
     logShareIntent(slug, "twitter");
     onClose();
-  }, [slug, fallbackPermalink, onClose]);
+  }, [copy, slug, fallbackPermalink, onClose]);
 
-  const handleCopyLink = useCallback(async () => {
-    const copy = await fetchShareCopy(slug, "copy_link");
-    const link = copy?.url ?? fallbackPermalink;
-    try {
-      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(link);
-      } else {
-        // Legacy fallback for environments without the Clipboard API.
-        // Vanishingly rare in our 2026 target matrix; documented in code.
-        const ta = document.createElement("textarea");
-        ta.value = link;
-        ta.style.position = "fixed";
-        ta.style.opacity = "0";
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
-      }
+  const handleCopyLink = useCallback(() => {
+    const link = copy.copy_link?.url ?? fallbackPermalink;
+    const copied = () => {
       toast({ title: "Link copied", description: "Paste it anywhere." });
       logShareIntent(slug, "copy_link");
       onClose();
-    } catch {
+    };
+    const failed = () => {
       toast({
         title: "Couldn't copy link",
         description: "Long-press the address bar to copy manually.",
         variant: "destructive",
       });
+    };
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(link).then(copied, failed);
+        return;
+      }
+      // Legacy fallback for environments without the Clipboard API.
+      // Vanishingly rare in our 2026 target matrix; documented in code.
+      const ta = document.createElement("textarea");
+      ta.value = link;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      copied();
+    } catch {
+      failed();
     }
-  }, [slug, fallbackPermalink, toast, onClose]);
+  }, [copy, slug, fallbackPermalink, toast, onClose]);
 
-  const handleEmail = useCallback(async () => {
-    const copy = await fetchShareCopy(slug, "email");
-    const url = copy?.intentUrl
+  const handleEmail = useCallback(() => {
+    const url = copy.email?.intentUrl
       ?? `mailto:?subject=${encodeURIComponent("Check this out on overhype.me")}&body=${encodeURIComponent(fallbackPermalink)}`;
     window.location.href = url;
     logShareIntent(slug, "email");
     onClose();
-  }, [slug, fallbackPermalink, onClose]);
+  }, [copy, slug, fallbackPermalink, onClose]);
 
   return (
     <Dialog
