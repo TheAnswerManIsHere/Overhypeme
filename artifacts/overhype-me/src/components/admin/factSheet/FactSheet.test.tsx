@@ -138,6 +138,89 @@ describe("FactSheet", () => {
     expect(calls.some((c) => c.method === "PUT")).toBe(false);
   });
 
+  // PR #1217 round 1 (Codex 4684437653): saves are held so they overlap.
+  /** A fetch stub that holds every PUT until released, answering the list it was sent. */
+  function holdPuts() {
+    const held: { body: { hashtags?: string[]; text?: string }; release: () => void }[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      const method = init?.method ?? "GET";
+      if (method === "PUT") {
+        const body = JSON.parse(String(init!.body)) as { hashtags?: string[]; text?: string };
+        await new Promise<void>((resolve) => held.push({ body, release: resolve }));
+        const json = u.endsWith("/hashtags") ? { hashtags: [...body.hashtags!].sort() } : { humorNote: { text: body.text, approvedAt: "2026-11-24T10:00:00Z" } };
+        return new Response(JSON.stringify(json), { status: 200 });
+      }
+      const json = u.endsWith("/sheet") ? SHEET : u.endsWith("/taxonomy-runs") ? { runs: [] } : { id: 42, enrichment: buildPlaceholderFactEnrichment(), enrichmentStatus: "ok" };
+      return new Response(JSON.stringify(json), { status: 200 });
+    }));
+    return held;
+  }
+
+  function addTag(group: HTMLElement, tag: string) {
+    fireEvent.change(within(group).getByPlaceholderText("Add hashtag…"), { target: { value: tag } });
+    fireEvent.click(within(group).getByRole("button", { name: "Add" }));
+  }
+
+  const shown = (group: HTMLElement) => within(group).queryAllByRole("button", { name: /^Remove / }).map((b) => b.getAttribute("aria-label")!.slice(7));
+
+  it("quick hashtag edits: one save at a time, the latest list sent last, no chosen tag lost on screen", async () => {
+    const held = holdPuts();
+    open();
+    const group = await screen.findByTestId("sheet-group-hashtags");
+    addTag(group, "one");
+    addTag(group, "two");
+    addTag(group, "three");
+    await waitFor(() => expect(held).toHaveLength(1));
+    expect(held[0]!.body.hashtags).toEqual(["staring", "sun", "one"]);
+    expect(shown(group)).toEqual(["staring", "sun", "one", "two", "three"]);
+    expect(screen.getByTestId("sheet-hashtags-status").textContent).toContain("Saving");
+
+    held[0]!.release();
+    await waitFor(() => expect(held).toHaveLength(2));
+    // The first answer did not replace the newer choice, and only the latest list is sent next.
+    expect(shown(group)).toEqual(["staring", "sun", "one", "two", "three"]);
+    expect(held[1]!.body.hashtags).toEqual(["staring", "sun", "one", "two", "three"]);
+    expect(screen.getByTestId("sheet-hashtags-status").textContent).not.toContain("Saved");
+
+    held[1]!.release();
+    await waitFor(() => expect(screen.getByTestId("sheet-hashtags-status").textContent).toContain("Saved"));
+    expect(held).toHaveLength(2);
+    expect([...shown(group)].sort()).toEqual(["one", "staring", "sun", "three", "two"]);
+  });
+
+  it("removing the last hashtag while a save is in flight keeps its warning", async () => {
+    const held = holdPuts();
+    open();
+    const group = await screen.findByTestId("sheet-group-hashtags");
+    fireEvent.click(within(group).getByRole("button", { name: "Remove staring" }));
+    await waitFor(() => expect(held).toHaveLength(1));
+    fireEvent.click(within(group).getByRole("button", { name: "Remove sun" }));
+    expect(screen.getByTestId("sheet-hashtags-status").textContent).toContain("at least one hashtag");
+    held[0]!.release();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByTestId("sheet-hashtags-status").textContent).toContain("at least one hashtag");
+    expect(shown(group)).toEqual([]);
+    expect(held).toHaveLength(1);
+  });
+
+  it("text typed while a note save is in flight is kept, and is not called saved", async () => {
+    const held = holdPuts();
+    open();
+    await screen.findByTestId("sheet-wording");
+    fireEvent.click(screen.getByTestId("sheet-tab-reading"));
+    const note = screen.getByRole("textbox", { name: "Humor note" }) as HTMLTextAreaElement;
+    fireEvent.change(note, { target: { value: "First." } });
+    fireEvent.click(screen.getByTestId("sheet-save-note"));
+    await waitFor(() => expect(held).toHaveLength(1));
+    fireEvent.change(note, { target: { value: "First. And more." } });
+    held[0]!.release();
+    await waitFor(() => expect(screen.getByTestId("sheet-humor-note").textContent).not.toContain("Saving…"));
+    expect(note.value).toBe("First. And more.");
+    expect(screen.getByTestId("sheet-humor-note").textContent).not.toContain("Saved");
+    expect((screen.getByTestId("sheet-save-note") as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it("Reading and taxonomy: the note saves at once; the research and the taxonomy are shown", async () => {
     const calls = stub();
     open();

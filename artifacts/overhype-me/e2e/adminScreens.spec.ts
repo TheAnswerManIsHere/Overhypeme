@@ -306,6 +306,32 @@ test.describe("Admin described screens", () => {
     await expect(sheet).toHaveCount(0);
   });
 
+  // PR #1217 round 1 (Codex 4684437665): a fact at the 2,000-character limit
+  // keeps the tabs, the panel and Deactivate on a phone's screen; its wording
+  // scrolls in its own box.
+  test("a 2,000-character fact keeps the sheet's tabs, panel and Deactivate on a phone's screen", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const LONG = `{NAME} ${"outlasted every clock in the building, then the building. ".repeat(40)}`.slice(0, 2000);
+    await stubAdminFacts(page, [{
+      row: adminFactRow({ id: 97103, text: LONG }),
+      enrichment: enrichmentWithConcept("{NAME} stands beside a pile of stopped clocks."),
+    }]);
+    await page.goto("/admin/facts");
+    await page.getByTestId("fact-row-97103").click();
+    const sheet = page.getByTestId("fact-sheet");
+    const wording = sheet.getByTestId("sheet-wording");
+    await expect(wording).toHaveText(LONG);
+    for (const t of ["overview", "reading", "gags", "renders"]) {
+      await expect(sheet.getByTestId(`sheet-tab-${t}`), `tab ${t} is on screen`).toBeInViewport({ ratio: 1 });
+    }
+    await expect(sheet.getByTestId("deactivate-fact-button"), "Deactivate is on screen").toBeInViewport({ ratio: 1 });
+    const panel = await sheet.getByTestId("sheet-panel-overview").boundingBox();
+    expect(panel!.height, "the panel keeps a workable height").toBeGreaterThan(300);
+    // The whole wording is readable: its box scrolls.
+    const scroll = await wording.evaluate((el) => ({ sh: el.scrollHeight, ch: el.clientHeight }));
+    expect(scroll.sh, "the wording scrolls inside its box").toBeGreaterThan(scroll.ch);
+  });
+
   // PR687 step 4 (mechanical half) — the moderation page shows the server's refusal and saves nothing.
   test("an over-budget Visual Concept saved on the moderation page shows the budget sentence and is refused", async ({ page }) => {
     await stubConceptReview(page, {

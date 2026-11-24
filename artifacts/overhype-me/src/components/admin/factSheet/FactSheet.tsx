@@ -19,7 +19,7 @@
  * History, Publish, Discard, Reactivate and delete are 3.2's. Deactivate stays
  * here, as the old editor had it, so nothing that worked is lost meanwhile.
  */
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, EyeOff, Loader2, Save, X } from "lucide-react";
 import { HUMOR_NOTE_MAX_CHARS, KIND_LABEL, joinWithAnd } from "@workspace/api-zod";
 import { Button } from "@/components/ui/Button";
@@ -103,23 +103,50 @@ type SaveState = { kind: "idle" } | { kind: "saving" } | { kind: "saved" } | { k
 function OverviewTab({ fact, onHashtags }: { fact: FactSheetView; onHashtags: (tags: string[]) => void }) {
   const [tags, setTags] = useState(fact.hashtags);
   const [state, setState] = useState<SaveState>({ kind: "idle" });
-  useEffect(() => { setTags(fact.hashtags); }, [fact.hashtags]);
+  // One save in flight for the sheet: a change made meanwhile waits in
+  // `queued` and only the latest is sent when that save returns. `chosen` is
+  // the list the admin last made; a response is shown, and "Saved" said, only
+  // when it is the answer to that list (PR #1217 round 1: a response must
+  // never replace what the admin entered after it was sent).
+  const inFlight = useRef(false);
+  const queued = useRef<string[] | null>(null);
+  const chosen = useRef<string[]>(fact.hashtags);
+
+  const send = useCallback(async (list: string[]): Promise<void> => {
+    inFlight.current = true;
+    setState({ kind: "saving" });
+    let saved: string[] | null = null;
+    let failure: string | null = null;
+    try {
+      saved = await saveHashtags(fact.id, list);
+    } catch (err) {
+      failure = err instanceof Error ? err.message : "Could not save the hashtags.";
+    }
+    inFlight.current = false;
+    const next = queued.current;
+    queued.current = null;
+    if (next) { void send(next); return; }
+    if (chosen.current !== list) return; // a newer choice is shown and is not sendable (an empty list); its warning stands
+    if (failure != null || saved == null) { setState({ kind: "error", message: failure ?? "Could not save the hashtags." }); return; }
+    chosen.current = saved;
+    setTags(saved);
+    onHashtags(saved);
+    setState({ kind: "saved" });
+  }, [fact.id, onHashtags]);
 
   // Each add or remove saves at once (plan item 20). An empty list is never
   // sent: the editor warns, and the server would refuse it.
-  const change = useCallback(async (next: string[]) => {
+  const change = useCallback((next: string[]) => {
+    chosen.current = next;
     setTags(next);
-    if (next.length === 0) { setState({ kind: "error", message: "A fact needs at least one hashtag; this change isn't saved." }); return; }
-    setState({ kind: "saving" });
-    try {
-      const saved = await saveHashtags(fact.id, next);
-      setTags(saved);
-      onHashtags(saved);
-      setState({ kind: "saved" });
-    } catch (err) {
-      setState({ kind: "error", message: err instanceof Error ? err.message : "Could not save the hashtags." });
+    if (next.length === 0) {
+      queued.current = null;
+      setState({ kind: "error", message: "A fact needs at least one hashtag; this change isn't saved." });
+      return;
     }
-  }, [fact.id, onHashtags]);
+    if (inFlight.current) { queued.current = next; setState({ kind: "saving" }); return; }
+    void send(next);
+  }, [send]);
 
   const reasons = knownReasons(fact.attention);
   const approval = fact.approvalSource === "legacy"
@@ -202,7 +229,7 @@ function OverviewTab({ fact, onHashtags }: { fact: FactSheetView; onHashtags: (t
 
       <Group title="Hashtags" testId="sheet-group-hashtags">
         <div className="space-y-2">
-          <FinalHashtagsEditor finalHashtags={tags} onFinalHashtagsChange={(t) => void change(t)} aiSuggestions={fact.suggestedHashtags} />
+          <FinalHashtagsEditor finalHashtags={tags} onFinalHashtagsChange={change} aiSuggestions={fact.suggestedHashtags} />
           <div className="min-h-4" data-testid="sheet-hashtags-status"><SaveStatus state={state} /></div>
         </div>
       </Group>
@@ -217,13 +244,20 @@ function ReadingTab({ fact, onSaved }: { fact: FactSheetView; onSaved: () => voi
   const trimmed = text.trim();
   const changed = trimmed !== (approved?.text ?? "").trim();
 
+  // What is in the box now, so a save's answer never replaces text typed
+  // while it was in flight (PR #1217 round 1).
+  const current = useRef(text);
+  current.current = text;
+
   const save = async () => {
+    const sent = trimmed;
     setState({ kind: "saving" });
     try {
-      const saved = await saveHumorNote(fact.id, trimmed);
+      const saved = await saveHumorNote(fact.id, sent);
+      onSaved();
+      if (current.current.trim() !== sent) { setState({ kind: "idle" }); return; } // newer text stays, unsaved
       setText(saved.text);
       setState({ kind: "saved" });
-      onSaved();
     } catch (err) {
       setState({ kind: "error", message: err instanceof Error ? err.message : "Could not save the humor note." });
     }
@@ -236,7 +270,7 @@ function ReadingTab({ fact, onSaved }: { fact: FactSheetView; onSaved: () => voi
         <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Humor note</p>
         <textarea
           value={text}
-          onChange={(e) => { setText(e.target.value); setState({ kind: "idle" }); }}
+          onChange={(e) => { setText(e.target.value); setState((st) => (st.kind === "saving" ? st : { kind: "idle" })); }}
           maxLength={HUMOR_NOTE_MAX_CHARS}
           rows={4}
           aria-label="Humor note"
@@ -363,8 +397,11 @@ export function FactSheet({
               <X className="w-5 h-5" />
             </button>
           </div>
-          {fact && <p className="text-sm text-foreground whitespace-pre-wrap" data-testid="sheet-wording">{fact.text}</p>}
-          <div role="tablist" aria-label="Fact sheet" className="flex overflow-x-auto no-scrollbar gap-1 -mb-3">
+          {/* Capped at a quarter of the screen and scrolled in its own box, so a
+              long fact (up to 2,000 characters) never pushes the tabs or the
+              footer off a phone (PR #1217 round 1). */}
+          {fact && <p className="text-sm text-foreground whitespace-pre-wrap max-h-[25dvh] overflow-y-auto" data-testid="sheet-wording">{fact.text}</p>}
+          <div role="tablist" aria-label="Fact sheet" className="flex flex-wrap gap-x-1 -mb-3">
             {FACT_SHEET_TABS.map((t) => (
               <button
                 key={t.id}
