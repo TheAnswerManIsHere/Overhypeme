@@ -9,14 +9,16 @@
 import { describe, it, before, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 process.env.RESEND_API_KEY = process.env.RESEND_API_KEY ?? "re_test_dummy";
 
 import request from "supertest";
 import { Resend } from "resend";
 import { db } from "@workspace/db";
-import { asyncJobsTable, usersTable } from "@workspace/db/schema";
+import { accountDeletionRequestsTable, asyncJobsTable, usersTable } from "@workspace/db/schema";
 import { eq, inArray, sql } from "drizzle-orm";
 
 import { asyncJobsTick, recoverStuckProcessing, registerJobHandler } from "../lib/asyncJobs.js";
@@ -36,6 +38,7 @@ import {
 } from "../lib/email.js";
 import { suspendAccount } from "../lib/accountSuspension.js";
 import { notifyUserAccessRevoked } from "../lib/userNotify.js";
+import { __setAccountDeletionBillingForTests, acceptAccountDeletion, advanceAccountDeletion, cancelAccountDeletion } from "../lib/accountDeletion.js";
 import adminRouter from "../routes/admin.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 
@@ -289,23 +292,62 @@ describe("a suspended member does not receive ordinary emails (Issue #1212)", ()
     assert.equal(await recipientSuspended(db, to, true), true, "a later decision sees the committed suspension");
   });
 
-  it("the access-revoked producer writes its permitted kind onto the job", async () => {
-    const to = await makeUser({ suspended: true });
-    const userId = userIds.at(-1)!;
-    // A non-test key for this one call, so the producer's own enqueue writes its row (the stub keeps it offline).
+  /**
+   * Runs a producer with a non-test key, so its own enqueue writes the outbox
+   * row the test key would suppress (the Resend stub keeps it offline), and
+   * returns the kinds queued to `to`, removing those rows.
+   */
+  async function kindsQueuedBy(to: string, producer: () => Promise<unknown>): Promise<(string | null)[]> {
     const prior = process.env["RESEND_API_KEY_DEV"];
     process.env["RESEND_API_KEY_DEV"] = "re_producer_check";
     try {
-      await notifyUserAccessRevoked(userId, "refund");
+      await producer();
     } finally {
       if (prior === undefined) delete process.env["RESEND_API_KEY_DEV"]; else process.env["RESEND_API_KEY_DEV"] = prior;
     }
     const rows = await db.select().from(asyncJobsTable).where(sql`${asyncJobsTable.queue} = 'email' AND ${asyncJobsTable.payload}->>'to' = ${to}`);
+    await db.delete(asyncJobsTable).where(inArray(asyncJobsTable.id, rows.map((r) => r.id)));
+    return rows.map((r) => (r.payload as EmailJobPayload).kind ?? null);
+  }
+
+  it("the access-revoked producer writes its permitted kind onto the job", async () => {
+    const to = await makeUser({ suspended: true });
+    const userId = userIds.at(-1)!;
+    assert.deepEqual(await kindsQueuedBy(to, () => notifyUserAccessRevoked(userId, "refund")), ["access_revoked"]);
+  });
+
+  it("the deletion engine writes the permitted kinds onto its scheduled and cancelled notices (PR #1229 build report)", async () => {
+    const to = await makeUser({ suspended: true });
+    const userId = userIds.at(-1)!;
+    const restore = __setAccountDeletionBillingForTests({ async cancel() {}, async refresh() { return { applied: true }; } });
     try {
-      assert.equal(rows.length, 1);
-      assert.equal((rows[0]!.payload as EmailJobPayload).kind, "access_revoked");
+      const scheduled = await kindsQueuedBy(to, async () => {
+        await acceptAccountDeletion(userId, { requestedBy: "self", purgeAfter: new Date(Date.now() + 86_400_000), kick: false });
+        await advanceAccountDeletion(userId); // to `notified`: the purge is not yet due
+      });
+      assert.deepEqual(scheduled, ["account_deletion_scheduled"]);
+      const cancelled = await kindsQueuedBy(to, () => cancelAccountDeletion(userId));
+      assert.deepEqual(cancelled, ["account_deletion_cancelled"]);
     } finally {
-      await db.delete(asyncJobsTable).where(inArray(asyncJobsTable.id, rows.map((r) => r.id)));
+      restore();
+      await db.delete(accountDeletionRequestsTable).where(eq(accountDeletionRequestsTable.userId, userId));
+    }
+  });
+
+  it("every permitted kind is one some sender in the server actually writes, so a rename on either side fails here", () => {
+    const srcRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of readdirSync(dir)) {
+        const full = path.join(dir, name);
+        if (statSync(full).isDirectory()) { if (name !== "__tests__") walk(full); }
+        else if (name.endsWith(".ts") && full !== path.join(srcRoot, "lib", "email.ts")) files.push(full);
+      }
+    };
+    walk(srcRoot);
+    const source = files.map((f) => readFileSync(f, "utf8")).join("\n");
+    for (const kind of SUSPENSION_PERMITTED_KINDS) {
+      assert.ok(source.includes(`"${kind}"`), `no sender outside lib/email.ts writes the permitted kind "${kind}"`);
     }
   });
 
