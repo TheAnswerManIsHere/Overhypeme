@@ -38,15 +38,15 @@ describe("the shared name table, in the browser", () => {
 describe("a name field", () => {
   it("refuses an emoji as it is typed, and says why", () => {
     render(<Field />);
-    fireEvent.change(input(), { target: { value: "Ada😀" } });
-    expect(input().value).toBe("Ada");
+    fireEvent.change(input(), { target: { value: "Raena😀" } });
+    expect(input().value).toBe("Raena");
     expect(screen.getByTestId("name-field-hint").textContent).toMatch(/letters, numbers/i);
   });
 
   it("drops brackets and quotes from a paste but keeps the rest", () => {
     render(<Field />);
-    fireEvent.change(input(), { target: { value: 'Ada "Countess" (Lovelace)' } });
-    expect(input().value).toBe("Ada Countess Lovelace");
+    fireEvent.change(input(), { target: { value: 'Raena "Countess" (Franklin)' } });
+    expect(input().value).toBe("Raena Countess Franklin");
   });
 
   it("converts the curly apostrophe iOS types", () => {
