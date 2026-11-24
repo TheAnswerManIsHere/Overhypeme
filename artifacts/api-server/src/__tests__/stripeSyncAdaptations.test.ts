@@ -9,11 +9,11 @@
  * the real table (the bug), the adapted one skips only that shape, the
  * signature check is untouched, and other handlers keep their mirror.
  */
-import { describe, it, after } from "node:test";
+import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import Stripe from "stripe";
-import { StripeSync } from "stripe-replit-sync";
+import { StripeSync, runMigrations } from "stripe-replit-sync";
 import { adaptStripeSync, isIdlessUpcomingInvoice } from "../lib/stripeSyncAdaptations.js";
 
 const WEBHOOK_SECRET = "whsec_adaptation_test";
@@ -31,6 +31,13 @@ function newSync(): StripeSync {
   built.push(sync);
   return sync;
 }
+
+// The `stripe` schema is the library's, not ours: a per-worker test database is
+// cloned from `public` only, so build the mirror's tables here, as
+// stripeFakeDriver.test.ts does.
+before(async () => {
+  await runMigrations({ databaseUrl: process.env.DATABASE_URL! });
+});
 
 after(async () => {
   for (const s of built) {
