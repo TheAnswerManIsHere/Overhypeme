@@ -448,6 +448,36 @@ describe("FactSheet", () => {
     expect((await screen.findByTestId("sheet-history-empty")).textContent).toContain("No admin actions");
   });
 
+  it("a deactivated fact with nothing attached can be deleted, after its number is typed back", async () => {
+    const calls = stub({ ...SHEET, isActive: false, commentCount: 0, usage: { memes: 0, aiPictures: 0 } });
+    const { onChanged, onClose } = open();
+    fireEvent.click(await screen.findByTestId("delete-fact-button"));
+    const confirm = screen.getByTestId("delete-fact-confirm") as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    fireEvent.change(screen.getByTestId("delete-fact-typed"), { target: { value: "41" } });
+    expect(confirm.disabled).toBe(true);
+    fireEvent.change(screen.getByTestId("delete-fact-typed"), { target: { value: "42" } });
+    expect(confirm.disabled).toBe(false);
+    fireEvent.click(confirm);
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(onChanged).toHaveBeenCalled();
+    expect(calls.some((c) => c.method === "DELETE" && c.url.endsWith("/api/admin/facts/42"))).toBe(true);
+  });
+
+  it("delete is held, with the reason, while members' content is attached; a live fact offers none", async () => {
+    stub({ ...SHEET, isActive: false });
+    open();
+    expect(((await screen.findByTestId("delete-fact-button")) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("sheet-delete-held").textContent).toBe("Members have 5 memes, 1 AI picture and 3 comments on it, so it can't be deleted.");
+  });
+
+  it("a live fact offers no permanent delete", async () => {
+    stub();
+    open();
+    await screen.findByTestId("deactivate-fact-button");
+    expect(screen.queryByTestId("delete-fact-button")).toBeNull();
+  });
+
   it("a fact that is not approved says it isn't on the Facts page", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "Fact not found" }), { status: 404 })));
     open();

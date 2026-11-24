@@ -25,7 +25,7 @@
  * switch (both owed from 3.1).
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Eye, EyeOff, Loader2, Save, Send, Undo2, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Eye, EyeOff, Loader2, Save, Send, Trash2, Undo2, X } from "lucide-react";
 import { HUMOR_NOTE_MAX_CHARS, KIND_LABEL, joinWithAnd, type FactGagsView } from "@workspace/api-zod";
 import { Button } from "@/components/ui/Button";
 import { ReadingResearch } from "@/components/admin/ReadingStep";
@@ -387,7 +387,7 @@ function HistoryTab({ factId }: { factId: number }) {
 }
 
 /** What the footer is asking the admin to confirm. */
-type Confirming = "deactivate" | "discard" | null;
+type Confirming = "deactivate" | "discard" | "delete" | null;
 
 const CONFIRM = {
   deactivate: {
@@ -427,7 +427,55 @@ const ACTION_DONE: Record<FactLifecycleAction, string> = {
   discard: "Changes discarded. The gags are back to what members see.",
   deactivate: "Deactivated. The fact is off the site.",
   reactivate: "Reactivated. The fact is live again.",
+  delete: "Deleted.",
 };
+
+/** What members have attached to the fact, in words, or null when nothing is: a permanent delete is refused while anything is (plan 3B). */
+export function attachedWords(fact: Pick<FactSheetView, "usage" | "commentCount">): string | null {
+  const parts = [
+    fact.usage.memes ? `${fact.usage.memes} meme${fact.usage.memes === 1 ? "" : "s"}` : null,
+    fact.usage.aiPictures ? `${fact.usage.aiPictures} AI picture${fact.usage.aiPictures === 1 ? "" : "s"}` : null,
+    fact.commentCount ? `${fact.commentCount} comment${fact.commentCount === 1 ? "" : "s"}` : null,
+  ].filter((p): p is string => p != null);
+  return parts.length ? joinWithAnd(parts) : null;
+}
+
+/** The permanent delete's confirmation: the fact's id typed back, so it is never one click. */
+function DeletePanel({ factId, busy, acting, onConfirm, onCancel }: { factId: number; busy: boolean; acting: boolean; onConfirm: () => void; onCancel: () => void }) {
+  const [typed, setTyped] = useState("");
+  const ready = typed.trim() === String(factId);
+  return (
+    <div className="space-y-2" data-testid="sheet-delete-confirm">
+      <p className="text-sm text-muted-foreground">
+        Deletes the fact for good: its wording, gags, pictures, readings and history links. It can't be undone. The admin record of the delete is kept.
+      </p>
+      <label className="block text-sm text-foreground">
+        Type <span className="font-mono font-bold">{factId}</span> to confirm
+        <input
+          value={typed}
+          onChange={(e) => setTyped(e.target.value)}
+          inputMode="numeric"
+          aria-label="Type the fact's number to confirm"
+          data-testid="delete-fact-typed"
+          className="mt-1 block w-40 rounded-sm border border-border bg-background px-2 py-1 font-mono text-sm focus:outline-none focus:border-destructive"
+        />
+      </label>
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          onClick={onConfirm}
+          isLoading={acting}
+          disabled={!ready || busy}
+          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          data-testid="delete-fact-confirm"
+        >
+          <Trash2 className="w-4 h-4" /> Delete permanently
+        </Button>
+        <Button size="sm" variant="outline" onClick={onCancel} disabled={busy}>Cancel</Button>
+      </div>
+    </div>
+  );
+}
 
 export function FactSheet({
   factId,
@@ -524,6 +572,12 @@ export function FactSheet({
     try {
       await runFactAction(factId, action);
       setConfirming(null);
+      if (action === "delete") {
+        // The fact is gone: the list drops it and the sheet closes, with nothing left to save.
+        onChanged();
+        onClose();
+        return;
+      }
       setActionDone(ACTION_DONE[action]);
       // Publish and Discard leave no unpublished changes: say so at once, and
       // as what the list was told, so the reload that follows is not reported
@@ -546,6 +600,7 @@ export function FactSheet({
 
   const reasons = knownReasons(fact?.attention);
   const busy = acting != null;
+  const attached = fact ? attachedWords(fact) : null;
 
   return (
     <div
@@ -663,7 +718,9 @@ export function FactSheet({
             {actionError && <p className="text-sm text-destructive flex items-start gap-1.5" role="alert" data-testid="sheet-action-error"><AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" /> {actionError}</p>}
             {actionDone && !actionError && <p className="text-sm text-green-600 dark:text-green-400 flex items-center gap-1.5" data-testid="sheet-action-done"><CheckCircle2 className="w-4 h-4" /> {actionDone}</p>}
 
-            {confirming ? (
+            {confirming === "delete" ? (
+              <DeletePanel factId={factId} busy={busy} acting={acting === "delete"} onConfirm={() => void act("delete")} onCancel={() => setConfirming(null)} />
+            ) : confirming ? (
               <ConfirmPanel
                 {...CONFIRM[confirming]}
                 busy={busy}
@@ -685,9 +742,24 @@ export function FactSheet({
                     <EyeOff className="w-4 h-4" /> Deactivate fact
                   </Button>
                 ) : (
-                  <Button size="sm" variant="outline" onClick={() => void act("reactivate")} isLoading={acting === "reactivate"} disabled={busy} data-testid="reactivate-fact-button">
-                    <Eye className="w-4 h-4" /> Reactivate
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button size="sm" variant="outline" onClick={() => void act("reactivate")} isLoading={acting === "reactivate"} disabled={busy} data-testid="reactivate-fact-button">
+                      <Eye className="w-4 h-4" /> Reactivate
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => { setActionDone(""); setConfirming("delete"); }}
+                      disabled={busy || attached != null}
+                      className="text-destructive border-destructive/30 hover:bg-destructive/10 hover:border-destructive/60"
+                      data-testid="delete-fact-button"
+                    >
+                      <Trash2 className="w-4 h-4" /> Delete permanently
+                    </Button>
+                    {attached && (
+                      <span className="text-xs text-muted-foreground" data-testid="sheet-delete-held">Members have {attached} on it, so it can't be deleted.</span>
+                    )}
+                  </div>
                 )}
                 {unpublished && (
                   <div className="flex flex-wrap items-center gap-2" data-testid="sheet-publish-bar">
