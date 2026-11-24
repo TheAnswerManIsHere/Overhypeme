@@ -206,26 +206,32 @@ export function LockedPreview({
   };
   const dragStyle = { touchAction: "none" as const, cursor: backgroundUrl ? (grabbing ? "grabbing" : "grab") : "default" };
 
+  const livePreview = (
+    <LivePreview
+      factText={factText}
+      name={name}
+      pronouns={pronouns}
+      backgroundUrl={backgroundUrl}
+      textOptions={textOptions}
+      aspectRatio={aspectRatio}
+      framingOffset={framingOffset}
+      canvasRef={canvasRef}
+      canvasStyle={
+        !fill
+          ? { maxWidth: "100%", maxHeight: canvasMaxHeightStyle, width: "auto", height: "auto" }
+          : fitted
+            ? { width: `${fitted.w}px`, height: `${fitted.h}px`, maxWidth: "none" }
+            : { visibility: "hidden", width: 0, height: 0 }
+      }
+    />
+  );
+
   if (fill) {
     return (
       <div className="flex h-full min-h-0 flex-col bg-[#111] px-6 pt-4 pb-3" data-testid="locked-preview-fill">
         <div ref={areaRef} className="flex min-h-0 flex-1 items-center justify-center" data-testid="locked-preview-area">
           <div className="relative select-none" style={dragStyle} {...dragHandlers} data-testid="locked-preview">
-            <LivePreview
-              factText={factText}
-              name={name}
-              pronouns={pronouns}
-              backgroundUrl={backgroundUrl}
-              textOptions={textOptions}
-              aspectRatio={aspectRatio}
-              framingOffset={framingOffset}
-              canvasRef={canvasRef}
-              canvasStyle={
-                fitted
-                  ? { width: `${fitted.w}px`, height: `${fitted.h}px`, maxWidth: "none" }
-                  : { visibility: "hidden", width: 0, height: 0 }
-              }
-            />
+            {livePreview}
           </div>
         </div>
         {/* The hint always takes its row, so the area above never changes size
@@ -241,45 +247,11 @@ export function LockedPreview({
     <div className="bg-[#111] px-4 pb-1">
       <div
         className="relative mx-auto max-w-md select-none"
-        style={{ touchAction: "none", cursor: backgroundUrl ? (grabbing ? "grabbing" : "grab") : "default" }}
-        onMouseDown={(e) => {
-          if (!backgroundUrl) return;
-          begin(e.clientX, e.clientY);
-        }}
-        onMouseMove={(e) => move(e.clientX, e.clientY)}
-        onMouseUp={end}
-        onMouseLeave={end}
-        onTouchStart={(e) => {
-          if (!backgroundUrl) return;
-          const t = e.touches[0];
-          if (!t) return;
-          begin(t.clientX, t.clientY);
-        }}
-        onTouchMove={(e) => {
-          const t = e.touches[0];
-          if (!t) return;
-          move(t.clientX, t.clientY);
-        }}
-        onTouchEnd={end}
-        onTouchCancel={end}
+        style={dragStyle}
+        {...dragHandlers}
         data-testid="locked-preview"
       >
-        <LivePreview
-          factText={factText}
-          name={name}
-          pronouns={pronouns}
-          backgroundUrl={backgroundUrl}
-          textOptions={textOptions}
-          aspectRatio={aspectRatio}
-          framingOffset={framingOffset}
-          canvasRef={canvasRef}
-          canvasStyle={{
-            maxWidth: "100%",
-            maxHeight: canvasMaxHeightStyle,
-            width: "auto",
-            height: "auto",
-          }}
-        />
+        {livePreview}
         {/* Nothing is drawn over the canvas: the preview must show the meme
             exactly as it is saved (#870), watermark included, and the
             watermark can sit in any corner — so the drag hint lives in the
