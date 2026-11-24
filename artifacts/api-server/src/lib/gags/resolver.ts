@@ -128,6 +128,10 @@ export interface AvailableGag {
  * never seen here; the published set keeps being served until the draft is
  * published. Empty for an inactive fact.
  *
+ * The backfilled stand-in ("{NAME} stands there confidently.", `isStandIn`)
+ * is never offered (David, Q8, Issue #1014): a fact whose only approved gag
+ * is the stand-in offers no gag until a real one is approved.
+ *
  * Phase 7's contract (plan PLAN_THREE_GAGS.md, decisions 13 and 15): its
  * picker lists exactly these, offers a choice wherever there is more than
  * one, and draws through `resolveOfferedGag`. Tested in availableGags.test.ts.
@@ -154,7 +158,8 @@ async function readPublishedGags(factId: number, executor: Executor): Promise<Av
       isNull(factGagsTable.removedAt),
       sql`${factGagsTable.approvedContent} IS NOT NULL`,
     ))
-    .orderBy(asc(factGagsTable.slot));
+    .orderBy(asc(factGagsTable.slot))
+    .then((found) => found.filter(({ gag }) => !isStandIn(gag.approvedContent)));
   const examples = await loadExamples(rows.map(({ gag }) => gag.id), executor);
   return rows.map(({ gag }) => {
     const set = examplesFor(examples, gag.id).approved;

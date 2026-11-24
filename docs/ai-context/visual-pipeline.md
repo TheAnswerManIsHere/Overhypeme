@@ -750,7 +750,10 @@ classification joined with one gag's content (`gagRenderInput`,
   AI-picture flow (David, 2026-11-14, plan decisions 13 and 15).
 - **The list Phase 7 reads.** `availableGags(factId)`: a live fact's approved
   versions, default first then slot order, never a new gag or a pending change,
-  a refresh's picks and removals only after promotion; and
+  a refresh's picks and removals only after promotion, and never the
+  backfilled stand-in scene ("{NAME} stands there confidently.", migration
+  0092): a fact whose only approved gag is the stand-in offers none until a
+  real one is approved (David, Q8, Issue #1014); and
   `resolveOfferedGag(factId, gagId | null)`, the one way a non-moderator caller
   picks a gag (no name: the default; a name not available: refused, never
   replaced). Stored content reaches both through `normaliseGagContent`, the one

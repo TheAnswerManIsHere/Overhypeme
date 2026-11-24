@@ -18,7 +18,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db, factsTable, usersTable, factGagsTable } from "@workspace/db";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import { imagePromptAttemptsTable, pendingReviewsTable } from "@workspace/db/schema";
-import { EMPTY_VISUAL_STRATEGY_OVERRIDE, buildPlaceholderFactEnrichment, type VisualPromptStrategyOverride } from "@workspace/api-zod";
+import { EMPTY_VISUAL_STRATEGY_OVERRIDE, PLACEHOLDER_CORE_SCENE_OVERRIDE, buildPlaceholderFactEnrichment, type VisualPromptStrategyOverride } from "@workspace/api-zod";
 
 import { availableGags, GagNotAvailableError, resolveOfferedGag } from "../lib/gags/resolver.js";
 import { removeGag, saveGagContent } from "../lib/gags/gagStore.js";
@@ -85,6 +85,17 @@ describe("availableGags: what a user may be offered", () => {
     assert.deepEqual(await scenes(factId), ["{NAME} two."]);
     await db.update(factsTable).set({ isActive: false }).where(eq(factsTable.id, factId));
     assert.deepEqual(await availableGags(factId), []);
+  });
+
+  // Q8 (Issue #1014): the backfilled stand-in is never offered to users.
+  it("never offers the backfilled stand-in gag: a fact with only the stand-in offers none", async () => {
+    const onlyStandIn = await liveFact(PLACEHOLDER_CORE_SCENE_OVERRIDE);
+    assert.deepEqual(await availableGags(onlyStandIn.factId), []);
+    await assert.rejects(resolveOfferedGag(onlyStandIn.factId, null), GagNotAvailableError);
+    await assert.rejects(resolveOfferedGag(onlyStandIn.factId, onlyStandIn.gagIds[0]!), GagNotAvailableError, "not even by name");
+
+    const beside = await liveFact(PLACEHOLDER_CORE_SCENE_OVERRIDE, "{NAME} a real gag.");
+    assert.deepEqual(await scenes(beside.factId), ["{NAME} a real gag."], "a real gag is offered, and is the default");
   });
 
   it("a removal and a change in the draft reach users only when the draft is published, all at once (plan 1F)", async () => {
