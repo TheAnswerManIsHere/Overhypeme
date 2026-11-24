@@ -1149,6 +1149,13 @@
       "when": 1789600000000,
       "tag": "0163_retire_avatar_system",
       "breakpoints": true
+    },
+    {
+      "idx": 164,
+      "version": "7",
+      "when": 1789700000000,
+      "tag": "0164_no_auto_picture",
+      "breakpoints": true
     }
   ]
 }

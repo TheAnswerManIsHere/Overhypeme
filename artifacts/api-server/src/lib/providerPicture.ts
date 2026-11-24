@@ -1,5 +1,5 @@
 /**
- * @purpose Google sign-in's picture becomes the member's first photo (plan docs/plans/PLAN_PHOTO_IS_YOUR_PICTURE.md, David's Q13): when a member signing in with Google holds an adult date of birth and has no profile photo, the picture is fetched from Google's image host at a larger size, put through the same upload pipeline every photo meets (type and size, the moderation scans, rate limit), stored as a first-party object and made their profile photo. The raw provider URL is never stored or served. Any failure leaves the member photo-less and never affects the sign-in.
+ * @purpose Google sign-in's picture becomes the member's first photo (plan docs/plans/PLAN_PHOTO_IS_YOUR_PICTURE.md, David's Q13): when a member signing in with Google holds an adult date of birth, has no profile photo and has never removed one or had one taken down (plan PLAN_AVATAR_TAKEDOWN_AND_REMOVE.md), the picture is fetched from Google's image host at a larger size, put through the same upload pipeline every photo meets (type and size, the moderation scans, rate limit), stored as a first-party object and made their profile photo. The raw provider URL is never stored or served. Any failure leaves the member photo-less and never affects the sign-in.
  * @subsystem accounts-auth
  */
 import type { Request, Response } from "express";
@@ -26,6 +26,7 @@ const GOOGLE_SIZE = "s1024-c";
 export type CopyOutcome =
   | "copied"
   | "has_photo"
+  | "declined"
   | "not_eligible"
   | "not_adult"
   | "no_picture"
@@ -103,6 +104,10 @@ export async function copyProviderPictureIn(
     if (!row) return "failed";
     const { user } = row;
     if (profilePictureUrl(user.profileImageUrl)) return "has_photo";
+    // The member removed their picture, or an admin took it down (Q16, Q17):
+    // no automatic picture ever again. Checked again under the lock when the
+    // copy is set, which is what makes it hold against a copy in flight.
+    if (user.noAutoPicture) return "declined";
     // Signing in does not make an account able to add media: one suspended,
     // under age, awaiting deletion, unverified, not yet onboarded or behind on
     // the Terms gets nothing, by the same rule the verified-actor gate enforces.
@@ -124,8 +129,9 @@ export async function copyProviderPictureIn(
       logger.info({ userId, status: refused() }, "[provider-picture] the upload pipeline refused the provider picture");
       return "rejected";
     }
-    // Set only if the member still has no photo: one they chose while this
-    // was being fetched wins (plan Q13: the default lasts until they choose).
+    // Set only if the member still has no photo and has not turned the
+    // default off: a choice made while this was being fetched wins (plan Q13:
+    // the default lasts until they choose).
     const set = await makeProfilePhoto(userId, stored.objectPath, { onlyIfNone: true });
     return set ? "copied" : "has_photo";
   } catch (err) {

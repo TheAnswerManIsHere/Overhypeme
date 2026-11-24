@@ -23,7 +23,7 @@ import { sanitizeAndValidatePersonalName, sanitizeAndValidatePronouns } from "..
 import { getConfigInt } from "../lib/adminConfig";
 import { logger } from "../lib/logger";
 import { profilePictureUrl } from "../lib/profilePicture";
-import { makeProfilePhoto } from "../lib/profilePhoto";
+import { makeProfilePhoto, PhotoNotAvailableError, removeProfilePhoto } from "../lib/profilePhoto";
 import { liveContent, restoreWindowDays } from "../lib/contentVisibility";
 import {
   deleteAiImage, deleteUpload, listAiImagesPage, listMemesPage, listRecentlyDeleted, listUploadsPage,
@@ -453,11 +453,25 @@ router.post("/users/me/profile-image", async (req: Request, res: Response) => {
   try {
     newProfileImageUrl = await makeProfilePhoto(userId, objectPath);
   } catch (err) {
+    // Taken down or deleted after the check above: the photo is no longer theirs to show.
+    if (err instanceof PhotoNotAvailableError) { res.status(404).json({ error: "Upload not found" }); return; }
     respondProfileImageAclFailure(res, err, "POST /users/me/profile-image");
     return;
   }
 
   res.json({ success: true, profileImageUrl: newProfileImageUrl, objectPath });
+});
+
+/**
+ * DELETE /users/me/profile-image — "Remove my picture" (plan
+ * PLAN_AVATAR_TAKEDOWN_AND_REMOVE.md, Q17). The member goes back to their
+ * initial; their photos stay in their library; Google's picture is never
+ * copied in again. Idempotent.
+ */
+router.delete("/users/me/profile-image", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+  await removeProfilePhoto(req.user.id);
+  res.json({ success: true, profileImageUrl: null });
 });
 
 // GET /users/me/memes — one page of the current user's live memes, newest
