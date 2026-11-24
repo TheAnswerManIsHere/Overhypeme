@@ -1,5 +1,5 @@
 /**
- * @purpose The screen that asks an account which finished set-up before the current Terms of Service and Privacy Policy to agree to the Terms and acknowledge the Privacy Policy (launch Phase 14, increment 4): it says why it is asking, links both documents, takes one explicit action, and records the versions it showed; "Not now" lets the account keep reading this visit, while the server still refuses its writes until it accepts.
+ * @purpose The screen that asks an account which finished set-up before the current Terms of Service and Privacy Policy to agree to the Terms and acknowledge the Privacy Policy (launch Phase 14, increment 4): it says why it is asking, links both documents, takes one explicit action, and records the versions it showed; "Not now" lets the account keep reading this visit, while the server still refuses its writes until it accepts; and a member leaving instead is pointed to cancelling from Profile, which never waits on agreeing.
  * @subsystem accounts-auth
  */
 import { useState } from "react";
@@ -54,6 +54,13 @@ export default function AcceptTerms() {
     setLocation(returnTo);
   }
 
+  // Cancelling never waits on agreeing (David, Q25 and Q27, 2026-11-24): the
+  // way out defers the question for this visit, so Profile is not sent back here.
+  function goCancel() {
+    deferTermsForThisVisit();
+    setLocation("/profile");
+  }
+
   return (
     <AccountStateShell title="Our Terms">
       <p className="text-sm text-muted-foreground" data-testid="accept-terms-why">
@@ -94,6 +101,12 @@ export default function AcceptTerms() {
       <button type="button" onClick={notNow} className="text-sm text-muted-foreground underline hover:text-primary" data-testid="accept-terms-not-now">
         Not now — just look around
       </button>
+      <p className="text-sm text-muted-foreground" data-testid="accept-terms-leaving">
+        Leaving instead?{" "}
+        <button type="button" onClick={goCancel} className="underline hover:text-primary" data-testid="accept-terms-cancel">
+          You can cancel your membership from your profile.
+        </button>
+      </p>
     </AccountStateShell>
   );
 }
