@@ -145,7 +145,7 @@ describe("resolveImageEngine", () => {
       [orphan, false, "t2i", "not in the catalogue"],
       ["flux-3", true, "t2i", "inactive"],
       ["openai-general", false, "t2i", "kind is llm"],
-      ["nano-banana-2-edit", false, "t2i", "mode is i2i"],
+      ["nano-banana-2-edit", false, "t2i", "draws pictures from a reference photo instead"],
       ["nano-banana-pro", false, "i2i", "no size vocabulary"],
     ];
     for (const [id, off, mode, why] of cases) {

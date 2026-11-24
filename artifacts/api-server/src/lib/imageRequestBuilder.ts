@@ -38,7 +38,7 @@ export interface ImageRequestSettings {
 
 export class ImageRequestBuildError extends Error {
   constructor(readonly engineId: string, reason: string) {
-    super(`cannot build an image request for "${engineId}": ${reason}`);
+    super(`the picture cannot be requested from the image engine "${engineId}": ${reason}`);
     this.name = "ImageRequestBuildError";
   }
 }
@@ -73,7 +73,7 @@ export function buildImageRequestSettings(
   aspectRatio: unknown,
 ): ImageRequestSettings {
   if (!isWizardAspect(aspectRatio)) {
-    throw new ImageRequestBuildError(engine.id, `aspect "${String(aspectRatio)}" is not landscape, square or portrait`);
+    throw new ImageRequestBuildError(engine.id, `its shape "${String(aspectRatio)}" is not landscape, square or portrait`);
   }
   const vocab = engine.sizeVocabulary as SizeVocabulary | null;
   if (!vocab || !Array.isArray(vocab.options) || vocab.options.length === 0) {
@@ -81,7 +81,7 @@ export function buildImageRequestSettings(
   }
   const candidates = vocab.options.filter((o) => o.aspect === undefined || o.aspect === aspectRatio);
   if (candidates.length === 0) {
-    throw new ImageRequestBuildError(engine.id, `no size option serves the ${aspectRatio} aspect`);
+    throw new ImageRequestBuildError(engine.id, `it offers no size for a ${aspectRatio} picture`);
   }
   const chosen = pick(candidates, purpose);
   return {

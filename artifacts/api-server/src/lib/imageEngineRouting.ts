@@ -125,7 +125,8 @@ export class ImageEngineRoutingError extends Error {
     readonly mode: GenerationMode | null,
     readonly reason: string,
   ) {
-    super(`image engine "${engineId}" cannot draw ${mode ? `a ${mode} render` : "any render"}: ${reason}`);
+    // A moderator reads this as a failed render's reason (Issue #1020): words, never "i2i".
+    super(`the image engine "${engineId}" cannot draw ${mode ? `a picture ${MODE_WORDS[mode]}` : "any picture"}: ${reason}`);
     this.name = "ImageEngineRoutingError";
   }
 }
@@ -134,11 +135,14 @@ export class ImageEngineRoutingError extends Error {
  * Why `engine` cannot draw a `mode` render, or null when it can. Pure, so the
  * config-write validation and the resolver share one rule.
  */
+/** How a render mode reads in a sentence a moderator sees. */
+const MODE_WORDS: Record<GenerationMode, string> = { i2i: "from a reference photo", t2i: "from a written description" };
+
 export function imageEngineRefusal(engine: Engine | null, mode: GenerationMode): string | null {
   if (!engine) return "not in the catalogue";
   if (engine.kind !== "image") return `its kind is ${engine.kind}, not image`;
   if (!engine.isActive) return "it is inactive";
-  if (engine.imageMode !== mode) return `its mode is ${engine.imageMode ?? "unset"}, not ${mode}`;
+  if (engine.imageMode !== mode) return engine.imageMode ? `it draws pictures ${MODE_WORDS[engine.imageMode as GenerationMode] ?? `in its own mode (${engine.imageMode})`} instead` : "it has no drawing mode set";
   if (!engine.sizeVocabulary) return "it declares no size vocabulary, so no request can be built for it";
   return null;
 }
