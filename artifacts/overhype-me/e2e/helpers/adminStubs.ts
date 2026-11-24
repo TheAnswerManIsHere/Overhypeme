@@ -82,6 +82,8 @@ export interface AdminFactRow {
   primaryArchetype?: string | null;
   enrichmentStatus?: string | null;
   hasEnrichment?: boolean;
+  /** The needs-attention reasons GET /admin/facts gives the row (lib/factAttention.ts). */
+  attention?: string[];
 }
 
 export function adminFactRow(overrides: Partial<AdminFactRow> & Pick<AdminFactRow, "id" | "text">): AdminFactRow {
@@ -143,6 +145,43 @@ export function gagsView(factId: number, isActive: boolean, gag: VisualPromptStr
   return { factId, isActive, review, gags, maxGags: 3, draftReady, filling: false, fillFailed: false };
 }
 
+/**
+ * GET /api/admin/facts/:id/sheet for a stubbed approved fact, as
+ * api-server lib/factSheet.ts answers it: its gag published without examples
+ * (carried over), a legacy approval, one hashtag, no note and no research.
+ */
+export function factSheetOf(row: AdminFactRow, enrichment: FactEnrichment | null, gag: VisualPromptStrategyOverride | null) {
+  return {
+    id: row.id,
+    text: row.text,
+    canonicalText: row.canonicalText,
+    isActive: row.isActive,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    splitTokenIndex: row.splitTokenIndex,
+    submittedById: row.submittedById,
+    submittedByName: null,
+    approvedAt: CREATED,
+    approvalSource: "legacy",
+    approvedByName: null,
+    upvotes: row.upvotes,
+    downvotes: row.downvotes,
+    score: row.score,
+    wilsonScore: row.wilsonScore,
+    commentCount: row.commentCount,
+    shareCount: row.shareCount,
+    enrichmentStatus: row.enrichmentStatus ?? null,
+    suggestedHashtags: enrichment?.suggestedHashtags ?? [],
+    hasEmbedding: row.hasEmbedding,
+    attention: row.attention ?? [],
+    reviewId: null,
+    hashtags: ["legend"],
+    usage: { memes: 0, aiPictures: 0 },
+    pictures: gag ? [{ gagId: gagIdFor(row.id), slot: 1, approvedKinds: [], missingKinds: ["male", "female", "pet"] }] : [],
+    reading: { latest: null, approved: null, approvedByName: null },
+  };
+}
+
 function json(route: Route, body: unknown, status = 200): Promise<void> {
   return route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 }
@@ -188,6 +227,8 @@ export async function stubAdminFacts(
         return json(route, { ...row, enrichment, enrichmentStatus: row.enrichmentStatus ?? null });
       case "/gags":
         return json(route, gagsView(row.id, row.isActive, gag, entry.review ?? null));
+      case "/sheet":
+        return json(route, factSheetOf(row, enrichment, gag));
       default:
         return route.continue();
     }

@@ -304,10 +304,10 @@ describe("GET /admin/facts", () => {
     }
   });
 
-  it("the inactive view lists inactive facts as their own rows, and leaves active ones out", async () => {
+  it("the inactive view lists deactivated facts as their own rows, and leaves active ones out", async () => {
     const suffix = randomUUID();
     const activeId = await createTestFact(`${FACT_PREFIX}inactive-view-active-${suffix}`, { isActive: true });
-    const inactiveId = await createTestFact(`${FACT_PREFIX}inactive-view-inactive-${suffix}`, { isActive: false });
+    const inactiveId = await createDeactivatedFact(`${FACT_PREFIX}inactive-view-inactive-${suffix}`);
 
     const res = await request(makeApp())
       .get("/admin/facts")
@@ -318,6 +318,39 @@ describe("GET /admin/facts", () => {
     const ids = (res.body.facts as Array<{ id: number }>).map((f) => f.id);
     assert.deepEqual(ids, [inactiveId]);
     assert.ok(!ids.includes(activeId));
+  });
+
+  // Plan PLAN_FACT_LIFECYCLE_REBUILD.md, item 18: the Facts page lists
+  // approved facts only. A staging fact (in moderation, or a rejected
+  // submission's) is never approved and appears under no view.
+  it("lists approved facts only: a never-approved staging fact appears under no view", async () => {
+    const suffix = randomUUID();
+    const liveId = await createTestFact(`${FACT_PREFIX}approved-only-live-${suffix}`);
+    const deactivatedId = await createDeactivatedFact(`${FACT_PREFIX}approved-only-off-${suffix}`);
+    const stagingId = await createTestFact(`${FACT_PREFIX}approved-only-staging-${suffix}`, { isActive: false });
+
+    for (const visibility of ["active", "inactive", "both"]) {
+      const res = await request(makeApp())
+        .get("/admin/facts")
+        .query({ visibility, search: suffix, limit: "100" })
+        .set("authorization", `Bearer ${adminSid}`);
+      assert.equal(res.status, 200);
+      const ids = (res.body.facts as Array<{ id: number }>).map((f) => f.id);
+      assert.ok(!ids.includes(stagingId), `${visibility}: the staging fact is not listed`);
+      assert.equal(res.body.total, ids.length, `${visibility}: the total counts the listed facts only`);
+      if (visibility !== "inactive") assert.ok(ids.includes(liveId), `${visibility}: the live fact is listed`);
+      if (visibility !== "active") assert.ok(ids.includes(deactivatedId), `${visibility}: the deactivated fact is listed`);
+    }
+  });
+
+  it("a search that is a fact id finds that fact", async () => {
+    const id = await createTestFact(`${FACT_PREFIX}by-id-${randomUUID()}`);
+    const res = await request(makeApp())
+      .get("/admin/facts")
+      .query({ search: String(id), limit: "100" })
+      .set("authorization", `Bearer ${adminSid}`);
+    assert.equal(res.status, 200);
+    assert.ok((res.body.facts as Array<{ id: number }>).some((f) => f.id === id));
   });
 });
 

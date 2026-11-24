@@ -175,10 +175,12 @@ describe("the needs-attention checks (2C)", () => {
       await expectReasons(off.factId, ["taxonomy_missing"]);
     });
 
-    it("does not trip on a fact never approved", async () => {
+    // The list holds approved facts only (Issue #1018, increment 3.1), so a
+    // fact never approved is in no filter and no count.
+    it("does not trip on a fact never approved: it is in no filter", async () => {
       const [f] = await db.insert(factsTable).values({ text: `{NAME} unapproved ${RUN}`, isActive: false }).returning({ id: factsTable.id });
       factIds.push(f!.id);
-      await expectReasons(f!.id, []);
+      for (const r of ATTENTION_REASONS) assert.equal(await inFilter(r, f!.id), false, `filter ${r}`);
     });
   });
 

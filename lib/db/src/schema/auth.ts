@@ -21,6 +21,11 @@ export const usersTable = pgTable("users", {
   // profile photo down. Only the Google copy reads it; a picture the member
   // chooses themselves is unaffected, and nothing clears it.
   noAutoPicture: boolean("no_auto_picture").notNull().default(false),
+  // The same-site page a person registered from by email and password (0166,
+  // plan PLAN_SIGNUP_RETURN.md, Issue #1203): written once at registration,
+  // read and cleared when the registration email is verified, so set-up ends
+  // back on that page. Null means no page: they land on their profile.
+  signupReturnTo: text("signup_return_to"),
   passwordHash: varchar("password_hash"),
   googleLinked: boolean("google_linked").notNull().default(false),
   appleLinked: boolean("apple_linked").notNull().default(false),

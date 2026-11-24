@@ -228,6 +228,20 @@ never registered locally (Google-made, or from before Phase 5) reached the
 screen with nothing sent (#868). It is the same route, so the verified-actor
 gate's exception table is unchanged.
 
+**The page a sign-up came from** (Issue #1203, Q6; 0166). `POST /auth/register`
+takes an optional `returnTo` (the login page's safe `from`). `getSafeSignupReturnTo`
+(`artifacts/api-server/src/lib/safeReturnTo.ts`) keeps it only if it is a safe same-site path that is not
+`/` or a sign-in-flow page (`SIGN_IN_FLOW_ROOTS`, mirrored from the client), and
+it is stored on `users.signup_return_to` (nullable `text`, so no length the
+validators accept can fail registration). A registration verification — never
+an email change — reads and clears it in one transaction and returns it as
+`returnTo`; `VerifyEmail.tsx` re-checks it (`onboardAfterVerify`) and sends the
+account to `/onboard?returnTo=<page>&verified=1`, or to the profile default as
+before. Because the page lives on the account, not the link, any registration
+link — first, resent, after an expired one, or the "Check your email" screen's
+`ifNoneOut` send — returns there, in any browser. Roll back by restoring the
+code and keeping the column.
+
 Token: raw 32-byte random value, only its SHA-256 hash stored
 (`emailVerificationTokensTable`, `lib/db/src/schema/auth.ts:72-84`), a fixed
 expiry, single-use via `usedAt` (`localAuth.ts:463-466,487-490`). Verifying
@@ -318,9 +332,26 @@ dev).
 
 ### Suspension
 
-`POST /admin/users/:id/suspend` (body `{ reason }`, required, under 500
-characters, seen only by admins) and `POST /admin/users/:id/unsuspend`
+`POST /admin/users/:id/suspend` (body `{ reason, memberNote? }`: the
+reason is required, under 500 characters and seen only by admins; the note
+is optional, under 1,000 characters, and goes to the member) and
+`POST /admin/users/:id/unsuspend`
 (`routes/accountSuspension.ts`; engine `artifacts/api-server/src/lib/accountSuspension.ts`).
+
+**Each real transition emails the member once** (Issue #1110, Q7): kind
+`account_suspended` (what suspension means, that content and membership are
+untouched and charges continue unless cancelled, support without signing in,
+and the note to the member when written) or `account_reinstated`. The engine
+returns the recipient only on a real transition, read under the row lock (or
+in the unsuspend `UPDATE … RETURNING`), so a repeated or concurrent request
+queues nothing more. The route queues the notice **after** the change
+commits, opting in to the outbox insert as the support route does, and
+reports `notice`: `queued` (a job exists, not that it was delivered),
+`not_queued` with `why` (`no_address`, `email_unavailable`, `failed`), or
+`not_owed`. When nothing was queued there is no job to retry, and repeating
+the action does not resend. The reason is never an input to either template.
+These two notices are the only mail suspension sends; other mail can still
+reach a suspended account (Issue #1212).
 Suspension has its own columns — `suspended_at`, `suspended_reason`,
 `suspended_by` (0120) — and never writes `is_active`. It runs under the
 admin population lock, then the user row `FOR UPDATE`. An admin can never

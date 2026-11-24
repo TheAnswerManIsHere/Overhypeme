@@ -13,7 +13,7 @@ import request from "supertest";
 import bcrypt from "bcryptjs";
 
 import { db } from "@workspace/db";
-import { emailVerificationTokensTable, passwordResetTokensTable, sessionsTable, usersTable } from "@workspace/db/schema";
+import { asyncJobsTable, emailVerificationTokensTable, passwordResetTokensTable, sessionsTable, usersTable } from "@workspace/db/schema";
 import { and, eq, like, sql } from "drizzle-orm";
 
 import { authMiddleware } from "../middlewares/authMiddleware.js";
@@ -21,7 +21,8 @@ import { requireEligibleActor } from "../middlewares/requireEligibleActor.js";
 import localAuthRouter from "../routes/localAuth.js";
 import authRouter from "../routes/auth.js";
 import usersRouter from "../routes/users.js";
-import accountSuspensionRouter from "../routes/accountSuspension.js";
+import accountSuspensionRouter, { __setSuspensionNoticeSeamsForTests } from "../routes/accountSuspension.js";
+import { buildAccountSuspendedEmail } from "../lib/email.js";
 import adminRouter from "../routes/admin.js";
 import { isReachableAdminSql } from "../lib/adminIdentity.js";
 import { createSession, revokeUserSessions, type SessionData } from "../lib/auth.js";
@@ -196,7 +197,7 @@ describe("account suspension (T10)", () => {
       suspending = suspendAccount(admin.id, { by: null, reason: "race" });
       await pause(500);
     });
-    assert.equal(await suspending, "suspended");
+    assert.equal(((await suspending) as { outcome: string }).outcome, "suspended");
     assert.equal((await sessionsOf(admin.id)).length, 0, "the suspension revoked the session minted before it");
     const adminList = await request(makeApp()).get("/api/admin/users").set("authorization", `Bearer ${sid}`);
     assert.equal(adminList.status, 401, "the revoked session reads nothing, the admin console included");
@@ -231,5 +232,152 @@ describe("account suspension (T10)", () => {
     const adminSid = await sessionFor(admin.id, { isAdmin: true });
     assert.equal((await request(makeApp()).post(`/api/admin/users/${legacy.id}/unsuspend`).set("authorization", `Bearer ${adminSid}`)).status, 200);
     assert.equal((await login(legacy.email)).status, 200);
+  });
+});
+
+// Issue #1110 (Q7): each real transition queues one notice to the member,
+// after the change commits; the admin's note to the member is in it and the
+// internal reason never is. Run with RESEND_API_KEY set (the test runner sets
+// a re_test_ key); the route opts in to the outbox insert under it.
+describe("suspension notices (Issue #1110)", () => {
+  type Job = { to: string; kind: string | null; subject: string; text: string; html: string | null };
+  async function noticesTo(email: string): Promise<Job[]> {
+    const rows = await db.select({ payload: asyncJobsTable.payload }).from(asyncJobsTable)
+      .where(and(eq(asyncJobsTable.queue, "email"), sql`${asyncJobsTable.payload}->>'to' = ${email}`));
+    return rows.map((r) => r.payload as unknown as Job);
+  }
+  async function clearNotices(): Promise<void> {
+    await db.delete(asyncJobsTable).where(and(eq(asyncJobsTable.queue, "email"), sql`${asyncJobsTable.payload}->>'to' like ${PREFIX + "%"}`));
+  }
+  const suspend = (sid: string, id: string, body: Record<string, unknown>) =>
+    request(makeApp()).post(`/api/admin/users/${id}/suspend`).set("authorization", `Bearer ${sid}`).send(body);
+  const unsuspend = (sid: string, id: string) =>
+    request(makeApp()).post(`/api/admin/users/${id}/unsuspend`).set("authorization", `Bearer ${sid}`);
+
+  before(async () => { await cleanup(); await clearNotices(); __setSuspensionNoticeSeamsForTests({ deliveryAvailable: () => true }); });
+  after(async () => { __setSuspensionNoticeSeamsForTests({ deliveryAvailable: null, send: null }); await clearNotices(); await cleanup(); });
+
+  it("a suspension with a note queues one email carrying the note and what suspension means, never the internal reason", async () => {
+    const admin = await createUser({ admin: true });
+    const sid = await sessionFor(admin.id, { isAdmin: true });
+    const member = await createUser();
+    const res = await suspend(sid, member.id, { reason: "INTERNAL-REASON-fraud-ring", memberNote: "Your posts broke the spam rules." });
+    assert.equal(res.status, 200, res.text);
+    assert.deepEqual(res.body.notice, { status: "queued" });
+    const jobs = await noticesTo(member.email);
+    assert.equal(jobs.length, 1);
+    const [job] = jobs;
+    assert.equal(job!.kind, "account_suspended");
+    assert.equal(job!.subject, "Your Overhype.me account is suspended");
+    for (const body of [job!.text, job!.html ?? ""]) {
+      assert.match(body, /Your posts broke the spam rules\./, "the note to the member is in the email");
+      assert.match(body, /can(&#39;|')t sign in/, "it says what suspension means");
+      assert.match(body, /recurring charges continue/);
+      assert.match(body, /support@overhype\.me/);
+      assert.ok(!body.includes("INTERNAL-REASON"), "the internal reason never reaches the member");
+    }
+    assert.ok(!JSON.stringify(res.body).includes("INTERNAL-REASON"));
+  });
+
+  it("without a note, the email has no note block", async () => {
+    const admin = await createUser({ admin: true });
+    const sid = await sessionFor(admin.id, { isAdmin: true });
+    const member = await createUser();
+    assert.equal((await suspend(sid, member.id, { reason: "x", memberNote: "   " })).status, 200);
+    const [job] = await noticesTo(member.email);
+    assert.ok(job);
+    assert.ok(!job.text.includes("A note from the team"));
+    assert.ok(!(job.html ?? "").includes("A note from the team"));
+  });
+
+  it("only a real transition sends: a repeat or a concurrent pair queues one; unsuspend queues one reinstated email; a later suspension queues another", async () => {
+    const admin = await createUser({ admin: true });
+    const sid = await sessionFor(admin.id, { isAdmin: true });
+    const member = await createUser();
+    const [a, b] = await Promise.all([suspend(sid, member.id, { reason: "x" }), suspend(sid, member.id, { reason: "y" })]);
+    assert.equal(a.status, 200); assert.equal(b.status, 200);
+    assert.equal([a.body.notice.status, b.body.notice.status].sort().join(","), "not_owed,queued");
+    const repeat = await suspend(sid, member.id, { reason: "z" });
+    assert.equal(repeat.body.alreadySuspended, true);
+    assert.deepEqual(repeat.body.notice, { status: "not_owed" });
+    assert.equal((await noticesTo(member.email)).filter((j) => j.kind === "account_suspended").length, 1);
+
+    const lifted = await unsuspend(sid, member.id);
+    assert.deepEqual(lifted.body.notice, { status: "queued" });
+    const again = await unsuspend(sid, member.id);
+    assert.equal(again.body.wasSuspended, false);
+    assert.deepEqual(again.body.notice, { status: "not_owed" });
+    const reinstated = (await noticesTo(member.email)).filter((j) => j.kind === "account_reinstated");
+    assert.equal(reinstated.length, 1);
+    assert.equal(reinstated[0]!.subject, "Your Overhype.me account is active again");
+    assert.match(reinstated[0]!.text, /You can sign in again/);
+
+    assert.deepEqual((await suspend(sid, member.id, { reason: "again" })).body.notice, { status: "queued" });
+    assert.equal((await noticesTo(member.email)).filter((j) => j.kind === "account_suspended").length, 2);
+  });
+
+  it("when nothing can be queued, both changes still stand and the admin is told why", async () => {
+    const admin = await createUser({ admin: true });
+    const sid = await sessionFor(admin.id, { isAdmin: true });
+
+    // No email transport.
+    const m1 = await createUser();
+    await sessionFor(m1.id);
+    __setSuspensionNoticeSeamsForTests({ deliveryAvailable: () => false });
+    try {
+      const s1 = await suspend(sid, m1.id, { reason: "x" });
+      assert.deepEqual(s1.body.notice, { status: "not_queued", why: "email_unavailable" });
+      const [row] = await db.select().from(usersTable).where(eq(usersTable.id, m1.id));
+      assert.ok(row!.suspendedAt, "suspended regardless");
+      assert.equal((await db.select().from(sessionsTable).where(eq(sessionsTable.userId, m1.id))).length, 0, "sessions ended regardless");
+      const u1 = await unsuspend(sid, m1.id);
+      assert.deepEqual(u1.body.notice, { status: "not_queued", why: "email_unavailable" });
+      assert.equal(u1.body.wasSuspended, true);
+    } finally {
+      __setSuspensionNoticeSeamsForTests({ deliveryAvailable: () => true });
+    }
+    assert.equal((await noticesTo(m1.email)).length, 0);
+
+    // The insert fails.
+    const m2 = await createUser();
+    await sessionFor(m2.id);
+    __setSuspensionNoticeSeamsForTests({ send: async () => { throw new Error("outbox down"); } });
+    try {
+      const s2 = await suspend(sid, m2.id, { reason: "x" });
+      assert.equal(s2.status, 200);
+      assert.deepEqual(s2.body.notice, { status: "not_queued", why: "failed" });
+      assert.equal((await db.select().from(sessionsTable).where(eq(sessionsTable.userId, m2.id))).length, 0);
+      const u2 = await unsuspend(sid, m2.id);
+      assert.equal(u2.status, 200);
+      assert.deepEqual(u2.body.notice, { status: "not_queued", why: "failed" });
+      const [row] = await db.select().from(usersTable).where(eq(usersTable.id, m2.id));
+      assert.equal(row!.suspendedAt, null, "unsuspended regardless");
+    } finally {
+      __setSuspensionNoticeSeamsForTests({ send: null });
+    }
+
+    // No address on the account.
+    const m3 = await createUser();
+    await db.update(usersTable).set({ email: null }).where(eq(usersTable.id, m3.id));
+    assert.deepEqual((await suspend(sid, m3.id, { reason: "x" })).body.notice, { status: "not_queued", why: "no_address" });
+    assert.deepEqual((await unsuspend(sid, m3.id)).body.notice, { status: "not_queued", why: "no_address" });
+  });
+
+  it("refuses a note over 1,000 characters and changes nothing", async () => {
+    const admin = await createUser({ admin: true });
+    const sid = await sessionFor(admin.id, { isAdmin: true });
+    const member = await createUser();
+    const res = await suspend(sid, member.id, { reason: "x", memberNote: "a".repeat(1001) });
+    assert.equal(res.status, 400);
+    const [row] = await db.select().from(usersTable).where(eq(usersTable.id, member.id));
+    assert.equal(row!.suspendedAt, null);
+    assert.equal((await noticesTo(member.email)).length, 0);
+  });
+
+  it("the note is escaped in the email's HTML", () => {
+    const { html, text } = buildAccountSuspendedEmail("https://example.test", { memberNote: "<script>alert(1)</script>" });
+    assert.ok(!(html ?? "").includes("<script>"));
+    assert.ok((html ?? "").includes("&lt;script&gt;"));
+    assert.ok(text.includes("<script>alert(1)</script>"), "plain text carries it as written");
   });
 });

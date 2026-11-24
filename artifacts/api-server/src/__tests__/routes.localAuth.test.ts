@@ -251,6 +251,92 @@ describe("POST /auth/register — success", () => {
   });
 });
 
+// Issue #1203 (Q6): an email-and-password sign-up returns to the page it
+// started from. The page is stored on the account at registration, handed
+// back once when the registration email is verified, and never read by an
+// email-change confirmation.
+describe("sign-up return destination (Issue #1203)", () => {
+  async function register(returnTo: unknown): Promise<string> {
+    const email = uniqueEmail();
+    const res = await request(makeApp()).post("/auth/register")
+      .send({ email, password: "supersecret", displayName: "Pat", firstName: "Pat", lastName: "Doe", returnTo });
+    assert.equal(res.status, 201, res.text);
+    const [row] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.email, email));
+    return row!.id;
+  }
+  async function stored(id: string): Promise<string | null> {
+    const [row] = await db.select({ v: usersTable.signupReturnTo }).from(usersTable).where(eq(usersTable.id, id));
+    return row!.v;
+  }
+  async function token(id: string, opts: { expired?: boolean; pendingEmail?: string } = {}): Promise<string> {
+    const raw = randomBytes(32).toString("hex");
+    await db.insert(emailVerificationTokensTable).values({
+      userId: id,
+      tokenHash: createHash("sha256").update(raw).digest("hex"),
+      expiresAt: new Date(Date.now() + (opts.expired ? -60_000 : 24 * 60 * 60_000)),
+      pendingEmail: opts.pendingEmail ?? null,
+    });
+    return raw;
+  }
+  const verify = (raw: string) => request(makeApp()).get("/auth/verify-email").query({ token: raw });
+
+  it("stores the page at registration, hands it back once on verification, then clears it", async () => {
+    const id = await register("/fact/42?name=Sam#top");
+    assert.equal(await stored(id), "/fact/42?name=Sam#top");
+    const raw = await token(id);
+    const res = await verify(raw);
+    assert.equal(res.status, 200, res.text);
+    assert.equal(res.body.returnTo, "/fact/42?name=Sam#top");
+    assert.equal(await stored(id), null, "cleared once handed back");
+    const again = await verify(raw);
+    assert.equal(again.body.message, "Email already verified.");
+  });
+
+  it("stores nothing for an unsafe, home or sign-in-flow destination, and verification returns null", async () => {
+    for (const bad of ["https://evil.com/x", "//evil.com", "/\\evil.com", "javascript:alert(1)", "/", "/login?from=%2Ffact%2F1", "/onboard", "/verify-email?token=x", "/check-email", 42]) {
+      const id = await register(bad);
+      assert.equal(await stored(id), null, `nothing stored for ${String(bad)}`);
+      const res = await verify(await token(id));
+      assert.equal(res.status, 200);
+      assert.equal(res.body.returnTo, null);
+    }
+  });
+
+  it("a registration with no page verifies to null, so the page falls back to the profile", async () => {
+    const id = await register(undefined);
+    assert.equal(await stored(id), null);
+    assert.equal((await verify(await token(id))).body.returnTo, null);
+  });
+
+  it("an expired first link leaves the page for its replacement, whatever sent it", async () => {
+    const id = await register("/memes/abc");
+    const first = await token(id, { expired: true });
+    assert.equal((await verify(first)).status, 400, "the expired link is refused");
+    assert.equal(await stored(id), "/memes/abc", "and the page is still kept");
+    const res = await verify(await token(id));
+    assert.equal(res.body.returnTo, "/memes/abc");
+  });
+
+  it("keeps a destination longer than 2,048 characters intact", async () => {
+    const long = `/search?q=${encodeURIComponent("é".repeat(350))}`;
+    assert.ok(long.length > 2048);
+    const id = await register(long);
+    assert.equal(await stored(id), long);
+    assert.equal((await verify(await token(id))).body.returnTo, long);
+  });
+
+  it("an email-change confirmation neither reads nor clears the sign-up page", async () => {
+    const id = await register("/fact/7");
+    await db.update(usersTable).set({ emailVerifiedAt: new Date() }).where(eq(usersTable.id, id));
+    const newEmail = uniqueEmail();
+    await db.update(usersTable).set({ pendingEmail: newEmail }).where(eq(usersTable.id, id));
+    const res = await verify(await token(id, { pendingEmail: newEmail }));
+    assert.equal(res.status, 200, res.text);
+    assert.equal(res.body.returnTo, null);
+    assert.equal(await stored(id), "/fact/7", "left untouched");
+  });
+});
+
 describe("POST /auth/local-login", () => {
 
   it("returns 400 when email or password is missing", async () => {

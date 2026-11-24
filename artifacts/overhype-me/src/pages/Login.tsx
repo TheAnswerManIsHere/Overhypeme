@@ -152,6 +152,10 @@ export default function Login() {
         if (suppliedPronouns) body.pronouns = suppliedPronouns;
         body.firstName = firstName.trim();
         body.lastName  = lastName.trim();
+        // The page they came from (Issue #1203, Q6): stored with the account so
+        // the confirmation link, opened anywhere, returns them here after set-up.
+        const from = getFromParam();
+        if (from) body.returnTo = from;
       }
 
       const res = await fetch(endpoint, {
