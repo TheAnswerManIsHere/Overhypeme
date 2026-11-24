@@ -28,6 +28,7 @@ import type { CompiledImagePrompt, PromptSection, PromptWarning } from "../types
 import { renderPersonalized, hasUnresolvedFactTokens } from "../../renderCanonical";
 import { BASELINE_PIECES, BASELINE_RECIPE, fillPiece, type ResolvedRecipe } from "../recipe";
 import { VIOLENCE_RULE } from "../violenceRule";
+import { IMAGE_PROMPT_GENERATION_VERSION, PROMPT_GENERATION_VERSION_KEY } from "@workspace/api-zod";
 
 
 // Mirrors PROMPT_TOTAL_BUDGET (api-zod promptBudget.ts) — an editorial forcing
@@ -534,6 +535,10 @@ export function compileDirect(args: DirectCompileArgs): CompiledImagePrompt {
   const out: CompiledImagePrompt = {
     prompt,
     imagePrompt: prompt,
+    // The generation that compiled this prompt, recorded by the compile
+    // itself so every place that stores one keeps it (plan
+    // PLAN_FACT_LIFECYCLE_REBUILD.md 2C; read by lib/factAttention.ts).
+    [PROMPT_GENERATION_VERSION_KEY]: IMAGE_PROMPT_GENERATION_VERSION,
     promptBreakdown: breakdown,
     diagnostics: {
       removedPlannerProseSentences: [],

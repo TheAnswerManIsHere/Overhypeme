@@ -588,14 +588,20 @@ still lists three values, because stored attempts carry all three:
 - `human_identity_i2i` — preserve a recognizable human face (reference image).
 - `nonhuman_subject_i2i` — preserve an uploaded pet. A subject is a person or a
   pet: classification treats a photo whose only subject is a vehicle, object or
-  mascot as having no usable subject (`tier2Heuristics.ts`, analyzer v2;
+  mascot as having no usable subject (the AI vision check's prompt,
+  `FACT_SOURCE_CLASSIFIER_SYSTEM_DEFAULT` in `imagePromptConfig.ts`, analyzer v3;
   [the rule](./decisions.md#2026-11-15--a-pictures-subject-is-a-person-or-a-pet-vehicles-objects-and-mascots-are-not-subjects)).
 - `t2i_fallback` — **retired**: no reference. Refused when an attempt is
   queued (`NoPhotoRenderRefusedError`, `no_photo_render_retired`) and again in
   the worker; the compiler's dispatch throws on it. Old attempts keep the
   value and their readers keep its label.
 
-`tier2Heuristics.ts` suggests the mode from image analysis. A photo it cannot
+The AI vision check (`sourceImageAnalysis/`, `tier3AiVisionFallback.ts`)
+suggests the mode from the photo; it is the whole analysis since the fal
+object detector and the heuristics that read it were removed (David, Q9,
+Issue #945: the detector's endpoint no longer existed, so every photo read as
+"no subject" and the check was never reached). A skipped or failed check
+returns the photo unclassified and uncached. A photo it cannot
 use (no clear face or subject) is refused by the render-review path with
 `NoUsablePhotoError` (`no_usable_photo`, the analysis's own reasons), asking
 for a better photo, never drawn as an invented person. The planner's brief
@@ -750,7 +756,10 @@ classification joined with one gag's content (`gagRenderInput`,
   AI-picture flow (David, 2026-11-14, plan decisions 13 and 15).
 - **The list Phase 7 reads.** `availableGags(factId)`: a live fact's approved
   versions, default first then slot order, never a new gag or a pending change,
-  a refresh's picks and removals only after promotion; and
+  a refresh's picks and removals only after promotion, and never the
+  backfilled stand-in scene ("{NAME} stands there confidently.", migration
+  0092): a fact whose only approved gag is the stand-in offers none until a
+  real one is approved (David, Q8, Issue #1014); and
   `resolveOfferedGag(factId, gagId | null)`, the one way a non-moderator caller
   picks a gag (no name: the default; a name not available: refused, never
   replaced). Stored content reaches both through `normaliseGagContent`, the one

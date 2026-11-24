@@ -70,4 +70,15 @@ describe("AcceptTerms", () => {
     expect(window.sessionStorage.getItem("overhype.termsDeferred")).toBe("1");
     expect(setLocation).toHaveBeenCalledWith("/facts/3");
   });
+
+  it("points a member who is leaving to cancelling from Profile, without agreeing (Q27: 1)", () => {
+    window.history.replaceState(null, "", "/account/terms?returnTo=%2Ffacts%2F3");
+    render(<AcceptTerms />);
+    expect(screen.getByTestId("accept-terms-leaving").textContent).toBe(
+      "Leaving instead? You can cancel your membership from your profile.",
+    );
+    fireEvent.click(screen.getByTestId("accept-terms-cancel"));
+    expect(window.sessionStorage.getItem("overhype.termsDeferred")).toBe("1");
+    expect(setLocation).toHaveBeenCalledWith("/profile");
+  });
 });

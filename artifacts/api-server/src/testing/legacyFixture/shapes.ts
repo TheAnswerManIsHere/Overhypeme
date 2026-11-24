@@ -163,6 +163,7 @@ const aiMemeImagesProjection = z.object({
 /** `CompiledImagePrompt` (imagePrompt/types.ts:163-185) with its sections and diagnostics (types.ts:21-160). */
 const compiledPromptProjection = z.object({
   prompt: z.string(),
+  promptGenerationVersion: z.string().optional(),
   negativePrompt: z.string().optional(),
   engineNotes: z.string().optional(),
   imagePrompt: z.string(),
@@ -286,6 +287,7 @@ export const SHAPES: Record<ShapeName, ShapeDef> = {
     styleIntegration: "prose-deep",
   }),
   compiledPrompt: plain(compiledPromptProjection, {
+    promptGenerationVersion: "keep",
     referenceImageUrl: { media: "render-reference" },
     "promptBreakdown[*].id": "keep",
     "diagnostics.removedPlannerProseSentences[*].reason": "keep",

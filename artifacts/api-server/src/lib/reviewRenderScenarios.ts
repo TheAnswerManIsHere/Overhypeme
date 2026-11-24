@@ -14,8 +14,11 @@
  * with no review open), which the moderation list's coarse state reads.
  *
  * Durable + server-side: `image_prompt_attempts` rows are the source of truth.
- * Idempotent: the same gag+scenario+input-hash is enqueued at most once by a
- * non-force batch. Manual reruns intentionally create fresh attempts.
+ * Reuse is by content: a kind that already has a render of the gag's current
+ * picture-shaping content is not drawn again (`attemptForContent`, plan
+ * PLAN_GAG_EXAMPLES.md section C); a moderator's redraw intentionally creates
+ * a fresh attempt. The input hash is not the reuse key: it is recorded on each
+ * attempt and read only for the single-attempt status view's "stale" flag.
  */
 
 import { randomUUID } from "node:crypto";
@@ -113,7 +116,7 @@ export function syntheticAnalysisForReference(identityType: ReferenceIdentityTyp
   };
 }
 
-// ─── Pure input hash (no network) — shared by enqueue, idempotency, staleness ─
+// ─── Pure input hash (no network) — recorded on each attempt; read for staleness ─
 
 export function computeScenarioInputHash(
   scenarioKey: RenderScenarioKey,

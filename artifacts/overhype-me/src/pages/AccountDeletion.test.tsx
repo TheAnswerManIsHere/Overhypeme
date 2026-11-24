@@ -40,7 +40,7 @@ describe("AccountDeletion", () => {
     render(<AccountDeletion />);
     expect(screen.getByRole("heading").textContent).toBe("Your account is scheduled for deletion");
     expect(screen.getByText(/signed out everywhere/)).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Sign in" }).getAttribute("href")).toBe("/login?returnTo=%2Faccount%2Fdeletion");
+    expect(screen.getByRole("link", { name: "Sign in" }).getAttribute("href")).toBe("/login?from=%2Faccount%2Fdeletion");
   });
 
   it("signed in with a deletion pending: Keep my account brings it back", async () => {

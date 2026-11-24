@@ -46,9 +46,13 @@ in with a password, you can set one from your account settings without being
 asked to prove you know a password you never had — or follow a reset link,
 which works for an account that has no password yet.
 
-When the link to the login page carries where you came from, signing in
-takes you back there, and a new Google or Apple account carries it through
-set-up too. A link that carries no destination lands on the home page. That
+Every link to the login page carries the page you were on, so signing in
+takes you back there (David, 2026-11-21): the Sign In button in the top bar,
+the prompts to comment, rate or heart, the pricing page, the activity feed,
+the shared-meme page and "sign in to keep" an account scheduled for
+deletion. A new Google or Apple account carries it through set-up too. Only
+the home page and the sign-in pages themselves (forgot password, check your
+email and the like) carry nothing, and those land on the home page. That
 destination is only ever a page on our own site. Anything else — another
 site's address, or a disguised one — is ignored without a message, and you
 land on the home page. Otherwise a link to our login page could sign you in
