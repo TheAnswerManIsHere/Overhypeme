@@ -13,6 +13,7 @@
 import { ArrowRight, Crown, Download, Globe, Library, Lock, Share2, Trash2, Upload } from "lucide-react";
 import { useState } from "react";
 import { Link } from "wouter";
+import { loginHrefHere } from "@/lib/safe-return-to";
 import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
 import { CACHED_COPY_NOTICE } from "@/lib/cachedCopyNotice";
 
@@ -121,7 +122,7 @@ function TierLadderTeasers() {
   return (
     <div className="grid grid-cols-2 gap-2 mt-2">
       <Link
-        href="/login"
+        href={loginHrefHere()}
         data-testid="tier-ladder-signup"
         className="flex items-center gap-2 p-3 rounded-[10px] bg-card border border-border hover:border-primary/40 transition"
       >

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
+import { loginHrefHere } from "@/lib/safe-return-to";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
@@ -92,7 +93,7 @@ export default function Pricing() {
 
   async function handleSelect(priceId: string) {
     if (isReadOnlyNow()) return; // purchases are paused while the site is read-only (#1109)
-    if (!isAuthenticated) { setLocation("/login"); return; }
+    if (!isAuthenticated) { setLocation(loginHrefHere()); return; }
     setLoadingPriceId(priceId);
     setError(null);
     try {

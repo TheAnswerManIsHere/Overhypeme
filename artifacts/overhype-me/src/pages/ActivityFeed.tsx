@@ -5,6 +5,7 @@
 import { useState, useEffect } from "react";
 import { REJECTION_REASON_LABELS, type RejectionReason } from "@workspace/api-zod";
 import { useLocation, Link } from "wouter";
+import { loginHrefHere } from "@/lib/safe-return-to";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
@@ -177,7 +178,7 @@ export default function ActivityFeed() {
           <ShieldAlert className="w-16 h-16 text-primary mx-auto mb-6 opacity-80" />
           <h1 className="text-3xl font-display uppercase mb-4">Sign In Required</h1>
           <p className="text-muted-foreground mb-6">Your activity feed is only visible when you're signed in.</p>
-          <Button onClick={() => setLocation("/login")}>Sign In</Button>
+          <Button onClick={() => setLocation(loginHrefHere())}>Sign In</Button>
         </div>
       </Layout>
     );
