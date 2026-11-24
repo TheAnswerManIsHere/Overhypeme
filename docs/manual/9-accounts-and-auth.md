@@ -67,15 +67,25 @@ the right screen.
 2. **[Onboard](../ai-context/glossary.md#onboarding).** One screen for every
    sign-in method asks for your date of birth, confirms your pronouns and
    name, and records your marketing choice. The box is pre-ticked for
-   visitors in the US and unticked everywhere else. It also asks you to
-   pass one Cloudflare Turnstile challenge (proving you're a person). If
-   you leave half-way, your answers are kept for next time. **Under 13 is
-   refused**: nothing is stored and nothing is destroyed. Accounts that
-   existed before Phase 5 are asked once too.
+   visitors in the US and unticked everywhere else. You tick that you agree
+   to the Terms and have read the Privacy Policy, and the versions you saw
+   are recorded. It also asks you to pass one Cloudflare Turnstile
+   challenge (proving you're a person). If you leave half-way, your answers
+   are kept for next time. Accounts that existed before Phase 5 are asked
+   once too. **Overhype.me is for adults**, but the question doesn't say so
+   before you answer it. If you submit a date under 18, the account is told
+   the site is for adults and can only sign out or ask to be deleted, the
+   form can't be sent again with another date, and the browser remembers,
+   so a fresh sign-up there gets the same answer. Nothing is deleted
+   because of it; a set-up that's never finished is cleaned up in the usual
+   way. A mistyped date is fixed through support.
 3. **Act.** From then on the account can do everything its membership
-   allows. Adults (18 and over, worked out from the date of birth each time
-   it is needed, never stored as a flag) are also offered a profile photo,
-   and only adults can upload photos at all.
+   allows, including uploading a profile photo. Age is worked out from the
+   date of birth each time it's needed, never stored as a flag, so an
+   account that already existed with a date under 18 gets the same
+   adults-only screen. An account from before the Terms existed is asked
+   once to accept them, and asked again whenever they change; until it
+   does, it can look around but not act.
 
 **Your picture is your photo.** The photo you upload or choose as your
 profile photo is your picture everywhere the site shows one (the header,

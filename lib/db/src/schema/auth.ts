@@ -59,9 +59,13 @@ export const usersTable = pgTable("users", {
   // default, so an account created before the flow, or by an admin, stays
   // null and is never selected.
   registeredUnderOnboarding: boolean("registered_under_onboarding"),
-  // Age is derived from this at read time (13+, 18+), never stored as a flag.
-  // A date under 13 is refused before it is written.
+  // Age is derived from this at read time (18+), never stored as a flag. A
+  // submitted date under 18 is never written here (launch Phase 14, increment 4).
   dateOfBirth: date("date_of_birth", { mode: "string" }),
+  // When this account submitted a set-up form with a date under 18 (0162). The
+  // account can then only sign out or ask for deletion, and set-up cannot be
+  // resubmitted; the date itself is not stored. Null for everyone else.
+  ageRefusedAt: timestamp("age_refused_at", { withTimezone: true }),
   // Marketing consent is a record, not a boolean: when, how it was given
   // ('default_checked' | 'ticked' | 'declined') and which wording was shown.
   marketingConsentAt: timestamp("marketing_consent_at", { withTimezone: true }),

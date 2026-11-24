@@ -41,6 +41,7 @@ import { lockOwnerContent } from "../lib/contentVisibility.js";
 import { ObjectStorageService } from "../lib/objectStorage.js";
 import { memeKey } from "../lib/storageKeys.js";
 import { photoBackgrounds, solidJpeg } from "./helpers/photoBackground.js";
+import { acceptCurrentLegal } from "./helpers/legalAcceptance.js";
 
 const PREFIX = "t-p5del-";
 const PASSWORD = "correct horse battery staple";
@@ -65,6 +66,7 @@ async function createUser(opts: { password?: boolean; admin?: boolean; google?: 
     googleLinked: opts.google ?? false,
     isAdmin: opts.admin ?? false,
   });
+  await acceptCurrentLegal(id);
   return id;
 }
 

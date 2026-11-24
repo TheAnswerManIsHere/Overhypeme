@@ -19,7 +19,7 @@ const FORBIDDEN = /dicebear|avatarStyle|avatar_style|avatarSource|avatar_source|
 /** Files allowed to name the retired system: the guard itself, the migration's test, and assertions that it is gone. */
 const ALLOWED = new Set([
   "artifacts/overhype-me/src/lib/__tests__/avatarSystemRetired.test.ts",
-  "artifacts/api-server/src/__tests__/migration0162.retireAvatarSystem.test.ts",
+  "artifacts/api-server/src/__tests__/migration0163.retireAvatarSystem.test.ts",
   "artifacts/api-server/src/__tests__/routes.users.test.ts",
   "artifacts/overhype-me/e2e/photoUpload.spec.ts",
   "artifacts/overhype-me/e2e/adminPermissions.spec.ts",

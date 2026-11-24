@@ -27,6 +27,7 @@ import { createSession, SESSION_COOKIE, type SessionData } from "../lib/auth.js"
 import { __setAlertCaptureForTest, __setAlertReadinessForTest } from "../lib/operationalAlerts.js";
 import { __setOperationalHealthDepsForTest } from "../lib/operationalHealth.js";
 import { __resetIncidentCacheForTest } from "../routes/adminOperations.js";
+import { acceptCurrentLegal } from "./helpers/legalAcceptance.js";
 
 const WRITE = /^\s*(?:with\b[\s\S]*?\)\s*)?(insert|update|delete|merge|create|alter|drop|truncate)\b/i;
 let refused: string[] = [];
@@ -62,6 +63,7 @@ describe("Operations page, database readable but not writable, real request path
       id: userId, email: `${userId}@test.local`, isAdmin: true, membershipTier: "registered",
       emailVerifiedAt: new Date(), onboardingCompletedAt: new Date(),
     });
+    await acceptCurrentLegal(userId);
     const data: SessionData = {
       user: { id: userId, email: `${userId}@test.local`, isAdmin: true } as unknown as SessionData["user"],
       access_token: "test-token",

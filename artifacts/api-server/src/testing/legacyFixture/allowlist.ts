@@ -181,6 +181,8 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     suspendedAt: "null",
     suspendedReason: "null",
     suspendedBy: "map-user",
+    // 0162: a refusal records a real person's under-age answer; the fixture's people are adults.
+    ageRefusedAt: "null",
     adultVerifiedAt: "null",
     stripeCustomerId: "synthetic:stripe-customer",
     membershipTier: "keep",
@@ -566,6 +568,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
   exclude(s.transientRendersTable, "runtime-state", "IP-hash-keyed abuse log"),
   exclude(s.searchHistoryTable, "telemetry", "free-text search queries"),
   exclude(s.shareIntentsTable, "telemetry", "per-visitor share events"),
+  exclude(s.legalAcceptancesTable, "not-catalogue", "each account's acceptance of the Terms and Privacy page, written from 0162 on; the committed fixture predates it, and its people are asked once like every existing account"),
   exclude(s.supportRequestsTable, "telemetry", "support requests: private messages and the addresses that sent them, written from 0156 on"),
   exclude(s.activityFeedTable, "telemetry", "per-user notification prose"),
   exclude(s.adminActionsTable, "telemetry", "who did what to which fact: admin identities and their edits, written from 0152 on"),

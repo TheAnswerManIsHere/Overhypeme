@@ -31,14 +31,28 @@ async function rateLimited(req: Request, res: Response, endpoint: string): Promi
   return true;
 }
 
-// GET /users/me/deletion — the pending request, for the "Keep my account" screen.
+// GET /users/me/deletion — the pending request, for the "Keep my account"
+// screen, and how this account confirms a request (a password, or a fresh
+// Google or Apple sign-in): the one read an under-age account's deletion
+// journey needs, since it reads nothing else as itself (launch Phase 14).
 router.get("/users/me/deletion", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
-  const pending = await pendingDeletion(req.user.id);
+  const [pending, [signIn]] = await Promise.all([
+    pendingDeletion(req.user.id),
+    db
+      .select({ passwordHash: usersTable.passwordHash, googleLinked: usersTable.googleLinked, appleLinked: usersTable.appleLinked })
+      .from(usersTable)
+      .where(eq(usersTable.id, req.user.id))
+      .limit(1),
+  ]);
+  const confirmWith = {
+    hasPassword: !!signIn?.passwordHash,
+    linkedProviders: [signIn?.googleLinked ? "google" : null, signIn?.appleLinked ? "apple" : null].filter((p): p is string => p != null),
+  };
   res.setHeader("Cache-Control", "no-store");
   res.json(pending
-    ? { pending: true, requestedAt: pending.requestedAt.toISOString(), purgeAfter: pending.purgeAfter.toISOString(), cancellable: pending.stage !== "purging" }
-    : { pending: false });
+    ? { pending: true, requestedAt: pending.requestedAt.toISOString(), purgeAfter: pending.purgeAfter.toISOString(), cancellable: pending.stage !== "purging", confirmWith }
+    : { pending: false, confirmWith });
 });
 
 // POST /users/me/deletion — body { password? }. Schedules the account's

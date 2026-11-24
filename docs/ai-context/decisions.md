@@ -37,13 +37,13 @@
   - **Q3, age:** an account requires 18+. This replaces the 13+ sign-up gate of launch Phase 5 (#795).
   - **Q4, the operator:** Availeron Consulting, Inc., 745 5th Ave., Suite 500, New York, NY 10151.
   - **Q5, counsel:** no firm is chosen; Seed does not wait for one, and the counsel package is written to be ready whenever one is.
-  - **Q6, Cloudflare:** the zone stays on the Free plan, with Workers Free.
+  - **Q6, Cloudflare:** the zone is on the Free plan, with Workers Free.
   - **Q7–Q11, as recommended:**
     - Q7: Crimea and the whole Donetsk and Luhansk regions are refused, because an IP address cannot separate the occupied parts.
     - Q8: child-safety evidence is deleted one year and 30 days after filing unless a hold is recorded.
     - Q9: the published addresses are `legal@`, `privacy@`, `copyright@` and `support@overhype.me`, forwarded by Cloudflare Email Routing to a dedicated Gmail mailbox.
     - Q10: New York law and New York courts, with no arbitration until counsel advises.
-    - Q11: code-only exposure around Cloudflare is accepted if closing it is costly. Q20 later narrowed the whole geography scope (the 2026-11-19 entry).
+    - Q11: code-only exposure around Cloudflare is accepted only if both increment-3 tests fail (serving the web app's files from the protected API, and Replit's private deployment). Q20 later narrowed the whole geography scope (the 2026-11-19 entry).
   - **Q12:** the review gate was waived on PR #1038.
   - **Q13:** the four legal texts as drafted are approved.
   - **Q14:** the analytics notice informs and is not a consent switch.
@@ -54,7 +54,7 @@
   - **Q19:** made moot by Q21.
   - **Q22:** publish first, then deploy the country rule (done 2026-11-19).
   - **2026-11-20, the Privacy page read at version 2026-11-20.3 (PR #1123's UAT step 1):** approved as it stands. A member's mail in the support mailbox, contact-page copies included, is "kept until we delete it", with no deletion step at account deletion. PostHog stays printed as "up to 2 years", while the line under the table says each figure is the longest the provider allows (the internal list records 1 year on the Free plan this project is on and 2 years on pay-as-you-go: `privacyRetention.ts`).
-- **Built or not:** these are decisions. As of 2026-11-21, Q3 (18+) waits for increment 4, and Q2 and Q8 (the NCMEC path and its evidence period) wait for increment 7. Both increments wait on Issue #1018, and the code still refuses only under 13.
+- **Built or not:** these are decisions. As of 2026-11-23, Q3 (18+) is built by increment 4 (`MINIMUM_AGE = 18`; a submitted date under 18 recorded as a refusal on the account; `accounts-and-auth.md`, § Age), which also records Terms and Privacy acceptance. Q2 and Q8 (the NCMEC path and its evidence period) wait for increment 7, which waits on Issue #1018.
 - **Why:** each was David's call on a legal or product consequence no earlier decision covered. The recommendations and their reasoning are in the plan's *Questions for David* and on the issue. The 2026-11-20 read keeps two softer points public rather than adding a mailbox deletion step before Seed.
 - **Dissent:** none recorded. Two build reports on the issue (PR #1093, PR #1101) flagged the mailbox's missing end date and the PostHog figure; David read both and kept them.
 - **Revisit if:** counsel's review asks for a mailbox retention period or a provider's ceiling; PostHog moves off the Free plan; NCMEC cases pass five in 90 days; a firm is chosen (Q5).
@@ -420,7 +420,9 @@
   a fresh provider sign-in), starts cancelling the subscription at once, signs
   you out and hides your memes, photos and generated images, and purges after a **14-day** cooling-off unless
   "Keep my account" is pressed. Sign-ups that never finish onboarding are
-  cleaned up through the same engine after 30 days.
+  cleaned up through the same engine after 30 days. *(The age threshold is superseded by the Phase 14 entry above: 18+, and
+  since increment 4 a submitted date under 18 is recorded as a refusal on the
+  account. Still nothing is destroyed for it.)*
 - **Why:** David, 2026-10-30, picks and answers 2, 4, 6 and 7 on the Phase 5
   plan: deletion *"should be HARD to do without really meaning to,
   especially if there's anything that is irreversible."* Under 13 is

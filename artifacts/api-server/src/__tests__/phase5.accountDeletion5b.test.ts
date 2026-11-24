@@ -25,6 +25,7 @@ import {
 import { createSession, type SessionData } from "../lib/auth.js";
 import { buildAccountDeletionCancelledEmail, buildAccountDeletionScheduledEmail, buildUnfinishedAccountDeletionEmail } from "../lib/email.js";
 
+import { acceptCurrentLegal } from "./helpers/legalAcceptance.js";
 const PREFIX = "t-p5del5b-";
 const DAY = 86_400_000;
 
@@ -48,6 +49,7 @@ async function createUser(opts: { registered?: boolean | null; onboarded?: boole
     createdAt: new Date(Date.now() - (opts.ageDays ?? 0) * DAY),
     isAdmin: opts.admin ?? false,
   });
+  if (opts.onboarded) await acceptCurrentLegal(id);
   return id;
 }
 

@@ -1,10 +1,10 @@
 /**
- * Migration 0162 (plan docs/plans/PLAN_PHOTO_IS_YOUR_PICTURE.md, "Data Model
+ * Migration 0163 (plan docs/plans/PLAN_PHOTO_IS_YOUR_PICTURE.md, "Data Model
  * and Migration Impact"): the custom_avatar feature is captured then deleted, a
  * picture that is not a first-party upload is cleared, and the avatar columns
  * are dropped.
  *
- * The test database is built past 0162, so the test recreates the state 0162
+ * The test database is built past 0163, so the test recreates the state 0163
  * runs on: the two columns and the flag and tier rows are put back, the planted
  * users are written, and running the migration removes them again.
  */
@@ -19,15 +19,15 @@ import { db, pool } from "@workspace/db";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../../../..");
-const MIGRATION_SQL = readFileSync(path.join(ROOT, "lib/db/migrations/0162_retire_avatar_system.sql"), "utf8");
-const P = `t_0162_${randomUUID().slice(0, 8)}_`;
+const MIGRATION_SQL = readFileSync(path.join(ROOT, "lib/db/migrations/0163_retire_avatar_system.sql"), "utf8");
+const P = `t_0163_${randomUUID().slice(0, 8)}_`;
 
 const rows = async <T>(q: ReturnType<typeof sql>): Promise<T[]> => (await db.execute(q)).rows as T[];
 
 async function runMigration(): Promise<string[]> {
   const notices: string[] = [];
   const client = await pool.connect();
-  client.on("notice", (m) => { if (m.message?.startsWith("[0162]")) notices.push(m.message); });
+  client.on("notice", (m) => { if (m.message?.startsWith("[0163]")) notices.push(m.message); });
   try { await client.query(MIGRATION_SQL); } finally { client.release(); }
   return notices;
 }
@@ -35,7 +35,7 @@ async function runMigration(): Promise<string[]> {
 const pictureOf = async (id: string) =>
   (await rows<{ p: string | null }>(sql`SELECT profile_image_url AS p FROM users WHERE id = ${id}`))[0]!.p;
 
-describe("migration 0162: the avatar system is retired", () => {
+describe("migration 0163: the avatar system is retired", () => {
   const users = { photo: `${P}photo`, provider: `${P}provider`, none: `${P}none`, sneaky: `${P}sneaky` };
   const firstParty = `/api/storage/objects/uploads/${P}.jpg`;
   let logBefore = 0;
@@ -64,7 +64,7 @@ describe("migration 0162: the avatar system is retired", () => {
 
   after(async () => {
     await db.execute(sql`DELETE FROM users WHERE id LIKE ${`${P}%`}`);
-    await db.execute(sql`DELETE FROM feature_permissions_migration_log WHERE id > ${logBefore} AND migration_name = '0162_retire_avatar_system'`);
+    await db.execute(sql`DELETE FROM feature_permissions_migration_log WHERE id > ${logBefore} AND migration_name = '0163_retire_avatar_system'`);
   });
 
   it("captures the custom_avatar feature and its tier rows, then deletes them", async () => {
@@ -73,7 +73,7 @@ describe("migration 0162: the avatar system is retired", () => {
     assert.equal((await rows(sql`SELECT 1 FROM tier_feature_permissions WHERE feature_key = 'custom_avatar'`)).length, 0);
     const [log] = await rows<{ d: { feature_flags: unknown[]; tier_feature_permissions: unknown[] } }>(sql`
       SELECT deleted_rows AS d FROM feature_permissions_migration_log
-       WHERE id > ${logBefore} AND migration_name = '0162_retire_avatar_system'`);
+       WHERE id > ${logBefore} AND migration_name = '0163_retire_avatar_system'`);
     assert.equal(log!.d.feature_flags.length, 1, "the flag row is captured for recovery");
     assert.equal(log!.d.tier_feature_permissions.length, 4, "and its tier rows");
   });

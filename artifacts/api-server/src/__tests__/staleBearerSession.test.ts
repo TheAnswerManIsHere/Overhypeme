@@ -22,6 +22,7 @@ import { eq, like } from "drizzle-orm";
 import { createApp } from "../app.js";
 import { createSession, getSession, SESSION_COOKIE, type SessionData } from "../lib/auth.js";
 import { __setSuggestHashtagsForTest } from "../routes/ai.js";
+import { acceptCurrentLegal } from "./helpers/legalAcceptance.js";
 
 const USER_PREFIX = "t_stalebearer_";
 const ORIGIN = "https://app.example.com";
@@ -36,6 +37,7 @@ async function createUser(opts: { isAdmin?: boolean } = {}): Promise<string> {
     emailVerifiedAt: new Date(),
     onboardingCompletedAt: new Date(),
   });
+  await acceptCurrentLegal(id);
   return id;
 }
 

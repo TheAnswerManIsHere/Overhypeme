@@ -27,6 +27,7 @@ import { like, sql } from "drizzle-orm";
 
 import { createApp } from "../app.js";
 import { createSession, type SessionData } from "../lib/auth.js";
+import { acceptCurrentLegal } from "./helpers/legalAcceptance.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATION_SQL = readFileSync(
@@ -55,6 +56,7 @@ before(async () => {
   await cleanup();
   const adminId = `${PREFIX}${randomUUID()}`;
   await db.insert(usersTable).values({ id: adminId, email: `${adminId}@test.local`, isAdmin: true, membershipTier: "legendary", emailVerifiedAt: new Date(), onboardingCompletedAt: new Date() });
+  await acceptCurrentLegal(adminId);
   const data: SessionData = {
     user: { id: adminId, membershipTier: "legendary" } as unknown as SessionData["user"],
     access_token: "test-token",

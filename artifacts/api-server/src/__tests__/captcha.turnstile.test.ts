@@ -34,6 +34,7 @@ import factsRouter from "../routes/facts.js";
 import aiRouter from "../routes/ai.js";
 import shareRouter, { __resetShareInviteGuardsForTests } from "../routes/share.js";
 
+import { requiredLegalVersions } from "../lib/legalAcceptance.js";
 const USER_PREFIX = "t_turnstile_u_";
 const RECIPIENT_PREFIX = "tturnstileem-";
 
@@ -229,7 +230,10 @@ describe("Turnstile at every challenged route (a secret configured)", () => {
     await db.update(usersTable).set({ emailVerifiedAt: new Date() }).where(eq(usersTable.id, userId));
     const sid = await bearerFor(userId);
     const app = makeApp();
-    const body = { displayName: "Pat", pronouns: "they/them", dobYear: "1990", dobMonth: "6", dobDay: "15", marketingOptIn: false };
+    const body = {
+      displayName: "Pat", pronouns: "they/them", dobYear: "1990", dobMonth: "6", dobDay: "15", marketingOptIn: false,
+      legalAcceptance: requiredLegalVersions(),
+    };
     answer = "spent";
     const bad = await request(app).post("/users/me/onboarding").set("authorization", `Bearer ${sid}`).send({ ...body, captchaToken: "used" });
     assert.equal(bad.status, 400);

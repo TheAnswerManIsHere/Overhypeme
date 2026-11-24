@@ -1,12 +1,13 @@
 /**
  * The one onboarding screen (launch Phase 5, increment 3, #795; plan S22).
  *
- * @purpose Proves the display-name precedence (draft, the account's own display name, the browser's name, blank; a provider first name never counts) and that the screen leaves the browser copy to the account mirror, the pronoun precedence (draft, account, device for an account with none, name suggestion, blank), the client's age arithmetic to the day, that a reload brings the saved draft back into the form, that a date under 13 shows the refusal and keeps Finish disabled, and that Finish posts every field with the challenge token.
+ * @purpose Proves the display-name precedence (draft, the account's own display name, the browser's name, blank; a provider first name never counts) and that the screen leaves the browser copy to the account mirror, the pronoun precedence (draft, account, device for an account with none, name suggestion, blank), the client's age arithmetic to the day, that a reload brings the saved draft back into the form, that the date question states no age and a young date shows nothing before it is submitted, that Finish needs the Terms tick and posts every field with the challenge token and the legal versions shown, that a submitted under-age answer marks this browser and goes to the adults-only screen, and that a marked browser is sent there without being asked.
  * @subsystem accounts-auth
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import Onboard, { ageFromParts, initialDisplayName, initialPronouns } from "./Onboard";
+import { LEGAL_VERSIONS } from "@/generated/legal";
 
 const setLocation = vi.fn();
 const syncFromProfile = vi.fn();
@@ -129,7 +130,7 @@ describe("Onboard screen", () => {
     expect(await screen.findByLabelText("Year")).toHaveProperty("value", "1990");
     expect((screen.getByLabelText("Month") as HTMLInputElement).value).toBe("6");
     expect((screen.getByLabelText("Day") as HTMLInputElement).value).toBe("15");
-    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("checkbox", { name: /Send me emails/ }) as HTMLInputElement).checked).toBe(true);
   });
 
   // Names-and-fonts plan: a Google or Apple name the rule can't hold is not
@@ -139,25 +140,72 @@ describe("Onboard screen", () => {
     expect((await screen.findByTestId("onboard-name-guidance")).textContent).toMatch(/Write your name in English letters/);
   });
 
-  it("a date under 13 shows the refusal and Finish stays disabled", async () => {
-    render(<Onboard />);
+  // Launch Phase 14, increment 4 (Q3): the question is neutral — no age is
+  // stated before it is answered, and a young date says nothing until submitted.
+  it("states no age, and a young date shows nothing and blocks nothing before it is submitted", async () => {
+    const { container } = render(<Onboard />);
     const year = await screen.findByLabelText("Year");
-    fireEvent.change(year, { target: { value: String(new Date().getUTCFullYear() - 5) } });
+    expect(container.textContent).not.toMatch(/\b(13|18)\b|adult|over\b/i);
+    fireEvent.change(year, { target: { value: String(new Date().getUTCFullYear() - 15) } });
     fireEvent.click(screen.getByTestId("turnstile-pass"));
-    expect(screen.getByRole("alert").textContent).toContain("13 and over");
-    expect((screen.getByRole("button", { name: "Finish set-up" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("onboard-legal-agree"));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect((screen.getByRole("button", { name: "Finish set-up" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it("Finish posts every field with the challenge token", async () => {
+  it("Finish needs the Terms tick", async () => {
     render(<Onboard />);
     await screen.findByLabelText("Year");
     fireEvent.click(screen.getByTestId("turnstile-pass"));
+    expect((screen.getByRole("button", { name: "Finish set-up" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("onboard-legal-agree"));
+    expect((screen.getByRole("button", { name: "Finish set-up" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("Finish posts every field with the challenge token and the legal versions shown", async () => {
+    render(<Onboard />);
+    await screen.findByLabelText("Year");
+    fireEvent.click(screen.getByTestId("turnstile-pass"));
+    fireEvent.click(screen.getByTestId("onboard-legal-agree"));
     fireEvent.click(screen.getByRole("button", { name: "Finish set-up" }));
     await waitFor(() => expect(calls.some((c) => c.url.endsWith("api/users/me/onboarding") && c.init?.method === "POST")).toBe(true));
     const post = calls.find((c) => c.url.endsWith("api/users/me/onboarding") && c.init?.method === "POST")!;
     expect(JSON.parse(String(post.init!.body))).toEqual({
       displayName: "Sarah", pronouns: "they/them", dobYear: "1990", dobMonth: "6", dobDay: "15", marketingOptIn: true, captchaToken: "tok-1",
+      legalAcceptance: { terms: LEGAL_VERSIONS.terms, privacy: LEGAL_VERSIONS.privacy },
     });
+  });
+
+  it("a submitted under-age answer marks this browser and goes to the adults-only screen", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      if (url.endsWith("api/auth/onboarding")) {
+        return new Response(JSON.stringify({
+          completed: false, emailVerified: true, marketingDefault: false, marketingWordingVersion: "v",
+          accountPronouns: null, displayName: "Sam", providerFirstName: null,
+          draft: { pronouns: "they/them", dobYear: "2012", dobMonth: "6", dobDay: "15" },
+        }), { status: 200 });
+      }
+      if (url.endsWith("api/users/me/onboarding") && init?.method === "POST") {
+        return new Response(JSON.stringify({ error: "Overhype.me is for adults.", code: "UNDER_AGE" }), { status: 422 });
+      }
+      return new Response(JSON.stringify({ saved: true }), { status: 200 });
+    }));
+    render(<Onboard />);
+    await screen.findByLabelText("Year");
+    fireEvent.click(screen.getByTestId("turnstile-pass"));
+    fireEvent.click(screen.getByTestId("onboard-legal-agree"));
+    fireEvent.click(screen.getByRole("button", { name: "Finish set-up" }));
+    await waitFor(() => expect(setLocation).toHaveBeenCalledWith("/account/adults-only"));
+    expect(window.localStorage.getItem("overhype.ageRefused")).toBe("1");
+    window.localStorage.removeItem("overhype.ageRefused");
+  });
+
+  it("a browser marked by an earlier under-age answer is sent to the adults-only screen without being asked", async () => {
+    window.localStorage.setItem("overhype.ageRefused", "1");
+    render(<Onboard />);
+    await waitFor(() => expect(setLocation).toHaveBeenCalledWith("/account/adults-only"));
+    window.localStorage.removeItem("overhype.ageRefused");
   });
 
   it("starts the name from the browser, not the provider's first name, and requires one", async () => {
@@ -178,6 +226,7 @@ describe("Onboard screen", () => {
     await screen.findByLabelText("Year");
     expect(personaliseSpy).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId("turnstile-pass"));
+    fireEvent.click(screen.getByTestId("onboard-legal-agree"));
     fireEvent.click(screen.getByRole("button", { name: "Finish set-up" }));
     await waitFor(() => expect(personaliseSpy).toHaveBeenCalledTimes(1));
   });
@@ -201,6 +250,7 @@ describe("Onboard screen", () => {
     render(<Onboard />);
     await screen.findByLabelText("Year");
     fireEvent.click(screen.getByTestId("turnstile-pass"));
+    fireEvent.click(screen.getByTestId("onboard-legal-agree"));
     fireEvent.click(screen.getByRole("button", { name: "Finish set-up" }));
     await screen.findByText("The challenge didn't pass. Try it again.");
     expect(personaliseSpy).not.toHaveBeenCalled();
@@ -210,6 +260,7 @@ describe("Onboard screen", () => {
     render(<Onboard />);
     await screen.findByLabelText("Year");
     fireEvent.click(screen.getByTestId("turnstile-pass"));
+    fireEvent.click(screen.getByTestId("onboard-legal-agree"));
     fireEvent.click(screen.getByRole("button", { name: "Finish set-up" }));
     await waitFor(() => expect(calls.some((c) => c.url.endsWith("api/users/me/onboarding") && c.init?.method === "POST")).toBe(true));
     await new Promise((r) => setTimeout(r, 20));

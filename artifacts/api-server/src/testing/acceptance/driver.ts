@@ -45,6 +45,7 @@ import sharp from "sharp";
 import { checkImage } from "./imageCheck";
 import { renderCoverageProblems, settledBaselineRenders } from "../aiBaselineCoverage";
 
+import { requiredLegalVersions } from "../../lib/legalAcceptance";
 /**
  * Two decoded pictures (raw pixels, same size) are the same drawing when no colour value differs by more than
  * SAME_DRAWING_TOLERANCE: each saved meme carries its own invisible watermark (image tracing, #912), which moves
@@ -261,11 +262,22 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
     // Existing accounts are asked once at their next sign-in (launch Phase 5):
     // each completes the one onboarding screen before it acts. A second
     // completion is a no-op, so an already-onboarded account passes through.
-    const onboarding = { pronouns: "they/them", dobYear: "1990", dobMonth: "1", dobDay: "1", marketingOptIn: false, captchaToken: "baseline" };
-    await free.json("2", "POST", "/api/users/me/onboarding", onboarding);
-    await paid.json("7", "POST", "/api/users/me/onboarding", onboarding);
-    await admin.json("3", "POST", "/api/users/me/onboarding", onboarding);
-    log("onboarded: free, paid, admin");
+    // Set-up records the account's agreement to the current Terms and Privacy
+    // page (launch Phase 14, increment 4).
+    const onboarding = {
+      pronouns: "they/them", dobYear: "1990", dobMonth: "1", dobDay: "1", marketingOptIn: false, captchaToken: "baseline",
+      legalAcceptance: requiredLegalVersions(),
+    };
+    // Each account takes the step its state asks for: set-up (which records
+    // the acceptance) for one not yet onboarded, and the existing-account
+    // acceptance for one onboarded before acceptance existed (the fixture's).
+    for (const [client, journey] of [[free, "2"], [paid, "7"], [admin, "3"]] as const) {
+      const me = await client.json<{ user?: { eligibility?: string } }>(journey, "GET", "/api/auth/user");
+      const state = me?.user?.eligibility;
+      if (state === "unonboarded") await client.json(journey, "POST", "/api/users/me/onboarding", onboarding);
+      else if (state === "terms_unaccepted") await client.json(journey, "POST", "/api/users/me/legal-acceptance", onboarding.legalAcceptance);
+    }
+    log("onboarded and accepted: free, paid, admin");
   } catch (err) {
     return { ...result(), setupError: (err as Error).message };
   }

@@ -57,6 +57,7 @@ const { and, eq, inArray, isNull } = await import("drizzle-orm");
 const { ensureBootstrapAdmin } = await import("./lib/bootstrapAdmin");
 const { authorizeAdminGrant } = await import("../src/lib/entitlementVerification");
 const { applyAdminGrant } = await import("../src/lib/membershipSources");
+const { recordLegalAcceptance } = await import("../src/lib/legalAcceptance");
 
 const passwordHash = await bcrypt.hash(definitions.password, Number(process.env.BCRYPT_SALT_ROUNDS ?? 10));
 
@@ -99,6 +100,13 @@ await db
   .update(usersTable)
   .set({ pronouns: "they/them" })
   .where(and(eq(usersTable.id, admin.id), isNull(usersTable.pronouns)));
+
+// Each journey account has accepted the current Terms and Privacy page, as an
+// account set up since launch Phase 14 has, so the verified-actor gate lets it
+// act. Re-running adds nothing: an acceptance already held is skipped.
+for (const id of [freeId, paidId, admin.id]) {
+  await recordLegalAcceptance(db, id);
+}
 
 const { created } = await applyAdminGrant(
   authorizeAdminGrant({

@@ -5,7 +5,7 @@
 --
 -- 1. The custom_avatar feature (the Legendary photo-avatar perk), captured
 --    whole into feature_permissions_migration_log.deleted_rows under
---    '0162_retire_avatar_system', then deleted (tier rows first).
+--    '0163_retire_avatar_system', then deleted (tier rows first).
 -- 2. A picture that is not a first-party upload (a Google or Apple picture URL
 --    copied in by sign-in before this change) is cleared: a member's picture is
 --    only ever a photo they uploaded. Their next Google sign-in copies the
@@ -50,7 +50,7 @@ BEGIN
     DELETE FROM tier_feature_permissions WHERE feature_key = 'custom_avatar';
     DELETE FROM feature_flags WHERE key = 'custom_avatar';
     INSERT INTO feature_permissions_migration_log (migration_name, deleted_rows)
-      VALUES ('0162_retire_avatar_system', v_deleted);
+      VALUES ('0163_retire_avatar_system', v_deleted);
     -- The grid changed shape, so clients holding the old revision refetch.
     UPDATE entitlement_grid_revision SET revision = revision + 1 WHERE id = 1;
   END IF;
@@ -67,7 +67,7 @@ BEGIN
   ALTER TABLE users DROP COLUMN IF EXISTS avatar_style;
   ALTER TABLE users DROP COLUMN IF EXISTS avatar_source;
 
-  RAISE NOTICE '[0162] features retired: %, tier rows retired: %, provider pictures cleared: %, avatar columns dropped: %, failed 0',
+  RAISE NOTICE '[0163] features retired: %, tier rows retired: %, provider pictures cleared: %, avatar columns dropped: %, failed 0',
     coalesce(jsonb_array_length(v_deleted->'feature_flags'), 0),
     coalesce(jsonb_array_length(v_deleted->'tier_feature_permissions'), 0),
     v_pictures, v_columns;

@@ -1,10 +1,11 @@
 /**
- * @purpose The one onboarding screen every sign-in method reaches once its email is verified (launch Phase 5, plan S8, S22): the display name (draft, the account's own display name, the browser's name, else blank and required; a provider first name never counts — identity-flow Phase 2), pronouns (draft, the account's stored choice, the device's choice for a new account, then the name suggestion, else blank and required), date of birth (under 13 refused, nothing stored), the marketing box with the server's default, and a Turnstile challenge; progress is saved as a draft so a reload resumes it; an adult then gets the optional profile-photo step, and everyone goes to the safe returnTo.
+ * @purpose The one onboarding screen every sign-in method reaches once its email is verified (launch Phase 5, plan S8, S22): the display name (draft, the account's own display name, the browser's name, else blank and required; a provider first name never counts — identity-flow Phase 2), pronouns (draft, the account's stored choice, the device's choice for a new account, then the name suggestion, else blank and required), date of birth asked neutrally, with no age stated before it is answered (a submitted date under 18 sends the account, and marks this browser, to the adults-only screen; launch Phase 14, increment 4), agreement to the Terms and acknowledgement of the Privacy Policy as one explicit tick recording the versions shown, the marketing box with the server's default, and a Turnstile challenge; progress is saved as a draft so a reload resumes it; an adult then gets the optional profile-photo step, and everyone goes to the safe returnTo.
  * @subsystem accounts-auth
  */
 import { useEffect, useRef, useState } from "react";
-import { useLocation } from "wouter";
-import { LegalNotice } from "@/components/legal/LegalLinks";
+import { Link, useLocation } from "wouter";
+import { shownLegalVersions } from "@/lib/legal-versions";
+import { ADULTS_ONLY_PATH, isAgeRefusedBrowser, markAgeRefusedBrowser } from "@/lib/age-refusal";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Camera, Upload, Loader2, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -108,7 +109,7 @@ export default function Onboard() {
   const [captchaToken, setCaptchaToken] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [underAge, setUnderAge] = useState(false);
+  const [legalAgreed, setLegalAgreed] = useState(false);
 
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string>("");
@@ -147,6 +148,12 @@ export default function Onboard() {
   }, [photoPreview]);
 
   const returnTo = typeof window === "undefined" ? "/" : returnToFromSearch(window.location.search);
+
+  // Someone in this browser already gave a date under 18: a fresh sign-up
+  // here is told the same without being asked again (launch Phase 14, Q3).
+  useEffect(() => {
+    if (isAgeRefusedBrowser()) setLocation(ADULTS_ONLY_PATH);
+  }, [setLocation]);
 
   function finish() {
     setLocation(returnTo);
@@ -215,8 +222,9 @@ export default function Onboard() {
           credentials: "include",
           body,
         });
+        // A draft with a date under 18 is simply not saved and says nothing:
+        // only a submitted date is an answer (launch Phase 14, increment 4).
         if (res.ok) lastSavedDraft.current = body;
-        if (res.status === 422) setUnderAge(true);
       } catch {
         // A missed draft save loses nothing the form still holds.
       }
@@ -227,8 +235,7 @@ export default function Onboard() {
   }, [step, displayName, pronouns, dobYear, dobMonth, dobDay, marketingOptIn, readOnly]);
 
   const age = ageFromParts(dobYear, dobMonth, dobDay);
-  const tooYoung = underAge || (age != null && age < 13);
-  const canSubmit = !!displayName.trim() && !nameField.tooLong && !!pronouns && age != null && !tooYoung && !!captchaToken && !submitting;
+  const canSubmit = !!displayName.trim() && !nameField.tooLong && !!pronouns && age != null && legalAgreed && !!captchaToken && !submitting;
 
   async function handleSubmit() {
     if (!canSubmit) return;
@@ -241,11 +248,20 @@ export default function Onboard() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ displayName, pronouns, dobYear, dobMonth, dobDay, marketingOptIn, captchaToken }),
+        body: JSON.stringify({
+          displayName, pronouns, dobYear, dobMonth, dobDay, marketingOptIn, captchaToken,
+          legalAcceptance: shownLegalVersions(),
+        }),
       });
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
-        if (data.code === "UNDER_AGE") setUnderAge(true);
+        if (data.code === "UNDER_AGE") {
+          // Recorded on the account by the server; this browser is marked too.
+          markAgeRefusedBrowser();
+          await refreshUser();
+          setLocation(ADULTS_ONLY_PATH);
+          return;
+        }
         setError(data.error || "That didn't go through. Try again.");
         captchaRef.current?.reset();
         setCaptchaToken("");
@@ -259,9 +275,9 @@ export default function Onboard() {
       // through AccountIdentityMirror (identity-flow Phase 2): a re-read that
       // failed, or that sign-out discarded, publishes nothing as confirmed.
       await refreshUser();
-      // Photo uploads are for members 18 and over (plan S12).
-      if (age != null && age >= 18) setStep("photo");
-      else finish();
+      // Every account that completes set-up is 18 or over, so photo uploads
+      // are open to it (plan S12).
+      setStep("photo");
     } catch {
       setError("Network error. Try again.");
       captchaRef.current?.reset();
@@ -524,7 +540,7 @@ export default function Onboard() {
               placeholder="MM"
               maxLength={2}
               value={dobMonth}
-              onChange={(e) => { setUnderAge(false); setDobMonth(e.target.value.replace(/\D/g, "")); }}
+              onChange={(e) => setDobMonth(e.target.value.replace(/\D/g, ""))}
               className={dobInput}
             />
             <input
@@ -533,7 +549,7 @@ export default function Onboard() {
               placeholder="DD"
               maxLength={2}
               value={dobDay}
-              onChange={(e) => { setUnderAge(false); setDobDay(e.target.value.replace(/\D/g, "")); }}
+              onChange={(e) => setDobDay(e.target.value.replace(/\D/g, ""))}
               className={dobInput}
             />
             <input
@@ -542,16 +558,11 @@ export default function Onboard() {
               placeholder="YYYY"
               maxLength={4}
               value={dobYear}
-              onChange={(e) => { setUnderAge(false); setDobYear(e.target.value.replace(/\D/g, "")); }}
+              onChange={(e) => setDobYear(e.target.value.replace(/\D/g, ""))}
               className={dobInput}
             />
           </div>
-          {tooYoung && (
-            <p className="text-destructive text-sm font-medium" role="alert">
-              Overhype.me is for people 13 and over, so we can't set up this account.
-            </p>
-          )}
-          {!tooYoung && dobYear.length === 4 && !!dobMonth && !!dobDay && age == null && (
+          {dobYear.length === 4 && !!dobMonth && !!dobDay && age == null && (
             <p className="text-destructive text-sm font-medium" role="alert">That isn't a real date.</p>
           )}
         </section>
@@ -575,7 +586,21 @@ export default function Onboard() {
           />
         </div>
 
-        {error && !tooYoung && (
+        <label className="flex items-start gap-3 text-sm text-foreground cursor-pointer">
+          <input
+            type="checkbox"
+            checked={legalAgreed}
+            onChange={(e) => setLegalAgreed(e.target.checked)}
+            className="mt-0.5 h-4 w-4 accent-primary"
+            data-testid="onboard-legal-agree"
+          />
+          <span>
+            I agree to the <Link href="/terms" className="underline hover:text-primary">Terms of Service</Link> and
+            I've read the <Link href="/privacy" className="underline hover:text-primary">Privacy Policy</Link>.
+          </span>
+        </label>
+
+        {error && (
           <p className="text-destructive text-sm font-medium text-center" role="alert">{error}</p>
         )}
 
@@ -584,7 +609,6 @@ export default function Onboard() {
           {submitting ? "Saving…" : "Finish set-up"}
         </Button>
         </PausedWhenReadOnly>
-        <LegalNotice />
         {!pronouns && (
           <p className="text-xs text-muted-foreground text-center">Choose your pronouns to finish.</p>
         )}

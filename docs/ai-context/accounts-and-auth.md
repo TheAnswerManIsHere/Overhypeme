@@ -84,12 +84,16 @@ the server enforces it:
 - **Eligibility** is derived from the row on every request
   (`artifacts/api-server/src/lib/eligibility.ts`, `eligibilityOf`), first
   reason wins: `suspended` while `suspended_at` is set (§ Suspension),
+  `underage` while `age_refused_at` is set or an onboarded account's
+  `date_of_birth` is under 18 (§ Age, audience and the NSFW opt-in),
   `deletion_pending` while the account has an active deletion request
   (`userLeaving()`, § Account deletion), `unverified` while
   `email_verified_at` is null, `unonboarded` while
-  `onboarding_completed_at` is null, else `eligible`.
-  `authMiddleware` puts it on `req.user.eligibility`, with `is13Plus` and
-  `is18Plus` derived from `date_of_birth` at read time, never stored.
+  `onboarding_completed_at` is null, `terms_unaccepted` while the account
+  holds no `legal_acceptances` row at the current version of both the Terms
+  and the Privacy page (§ Terms and Privacy acceptance), else `eligible`.
+  `authMiddleware` puts it on `req.user.eligibility`, with `is18Plus`
+  derived from `date_of_birth` at read time, never stored.
   `identityFieldsOf(row)` is the one derivation, spread by `authMiddleware`
   and by the test app (`buildTestApp`), so a test double cannot drift from
   production.
@@ -97,16 +101,27 @@ the server enforces it:
   installed after `authMiddleware` in `app.ts`) refuses every unsafe-method
   request, and the inventoried GETs that write (`GET /link/:provider`), from
   a signed-in account that is not eligible: 403 with
-  `ACCOUNT_SUSPENDED`, `DELETION_PENDING`, `EMAIL_VERIFICATION_REQUIRED` or
-  `ONBOARDING_REQUIRED`. Its exported `GATE_EXCEPTIONS` table (state →
+  `ACCOUNT_SUSPENDED`, `UNDER_AGE`, `DELETION_PENDING`,
+  `EMAIL_VERIFICATION_REQUIRED`, `ONBOARDING_REQUIRED` or
+  `TERMS_ACCEPTANCE_REQUIRED`. Its exported `GATE_EXCEPTIONS` table (state →
   routes) is the only statement of who may write in each state: the
   recovery routes (register, local login, forgot/reset password, resend
   verification, logout, the Apple callback, the dev-admin login) for an
   unverified or un-onboarded account, the two onboarding routes and a
   deletion request (a verified account that never finished set-up may still
   leave) for an un-onboarded one, "Keep my account" (`POST /users/me/deletion/cancel`)
-  (beside the recovery routes) for a pending deletion, and only logout for
-  a suspended account.
+  (beside the recovery routes) for a pending deletion, only logout for
+  a suspended account, logout, a deletion request and the Apple sign-in
+  callback for an under-age account (the callback is the deletion request's
+  identity proof for an Apple-only account; not cancelling a deletion, not
+  resubmitting set-up, no other sign-in or recovery route), and the recovery
+  routes, `POST /users/me/legal-acceptance` and a deletion request for one
+  that has not accepted the current Terms. The contact form is open in
+  every state. **An under-age account's reads are narrowed too**: every GET
+  outside `UNDER_AGE_READS` (`GET /auth/user`, `GET /logout`,
+  `GET /users/me/deletion`) runs with `req.user` cleared, exactly as a
+  signed-out visitor's would — how a suspended account, holding no session,
+  already reads.
   `phase5.verifiedActorGate.test.ts` keeps a hand-written copy of that
   table from the plan and diffs it. The gate matches paths and methods the
   way Express does — case-insensitively, and HEAD as GET — because a gate
@@ -131,20 +146,29 @@ the server enforces it:
   stored pronouns and name, the marketing default — ticked when Cloudflare's
   `CF-IPCountry` is `US`, unticked otherwise or when absent — and the
   wording version), `PUT /users/me/onboarding/draft` (saves the
-  half-finished form; a complete date under 13 is refused `UNDER_AGE` and
-  nothing is written), and `POST /users/me/onboarding` (a fresh Turnstile
-  token, then date of birth, pronouns, the consent record —
-  `marketing_consent_at`, `_method` `default_checked`/`ticked`/`declined`,
-  `_wording_version` — and `onboarding_completed_at` in one write, the draft
-  cleared; under 13 refused with nothing stored and nothing destroyed;
-  completing twice changes nothing). An adult is then offered the optional
-  profile photo, which becomes their picture ([*A member's picture*](#a-members-picture)).
+  half-finished form; a complete date under 18 is refused `UNDER_AGE` and
+  nothing is written, and no refusal is recorded: a draft is not an answer),
+  and `POST /users/me/onboarding` (a submitted date under 18 is recorded as
+  `age_refused_at` on the account — the date itself is not stored, nothing
+  is destroyed — and answered `UNDER_AGE`; otherwise the current Terms and
+  Privacy versions the screen showed, `legalAcceptance: { terms, privacy }`,
+  checked server-side, then a fresh Turnstile token, then date of birth,
+  pronouns, the consent record — `marketing_consent_at`, `_method`
+  `default_checked`/`ticked`/`declined`, `_wording_version` — and
+  `onboarding_completed_at` in one transaction with the acceptance rows, the
+  draft cleared; completing twice changes nothing). The date question states
+  no age before it is answered, and a young date in a draft says nothing.
+  Every account that completes set-up is 18 or over and is then offered the
+  optional profile photo, which becomes their picture ([*A member's picture*](#a-members-picture)).
 - **The web shell** (`App.tsx`'s `SetupRedirect`, rule in
   `artifacts/overhype-me/src/lib/setup-redirect.ts`) sends a suspended
   account to `/account/suspended`, one scheduled for deletion to
   `/account/deletion` ("Keep my account"), an unverified account to
-  `/check-email` and an un-onboarded one to `/onboard`, the last two with
-  `returnTo` (built from the raw `window.location.search`, because wouter's
+  `/check-email`, an un-onboarded one to `/onboard`, an under-age one to
+  `/account/adults-only`, and one without a current acceptance to
+  `/account/terms` (until it chooses "Not now", which lasts the browser
+  visit), `/check-email`, `/onboard` and `/account/terms` with `returnTo`
+  (built from the raw `window.location.search`, because wouter's
   `useSearch` decodes it); the verification link lands on `/onboard`.
   Convenience only: the gate is the enforcement. Google/Apple sign-ups are
   still sent to `/onboard` on their first login (`isNewUser`), which the
@@ -477,9 +501,29 @@ a forward migration ([`docs/retired/README.md`](../retired/README.md)).
 
 ## Age, audience and the NSFW opt-in
 
-- **Age is a date, derived at read** (`date_of_birth`, required at
-  onboarding, no fallback). Under 13 is refused and nothing is stored or
-  destroyed; 18+ (`is18Plus`) is required at every photo-upload route.
+- **An account requires 18+** (launch Phase 14, Q3; `MINIMUM_AGE = 18` in
+  `artifacts/api-server/src/lib/eligibility.ts`). **Age is a date, derived at read** (`date_of_birth`,
+  required at onboarding, no fallback), so an account turns 18 with no job
+  and no migration. The question is neutral: a full date, no age stated
+  before it is answered.
+- **A submitted date under 18 is a refusal recorded on the account**
+  (`users.age_refused_at`, 0162), not the date: the account is `underage`
+  for good — it can sign out or ask for deletion and nothing else, reads
+  included — and set-up cannot be resubmitted with another date. Nothing is
+  destroyed (decisions.md, 2026-10-30): the unfinished-sign-up clean-up
+  removes the account at 30 days as before, unless its owner asked for
+  deletion first. The browser is marked too (`localStorage`
+  `overhype.ageRefused`, no expiry, no personal data), so a fresh sign-up
+  there is shown `/account/adults-only` without being asked; another browser
+  and email is an accepted limit, and no identity check exists. A mistyped
+  date is corrected through support, and the screen says so.
+- **An onboarded account whose stored date is under 18** is `underage` by
+  the same derivation, with the same restriction and the deletion journey
+  open. `/account/adults-only` offers sign-out and the deletion form; the
+  form's provider re-sign-in returns there, and `GET /users/me/deletion`
+  says how the account confirms (`confirmWith`), since it reads nothing
+  else as itself. 18+ (`is18Plus`) is still checked at every photo-upload
+  route, which now catches only an onboarded account with no date.
 - **The data model is ready for adult content without shipping it**
   (Increment 6b, 0121). `facts`, `memes` and `user_ai_images` carry an
   `audience` marker (`general|adult`, CHECK, default `general`), and
@@ -498,6 +542,31 @@ a forward migration ([`docs/retired/README.md`](../retired/README.md)).
   and was dropped by migration 0122 once that release was published. Meme generation always passed "off", so the
   withdrawal changed photo uploads only. Scoring a baked meme as a whole is
   carried to Phase 9 (moderation).
+
+## Terms and Privacy acceptance
+
+- **Agreeing to the Terms and acknowledging the Privacy page is recorded**
+  (launch Phase 14, increment 4; plan S-b): one `legal_acceptances` row per
+  (account, document, version) with its time, document `terms` or
+  `privacy`; the unique index makes a repeated acceptance of one version add
+  nothing, and a new version is a new row beside the old. Never updated —
+  append-only by convention (the code has no update path; the database does
+  not refuse one) — and removed with the account by cascade.
+  No backfill: no account had accepted anything when it shipped.
+- **The current version is the one the page renders**: the legal generator
+  writes `lib/db/src/generated/legalVersions.ts` (`CURRENT_LEGAL_VERSIONS`)
+  from `docs/legal/`, beside the web pages, and its check fails on drift, so
+  the server and the pages cannot name different versions. A client names
+  the versions it showed; `checkAcceptance` (`artifacts/api-server/src/lib/legalAcceptance.ts`)
+  refuses a missing one (`LEGAL_ACCEPTANCE_MISSING`) or one that is not
+  current (`LEGAL_VERSION_OUTDATED`), so an old or invented version is
+  never recorded.
+- **New accounts accept at set-up**, a required tick on the onboarding
+  screen, recorded in the same transaction as the completion. **Existing
+  accounts are asked once**, on `/account/terms` (`GET`/`POST
+  /users/me/legal-acceptance`), and again when either version changes. Until
+  then they are `terms_unaccepted`: they read everything and act on
+  nothing; "Not now" lets them keep reading for the browser visit.
 
 ## Session management
 
