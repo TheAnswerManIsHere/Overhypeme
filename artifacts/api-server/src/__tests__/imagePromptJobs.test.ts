@@ -32,7 +32,7 @@ import { photoBackgrounds } from "./helpers/photoBackground.js";
 import { __setUtilityLLMClientForTest } from "../lib/utilityLLM.js";
 import { __setRenderFalForTest, type FalHistoryEntry, type RenderFal } from "../lib/renderFalTransport.js";
 import { __setRecoveryClockForTest, recoverLostReceipt } from "../lib/renderRequestRecovery.js";
-import { defaultIdentityPolicyForRenderMode } from "@workspace/api-zod";
+import { defaultIdentityPolicyForRenderMode, IMAGE_PROMPT_GENERATION_VERSION, PROMPT_GENERATION_VERSION_KEY } from "@workspace/api-zod";
 import { withCast } from "./helpers/gagCast.js";
 
 const USER_PREFIX = "t_ipj_";
@@ -297,6 +297,8 @@ describe("image_prompt_generation handler — Concept with compiler-owned langua
     );
     // Kept verbatim, with the subject name resolved.
     assert.match(compiled.imagePrompt, /Ensure David's recognizable face is preserved\./);
+    assert.equal((compiled as Record<string, unknown>)[PROMPT_GENERATION_VERSION_KEY], IMAGE_PROMPT_GENERATION_VERSION,
+      "the stored prompt records the generation that compiled it (needs-attention, plan 2C)");
 
     const job = await generationJob(attemptId);
     assert.ok(job, "expected an image_generation job");
@@ -579,6 +581,12 @@ describe("image_generation — the photoreal fallback: GPT Image refuses, Nano B
 
   it("a member-shaped render: GPT refuses once, Nano Banana draws the same scene, and every trace of the picture names Nano Banana", async () => {
     const attemptId = await plannedAttempt();
+    // The stored prompt records an older generation: the fallback's recompile
+    // must record the one that compiled it, not keep the stored one (PR #1181).
+    const [{ stored }] = await db.select({ stored: imagePromptAttemptsTable.compiledPrompt }).from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.id, attemptId));
+    await db.update(imagePromptAttemptsTable)
+      .set({ compiledPrompt: { ...((stored ?? {}) as Record<string, unknown>), [PROMPT_GENERATION_VERSION_KEY]: "v0-older" } })
+      .where(eq(imagePromptAttemptsTable.id, attemptId));
     const before = await attemptRow(attemptId);
     const modelCalls = llmCalls;
     const { out, calls } = await draw(attemptId, (e) => (e === GPT ? refusal() : picture()));
@@ -605,6 +613,8 @@ describe("image_generation — the photoreal fallback: GPT Image refuses, Nano B
     }
     const prompt = (after.compiledPrompt as { imagePrompt: string; referenceImageUrl?: string }).imagePrompt;
     assert.match(prompt, /lifts a library/, "the same scene");
+    assert.equal((after.compiledPrompt as Record<string, unknown>)[PROMPT_GENERATION_VERSION_KEY], IMAGE_PROMPT_GENERATION_VERSION,
+      "the recompiled prompt records the generation that compiled it (needs-attention, plan 2C)");
     assert.equal((after.compiledPrompt as { referenceImageUrl?: string }).referenceImageUrl, "https://example.test/reference.png", "the same photo");
     assert.equal(calls[1]!.input["prompt"], prompt, "Nano Banana received the recompiled prompt");
     assert.deepEqual(calls[1]!.input["image_urls"] ?? calls[1]!.input["image_url"] ?? null, calls[0]!.input["image_urls"] ?? calls[0]!.input["image_url"] ?? null, "the same reference sent to both");

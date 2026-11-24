@@ -4,7 +4,7 @@
  */
 import type OpenAI from "openai";
 import { db, factsTable } from "@workspace/db";
-import { eq, isNull, sql, and } from "drizzle-orm";
+import { eq, sql, type SQL } from "drizzle-orm";
 import { renderCanonical } from "./renderCanonical";
 import { logger } from "./logger";
 import { getEmbeddingsClient } from "./aiClients";
@@ -90,21 +90,38 @@ export async function findSimilarFacts(
     }));
 }
 
+/** The most facts one fill run embeds, so a run's cost and time are bounded; the rest wait for the next run. */
+export const FINGERPRINT_FILL_BATCH = 100;
+
 /**
- * Backfill embeddings for every fact that lacks either an embedding or a canonical_text.
- * Re-renders canonical_text from the template and embeds from that.
- * Call POST /api/admin/facts/backfill-embeddings to trigger this.
+ * An approved fact (live or deactivated) without its duplicate fingerprint:
+ * the embedding or the canonical text the duplicate check reads. The fill
+ * below selects with it, and it is the "duplicate fingerprint missing"
+ * needs-attention check (lib/factAttention.ts), so the two cannot differ.
  */
-export async function backfillEmbeddings(
-  onProgress?: (done: number, total: number) => void,
-): Promise<{ processed: number; failed: number }> {
+export const fingerprintMissingSql: SQL = sql`(${factsTable.approvedAt} IS NOT NULL AND (${factsTable.embedding} IS NULL OR ${factsTable.canonicalText} IS NULL))`;
+
+/**
+ * Fill the duplicate fingerprint of every fact `fingerprintMissingSql`
+ * names, up to `limit` facts. Re-renders canonical_text from the template and
+ * embeds from that. Runs a few minutes after a start and hourly (index.ts, the
+ * `fingerprint_fill` task), so a missing fingerprint is filled automatically
+ * (plan PLAN_FACT_LIFECYCLE_REBUILD.md 2C); `POST
+ * /api/admin/facts/backfill-embeddings` runs it at once. `embed` is a test
+ * seam.
+ */
+export async function backfillEmbeddings(opts: {
+  onProgress?: (done: number, total: number) => void;
+  limit?: number;
+  embed?: (text: string) => Promise<number[]>;
+} = {}): Promise<{ processed: number; failed: number }> {
+  const { onProgress, limit = FINGERPRINT_FILL_BATCH, embed = embedText } = opts;
   const missing = await db
     .select({ id: factsTable.id, text: factsTable.text })
     .from(factsTable)
-    .where(and(
-      eq(factsTable.isActive, true),
-      sql`(${factsTable.embedding} IS NULL OR ${factsTable.canonicalText} IS NULL)`,
-    ));
+    .where(fingerprintMissingSql)
+    .orderBy(factsTable.id)
+    .limit(limit);
 
   let processed = 0;
   let failed = 0;
@@ -112,7 +129,7 @@ export async function backfillEmbeddings(
   for (const fact of missing) {
     try {
       const canonical = renderCanonical(fact.text);
-      const embedding = await embedText(canonical);
+      const embedding = await embed(canonical);
       await storeEmbedding(fact.id, embedding, canonical);
       processed++;
     } catch (err) {

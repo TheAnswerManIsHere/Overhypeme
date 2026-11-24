@@ -62,7 +62,7 @@ export function fallbackEngineIdFor(engineId: string): string | null {
 }
 
 /** The engines every release before migration 0123 routed to, by mode. */
-const PRE_ROUTING_IMAGE_ENGINE_IDS: Readonly<Record<GenerationMode, string>> = {
+export const PRE_ROUTING_IMAGE_ENGINE_IDS: Readonly<Record<GenerationMode, string>> = {
   t2i: "nano-banana-2",
   i2i: "nano-banana-2-edit",
 };
