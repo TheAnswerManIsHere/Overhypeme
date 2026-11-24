@@ -271,7 +271,7 @@ export async function enqueueScenarioRender(args: EnqueueScenarioArgs): Promise<
       referenceAssetVersion = ref.version;
     } catch (err) {
       if (err instanceof ReferenceAssetUnavailableError) {
-        return insertFailedScenarioAttempt(args, `reference_asset_unavailable: ${err.detail}`);
+        return insertFailedScenarioAttempt(args, `the stand-in reference photo for this kind of picture could not be loaded (${err.detail})`);
       }
       throw err;
     }

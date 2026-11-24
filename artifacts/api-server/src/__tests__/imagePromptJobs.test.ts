@@ -392,6 +392,19 @@ describe("image_prompt_generation handler — the prompt recipe it was queued wi
   });
 });
 
+/**
+ * A failed render's reason is shown to a moderator as written (Issue #1020):
+ * it reads as a sentence, never as a code. A reason may end with technical
+ * detail in brackets, for whoever diagnoses it, but it never opens with a
+ * snake_case or camelCase identifier.
+ */
+function assertReadsAsSentence(reason: string | null | undefined) {
+  assert.ok(reason, "a reason is recorded");
+  const opening = reason.split(/[\s:(]/)[0] ?? "";
+  assert.ok(reason.includes(" "), `a sentence, not a single token: ${reason}`);
+  assert.ok(!/_|[a-z][A-Z]/.test(opening), `opens with words, not a code: ${reason}`);
+}
+
 describe("image_prompt_generation handler — deterministic failures are terminal on the first attempt", () => {
   async function assertTerminal(attemptId: number, code: string) {
     const res = await runHandler(attemptId);
@@ -401,6 +414,7 @@ describe("image_prompt_generation handler — deterministic failures are termina
     const row = await attemptRow(attemptId);
     assert.equal(row.errorCode, code);
     assert.ok(row.error, "human-readable error persisted alongside the code");
+    assertReadsAsSentence(row.error);
     assert.equal(await generationJob(attemptId), undefined, "no image_generation job enqueued");
   }
 
@@ -718,7 +732,8 @@ describe("image_generation — the photoreal fallback: GPT Image refuses, Nano B
     assert.deepEqual(a.calls, [], "no vendor call");
     const rowA = await attemptRow(missingPhoto);
     assert.equal(rowA.errorCode, "render_input_invalid");
-    assert.equal(rowA.error, "i2i_missing_reference_url");
+    assert.equal(rowA.error, "this picture is drawn from a reference photo, but none was saved with the render");
+    assertReadsAsSentence(rowA.error);
     assert.equal(buildRenderStatusPayload(rowA).status, "failed");
 
     // An empty stored prompt: the same.
@@ -727,7 +742,9 @@ describe("image_generation — the photoreal fallback: GPT Image refuses, Nano B
     const b = await draw(noPrompt, () => picture());
     assert.equal((b.out as { retryable?: boolean }).retryable, false);
     assert.deepEqual(b.calls, []);
-    assert.equal((await attemptRow(noPrompt)).errorCode, "render_input_invalid");
+    const rowB = await attemptRow(noPrompt);
+    assert.equal(rowB.errorCode, "render_input_invalid");
+    assertReadsAsSentence(rowB.error);
   });
 
   // Issue #1020: the permanent rejections that still read "Drawing…" for ~10½ hours.
