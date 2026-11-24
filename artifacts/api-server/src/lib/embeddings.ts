@@ -4,7 +4,7 @@
  */
 import type OpenAI from "openai";
 import { db, factsTable } from "@workspace/db";
-import { eq, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { renderCanonical } from "./renderCanonical";
 import { logger } from "./logger";
 import { getEmbeddingsClient } from "./aiClients";
@@ -114,12 +114,15 @@ export async function backfillEmbeddings(opts: {
   onProgress?: (done: number, total: number) => void;
   limit?: number;
   embed?: (text: string) => Promise<number[]>;
+  /** Test seam: fill only these facts, so a test's run cannot rewrite the
+   *  plain-name version of another test's fact in a shared database. */
+  onlyFactIds?: readonly number[];
 } = {}): Promise<{ processed: number; failed: number }> {
-  const { onProgress, limit = FINGERPRINT_FILL_BATCH, embed = embedText } = opts;
+  const { onProgress, limit = FINGERPRINT_FILL_BATCH, embed = embedText, onlyFactIds } = opts;
   const missing = await db
     .select({ id: factsTable.id, text: factsTable.text })
     .from(factsTable)
-    .where(fingerprintMissingSql)
+    .where(onlyFactIds ? and(fingerprintMissingSql, inArray(factsTable.id, [...onlyFactIds])) : fingerprintMissingSql)
     .orderBy(factsTable.id)
     .limit(limit);
 

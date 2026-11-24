@@ -1,6 +1,7 @@
 /**
  * The single normalization contract every route that ingests new
- * fact-template text shares: run the full deterministic grammar cleanup and validate the result.
+ * fact-template text shares: run the full deterministic grammar cleanup, then the fact wording
+ * house style (`applyHouseStyle`, plan PLAN_FACT_HOUSE_STYLE.md), and validate the result.
  * For a `facts` row the storage variant then, on success, computes the
  * text-derived metadata (`canonicalText`, `splitTokenIndex`, `hasPronouns`)
  * every row must keep in sync, from the FINAL normalized text, never the raw
@@ -15,7 +16,7 @@
  * @subsystem token-rendering
  */
 
-import { applyDeterministicGrammar, validateTemplate, type GrammarValidationResult } from "./templateGrammar";
+import { applyDeterministicGrammar, applyHouseStyle, validateTemplate, type GrammarValidationResult } from "./templateGrammar";
 import { renderCanonical } from "./renderCanonical";
 import { computeSplitTokenIndex } from "./splitTokenIndex";
 
@@ -33,6 +34,12 @@ const HAS_PRONOUN_RE =
 
 export function hasFactPronounMarkersForStorage(template: string): boolean {
   return HAS_PRONOUN_RE.test(template);
+}
+
+/** The grammar cleanup, then the fact wording house style: the one text
+ *  transform both variants share, so the two cannot drift. */
+function normalizeWordingText(rawText: string): string {
+  return applyHouseStyle(applyDeterministicGrammar(rawText));
 }
 
 export type NormalizeFactTemplateForStorageResult =
@@ -58,7 +65,7 @@ export type NormalizeFactTemplateForStorageResult =
  * access to the `valid: false` branch.
  */
 export function normalizeFactTemplateForStorage(rawText: string): NormalizeFactTemplateForStorageResult {
-  const text = applyDeterministicGrammar(rawText);
+  const text = normalizeWordingText(rawText);
   const grammarResult = validateTemplate(text);
   if (!grammarResult.valid) {
     return { valid: false, text, grammarResult };
@@ -85,7 +92,7 @@ export type NormalizeFactTemplateForPendingReviewResult =
 export function normalizeFactTemplateForPendingReview(
   rawText: string,
 ): NormalizeFactTemplateForPendingReviewResult {
-  const text = applyDeterministicGrammar(rawText);
+  const text = normalizeWordingText(rawText);
   const grammarResult = validateTemplate(text);
   if (!grammarResult.valid) {
     return { valid: false, text, grammarResult };
