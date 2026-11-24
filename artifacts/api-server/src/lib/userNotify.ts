@@ -45,7 +45,7 @@ export async function notifyUserAccessRevoked(
     }
 
     const { subject, text, html } = buildAccessRevokedEmail(kind);
-    await sendEmail({ to: user.email, subject, text, html });
+    await sendEmail({ to: user.email, kind: "access_revoked", subject, text, html });
     logger.info({ userId, kind }, "Access-revoked email sent");
   } catch (err) {
     logger.error({ err, userId, kind }, "Failed to send access-revoked email");

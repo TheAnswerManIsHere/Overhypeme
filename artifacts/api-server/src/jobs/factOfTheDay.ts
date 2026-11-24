@@ -91,7 +91,7 @@ async function queueFactOfTheDay(
       ? renderPersonalized(fact.text, user.displayName, user.pronouns ?? null)
       : fact.text;
     const { subject, text, html } = buildFactOfTheDayEmail(renderedText, fact.id, manageUrl);
-    await sendEmail({ to: user.email, subject, text, html }, tx, { insertUnderTestKey: opts.insertUnderTestKey ?? false });
+    await sendEmail({ to: user.email, kind: "fact_of_the_day", subject, text, html }, tx, { insertUnderTestKey: opts.insertUnderTestKey ?? false });
     sent++;
   }
   return { sent, skipped };
