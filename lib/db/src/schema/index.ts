@@ -25,7 +25,6 @@ export * from "./shareIntents";
 export * from "./supportRequests";
 export * from "./imagePromptAttempts";
 export * from "./referenceResearchCache";
-export * from "./factTextEditHistory";
 export * from "./factTaxonomyRuns";
 export * from "./evalRuns";
 export * from "./comparisons";

@@ -292,7 +292,6 @@ export const RETENTION_SCHEDULE: Readonly<Record<string, RetentionEntry>> = {
   tier_feature_permission_audit: adminRecord(null, "the record of entitlement changes"),
   fact_taxonomy_runs: adminRecord("facts", "a fact's taxonomy run history"),
   fact_readings: adminRecord("facts", "a fact's readings: the research and draft humor note of each run"),
-  fact_text_edit_history: adminRecord("facts", "a fact's edit record"),
   fact_gags: adminRecord("facts", "a fact's gags"),
   fact_gag_examples: adminRecord("fact_gags", "a gag's examples"),
   eval_runs: adminRecord(null, "prompt evaluation results"),

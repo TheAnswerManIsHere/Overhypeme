@@ -8,8 +8,8 @@ to refresh it: `docs/tests/TESTING.md`, *The legacy fixture*.
 ## What it is
 
 - Extracted at source commit `efe0732ffe0ba54a7061486a94f77a9506884b04`, whose journal holds 102 migrations (latest `0101_user_generation_costs_is_estimated`), all applied on the source; scrub ruleset version 2.
-- `manifest.json` sha256 `3a557ae2bc2f1ebea6caf61e6d508125ad02d2391e0270a3229f4717a9b66d95`. A recording made over this fixture names that digest. (Edited by hand at increment 2.1c of the fact lifecycle rebuild, Issue #1018: the tables and columns migration 0160 dropped were removed from the fixture, its manifest and the `engine_revision` setting; nothing else was re-extracted. Edited by hand again for migration 0163, Issue #849: the users' `avatar_style` and `avatar_source` columns and the `custom_avatar` feature-flag and tier rows were removed.)
-- 1146 rows in 28 tables, one NDJSON file per table.
+- `manifest.json` sha256 `7c286783523f43e44eaa58273a82c2b7997ba3eb4a9be388b6789ba337cfccac`. A recording made over this fixture names that digest. (Edited by hand at increment 2.1c of the fact lifecycle rebuild, Issue #1018: the tables and columns migration 0160 dropped were removed from the fixture, its manifest and the `engine_revision` setting; nothing else was re-extracted. Edited by hand again for migration 0163, Issue #849: the users' `avatar_style` and `avatar_source` columns and the `custom_avatar` feature-flag and tier rows were removed. Edited by hand again for migrations 0167–0169, Issue #1018 increment 3.2e: the empty `fact_text_edit_history` table and the facts' `eval_golden`, `eval_golden_reason`, `ai_scene_prompts` and `ai_meme_backfill_status` columns were removed.)
+- 1146 rows in 27 tables, one NDJSON file per table.
 
 | Table | Rows |
 |---|---|
@@ -26,7 +26,6 @@ to refresh it: `docs/tests/TESTING.md`, *The legacy fixture*.
 | `hashtags` | 45 |
 | `fact_hashtags` | 115 |
 | `pending_reviews` | 89 |
-| `fact_text_edit_history` | 0 |
 | `image_prompt_attempts` | 104 |
 | `memes` | 64 |
 | `upload_image_metadata` | 45 |

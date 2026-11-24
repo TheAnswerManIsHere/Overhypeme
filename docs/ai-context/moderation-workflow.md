@@ -186,11 +186,13 @@ Locking should be the very first thing that happens as part of step 1."*).
   repair that would rewrite stored text needs its own migration that lifts the
   rule, on David's say. Its one use so far is migration 0165, the fact wording
   house style's one-time pass (David, 2026-11-23, Q2: 1), which disables the
-  trigger for its own update and re-enables it in the same transaction. `PATCH /admin/facts/:id` refuses a changed wording with
-  `WORDING_LOCKED` (an unchanged or normalisation-equal wording is ignored);
-  the confirmation-gated approved-text edit and the staging-fact text edit
-  that re-ran prep are gone. Past entries in the text-edit history
-  (`fact_text_edit_history`) stay readable in the Facts editor.
+  trigger for its own update and re-enables it in the same transaction. No
+  admin route writes an approved fact's wording: `PATCH /admin/facts/:id`
+  went in fact lifecycle 3.2c, with the confirmation-gated approved-text edit
+  and the staging-fact text edit that re-ran prep before it. The text-edit
+  history (`fact_text_edit_history`) was dropped by migration 0167 (3.2e);
+  its rows, an audit of those past edits, are kept nowhere else, and the
+  `pre-cut/fact-admin-legacy` tag holds the code that wrote them.
 - **Replacing a wording.** A live fact: deactivate it (soft delete; its memes
   are kept) and submit the
   corrected wording as a new fact, with no transferred votes, comments or

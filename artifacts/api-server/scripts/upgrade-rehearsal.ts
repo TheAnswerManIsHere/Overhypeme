@@ -22,7 +22,8 @@
  *     setting is still compared. Migration 0160's taxonomy drops are declared
  *     too: its deleted jobs counted the same way, and the three tables it
  *     drops whole named in RETIRED_TABLES, each expected gone and reported
- *     under `intendedTableDrops`;
+ *     under `intendedTableDrops`; and 3.2e's (0167's table, 0169's jobs) the
+ *     same way;
  *   - relationships resolve: no foreign key has an orphan row;
  *   - sequences are usable: every sequence-backed column's next value is above
  *     the column's largest value, so the next insert cannot collide;
@@ -56,6 +57,7 @@ import { adminValues, exhaustedSequences, orphans, rowCounts } from "../src/lib/
 import { pgCommandConnection } from "../src/lib/pgCommandLine.js";
 import {
   RETIRED_TABLES,
+  aiMemeBackfillDropLosses,
   isRetiredSettingValue,
   mergeLosses,
   refreshRetirementLosses,
@@ -126,12 +128,14 @@ async function main(): Promise<void> {
     // Intended deletions, counted before they run: migration 0142's retired
     // variants, 0151's retired refresh and resubmission reviews, and the
     // admin_config rows of settings a migration retires (0149, 0160), and the
-    // jobs 0160 deletes. The tables 0160 drops whole are RETIRED_TABLES.
+    // jobs 0160 and 0169 delete. The tables 0160 and 0167 drop whole are
+    // RETIRED_TABLES.
     const intended = mergeLosses(
       await variantRetirementLosses(db),
       await refreshRetirementLosses(db),
       await retiredSettingLosses(db),
       await taxonomyDropLosses(db),
+      await aiMemeBackfillDropLosses(db),
     );
     const settingsBefore = await adminValues(db);
     const ledgerBefore = Number((await db.query("SELECT count(*) AS n FROM drizzle.__drizzle_migrations")).rows[0].n);

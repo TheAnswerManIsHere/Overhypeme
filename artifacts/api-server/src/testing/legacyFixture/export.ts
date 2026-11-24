@@ -663,7 +663,6 @@ const VALIDATED_SHAPE_COLUMNS: Array<[string, string, ShapeName]> = [
   ["image_prompt_attempts", "subject_fact_compatibility", "subjectFactCompatibility"],
   ["memes", "image_source", "imageSource"],
   ["memes", "text_options", "textOptions"],
-  ["facts", "ai_scene_prompts", "aiScenePrompts"],
   ["facts", "ai_meme_images", "aiMemeImages"],
 ];
 

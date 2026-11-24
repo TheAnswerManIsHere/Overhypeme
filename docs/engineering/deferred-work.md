@@ -853,7 +853,8 @@ re-gather it when the work is scheduled.
     - **Six partial indexes**, all exempt for the same reason (the pinned
       `drizzle-kit`'s partial-index handling is brittle, per the comments
       in `facts.ts:159-160` and `imagePromptAttempts.ts:130-135`):
-      `IDX_facts_eval_golden`, `IDX_ipa_eval_run_fact_created`,
+      `IDX_facts_eval_golden` (dropped with its column by migration 0168,
+      fact lifecycle 3.2e), `IDX_ipa_eval_run_fact_created`,
       `IDX_ipa_eval_fact_run_created` (`0081`), `IDX_ipa_request_id`,
       `IDX_ipa_render_job_id` (`0065`), and `IDX_ipa_review_only`
       (`0076`).

@@ -146,7 +146,6 @@ export const TABLE_CLASSIFICATION: Readonly<Record<string, TableEntry>> = {
   fact_gags: { class: "product" },
   fact_gag_examples: { class: "product" },
   fact_hashtags: { class: "product" },
-  fact_text_edit_history: { class: "product" },
   facts: { class: "product" },
   hashtags: { class: "product" },
   // Image tracing (PLAN_IMAGE_TRACING.md): how each picture was made. Product
