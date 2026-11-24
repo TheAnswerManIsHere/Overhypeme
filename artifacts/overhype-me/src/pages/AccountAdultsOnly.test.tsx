@@ -1,5 +1,5 @@
 /**
- * @purpose The adults-only screen (launch Phase 14, increment 4): it says the site is for adults and that a mistyped date is corrected through support, marks this browser for an under-age account, offers deletion (confirmed by password or a fresh sign-in that returns here) and sign-out, shows a pending deletion's date instead of the form, offers no account actions to a visitor who is not signed in, and moves an account support has corrected on to set-up while a fresh sign-up in a marked browser stays.
+ * @purpose The adults-only screen (launch Phase 14, increment 4): it says the site is for adults and that a mistyped date is corrected through support, marks this browser for an under-age account, offers deletion (confirmed by password or a fresh sign-in that returns here) and sign-out, shows a pending deletion's date instead of the form, offers no account actions to a visitor who is not signed in, and moves on an account with an adult date on file while a fresh sign-up in a marked browser and an under-age account stay.
  * @subsystem accounts-auth
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -71,20 +71,27 @@ describe("AccountAdultsOnly", () => {
     expect(screen.getByTestId("adults-only-sign-out")).toBeTruthy();
   });
 
-  it("moves an account support has corrected on to set-up, and leaves the mark", () => {
+  it("moves an account with an adult date on file on (corrected, or set-up finished), and leaves the mark", () => {
     window.localStorage.setItem("overhype.ageRefused", "1");
-    auth.state.user = { eligibility: "unonboarded", is18Plus: true };
-    deletionStatus({ pending: false, confirmWith: { hasPassword: true, linkedProviders: [] } });
-    render(<AccountAdultsOnly />);
-    expect(setLocation).toHaveBeenCalledWith("/onboard");
+    for (const u of [{ eligibility: "unonboarded", is18Plus: true }, { eligibility: "eligible", is18Plus: true }]) {
+      setLocation.mockReset();
+      auth.state.user = u;
+      deletionStatus({ pending: false, confirmWith: { hasPassword: true, linkedProviders: [] } });
+      const { unmount } = render(<AccountAdultsOnly />);
+      expect(setLocation).toHaveBeenCalledWith("/");
+      unmount();
+    }
     expect(window.localStorage.getItem("overhype.ageRefused")).toBe("1");
   });
 
-  it("keeps a fresh sign-up in a marked browser here", () => {
+  it("keeps a fresh sign-up in a marked browser and an under-age account here", () => {
     window.localStorage.setItem("overhype.ageRefused", "1");
-    auth.state.user = { eligibility: "unonboarded", is18Plus: false };
-    deletionStatus({ pending: false, confirmWith: { hasPassword: true, linkedProviders: [] } });
-    render(<AccountAdultsOnly />);
+    for (const u of [{ eligibility: "unonboarded", is18Plus: false }, { eligibility: "underage", is18Plus: true }, { eligibility: "underage" }]) {
+      auth.state.user = u;
+      deletionStatus({ pending: false, confirmWith: { hasPassword: true, linkedProviders: [] } });
+      const { unmount } = render(<AccountAdultsOnly />);
+      unmount();
+    }
     expect(setLocation).not.toHaveBeenCalled();
   });
 

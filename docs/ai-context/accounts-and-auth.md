@@ -157,11 +157,14 @@ the server enforces it:
   write, logged without the date; set-up then keeps that stored date whatever
   the form sends, and shows it instead of asking. The browser's own mark
   (`artifacts/overhype-me/src/lib/age-refusal.ts`, no expiry) is never
-  lifted; the one account let past it (`isSupportCorrected`) is un-onboarded
-  yet 18 or over by a stored date, a state only the correction produces (set-up
-  stores the date in the write that completes it), so it finishes set-up and
-  is moved on from the adults-only screen, while an ordinary member, a fresh
-  sign-up and an under-age account leave the browser marked. Otherwise the current Terms and
+  lifted. It holds only accounts that have not given an adult date: no
+  account, a fresh sign-up, an unverified or an under-age one. An account that
+  is not under age and is 18 or over by a stored date (`isPastAgeMark`) — a
+  support-corrected one, or one whose set-up is finished — is never asked the
+  date, so the set-up page lets it through (a corrected one finishes set-up and
+  reaches the photo step) and the adults-only screen moves it on home; both use
+  the one condition, so neither sends an account the other sends back.
+  Otherwise the current Terms and
   Privacy versions the screen showed, `legalAcceptance: { terms, privacy }`,
   checked server-side, then a fresh Turnstile token, then date of birth,
   pronouns, the consent record — `marketing_consent_at`, `_method`

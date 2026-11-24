@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { shownLegalVersions } from "@/lib/legal-versions";
-import { ADULTS_ONLY_PATH, isAgeRefusedBrowser, isSupportCorrected, markAgeRefusedBrowser } from "@/lib/age-refusal";
+import { ADULTS_ONLY_PATH, isAgeRefusedBrowser, isPastAgeMark, markAgeRefusedBrowser } from "@/lib/age-refusal";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Camera, Upload, Loader2, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -161,11 +161,12 @@ export default function Onboard() {
 
   // Someone in this browser already gave a date under 18: a fresh sign-up
   // here is told the same without being asked again (launch Phase 14, Q3).
-  // Decided once the account is known: an account support has corrected
-  // finishes set-up here, and the mark stays for everyone else.
+  // Decided once the account is known: an account with an adult date on file
+  // (corrected by support, or set-up just finished) goes past, so the re-read
+  // after Finish does not send it away; the mark stays for everyone else.
   useEffect(() => {
     if (isLoading) return;
-    if (isAgeRefusedBrowser() && !isSupportCorrected({ eligibility: user?.eligibility, is18Plus: user?.is18Plus })) {
+    if (isAgeRefusedBrowser() && !isPastAgeMark({ eligibility: user?.eligibility, is18Plus: user?.is18Plus })) {
       setLocation(ADULTS_ONLY_PATH);
     }
   }, [isLoading, user?.eligibility, user?.is18Plus, setLocation]);

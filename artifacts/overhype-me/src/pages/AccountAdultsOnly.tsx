@@ -1,5 +1,5 @@
 /**
- * @purpose The screen an account under 18 is sent to, and a browser marked as having given an under-18 date (launch Phase 14, increment 4; Q3): it says Overhype.me is for adults, that a mistyped date is corrected through support, and offers the only two things such an account can do — sign out, or ask for its deletion — and marks this browser so a fresh sign-up here is told the same without being asked; an account support has since corrected is moved on to set-up.
+ * @purpose The screen an account under 18 is sent to, and a browser marked as having given an under-18 date (launch Phase 14, increment 4; Q3): it says Overhype.me is for adults, that a mistyped date is corrected through support, and offers the only two things such an account can do — sign out, or ask for its deletion — and marks this browser so a fresh sign-up here is told the same without being asked; an account with an adult date on file (support has corrected it) is moved on.
  * @subsystem accounts-auth
  */
 import { useEffect, useState } from "react";
@@ -10,7 +10,7 @@ import { useSignOut } from "@/hooks/use-sign-out";
 import { Button } from "@/components/ui/Button";
 import { AccountStateShell } from "@/components/account/AccountStateShell";
 import { DeleteAccountSection } from "@/components/account/DeleteAccountSection";
-import { isSupportCorrected, markAgeRefusedBrowser } from "@/lib/age-refusal";
+import { isPastAgeMark, markAgeRefusedBrowser } from "@/lib/age-refusal";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
@@ -26,14 +26,15 @@ export default function AccountAdultsOnly() {
   const [status, setStatus] = useState<DeletionStatus | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const underAge = isAuthenticated && user?.eligibility === "underage";
-  const corrected = isAuthenticated && isSupportCorrected({ eligibility: user?.eligibility, is18Plus: user?.is18Plus });
+  const pastMark = isAuthenticated && isPastAgeMark({ eligibility: user?.eligibility, is18Plus: user?.is18Plus });
   const [, setLocation] = useLocation();
 
   useEffect(() => {
-    // Support has corrected this account's date: it has set-up to finish, so a
-    // tab left on this screen moves on (launch Phase 14, increment 4).
-    if (corrected) setLocation("/onboard");
-  }, [corrected, setLocation]);
+    // An account with an adult date on file (support corrected it) is free to
+    // go on: home, where the set-up redirect sends it wherever its state says
+    // (launch Phase 14, increment 4).
+    if (pastMark) setLocation("/");
+  }, [pastMark, setLocation]);
 
   useEffect(() => {
     // An account the server holds under age marks this browser too, whether
