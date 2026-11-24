@@ -10,8 +10,10 @@
 --    this update only and restores it before the transaction commits: the
 --    lock's single named exception (David, Q2: 1). A failure rolls back with
 --    the lock in place (M2).
--- 3. For each changed fact, applies the same rule to canonical_text, which then
---    equals renderCanonical(new text); a null stays null (M3). The caption
+-- 3. For each changed fact, renders canonical_text afresh from the new wording,
+--    so it equals renderCanonical(new text); a null stays null (M3). Tidying
+--    the old canonical instead would not do: rendering and tidying do not
+--    commute (`anti-{NAME}` -> `Anti-Alex`, PR #1221 round 1). The caption
 --    split and has_pronouns are unchanged by the rule (factHouseStyle.test.ts).
 -- 4. Records the pre-pass wording on each changed fact's draft gag-idea set
 --    that lacks the record (visual_concept_candidates.factTextUsed), so the
@@ -23,7 +25,9 @@
 -- a meme that reads live wording follows its fact (David, Q6: 1; M5).
 --
 -- The rule here is pg_temp.house_style, the SQL twin of applyHouseStyle in
--- lib/api-zod/src/templateGrammar.ts. Its whitespace set is JavaScript's \s,
+-- lib/api-zod/src/templateGrammar.ts, and the plain-name render is
+-- pg_temp.house_style_render_canonical, the SQL twin of renderCanonical
+-- (artifacts/api-server/src/lib/renderCanonical.ts) for its fixed identity. Its whitespace set is JavaScript's \s,
 -- written out; its emoji set is JavaScript's Extended_Pictographic plus
 -- Regional_Indicator, skin tones, U+FE0F, U+20E3, U+200D and tag characters,
 -- generated from Node 22 (Unicode 17.0) as code-point ranges. Letter case
@@ -35,7 +39,7 @@
 --
 -- Row-state matrix (counts are RAISEd as a NOTICE):
 --   fact already tidy                         -> no write
---   fact untidy                               -> text tidied; canonical tidied
+--   fact untidy                               -> text tidied; canonical rendered from it
 --   fact untidy, canonical_text null          -> text tidied; canonical null
 --   fact untidy, idea set without the record  -> record set to the old text
 --   fact untidy, idea set with the record     -> record untouched
@@ -216,6 +220,45 @@ BEGIN
 END;
 $fn$;--> statement-breakpoint
 
+CREATE OR REPLACE FUNCTION pg_temp.house_style_render_canonical(t text) RETURNS text
+LANGUAGE plpgsql IMMUTABLE AS $fn$
+DECLARE
+  s text;
+  done text := '';
+  m text;
+  inner_token text;
+  rep text;
+  p integer;
+BEGIN
+  IF t IS NULL THEN RETURN NULL; END IF;
+  -- "a {NAME}" agrees with the name: "Alex" starts with a vowel, so "an";
+  -- a capital A is kept. JavaScript's \b and \s, written out.
+  s := regexp_replace(t, '(?<![A-Za-z0-9_])An?([\t\n\v\f\r \u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]+)\{NAME\}', 'An\1{NAME}', 'g');
+  s := regexp_replace(s, '(?<![A-Za-z0-9_])an?([\t\n\v\f\r \u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]+)\{NAME\}', 'an\1{NAME}', 'g');
+  -- Each innermost {…}, left to right, never rescanning what was put in.
+  LOOP
+    m := substring(s FROM '\{[^{}]+\}');
+    EXIT WHEN m IS NULL;
+    p := strpos(s, m);
+    inner_token := substr(m, 2, length(m) - 2);
+    rep := CASE inner_token
+      WHEN 'NAME' THEN 'Alex' WHEN 'NAME_POSSESSIVE' THEN 'Alex''s'
+      WHEN 'SUBJ' THEN 'they' WHEN 'Subj' THEN 'They'
+      WHEN 'OBJ' THEN 'them' WHEN 'Obj' THEN 'Them'
+      WHEN 'POSS' THEN 'their' WHEN 'Poss' THEN 'Their'
+      WHEN 'POSS_PRO' THEN 'theirs' WHEN 'Poss_Pro' THEN 'Theirs'
+      WHEN 'REFL' THEN 'themselves' WHEN 'Refl' THEN 'Themselves'
+      ELSE NULL END;
+    IF rep IS NULL THEN
+      rep := CASE WHEN position('|' IN inner_token) > 0 THEN regexp_replace(inner_token, '^.*\|', '') ELSE m END;
+    END IF;
+    done := done || substr(s, 1, p - 1) || rep;
+    s := substr(s, p + length(m));
+  END LOOP;
+  RETURN done || s;
+END;
+$fn$;--> statement-breakpoint
+
 DO $$
 DECLARE
   v_examined integer := 0;
@@ -234,7 +277,8 @@ BEGIN
 
   UPDATE facts f
      SET text = p.new_text,
-         canonical_text = pg_temp.house_style(f.canonical_text)
+         canonical_text = CASE WHEN f.canonical_text IS NULL THEN NULL
+                               ELSE pg_temp.house_style_render_canonical(p.new_text) END
     FROM house_style_pass p
    WHERE f.id = p.id;
   GET DIAGNOSTICS v_changed = ROW_COUNT;
@@ -249,11 +293,13 @@ BEGIN
      AND NOT (f.visual_concept_candidates ? 'factTextUsed');
   GET DIAGNOSTICS v_ideas = ROW_COUNT;
 
-  UPDATE pending_reviews r
-     SET submitted_text = s.new_text
-    FROM (SELECT id, pg_temp.house_style(submitted_text) AS new_text FROM pending_reviews WHERE status = 'pending') s
-   WHERE r.id = s.id
-     AND r.submitted_text IS DISTINCT FROM s.new_text;
+  -- One relation on purpose, the rule evaluated twice: a row a moderator edits
+  -- or decides while this waits on its lock is rechecked as it now stands. A
+  -- join to a snapshot copy wrote the old wording over the edit (PR #1221).
+  UPDATE pending_reviews
+     SET submitted_text = pg_temp.house_style(submitted_text)
+   WHERE status = 'pending'
+     AND submitted_text IS DISTINCT FROM pg_temp.house_style(submitted_text);
   GET DIAGNOSTICS v_reviews = ROW_COUNT;
 
   RAISE NOTICE '[0165] facts examined: %, changed: %, already tidy: %; draft idea sets recorded: %; pending submissions tidied: %',

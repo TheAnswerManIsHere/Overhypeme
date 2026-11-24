@@ -103,14 +103,41 @@ describe("migration 0165's SQL rule matches applyHouseStyle", () => {
   });
 });
 
+/** Wording that exercises the renderer: articles before the name, glued
+ *  prefixes, pairs, unknown and nested braces (PR #1221 round 1). */
+const RENDER_SHAPES = [
+  "anti-{NAME} shields never work", "ex-{NAME_POSSESSIVE} dog still obeys", "mc{NAME} is a burger", "o'{NAME} wins", "(semi-{NAME}) wins",
+  "{iPhone|eBay} {NAME} wins", "{NAME} {wins!|win!}", "{NAME} said 'no'{NAME}'",
+  "a {NAME} a day keeps the doctor away", "A {NAME} walks in", "an {NAME} appears", "An {NAME} appears", "banana {NAME}",
+  "Ann {NAME} wins", "a {NAME} and a {NAME}", "a\t{NAME} wins", "a  {NAME} wins", "{NAME}a {NAME}",
+  "{FOO} wins", "{{NAME}} wins", "{a||b} {NAME}", "{x|} {NAME}", "{NAME_POSSESSIVE} {POSS_PRO} {Refl} {Obj}", "{",
+];
+
+describe("migration 0165's renderer matches renderCanonical", () => {
+  it("on the rule table, the corpus, the renderer's shapes and their tidied forms", async () => {
+    const base = [...HOUSE_STYLE_TABLE.flatMap(([i, e]) => [i, e]), ...corpus(), ...RENDER_SHAPES];
+    const inputs = [...base, ...base.map(applyHouseStyle)];
+    const { rows } = await client.query<{ out: string }>(
+      "SELECT pg_temp.house_style_render_canonical(t) AS out FROM unnest($1::text[]) WITH ORDINALITY AS u(t, n) ORDER BY n",
+      [inputs],
+    );
+    const diffs = inputs.flatMap((input, i) => (rows[i]!.out === renderCanonical(input) ? [] : [`${JSON.stringify(input)}: sql ${JSON.stringify(rows[i]!.out)}, ts ${JSON.stringify(renderCanonical(input))}`]));
+    assert.deepEqual(diffs, []);
+  });
+});
+
 describe("migration 0165's pass", () => {
   const tag = `t_hs_${randomUUID().slice(0, 8)}`;
-  const rows = [
+  // canonical: true stores renderCanonical(text), "stale" a drifted copy, false none.
+  const rows: Array<{ text: string; canonical: boolean | "stale"; ideas: boolean }> = [
     { text: `chuck norris ${tag} can divide by zero`, canonical: true, ideas: true },
     { text: `{does|do} {SUBJ} ever lose ${tag}`, canonical: true, ideas: false },
     { text: `{NAME} beats ${tag} {NAME}`, canonical: true, ideas: true },
     { text: `{SUBJ} counted ${tag} (Twice.)`, canonical: false, ideas: false },
     { text: `Already tidy ${tag}.`, canonical: true, ideas: true },
+    { text: `anti-{NAME} shields never work ${tag}`, canonical: true, ideas: false },
+    { text: `a {NAME} a day keeps ${tag} away`, canonical: true, ideas: false },
+    { text: `{NAME} once drifted ${tag}`, canonical: "stale", ideas: false },
   ];
 
   it("tidies facts and pending submissions, keeps canonical and ideas in step, restores the lock, and is idempotent", async () => {
@@ -124,7 +151,7 @@ describe("migration 0165's pass", () => {
         const blob = r.ideas ? JSON.stringify({ candidates: [], inputHash: "h", reviewId: 1, source: "staging_fact" }) : null;
         const { rows: [inserted] } = await client.query<{ id: number }>(
           "INSERT INTO facts (text, canonical_text, visual_concept_candidates) VALUES ($1, $2, $3::jsonb) RETURNING id",
-          [r.text, r.canonical ? renderCanonical(r.text) : null, blob],
+          [r.text, r.canonical === "stale" ? `a drifted copy ${tag}` : r.canonical ? renderCanonical(r.text) : null, blob],
         );
         ids.push(inserted!.id);
       }
