@@ -73,6 +73,51 @@ describe("C4: login/register throttling", () => {
     assert.ok(throttled, "expected a 429 after exceeding the per-IP login limit");
   });
 
+  // Q5 (Issue #1043): only FAILED password sign-ins count toward the per-address limit.
+  it("lets many people on one shared address sign in: a correct password does not use up the per-address allowance", async () => {
+    const app = plainApp();
+    const ip = "203.0.113.21";
+    const ids: string[] = [];
+    try {
+      for (let i = 0; i < 15; i++) {
+        const id = `${PREFIX}shared${i}_${randomUUID().slice(0, 8)}`;
+        ids.push(id);
+        await db.insert(usersTable).values({ id, email: `${id}@nope.test`, passwordHash: await bcrypt.hash("right-password-x", 4), isActive: true });
+      }
+      for (const id of ids) {
+        const res = await request(app).post("/auth/local-login").set("CF-Connecting-IP", ip)
+          .send({ email: `${id}@nope.test`, password: "right-password-x" });
+        assert.equal(res.status, 200, `sign-in ${id} from the shared address: ${res.status} ${JSON.stringify(res.body)}`);
+      }
+    } finally {
+      if (ids.length) await db.delete(sessionsTable).where(inArray(sessionsTable.userId, ids));
+    }
+  });
+
+  it("still caps wrong passwords from one address at the limit, and a right one does not reopen it", async () => {
+    const app = plainApp();
+    const ip = "203.0.113.22";
+    const id = `${PREFIX}capped_${randomUUID().slice(0, 8)}`;
+    await db.insert(usersTable).values({ id, email: `${id}@nope.test`, passwordHash: await bcrypt.hash("right-password-x", 4), isActive: true });
+    try {
+      // Ten wrong guesses (each a distinct email, so the per-email limit never fires) are refused as wrong.
+      for (let i = 0; i < 10; i++) {
+        const res = await request(app).post("/auth/local-login").set("CF-Connecting-IP", ip)
+          .send({ email: `${PREFIX}guess${i}_${ip}@nope.test`, password: "wrong-password-x" });
+        assert.equal(res.status, 401, `guess ${i + 1}`);
+      }
+      // The eleventh attempt from that address is refused before any password is checked, right or wrong.
+      const wrong = await request(app).post("/auth/local-login").set("CF-Connecting-IP", ip)
+        .send({ email: `${PREFIX}guess10_${ip}@nope.test`, password: "wrong-password-x" });
+      assert.equal(wrong.status, 429);
+      const right = await request(app).post("/auth/local-login").set("CF-Connecting-IP", ip)
+        .send({ email: `${id}@nope.test`, password: "right-password-x" });
+      assert.equal(right.status, 429, "past the limit, even a right password waits");
+    } finally {
+      await db.delete(sessionsTable).where(eq(sessionsTable.userId, id));
+    }
+  });
+
   it("throttles local-login per email across many IPs", async () => {
     const app = plainApp();
     const email = `${PREFIX}target@nope.test`;
