@@ -93,7 +93,7 @@ describe("adopting production's first database with proof", () => {
       return;
     }
     // The code's build: the runner and nothing else.
-    execFileSync("npx", ["tsx", "lib/db/src/migrate.ts"], { cwd: repoRoot, env: { ...process.env, DATABASE_URL: url(srcName), PGOPTIONS: "" }, stdio: "pipe" });
+    execFileSync("npx", ["tsx", "lib/db/src/migrate-cli.ts"], { cwd: repoRoot, env: { ...process.env, DATABASE_URL: url(srcName), PGOPTIONS: "" }, stdio: "pipe" });
     const conn = pgCommandConnection(url(srcName));
     fullDump = path.join(workDir, "full.dump");
     const schemaDump = path.join(workDir, "schema.dump");
@@ -304,7 +304,7 @@ describe("adopting production's first database with proof", () => {
     const [{ nv }] = await query<{ nv: string }>(db, "SELECT nextval('drizzle.__drizzle_migrations_id_seq')::text AS nv");
     assert.ok(Number(nv) > srcLedger.length, `ledger sequence next ${nv} after ${srcLedger.length} rows`);
     // The runner then finds nothing to do.
-    execFileSync("npx", ["tsx", "lib/db/src/migrate.ts"], { cwd: repoRoot, env: { ...process.env, DATABASE_URL: url(db), PGOPTIONS: "" }, stdio: "pipe" });
+    execFileSync("npx", ["tsx", "lib/db/src/migrate-cli.ts"], { cwd: repoRoot, env: { ...process.env, DATABASE_URL: url(db), PGOPTIONS: "" }, stdio: "pipe" });
     assert.equal(await ledgerCount(db), srcLedger.length);
   });
 

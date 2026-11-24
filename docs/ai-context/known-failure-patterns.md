@@ -2458,8 +2458,9 @@ emitted the salt error at all. Fixed by moving the assertion into
 `artifacts/api-server/src/lib/bootChecks.ts` (imported second, after
 `./instrument` only) and splitting the salt logic into
 `artifacts/api-server/src/lib/ipSalt.ts`, which never reaches the database. The
-folded-CLI-guard half is a live pre-existing bug in its own right —
-production runs migrations twice at every boot — tracked separately as #486.
+folded-CLI-guard half was a pre-existing bug in its own right — production
+ran migrations twice at every boot — fixed by #486, which moved the CLI block
+into `lib/db/src/migrate-cli.ts`, a file that is run and never imported.
 
 ## A guard that encodes the shape that occurred, and calls it a class
 

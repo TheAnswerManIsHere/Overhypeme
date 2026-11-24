@@ -50,7 +50,6 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 
 import { baselineSqlPath, readBaselineMeta, type BaselineMeta } from "./baseline.js";
-import { guardPool } from "./connectionErrors.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -391,34 +390,5 @@ export async function applyMigrations(client: pg.PoolClient): Promise<{ applied:
     // Unconditional: the client is pooled and reused for ordinary application
     // queries, so this must come off on every exit path, lock or no lock.
     client.off("notice", onNotice);
-  }
-}
-
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const DATABASE_URL = process.env.DATABASE_URL;
-  if (!DATABASE_URL) {
-    console.error("ERROR: DATABASE_URL is not set");
-    process.exit(1);
-  }
-
-  const pool = new pg.Pool({ connectionString: DATABASE_URL });
-  // A dropped connection mid-migration must fail the migration, not crash the
-  // process with an uncaught error event (#826).
-  guardPool(pool, "migration pool");
-  const client = await pool.connect();
-  // NOTE: the notice listener lives in applyMigrations(), not here — see the
-  // comment there. Registering it in this block too would double-print every
-  // notice for CLI runs and leave the deployment path uncovered.
-  try {
-    const { applied, skipped, total } = await applyMigrations(client);
-    console.log(
-      `[migrate] Done: ${applied} applied, ${skipped} already up-to-date (${total} total in journal).`,
-    );
-  } catch (err) {
-    console.error(`[migrate] ERROR: ${err}`);
-    process.exit(1);
-  } finally {
-    client.release();
-    await pool.end();
   }
 }
