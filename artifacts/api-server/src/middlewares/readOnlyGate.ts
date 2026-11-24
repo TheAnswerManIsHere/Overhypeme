@@ -64,6 +64,7 @@ export const READ_ONLY_ROUTES: Readonly<Record<RouteKey, { allowed: boolean; why
 
   "PATCH /users/me/notifications": { allowed: false, why: "changes a profile setting" },
   "POST /users/me/profile-image": { allowed: false, why: "changes a profile" },
+  "DELETE /users/me/profile-image": { allowed: false, why: "changes a profile" },
   "DELETE /users/me/uploads": { allowed: false, why: "deletes uploads" },
   "POST /users/me/uploads/restore": { allowed: false, why: "restores uploads" },
   "POST /users/me/recently-deleted/purge": { allowed: false, why: "permanently deletes content" },
