@@ -7,6 +7,7 @@ import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, getTabl
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
 import { backfillEmbeddings } from "../lib/embeddings";
+import { ATTENTION_COUNT_COLUMNS, ATTENTION_PREDICATES, ATTENTION_REASONS, ATTENTION_REASONS_COLUMN, attentionReasonOf } from "../lib/factAttention";
 import { enqueueJob, USE_CONFIGURED_MAX_ATTEMPTS } from "../lib/asyncJobs";
 import { emailRetryReset } from "../lib/email";
 import { laneHealth, queueHealth, queueHealthJobs } from "../lib/queueHealth";
@@ -826,30 +827,42 @@ const FACT_LIST_COLUMNS = {
   evalGoldenReason: factsTable.evalGoldenReason,
 } as const;
 
-// The Facts list, newest first, filtered by visibility and search.
+// The Facts list, newest first, filtered by visibility, search and a
+// needs-attention reason (plan PLAN_FACT_LIFECYCLE_REBUILD.md 2C). The
+// response carries one count per reason, computed by the same predicates the
+// filter uses (lib/factAttention.ts), and each row's own reasons.
 router.get("/admin/facts", requireAdmin, async (req: Request, res: Response) => {
   const page = Math.max(1, parseInt(String(req.query["page"] ?? "1"), 10));
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query["limit"] ?? "50"), 10)));
   const offset = (page - 1) * limit;
   const search = String(req.query["search"] ?? "").trim();
-  const visibility = String(req.query["visibility"] ?? (req.query["inactive"] === "true" ? "both" : "active"));
+  const attention = attentionReasonOf(req.query["attention"]);
+  if (req.query["attention"] !== undefined && !attention) {
+    res.status(400).json({ error: `attention must be one of: ${ATTENTION_REASONS.join(", ")}` });
+    return;
+  }
+  // A reason names exactly its facts, live or deactivated: visibility
+  // defaults to both under it, so the list's total equals the reason's count.
+  const visibility = String(req.query["visibility"] ?? (attention || req.query["inactive"] === "true" ? "both" : "active"));
   const like = `%${search}%`;
 
   const visibilityFilter = visibility === "both" ? undefined : eq(factsTable.isActive, visibility !== "inactive");
   const searchFilter = search ? ilike(factsTable.text, like) : undefined;
-  const where = and(...[visibilityFilter, searchFilter].filter(Boolean));
+  const attentionFilter = attention ? ATTENTION_PREDICATES[attention] : undefined;
+  const where = and(...[visibilityFilter, searchFilter, attentionFilter].filter(Boolean));
 
-  const [facts, [{ total }]] = await Promise.all([
-    db.select(FACT_LIST_COLUMNS)
+  const [facts, [{ total }], [attentionCounts]] = await Promise.all([
+    db.select({ ...FACT_LIST_COLUMNS, attention: ATTENTION_REASONS_COLUMN })
       .from(factsTable)
       .where(where)
       .orderBy(desc(factsTable.createdAt))
       .limit(limit)
       .offset(offset),
     db.select({ total: count() }).from(factsTable).where(where),
+    db.select(ATTENTION_COUNT_COLUMNS).from(factsTable),
   ]);
 
-  res.json({ facts, total, page, limit });
+  res.json({ facts, total, page, limit, attentionCounts });
 });
 
 // Deactivate a fact: the only removal there is until the fact sheet's guarded

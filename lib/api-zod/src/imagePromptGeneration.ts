@@ -78,6 +78,14 @@ import { detectMediumClaim } from "./promptContentDetectors";
 // classification, so every existing test render reads out of date once;
 // nothing re-renders on its own.
 export const IMAGE_PROMPT_GENERATION_VERSION = "v11";
+/**
+ * The key under which a render's stored compiled prompt records the
+ * prompt-generation version that compiled it (plan
+ * PLAN_FACT_LIFECYCLE_REBUILD.md 2C). A render compiled before it was recorded
+ * lacks the key; the needs-attention check reads such a render's generation
+ * from whether the render planner wrote it a plan (every version before v11).
+ */
+export const PROMPT_GENERATION_VERSION_KEY = "promptGenerationVersion";
 // v2: a vehicle, object or mascot is no longer a subject kind; a photo whose
 // only subject is one has no usable subject (people and pets only).
 export const SOURCE_IMAGE_ANALYZER_VERSION = "v2";

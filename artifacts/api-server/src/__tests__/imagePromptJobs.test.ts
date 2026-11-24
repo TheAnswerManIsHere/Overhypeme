@@ -32,7 +32,7 @@ import { photoBackgrounds } from "./helpers/photoBackground.js";
 import { __setUtilityLLMClientForTest } from "../lib/utilityLLM.js";
 import { __setRenderFalForTest, type FalHistoryEntry, type RenderFal } from "../lib/renderFalTransport.js";
 import { __setRecoveryClockForTest, recoverLostReceipt } from "../lib/renderRequestRecovery.js";
-import { defaultIdentityPolicyForRenderMode } from "@workspace/api-zod";
+import { defaultIdentityPolicyForRenderMode, IMAGE_PROMPT_GENERATION_VERSION, PROMPT_GENERATION_VERSION_KEY } from "@workspace/api-zod";
 import { withCast } from "./helpers/gagCast.js";
 
 const USER_PREFIX = "t_ipj_";
@@ -140,7 +140,8 @@ describe("persistCompiledPromptAndEnqueueGeneration — stores the prompt and ch
       .from(imagePromptAttemptsTable)
       .where(eq(imagePromptAttemptsTable.id, attemptId));
     assert.equal(row!.error, null);
-    assert.deepEqual(row!.compiledPrompt, { prompt: "test prompt", imagePrompt: "test prompt" });
+    // The prompt-generation version is recorded with the prompt (plan PLAN_FACT_LIFECYCLE_REBUILD.md 2C).
+    assert.deepEqual(row!.compiledPrompt, { prompt: "test prompt", imagePrompt: "test prompt", [PROMPT_GENERATION_VERSION_KEY]: IMAGE_PROMPT_GENERATION_VERSION });
     assert.equal(row!.visualPlan, null, "a direct attempt stores no plan");
     assert.equal(row!.subjectFactCompatibility, null, "nor a planner's compatibility rating");
     assert.equal(buildRenderStatusPayload(row!).status, "prompt_ready", "prompt_ready derives from the compiled prompt");

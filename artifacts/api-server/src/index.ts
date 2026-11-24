@@ -227,6 +227,27 @@ function scheduleContentPurger() {
   });
 }
 
+// Hourly (and a few minutes after a start): fill the duplicate fingerprint of
+// every approved fact that lacks one, live or deactivated, a bounded batch a
+// run (plan PLAN_FACT_LIFECYCLE_REBUILD.md 2C: "Missing fingerprints are
+// filled automatically; nothing else runs on its own"). A fact whose embedding
+// fails is logged and tried again next run; the run itself completes.
+function scheduleFingerprintFill() {
+  scheduleRecurringTask({
+    cadenceMs: HOURLY_MS,
+    steps: [
+      {
+        id: "fingerprint_fill",
+        run: async () => {
+          const { processed, failed } = await backfillEmbeddings();
+          if (processed > 0 || failed > 0) logger.info({ processed, failed }, "Duplicate fingerprint fill run");
+        },
+        failureMessage: "duplicate fingerprint fill failed",
+      },
+    ],
+  });
+}
+
 // Hourly: advance every pending account deletion (lib/accountDeletion.ts).
 // Safe on several instances at once: every stage is a compare-and-set, and the
 // purge runs under the owner's lock.
@@ -508,11 +529,7 @@ import("./lib/membershipSchedules")
   .then((m) => m.scheduleMembershipJobs())
   .catch((err: unknown) => logger.error({ err }, "Membership job scheduling failed"));
 backfillWilsonScores().catch((err: unknown) => logger.error({ err }, "Wilson backfill failed"));
-backfillEmbeddings()
-  .then(({ processed, failed }) => {
-    if (processed > 0 || failed > 0) logger.info({ processed, failed }, "Embedding backfill complete");
-  })
-  .catch((err: unknown) => logger.warn({ err }, "Embedding backfill skipped (no OpenAI key?)"));
+scheduleFingerprintFill();
 // When monitoring of each recurring task began (launch Phase 16): the health
 // check's reference for a task that has not completed a run yet.
 void beginTaskMonitoring();

@@ -38,6 +38,8 @@ import {
 import type { AsyncJobRow } from "@workspace/db/schema";
 import {
   validateGagRenderInput,
+  IMAGE_PROMPT_GENERATION_VERSION,
+  PROMPT_GENERATION_VERSION_KEY,
   type SubjectRenderMode,
   type RenderControls,
   type SourceImageAnalysis,
@@ -250,7 +252,10 @@ export async function persistCompiledPromptAndEnqueueGeneration(args: {
     await tx
       .update(imagePromptAttemptsTable)
       .set({
-        compiledPrompt: args.compiledPrompt,
+        // The prompt-generation version is recorded with the prompt it
+        // compiled (plan PLAN_FACT_LIFECYCLE_REBUILD.md 2C): an example reads
+        // stale from its own provenance, never from a global marker.
+        compiledPrompt: { ...args.compiledPrompt, [PROMPT_GENERATION_VERSION_KEY]: IMAGE_PROMPT_GENERATION_VERSION },
         error: null,
         errorCode: null,
         updatedAt: new Date(),

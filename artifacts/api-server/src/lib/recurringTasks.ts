@@ -132,6 +132,16 @@ export const RECURRING_TASKS = [
     graceMs: 30 * MINUTE,
   },
   {
+    id: "fingerprint_fill",
+    label: "Duplicate fingerprint fill",
+    site: "index.ts",
+    cadenceMs: () => HOUR,
+    // A few minutes after a start, so a fact approved while the API was down
+    // is fingerprinted soon after it comes back, then hourly.
+    firstRunMs: 3 * MINUTE,
+    graceMs: 30 * MINUTE,
+  },
+  {
     id: "account_deletion",
     label: "Account deletion worker",
     site: "index.ts",
