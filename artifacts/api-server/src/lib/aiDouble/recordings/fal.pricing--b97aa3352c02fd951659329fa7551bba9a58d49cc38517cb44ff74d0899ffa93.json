@@ -4,7 +4,7 @@
     "endpoint": "fal-ai/imageutils/nsfw"
   },
   "fingerprint": "b97aa3352c02fd951659329fa7551bba9a58d49cc38517cb44ff74d0899ffa93",
-  "recordedAt": "2026-10-12T23:35:00.465Z",
+  "recordedAt": "2026-11-24T06:00:33.446Z",
   "clients": {
     "@fal-ai/client": "1.9.5",
     "openai": "6.33.0"

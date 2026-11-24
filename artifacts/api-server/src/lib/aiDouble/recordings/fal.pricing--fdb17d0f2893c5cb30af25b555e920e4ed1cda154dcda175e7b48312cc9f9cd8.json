@@ -4,7 +4,7 @@
     "endpoint": "openai/gpt-image-2.5/sunburst/text-to-image"
   },
   "fingerprint": "fdb17d0f2893c5cb30af25b555e920e4ed1cda154dcda175e7b48312cc9f9cd8",
-  "recordedAt": "2026-11-24T00:17:59.146Z",
+  "recordedAt": "2026-11-24T05:57:50.834Z",
   "clients": {
     "@fal-ai/client": "1.9.5",
     "openai": "6.33.0"

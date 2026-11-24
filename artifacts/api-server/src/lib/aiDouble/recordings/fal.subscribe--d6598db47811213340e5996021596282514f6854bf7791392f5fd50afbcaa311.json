@@ -7,7 +7,7 @@
     }
   },
   "fingerprint": "d6598db47811213340e5996021596282514f6854bf7791392f5fd50afbcaa311",
-  "recordedAt": "2026-10-12T23:35:01.688Z",
+  "recordedAt": "2026-11-24T06:00:34.129Z",
   "clients": {
     "@fal-ai/client": "1.9.5",
     "openai": "6.33.0"
@@ -15,8 +15,8 @@
   "target": "fal-ai/imageutils/nsfw",
   "response": {
     "data": {
-      "nsfw_probability": 0.0004916485631838441
+      "nsfw_probability": 0.0004916487960144877
     },
-    "requestId": "recorded-11"
+    "requestId": "recorded-14"
   }
 }

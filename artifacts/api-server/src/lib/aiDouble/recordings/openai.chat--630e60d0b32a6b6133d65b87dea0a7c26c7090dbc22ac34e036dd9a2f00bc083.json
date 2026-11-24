@@ -8,7 +8,7 @@
         "role": "system"
       },
       {
-        "content": "Fact: Alex once counted to infinity. Twice. The second time they did it backwards to check their work.",
+        "content": "Fact: Alex once counted to infinity. Twice. The second time They did it backwards to check their work.",
         "role": "user"
       }
     ],
@@ -59,8 +59,8 @@
       "type": "json_schema"
     }
   },
-  "fingerprint": "73faac57a74580c14ff3620436a580e4d31a018c3325b5858b61e55e3b35bd54",
-  "recordedAt": "2026-11-24T00:14:42.047Z",
+  "fingerprint": "630e60d0b32a6b6133d65b87dea0a7c26c7090dbc22ac34e036dd9a2f00bc083",
+  "recordedAt": "2026-11-24T05:57:58.906Z",
   "clients": {
     "@fal-ai/client": "1.9.5",
     "openai": "6.33.0"
@@ -69,7 +69,7 @@
   "response": {
     "id": "recorded-3",
     "object": "chat.completion",
-    "created": 1795479280,
+    "created": 1795499877,
     "model": "gpt-5.5-2026-04-23",
     "choices": [
       {
@@ -85,14 +85,14 @@
     ],
     "usage": {
       "prompt_tokens": 379,
-      "completion_tokens": 42,
-      "total_tokens": 421,
+      "completion_tokens": 41,
+      "total_tokens": 420,
       "prompt_tokens_details": {
         "cached_tokens": 0,
         "audio_tokens": 0
       },
       "completion_tokens_details": {
-        "reasoning_tokens": 24,
+        "reasoning_tokens": 23,
         "audio_tokens": 0,
         "accepted_prediction_tokens": 0,
         "rejected_prediction_tokens": 0

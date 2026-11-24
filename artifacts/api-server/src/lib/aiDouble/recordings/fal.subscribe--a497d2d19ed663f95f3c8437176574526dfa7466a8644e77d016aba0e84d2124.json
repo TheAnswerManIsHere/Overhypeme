@@ -7,7 +7,7 @@
     }
   },
   "fingerprint": "a497d2d19ed663f95f3c8437176574526dfa7466a8644e77d016aba0e84d2124",
-  "recordedAt": "2026-11-15T21:58:46.833Z",
+  "recordedAt": "2026-11-24T06:01:54.407Z",
   "clients": {
     "@fal-ai/client": "1.9.5",
     "openai": "6.33.0"

@@ -19,7 +19,7 @@
     }
   },
   "fingerprint": "acf9d63a755a0db28fe1b9ca832d2ed7589e75c0052727c9eb4c9da7b3441c74",
-  "recordedAt": "2026-11-24T00:14:35.155Z",
+  "recordedAt": "2026-11-24T05:57:51.376Z",
   "clients": {
     "@fal-ai/client": "1.9.5",
     "openai": "6.33.0"
@@ -28,14 +28,14 @@
   "response": {
     "id": "recorded-1",
     "object": "chat.completion",
-    "created": 1795479273,
+    "created": 1795499869,
     "model": "gpt-5.4-mini-2026-03-17",
     "choices": [
       {
         "index": 0,
         "message": {
           "role": "assistant",
-          "content": "{\"template\":\"{NAME} once counted to infinity. Twice. The second time {SUBJ} did it backwards to check {POSS} work.\"}",
+          "content": "{\"template\":\"{NAME} once counted to infinity. Twice. The second time {Subj} did it backwards to check {POSS} work.\"}",
           "refusal": null,
           "annotations": []
         },
@@ -44,14 +44,14 @@
     ],
     "usage": {
       "prompt_tokens": 1489,
-      "completion_tokens": 139,
-      "total_tokens": 1628,
+      "completion_tokens": 180,
+      "total_tokens": 1669,
       "prompt_tokens_details": {
         "cached_tokens": 0,
         "audio_tokens": 0
       },
       "completion_tokens_details": {
-        "reasoning_tokens": 95,
+        "reasoning_tokens": 136,
         "audio_tokens": 0,
         "accepted_prediction_tokens": 0,
         "rejected_prediction_tokens": 0
