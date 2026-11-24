@@ -87,11 +87,10 @@ describe("preview-invoice mirror adaptation", () => {
   it("with the adaptation the id-less preview is skipped, and no invoice row is written", async () => {
     const sync = newSync();
     assert.equal(adaptStripeSync(sync), true);
-    const upsertInvoices = sync.upsertInvoices.bind(sync);
     let upserts = 0;
-    (sync as unknown as { upsertInvoices: typeof upsertInvoices }).upsertInvoices = async (...args) => {
+    (sync as unknown as { upsertInvoices: () => Promise<unknown[]> }).upsertInvoices = async () => {
       upserts++;
-      return upsertInvoices(...args);
+      return [];
     };
     await sync.processEvent(upcomingEvent());
     assert.equal(upserts, 0);
