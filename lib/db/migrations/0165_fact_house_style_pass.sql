@@ -138,7 +138,7 @@ CREATE OR REPLACE FUNCTION pg_temp.house_style_end(t text) RETURNS text
 LANGUAGE plpgsql IMMUTABLE AS $fn$
 DECLARE
   c text[] := regexp_split_to_array(t, '');
-  n integer := coalesce(array_length(regexp_split_to_array(t, ''), 1), 0);
+  n integer := coalesce(array_length(c, 1), 0);
   lead integer := 0;
   probe integer;
   end_at integer;
@@ -227,9 +227,8 @@ BEGIN
 
   DROP TABLE IF EXISTS pg_temp.house_style_pass;
   CREATE TEMP TABLE house_style_pass ON COMMIT DROP AS
-    SELECT id, text AS old_text, pg_temp.house_style(text) AS new_text
-    FROM facts
-    WHERE text IS DISTINCT FROM pg_temp.house_style(text);
+    SELECT * FROM (SELECT id, text AS old_text, pg_temp.house_style(text) AS new_text FROM facts) s
+    WHERE old_text IS DISTINCT FROM new_text;
 
   ALTER TABLE facts DISABLE TRIGGER facts_text_is_locked;
 
@@ -250,10 +249,11 @@ BEGIN
      AND NOT (f.visual_concept_candidates ? 'factTextUsed');
   GET DIAGNOSTICS v_ideas = ROW_COUNT;
 
-  UPDATE pending_reviews
-     SET submitted_text = pg_temp.house_style(submitted_text)
-   WHERE status = 'pending'
-     AND submitted_text IS DISTINCT FROM pg_temp.house_style(submitted_text);
+  UPDATE pending_reviews r
+     SET submitted_text = s.new_text
+    FROM (SELECT id, pg_temp.house_style(submitted_text) AS new_text FROM pending_reviews WHERE status = 'pending') s
+   WHERE r.id = s.id
+     AND r.submitted_text IS DISTINCT FROM s.new_text;
   GET DIAGNOSTICS v_reviews = ROW_COUNT;
 
   RAISE NOTICE '[0165] facts examined: %, changed: %, already tidy: %; draft idea sets recorded: %; pending submissions tidied: %',
