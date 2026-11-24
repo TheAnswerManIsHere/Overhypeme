@@ -1,4 +1,4 @@
-import { requireFeature } from "../lib/featureAccess";
+import { can, requireFeature } from "../lib/featureAccess";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { createHash } from "crypto";
@@ -538,6 +538,41 @@ router.delete("/memes/:slug", async (req: Request, res: Response) => {
     .where(and(eq(memesTable.id, meme.id), liveContent(memesTable)));
 
   res.json({ success: true, purgeAfter: stamp.purgeAfter.toISOString() });
+});
+
+// PATCH /memes/:slug/visibility — the owner switches a live meme between public
+// and private from its page (#875, R3). Public is everyone's; making a meme
+// private is the Legendary perk the creation path already gates
+// (`meme_private_visibility`), so the same gate applies here, failing closed.
+const visibilityBody = z.object({ isPublic: z.boolean() }).strict();
+router.patch("/memes/:slug/visibility", async (req: Request, res: Response) => {
+  if (!req.user) { res.status(401).json({ error: "Authentication required" }); return; }
+  const slug = req.params["slug"] as string;
+  const parsed = visibilityBody.safeParse(req.body);
+  if (!slug || !parsed.success) { res.status(400).json({ error: "isPublic (true or false) is required" }); return; }
+
+  const [meme] = await db
+    .select({ id: memesTable.id, createdById: memesTable.createdById, deletedAt: memesTable.deletedAt, isPublic: memesTable.isPublic })
+    .from(memesTable)
+    .where(eq(memesTable.permalinkSlug, slug))
+    .limit(1);
+  if (!meme) { res.status(404).json({ error: "Meme not found" }); return; }
+  if (meme.createdById !== req.user.id) { res.status(403).json({ error: "You can only change your own memes" }); return; }
+  if (meme.deletedAt) { res.status(410).json({ error: "Meme deleted" }); return; }
+
+  if (!parsed.data.isPublic) {
+    if (!(await can(principalFromRequest(req), "meme_private_visibility"))) {
+      res.status(403).json({ error: "Private memes are a Legendary feature", upgradeRequired: true });
+      return;
+    }
+  }
+
+  await db
+    .update(memesTable)
+    .set({ isPublic: parsed.data.isPublic })
+    .where(and(eq(memesTable.id, meme.id), liveContent(memesTable)));
+  setNoStore(res);
+  res.json({ isPublic: parsed.data.isPublic });
 });
 
 // POST /memes/:slug/restore — undo the creator's delete inside the restore window.

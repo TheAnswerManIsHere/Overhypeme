@@ -17,6 +17,7 @@ import {
   FileText, ImageIcon, Images, Lock, Plus, RotateCcw, ThumbsUp, Trash2,
 } from "lucide-react";
 import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
+import { CACHED_COPY_NOTICE } from "@/lib/cachedCopyNotice";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
@@ -37,6 +38,8 @@ interface UploadItem {
   isLowRes: boolean;
   fileSizeBytes: number;
   createdAt: string;
+  /** Your current profile photo, which can't be deleted (#875, R5). */
+  isProfile?: boolean;
 }
 
 interface AiImageItem {
@@ -331,7 +334,7 @@ export default function Library() {
 
           {activeTab === "images" && (
             <div>
-              <p className="text-sm text-muted-foreground mb-6">Images you've uploaded for meme creation. Click an image to copy its link for reuse in the meme builder.</p>
+              <p className="text-sm text-muted-foreground mb-6">Images you've uploaded for meme creation. Click an image to open it full size. The one marked Profile is your picture and can't be deleted; choose another on your Profile to change it.</p>
               {uploads.isError ? (
                 <div className="text-center py-12 bg-card border-2 border-destructive/30 rounded-sm">
                   <AlertTriangle className="w-10 h-10 text-destructive/60 mx-auto mb-3" />
@@ -357,12 +360,21 @@ export default function Library() {
                         isAuthProtected
                         aspectRatio="aspect-square"
                         actions={["delete", "copyLink", "openFull"]}
-                        onDelete={() => deleteUpload(upload.objectPath)}
+                        onDelete={upload.isProfile ? undefined : () => deleteUpload(upload.objectPath)}
                         deleteConfirmMessage={`Delete this photo? It moves to Recently deleted, where you can restore it for ${windowDays} days. Memes you made with it stay as they are.`}
                         permalink={permalink}
-                        imageOverlay={upload.isLowRes ? (
-                          <div className="absolute top-1 left-1 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-sm z-10">
-                            LOW RES
+                        imageOverlay={upload.isProfile || upload.isLowRes ? (
+                          <div className="absolute top-1 left-1 flex gap-1 z-10">
+                            {upload.isProfile && (
+                              <span data-testid="library-profile-badge" className="bg-primary text-primary-foreground text-[10px] font-bold px-1.5 py-0.5 rounded-sm">
+                                PROFILE
+                              </span>
+                            )}
+                            {upload.isLowRes && (
+                              <span className="bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-sm">
+                                LOW RES
+                              </span>
+                            )}
                           </div>
                         ) : undefined}
                         footer={<AdminMediaInfo fileName={getFileNameFromUrl(upload.objectPath)} fileSizeBytes={upload.fileSizeBytes} mimeType={getMimeTypeFromUrl(upload.objectPath)} width={upload.width} height={upload.height} />}
@@ -447,7 +459,7 @@ export default function Library() {
                           aspectRatio="aspect-video"
                           actions={["delete", "copyLink", "openFull"]}
                           onDelete={() => deleteMeme(meme.permalinkSlug)}
-                          deleteConfirmMessage={`Delete this meme? It leaves Overhype.me now and moves to Recently deleted, where you can restore it for ${windowDays} days. A copy someone already loaded can stay visible to them for up to a day.`}
+                          deleteConfirmMessage={`Delete this meme? It leaves Overhype.me now and moves to Recently deleted, where you can restore it for ${windowDays} days. ${CACHED_COPY_NOTICE}`}
                           permalink={memePermalink}
                            imageOverlay={!meme.isPublic ? (
                              <div

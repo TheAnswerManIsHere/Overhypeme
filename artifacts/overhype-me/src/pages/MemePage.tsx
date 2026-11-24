@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { useLocation, useRoute } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useGetFact, getGetFactQueryKey } from "@workspace/api-client-react";
 import { useAuth } from "@workspace/replit-auth-web";
+import { useToast } from "@/hooks/use-toast";
+import { CACHED_COPY_NOTICE } from "@/lib/cachedCopyNotice";
 import { Layout } from "@/components/layout/Layout";
 import { AlertCircle, Ban, ArrowLeft, Lock } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -67,7 +69,7 @@ function DimsFromUrl({ url }: { url: string }) {
 
 export default function MemePage() {
   const [, params] = useRoute("/m/:slug");
-  const { user, role } = useAuth();
+  const { user, role, can } = useAuth();
   const slug = params?.slug ?? "";
 
   const { data: memeResult, isLoading, error } = useQuery<MemeResult>({
@@ -97,6 +99,9 @@ export default function MemePage() {
   // sign-in and sign-up go straight there (P3-1).
   const askBefore = useAskBefore();
   const [shareOpen, setShareOpen] = useState(false);
+  const [ownerBusy, setOwnerBusy] = useState(false);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   if (isLoading) {
     return (
@@ -203,6 +208,44 @@ export default function MemePage() {
     setShareOpen(true);
   };
 
+  // #875 R3: visibility and delete from the meme's own page. The server's
+  // message (a read-only pause, the Legendary gate) is what the toast shows.
+  const ownerRequest = async (path: string, init: RequestInit): Promise<boolean> => {
+    setOwnerBusy(true);
+    try {
+      const res = await fetch(path, { credentials: "include", ...init });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        toast({ title: body?.error ?? "That didn't work", variant: "destructive" });
+        return false;
+      }
+      return true;
+    } finally {
+      setOwnerBusy(false);
+    }
+  };
+  const handleSetPublic = async (next: boolean) => {
+    const ok = await ownerRequest(`/api/memes/${slug}/visibility`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isPublic: next }),
+    });
+    if (!ok) return;
+    toast(next ? { title: "Your meme is public" } : { title: "Your meme is private", description: CACHED_COPY_NOTICE });
+    void queryClient.invalidateQueries({ queryKey: ["meme-page", slug] });
+    void queryClient.invalidateQueries({ queryKey: ["profile-my-memes"] });
+    if (factId) void queryClient.invalidateQueries({ queryKey: ["listFactMemes", factId] });
+  };
+  const handleDelete = async () => {
+    const ok = await ownerRequest(`/api/memes/${slug}`, { method: "DELETE" });
+    if (!ok) return;
+    void queryClient.invalidateQueries({ queryKey: ["profile-my-memes"] });
+    void queryClient.invalidateQueries({ queryKey: ["my-recently-deleted"] });
+    if (factId) void queryClient.invalidateQueries({ queryKey: ["listFactMemes", factId] });
+    toast({ title: "Meme deleted", description: "You can restore it from Recently deleted in your Library." });
+    setLocation("/library?tab=deleted");
+  };
+
   const openMakeAboutMe = () => {
     if (!factReady) return;
     setLocation(`/facts/${meme.factId}/meme`);
@@ -226,6 +269,11 @@ export default function MemePage() {
         <CTABarOwn
           onDownload={() => askBefore(handleDownload)}
           onCustomShare={() => askBefore(handleCustomShare)}
+          isPublic={meme.isPublic}
+          canMakePrivate={can("meme_private_visibility")}
+          onSetPublic={(next) => { void handleSetPublic(next); }}
+          onDelete={() => { void handleDelete(); }}
+          busy={ownerBusy}
         />
       );
       break;

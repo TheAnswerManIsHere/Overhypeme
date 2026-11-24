@@ -573,8 +573,10 @@ the scrub rules is reviewed:
 Baseline journeys 2, 3, 4 and 7 (Phase 2, increment 6; plan
 `docs/plans/PLAN_PHASE2_INC6_ACCEPTANCE.md`), on demand, never in the per-PR
 gate: the **Acceptance** workflow (`.github/workflows/acceptance.yml`,
-dispatched by hand, and run on a pull request that changes the acceptance
-tooling) and this command run the same thing. Journeys 5 and 6 ran the legacy
+dispatched by hand, and run, never as a required check, on a pull request
+that changes the acceptance tooling or any server or shared-library source,
+since any of it can change a recorded AI request: Issue #1162) and this
+command run the same thing. Journeys 5 and 6 ran the legacy
 meme studio's user AI generate path and were removed on 2026-10-17
 (`docs/ai-context/decisions.md`, *Acceptance journeys 5 and 6 are removed with
 the legacy studio*); the studio itself was deleted in launch Phase 4, and the
