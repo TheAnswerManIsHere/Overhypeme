@@ -26,8 +26,8 @@ import {
   RECIPIENT_SUSPENDED_SKIP,
   SUSPENSION_PERMITTED_KINDS,
   _resetResendAuthDisabledForTests,
-  classifyLegacyEmailKinds,
   emailJobHandler,
+  emailRetryReset,
   isEnabled,
   recipientSuspended,
   sendEmail,
@@ -318,42 +318,58 @@ describe("a suspended member does not receive ordinary emails (Issue #1212)", ()
     }
   });
 
-  it("the cutover step labels an older billing job without touching its sending record, and leaves unknown jobs ordinary", async () => {
-    const legacy = async (subject: string, status: "pending" | "failed" | "done" = "pending") => {
-      const delivery = { state: "possibly_sent", nonce: randomUUID(), firstDispatchAt: new Date().toISOString() };
+  it("an older job with no kind that is a billing or access notice still goes to a suspended recipient: fresh, recovered or retried", async () => {
+    const to = await makeUser({ suspended: true });
+    /** A row as an earlier release queued it: no kind, no sending record. */
+    const legacy = async (subject: string, extra: Partial<typeof asyncJobsTable.$inferInsert> = {}) => {
       const [row] = await db.insert(asyncJobsTable).values({
-        queue: "email", status,
-        payload: { to: `legacy_${randomUUID().slice(0, 6)}@example.test`, subject, text: "b", html: null, kind: null, delivery },
+        queue, payload: { to, subject, text: "b", html: null, kind: null },
+        nextAttemptAt: new Date(Date.now() - 1000), ...extra,
       }).returning();
       return row!.id;
     };
-    const ids = {
-      action: await legacy("Action required: confirm your renewal — Overhype.me"),
-      renewal: await legacy("Your Overhype.me renewal — 3 days to go", "failed"),
-      card: await legacy("Your card on file was updated — Overhype.me"),
-      revoked: await legacy("Your Overhype.me Legendary access is paused"),
-      unknown: await legacy("Today's fact about you"),
-      finished: await legacy("Your card on file was updated — Overhype.me", "done"),
-    };
-    try {
-      const before = await getJob(ids.action);
-      const counts = await classifyLegacyEmailKinds(db);
-      assert.ok((counts["billing_payment_action"] ?? 0) >= 1);
-      const kindOf = async (id: number) => ((await getJob(id)).payload as EmailJobPayload).kind ?? null;
-      assert.equal(await kindOf(ids.action), "billing_payment_action");
-      assert.equal(await kindOf(ids.renewal), "billing_renewal_reminder");
-      assert.equal(await kindOf(ids.card), "billing_card_updated");
-      assert.equal(await kindOf(ids.revoked), "access_revoked");
-      assert.equal(await kindOf(ids.unknown), null, "an unrecognised job stays ordinary");
-      assert.equal(await kindOf(ids.finished), null, "a finished job is left alone");
-      const after = await getJob(ids.action);
-      assert.deepEqual((after.payload as EmailJobPayload).delivery, (before.payload as EmailJobPayload).delivery, "the sending record is kept");
-      assert.equal(after.status, before.status);
-      const again = await classifyLegacyEmailKinds(db);
-      assert.equal(await kindOf(ids.action), "billing_payment_action");
-      assert.ok(Object.values(again).every((n) => n === 0), "a second run finds nothing left to label");
-    } finally {
-      await db.delete(asyncJobsTable).where(inArray(asyncJobsTable.id, Object.values(ids)));
-    }
+    const billing = [
+      "Action required: confirm your renewal — Overhype.me",
+      "Your card on file was updated — Overhype.me",
+      "Your Overhype.me renewal — $9.99 on Dec 1",
+      "Your Overhype.me Legendary access has ended",
+      "Your Overhype.me Legendary access is paused",
+    ];
+    const fresh = [];
+    for (const subject of billing) fresh.push(await legacy(subject));
+    const unknown = await legacy("Today's fact about you");
+    await tick(); await tick(); await tick();
+    assert.deepEqual(sent.map((m) => m.subject).sort(), [...billing].sort(), "each billing or access notice is sent; the unknown one is not");
+    for (const id of fresh) assert.notDeepEqual((await getJob(id)).result, RECIPIENT_SUSPENDED_SKIP);
+    await assertSkipped(unknown, "an unrecognised kind-less job stays ordinary");
+
+    // Recovered: a run that stopped after recording a possible send, under this release.
+    sent = [];
+    const recovered = await enqueue(to);
+    await db.update(asyncJobsTable)
+      .set({ payload: sql`jsonb_set(${asyncJobsTable.payload}, '{subject}', to_jsonb(${billing[0]}::text))` })
+      .where(eq(asyncJobsTable.id, recovered));
+    await setDelivery(recovered, { state: "possibly_sent", firstDispatchAt: new Date().toISOString(),
+      message: { to, from: "Overhype.me <noreply@overhype.me>", subject: billing[0]!, text: "b", html: "<p>b</p>" } } as Partial<EmailDelivery>);
+    await tick();
+    assert.equal(sent.length, 1, "a recovered billing notice resends under its key");
+
+    // Retried: an older failed job an admin retries later.
+    sent = [];
+    const failed = await legacy(billing[3]!, { status: "failed", attempts: 3 });
+    await db.update(asyncJobsTable).set({ ...emailRetryReset(), nextAttemptAt: new Date(Date.now() - 1000) }).where(eq(asyncJobsTable.id, failed));
+    await tick();
+    assert.equal(sent.length, 1, "a retried billing notice is sent");
+  });
+
+  it("a job's own kind decides, never its subject", async () => {
+    const to = await makeUser({ suspended: true });
+    const id = await enqueue(to, "share_invite");
+    await db.update(asyncJobsTable)
+      .set({ payload: sql`jsonb_set(${asyncJobsTable.payload}, '{subject}', to_jsonb('Your card on file was updated — Overhype.me'::text))` })
+      .where(eq(asyncJobsTable.id, id));
+    await tick();
+    assert.equal(sent.length, 0);
+    await assertSkipped(id, "an ordinary kind with a billing subject");
   });
 });

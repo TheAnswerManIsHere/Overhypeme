@@ -377,12 +377,14 @@ recovery after an interruption and an admin's Retry all pass the same check.
   `suspendAccount`'s `FOR UPDATE`. A suspension that commits first skips the
   send; an authorisation that commits first may still send that one attempt,
   and every later attempt decides afresh.
-- **Older jobs with no kind** were labelled once, after the deploy, by
-  `pnpm --filter @workspace/api-server run classify:legacy-email-kinds`
-  (`classifyLegacyEmailKinds`): a pending, recovering, processing or failed job
-  whose subject is a billing or access notice gets its kind written onto the
-  row, with its sending record left as it was. Anything it did not recognise
-  stays ordinary.
+- **A job with no kind** (queued by an earlier release, including the
+  outgoing one while two releases overlap) is judged at delivery by
+  `effectiveEmailKind`: one of the five fixed billing and access subjects
+  (four exact, one prefix) gives its kind, and anything else stays ordinary.
+  A job with a kind is judged on that kind alone. This replaced the plan's
+  one-off labelling step (item 5), which could lose a billing notice the
+  worker reached before it ran, and which could only have run against the
+  development database (PR #1229 round 1).
 - **The Email Queue** shows such a job as *"Skipped — recipient suspended"*,
   never "Delivered"; its filter for finished rows is "Finished" and its clear
   control "Clear finished". Queue Health knows `recipient_suspended` as a skip

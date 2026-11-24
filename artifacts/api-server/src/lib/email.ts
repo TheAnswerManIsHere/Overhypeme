@@ -485,40 +485,24 @@ export const SUSPENSION_PERMITTED_KINDS: ReadonlySet<string> = new Set([
 
 /**
  * The billing and access notices an earlier release queued with no kind, told
- * apart by their fixed subjects (the builders below and `userNotify.ts`).
- * Used once, by `classifyLegacyEmailKinds`, at the cutover (plan item 5).
+ * apart by their fixed subjects (the builders below, and `userNotify.ts`'s
+ * `subjectFor`). Read only for a job with no kind, at delivery, so it covers
+ * every way such a job can arrive: pending at boot, reclaimed, retried, or
+ * queued by the outgoing release while two releases overlap (PR #1229 round 1).
  */
-const LEGACY_KIND_BY_SUBJECT: readonly { kind: string; subjectLike: string }[] = [
-  { kind: "billing_payment_action", subjectLike: "Action required: confirm your renewal — Overhype.me" },
-  { kind: "billing_card_updated", subjectLike: "Your card on file was updated — Overhype.me" },
-  { kind: "billing_renewal_reminder", subjectLike: "Your Overhype.me renewal — %" },
-  { kind: "access_revoked", subjectLike: "Your Overhype.me Legendary access has ended" },
-  { kind: "access_revoked", subjectLike: "Your Overhype.me Legendary access is paused" },
+const LEGACY_KIND_BY_SUBJECT: readonly { kind: string; exact?: string; prefix?: string }[] = [
+  { kind: "billing_payment_action", exact: "Action required: confirm your renewal — Overhype.me" },
+  { kind: "billing_card_updated", exact: "Your card on file was updated — Overhype.me" },
+  { kind: "billing_renewal_reminder", prefix: "Your Overhype.me renewal — " },
+  { kind: "access_revoked", exact: "Your Overhype.me Legendary access has ended" },
+  { kind: "access_revoked", exact: "Your Overhype.me Legendary access is paused" },
 ];
 
-/**
- * The cutover step for Issue #1212 (plan item 5; Astra S2): every email job an
- * earlier release queued with no kind, that could still be sent (pending,
- * recovering, processing or failed), and that is a billing or access notice
- * by its subject, gets its kind written onto the existing row. Nothing else
- * changes: its sending record, frozen message and no-duplicate key are kept,
- * and no send is authorised. Whoever the recipient is now. Idempotent: a
- * second run finds nothing. Jobs it does not recognise stay ordinary.
- */
-export async function classifyLegacyEmailKinds(executor: Pick<DbExecutor, "update"> = defaultDb): Promise<Record<string, number>> {
-  const counts: Record<string, number> = {};
-  for (const rule of LEGACY_KIND_BY_SUBJECT) {
-    const updated = await executor
-      .update(asyncJobsTable)
-      .set({ payload: sql`jsonb_set(${asyncJobsTable.payload}, '{kind}', to_jsonb(${rule.kind}::text))` })
-      .where(sql`${asyncJobsTable.queue} = 'email'
-        AND ${asyncJobsTable.status} IN ('pending', 'recovering', 'processing', 'failed')
-        AND (${asyncJobsTable.payload}->>'kind') IS NULL
-        AND ${asyncJobsTable.payload}->>'subject' LIKE ${rule.subjectLike}`)
-      .returning({ id: asyncJobsTable.id });
-    counts[rule.kind] = (counts[rule.kind] ?? 0) + updated.length;
-  }
-  return counts;
+/** The kind a job is judged by: its own, else the billing or access kind its subject identifies. */
+export function effectiveEmailKind(ep: Pick<EmailJobPayload, "kind" | "subject">): string | null {
+  if (ep.kind) return ep.kind;
+  const subject = ep.subject ?? "";
+  return LEGACY_KIND_BY_SUBJECT.find((r) => r.exact !== undefined ? subject === r.exact : subject.startsWith(r.prefix!))?.kind ?? null;
 }
 
 /** The queue's skip outcome for mail held back from a suspended account (Queue Health reads `skipped`). */
@@ -578,7 +562,7 @@ async function runEmailJob(ep: EmailJobPayload, row: ClaimedJobRow): Promise<Han
   // history is left as it was (Astra A1). Decided again, under lock, where
   // the send is authorised.
   const recipient = recipientOf(ep);
-  const suppressible = !SUSPENSION_PERMITTED_KINDS.has(ep.kind ?? "");
+  const suppressible = !SUSPENSION_PERMITTED_KINDS.has(effectiveEmailKind(ep) ?? "");
   const heldBack = (): HandlerResult => {
     logger.info({ id: row.id, kind: ep.kind ?? null }, "[email] recipient is suspended — skipped, not sent");
     return { ok: true, result: RECIPIENT_SUSPENDED_SKIP };
