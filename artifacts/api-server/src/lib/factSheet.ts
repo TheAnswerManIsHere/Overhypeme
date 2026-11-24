@@ -9,6 +9,7 @@
  * gag and example edits wait for Publish (3.2). A changed note on an approved
  * fact rewrites no gag ideas and touches no gag: that rule is the Gags step's.
  */
+import { factHasUnpublishedChanges } from "./factLifecycle";
 import { and, asc, count, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db, usersTable } from "@workspace/db";
@@ -113,6 +114,8 @@ export async function factSheet(factId: number) {
       humorNoteApprovedByName: userName(noteApprover),
       humorNoteApprovedAt: factsTable.humorNoteApprovedAt,
       attention: ATTENTION_REASONS_COLUMN,
+      /** The draft differs from the published set: "Publish changes" or "Discard changes" (plan 3B). */
+      hasUnpublishedChanges: factHasUnpublishedChanges,
     })
     .from(factsTable)
     .leftJoin(submitter, eq(submitter.id, factsTable.submittedById))

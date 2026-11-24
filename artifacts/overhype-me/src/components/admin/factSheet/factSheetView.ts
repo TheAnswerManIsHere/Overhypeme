@@ -54,6 +54,8 @@ export interface FactSheetView {
   suggestedHashtags: string[];
   hasEmbedding: boolean;
   attention: string[];
+  /** The draft differs from the published set: "Publish changes" or "Discard changes" (plan 3B). */
+  hasUnpublishedChanges: boolean;
   reviewId: number | null;
   hashtags: string[];
   usage: { memes: number; aiPictures: number };
@@ -67,16 +69,18 @@ export async function loadFactSheet(factId: number): Promise<FactSheetView> {
   return (await r.json()) as FactSheetView;
 }
 
-async function put<T>(url: string, body: unknown, fallback: string): Promise<T> {
+async function send<T>(method: "PUT" | "POST", url: string, body: unknown, fallback: string): Promise<T> {
   const r = await fetch(url, {
-    method: "PUT",
+    method,
     credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!r.ok) throw new Error((await readError(r)) || fallback);
   return (await r.json()) as T;
 }
+
+const put = <T,>(url: string, body: unknown, fallback: string) => send<T>("PUT", url, body, fallback);
 
 export async function saveHashtags(factId: number, hashtags: string[]): Promise<string[]> {
   const res = await put<{ hashtags: string[] }>(`/api/admin/facts/${factId}/hashtags`, { hashtags }, "Could not save the hashtags.");
@@ -86,4 +90,12 @@ export async function saveHashtags(factId: number, hashtags: string[]): Promise<
 export async function saveHumorNote(factId: number, text: string): Promise<{ text: string; approvedAt: string | null }> {
   const res = await put<{ humorNote: { text: string; approvedAt: string | null } }>(`/api/admin/facts/${factId}/humor-note`, { text }, "Could not save the humor note.");
   return res.humorNote;
+}
+
+/** An approved fact's lifecycle actions (api-server lib/factLifecycle.ts). */
+export type FactLifecycleAction = "publish" | "discard" | "deactivate" | "reactivate";
+
+/** Run one; throws the server's refusal in words (a go-live gap names the gag and the renders it needs). */
+export async function runFactAction(factId: number, action: FactLifecycleAction): Promise<void> {
+  await send("POST", `/api/admin/facts/${factId}/${action}`, undefined, "That didn't work. Nothing was changed.");
 }

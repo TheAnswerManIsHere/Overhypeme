@@ -710,54 +710,41 @@ describe("admin import routes — removed", () => {
 
 // ── DELETE /admin/facts/:id ───────────────────────────────────────────────────
 
-describe("DELETE /admin/facts/:id", () => {
+describe("POST /admin/facts/:id/deactivate", () => {
   it("returns 401 with no credentials", async () => {
-    const res = await request(makeApp()).delete("/admin/facts/some-id");
+    const res = await request(makeApp()).post("/admin/facts/1/deactivate");
     assert.equal(res.status, 401);
     assert.equal(res.body.error, "Unauthorized");
   });
 
   it("returns 403 admin_required for a non-admin user", async () => {
     const res = await request(makeApp())
-      .delete("/admin/facts/some-id")
+      .post("/admin/facts/1/deactivate")
       .set("authorization", `Bearer ${userSid}`);
     assert.equal(res.status, 403);
     assert.equal(res.body.error, "admin_required");
   });
 
-  it("soft-delete touches only that fact", async () => {
-    const targetId = await createTestFact(`${FACT_PREFIX}${randomUUID()} soft-delete target`);
-    const otherId = await createTestFact(`${FACT_PREFIX}${randomUUID()} soft-delete bystander`);
+  it("deactivates only that fact, keeps its row, and records it (plan 1F, 1I, 3B)", async () => {
+    const targetId = await createTestFact(`${FACT_PREFIX}${randomUUID()} deactivate target`);
+    const otherId = await createTestFact(`${FACT_PREFIX}${randomUUID()} deactivate bystander`);
     const res = await request(makeApp())
-      .delete(`/admin/facts/${targetId}`)
+      .post(`/admin/facts/${targetId}/deactivate`)
       .set("authorization", `Bearer ${adminSid}`);
     assert.equal(res.status, 200);
-    assert.equal(res.body.deleted, false);
 
     const rows = await db.select({ id: factsTable.id, isActive: factsTable.isActive }).from(factsTable).where(inArray(factsTable.id, [targetId, otherId]));
     const byId = new Map(rows.map((r) => [r.id, r.isActive]));
-    assert.equal(byId.get(targetId), false);
+    assert.equal(byId.get(targetId), false, "the fact row, and with it every member's memes, pictures and comments, is kept");
     assert.equal(byId.get(otherId), true, "another fact is untouched");
-  });
 
-  it("there is no hard delete: ?hard=true deactivates, and the fact row stays (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1F)", async () => {
-    const targetId = await createTestFact(`${FACT_PREFIX}${randomUUID()} hard-delete target`);
-    const res = await request(makeApp())
-      .delete(`/admin/facts/${targetId}?hard=true`)
-      .set("authorization", `Bearer ${adminSid}`);
-    assert.equal(res.status, 200);
-    assert.equal(res.body.deleted, false);
-
-    const [kept] = await db.select({ id: factsTable.id, isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, targetId));
-    assert.ok(kept, "the fact row, and with it every member's memes, pictures and comments, is kept");
-    assert.equal(kept.isActive, false);
-
-    // The deactivation is on the fact's admin-action record (plan 1I, 3C).
     const actions = await db.select({ action: adminActionsTable.action, actorId: adminActionsTable.actorId })
       .from(adminActionsTable).where(eq(adminActionsTable.factId, targetId));
     assert.deepEqual(actions, [{ action: "deactivate", actorId: adminUserId }]);
   });
+});
 
+describe("PATCH /admin/facts/:id", () => {
   it("an edit that turns Active off records a deactivation; one that changes a field records an edit", async () => {
     const targetId = await createTestFact(`${FACT_PREFIX}${randomUUID()} patch target`);
     const res = await request(makeApp())

@@ -321,9 +321,10 @@ describe("renders, counted per action", () => {
     assert.ok([200, 202].includes(ok.status), JSON.stringify(ok.body));
     assert.deepEqual((await attemptsOf(gagId)).map((a) => a.key).sort(), ["i2i_female_default", "i2i_nonhuman_animal"]);
     const liveOne = await liveFact();
-    const refusedLive = await request(app).post(url(liveOne.factId, `/${liveOne.gagId}/renders`)).send({ kinds: ["male"] });
-    assert.equal(refusedLive.status, 409);
-    assert.equal(refusedLive.body.code, "LIVE_GAG_EDITING_UNAVAILABLE");
+    // An approved fact's renders are drawn from its fact sheet, which names no review (plan 3B).
+    const liveDraw = await request(app).post(url(liveOne.factId, `/${liveOne.gagId}/renders`)).send({ kinds: ["male"] });
+    assert.ok([200, 202].includes(liveDraw.status), JSON.stringify(liveDraw.body));
+    assert.deepEqual((await attemptsOf(liveOne.gagId)).map((a) => a.key), ["i2i_male_default"]);
     const bad = await request(app).post(url(factId, `/${gagId}/renders`)).send({ kinds: ["vehicle"], reviewId: review!.id });
     assert.equal(bad.status, 400);
     const generic = await request(app).post(url(factId, `/${gagId}/renders`)).send({ scenarios: ["generic_t2i"] });

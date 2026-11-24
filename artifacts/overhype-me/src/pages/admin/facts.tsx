@@ -24,6 +24,8 @@ interface FactRow {
   wilsonScore: number;
   createdAt: string;
   attention?: string[];
+  /** The draft differs from the published set (plan 3B). */
+  hasUnpublishedChanges?: boolean;
 }
 
 interface FactsResponse {
@@ -55,6 +57,15 @@ function FactListRow({ fact, onOpen }: { fact: FactRow; onOpen: () => void }) {
         <span className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs text-muted-foreground">
           <span className="font-mono">#{fact.id}</span>
           {!fact.isActive && <span className="font-semibold text-red-500">Deactivated</span>}
+          {fact.hasUnpublishedChanges && (
+            <span
+              data-testid={`fact-row-${fact.id}-unpublished`}
+              className="px-1.5 py-0.5 rounded-sm border border-primary/50 bg-primary/10 text-primary font-semibold"
+              title="Its gags have changes members don't see yet: open it to publish or discard them."
+            >
+              Unpublished changes
+            </span>
+          )}
           <span className="font-mono">↑{fact.upvotes} ↓{fact.downvotes}</span>
           <span className="font-mono">W {(fact.wilsonScore ?? 0).toFixed(3)}</span>
           <span className="font-mono">{new Date(fact.createdAt).toLocaleDateString()}</span>
