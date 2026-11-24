@@ -121,3 +121,47 @@ test("a free account's profile photo stops Profile asking for one and is shown a
       .toBe(true);
   }
 });
+
+test("Remove my picture returns the member to their initial, keeps the photo, and the photo can be chosen again", async ({ page }) => {
+  // Plan PLAN_AVATAR_TAKEDOWN_AND_REMOVE.md (Issue #849, Q17 and Q18).
+  await signInThroughForm(page, FREE_ACCOUNT.email, TEST_ACCOUNT_PASSWORD);
+  const upload = await uploadFixturePhoto(page);
+  expect(upload.status, JSON.stringify(upload.body)).toBe(200);
+  const objectPath = upload.body["objectPath"] as string;
+  const csrf = await csrfToken(page);
+  const set = await page.evaluate(async ({ csrf, objectPath }) => (await fetch("/api/users/me/profile-image", {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+    body: JSON.stringify({ objectPath }),
+  })).status, { csrf, objectPath });
+  expect(set).toBe(200);
+
+  // The member's only photo: the picker must still offer it back once removed.
+  const before = (await (await page.request.get("/api/users/me/uploads?transform=raw")).json()) as { uploads: Array<{ objectPath: string }> };
+  for (const u of before.uploads.filter((u) => u.objectPath !== objectPath)) {
+    const status = await page.evaluate(async ({ csrf, p }) => (await fetch(`/api/users/me/uploads?path=${encodeURIComponent(p)}`, {
+      method: "DELETE", credentials: "include", headers: { "X-CSRF-Token": csrf },
+    })).status, { csrf, p: u.objectPath });
+    expect(status).toBe(200);
+  }
+
+  await page.goto("/profile");
+  await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible({ timeout: 15_000 });
+  await page.getByRole("button", { name: "Edit Profile" }).filter({ visible: true }).first().click();
+  await page.getByTestId("remove-picture").click();
+  const confirm = page.getByTestId("remove-picture-confirm");
+  await expect(confirm).toContainText("Your picture becomes your initial. Your photos stay in your library.");
+  await expect(confirm).toContainText("Memes still need a photo — pick a saved one or upload one when you make a meme.");
+  await page.getByTestId("remove-picture-yes").click();
+
+  await expect(page.getByTestId("profile-picture-initial").filter({ visible: true }).first(), "Profile shows the initial").toBeVisible();
+  await expect(page.getByRole("button", { name: "Open your profile" }).filter({ visible: true }).locator("img"), "the header shows no photo").toHaveCount(0);
+  const me = (await (await page.request.get("/api/users/me")).json()) as Record<string, unknown>;
+  expect(me["profileImageUrl"]).toBeNull();
+  const uploads = (await (await page.request.get("/api/users/me/uploads?transform=raw")).json()) as { uploads: Array<{ objectPath: string }> };
+  expect(uploads.uploads.map((u) => u.objectPath), "the photo stays in the library, and is their only one").toEqual([objectPath]);
+
+  // The picker offers the photo back, even when it is the member's only one.
+  await page.locator(`button[title="Use as profile photo"] img[src$="${objectPath.replace(/^\/objects/, "")}"]`).first().click();
+  await expect(page.getByTestId("profile-picture").filter({ visible: true }).first()).toHaveAttribute("src", `/api/storage${objectPath}`);
+});

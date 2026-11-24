@@ -71,7 +71,9 @@ function ProfilePhotoThumbnailPicker({
     getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
   const uploads = query.data ? query.data.pages.flatMap((p) => p.uploads) : [];
-  if (uploads.length < 2) return null;
+  // One photo is enough to show when there is no picture: a member who removed
+  // their picture can choose it again (plan PLAN_AVATAR_TAKEDOWN_AND_REMOVE.md).
+  if (uploads.length < (currentProfileImageUrl ? 2 : 1)) return null;
   return (
     <div className="mt-4">
       <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2">
@@ -189,6 +191,7 @@ export default function Profile() {
 
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoError, setPhotoError] = useState("");
+  const [removePictureConfirm, setRemovePictureConfirm] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editFormRef = useRef<HTMLDivElement>(null);
   const [forgetMeConfirm, setForgetMeConfirm] = useState(false);
@@ -671,8 +674,7 @@ export default function Profile() {
       // sets the new one, updates users.profileImageUrl atomically, and
       // re-asserts the public ACL — all in one transaction.
       await setProfileImageFromUpload(objectPath);
-      await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
-      await queryClient.invalidateQueries({ queryKey: ["my-uploads-for-profile-picker"] });
+      await refreshPicture();
     } catch (err: unknown) {
       const errObj = err as { message?: string };
       setPhotoError(errObj?.message ?? "Photo upload failed.");
@@ -697,6 +699,39 @@ export default function Profile() {
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       throw new Error(data.error ?? "Could not save your photo.");
+    }
+  }
+
+  /** The picture changed: the profile, the picker and the Library all re-read it, so a Profile badge never lingers. */
+  async function refreshPicture(): Promise<void> {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() }),
+      queryClient.invalidateQueries({ queryKey: ["my-uploads-for-profile-picker"] }),
+      queryClient.invalidateQueries({ queryKey: ["my-uploads"] }),
+    ]);
+  }
+
+  /**
+   * "Remove my picture" (plan PLAN_AVATAR_TAKEDOWN_AND_REMOVE.md, Q17): back
+   * to their initial; their photos stay in their library, and Google's
+   * picture is not copied in again.
+   */
+  async function removePicture(): Promise<void> {
+    if (photoUploading) return;
+    setPhotoError("");
+    setPhotoUploading(true);
+    try {
+      const res = await fetch(`${BASE_URL}api/users/me/profile-image`, { method: "DELETE", credentials: "include" });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error ?? "Could not remove your picture.");
+      }
+      setRemovePictureConfirm(false);
+      await refreshPicture();
+    } catch (err: unknown) {
+      setPhotoError(err instanceof Error ? err.message : "Could not remove your picture.");
+    } finally {
+      setPhotoUploading(false);
     }
   }
 
@@ -1237,7 +1272,39 @@ export default function Profile() {
                     {photoUploading ? <><Loader2 className="w-4 h-4 animate-spin" /> Uploading…</> : <><Camera className="w-4 h-4" /> {profile.profileImageUrl ? "Change Photo" : "Upload Photo"}</>}
                   </Button>
                   </PausedWhenReadOnly>
+                  {profile.profileImageUrl && !removePictureConfirm && (
+                    <PausedWhenReadOnly>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => setRemovePictureConfirm(true)}
+                      disabled={photoUploading}
+                      className="gap-2 text-sm text-muted-foreground hover:text-destructive"
+                      data-testid="remove-picture"
+                    >
+                      <Eraser className="w-4 h-4" /> Remove my picture
+                    </Button>
+                    </PausedWhenReadOnly>
+                  )}
                 </div>
+                {profile.profileImageUrl && removePictureConfirm && (
+                  <div className="mt-3 border-2 border-destructive/40 rounded-sm p-3 bg-card" data-testid="remove-picture-confirm">
+                    <p className="text-sm text-foreground font-medium">Remove your picture?</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Your picture becomes your initial. Your photos stay in your library. Memes still need a photo — pick a saved one or upload one when you make a meme.
+                    </p>
+                    <div className="mt-3 flex gap-2">
+                      <PausedWhenReadOnly>
+                      <Button type="button" variant="danger" size="sm" onClick={() => { void removePicture(); }} disabled={photoUploading} className="gap-2" data-testid="remove-picture-yes">
+                        {photoUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eraser className="w-4 h-4" />} Remove picture
+                      </Button>
+                      </PausedWhenReadOnly>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => setRemovePictureConfirm(false)} disabled={photoUploading}>
+                        Keep it
+                      </Button>
+                    </div>
+                  </div>
+                )}
                 {photoError && <p className="text-xs text-destructive mt-1">{photoError}</p>}
                 <p className="text-xs text-muted-foreground mt-1">
                   {profile.profileImageUrl
@@ -1246,8 +1313,8 @@ export default function Profile() {
                 </p>
 
                 {/* Task #507 — thumbnail picker.
-                    Once the user has 2+ raw uploads on file, surface them as a
-                    horizontal strip so they can re-tag any previously uploaded
+                    Once the user has 2+ raw uploads on file (or 1, with no
+                    picture), surface them as a horizontal strip so they can re-tag any previously uploaded
                     photo as their profile photo without re-uploading. */}
                 <PausedWhenReadOnly className="w-full">
                 <ProfilePhotoThumbnailPicker
@@ -1259,8 +1326,7 @@ export default function Profile() {
                     setPhotoUploading(true);
                     try {
                       await setProfileImageFromUpload(objectPath);
-                      await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
-                      await queryClient.invalidateQueries({ queryKey: ["my-uploads-for-profile-picker"] });
+                      await refreshPicture();
                     } catch (err: unknown) {
                       const errObj = err as { message?: string };
                       setPhotoError(errObj?.message ?? "Could not change your photo.");

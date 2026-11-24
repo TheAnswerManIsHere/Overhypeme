@@ -170,6 +170,9 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     lastName: "synthetic:last-name",
     displayName: "synthetic:display-name",
     profileImageUrl: "media",
+    // 0164: can record an admin's takedown of a real person's photo; the
+    // fixture's people take the default (Google's picture allowed).
+    noAutoPicture: "drop",
     passwordHash: "drop",
     googleLinked: "keep",
     appleLinked: "keep",

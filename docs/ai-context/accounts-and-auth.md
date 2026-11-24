@@ -534,6 +534,23 @@ a forward migration ([`docs/retired/README.md`](../retired/README.md)).
   chooses while the picture is being fetched wins, and the copied upload is
   discarded for the purger. Apple sends no picture. Nothing waits on the copy,
   and a failure leaves the member photo-less.
+- **Removing a picture, and a takedown, end the copy for good** (plan
+  `docs/plans/PLAN_AVATAR_TAKEDOWN_AND_REMOVE.md`; David, Q16, Q17 and Q18
+  2026-11-24). "Remove my picture" on Profile (`DELETE
+  /users/me/profile-image`, `removeProfilePhoto`) clears the picture and the
+  Profile marker and keeps every photo in the library; the former picture loses
+  only its deletion protection. An admin takedown of the profile photo
+  (`takeDownContent`) clears the picture the same way. Both set
+  `users.no_auto_picture` (0164; backfilled from earlier takedowns' audit
+  rows), which only the Google copy reads: it is skipped from then on, and a
+  copy already in flight loses under the lock. Nothing clears the flag; a photo
+  the member chooses afterwards works as normal. Removing changes nothing about
+  meme making: the builder still offers the member's saved photos.
+- **Every picture write takes one lock order**: the owner's content lock, then
+  the account row, then the upload rows — `makeProfilePhoto`,
+  `removeProfilePhoto` and a photo takedown alike. `makeProfilePhoto` re-checks
+  under the lock that the upload is still live and the member's, so a
+  selection that checked before a takedown cannot put the photo back.
 
 ## Age, audience and the NSFW opt-in
 
@@ -712,7 +729,7 @@ and the last-admin guard could approve zeroing the real population.
 - `artifacts/api-server/src/lib/profilePicture.ts`,
   `artifacts/api-server/src/lib/profilePhoto.ts` and
   `artifacts/api-server/src/lib/providerPicture.ts` — a member's picture: the one reader, the one setter
-  and the Google copy ([*A member's picture*](#a-members-picture)).
+  and its removal, and the Google copy ([*A member's picture*](#a-members-picture)).
 - `artifacts/api-server/src/routes/admin.ts` — user PATCH, the hard
   DELETE (the engine's admin removal), verify-email override.
 - `artifacts/api-server/src/lib/eligibility.ts` and

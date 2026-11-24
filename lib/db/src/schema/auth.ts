@@ -16,6 +16,11 @@ export const usersTable = pgTable("users", {
   lastName: varchar("last_name"),
   displayName: varchar("display_name"),
   profileImageUrl: varchar("profile_image_url"),
+  // No automatic picture ever again (0164, plan PLAN_AVATAR_TAKEDOWN_AND_REMOVE.md,
+  // Q16/Q17): set when the member removes their picture or an admin takes their
+  // profile photo down. Only the Google copy reads it; a picture the member
+  // chooses themselves is unaffected, and nothing clears it.
+  noAutoPicture: boolean("no_auto_picture").notNull().default(false),
   passwordHash: varchar("password_hash"),
   googleLinked: boolean("google_linked").notNull().default(false),
   appleLinked: boolean("apple_linked").notNull().default(false),

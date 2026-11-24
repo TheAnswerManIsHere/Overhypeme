@@ -1,5 +1,5 @@
 /**
- * @purpose An admin's takedown of a member's meme or photo (image-surface audit R9, Issue #875): the content leaves every surface at once, its owner cannot restore it, and the content purger removes it from storage on its next hourly run. Quarantined content (a moderation-scan match, held as evidence) is never taken down here: it is already off every surface and must not be purged. Each takedown is recorded as an admin action.
+ * @purpose An admin's takedown of a member's meme or photo (image-surface audit R9, Issue #875): the content leaves every surface at once, its owner cannot restore it, and the content purger removes it from storage on its next hourly run. Quarantined content (a moderation-scan match, held as evidence) is never taken down here: it is already off every surface and must not be purged. Each takedown is recorded as an admin action. Taking down a member's profile photo also ends Google's automatic picture for them (plan PLAN_AVATAR_TAKEDOWN_AND_REMOVE.md, Q16).
  * @subsystem studio
  */
 import { db } from "@workspace/db";
@@ -8,6 +8,7 @@ import { and, eq, isNull, ne, or, sql } from "drizzle-orm";
 import type { AdminAction } from "@workspace/api-zod";
 
 import { liveContent, restorable } from "./contentVisibility";
+import { lockPictureOwner } from "./profilePhoto";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -62,6 +63,17 @@ export async function takeDownContent(
     }
 
     const t = uploadImageMetadataTable;
+    // A photo may be someone's picture, so the takedown takes the picture-write
+    // lock order every picture writer uses (profilePhoto.ts): the owner's
+    // content lock, then their account row, then the upload rows. A selection
+    // racing this takedown then sees the photo gone and is refused.
+    const [target] = await tx
+      .select({ ownerId: t.userId })
+      .from(t)
+      .where(and(eq(t.objectPath, item.key), isNull(t.arachnidMatchType), takeable(t, now)))
+      .limit(1);
+    if (!target) return { status: "not_found" };
+    if (target.ownerId) await lockPictureOwner(tx, target.ownerId);
     const [row] = await tx
       .update(t)
       .set({ ...ended, isProfile: false })
@@ -73,11 +85,13 @@ export async function takeDownContent(
       .update(t)
       .set(ended)
       .where(and(eq(t.sourceObjectPath, item.key), isNull(t.arachnidMatchType), takeable(t, now)));
-    // The photo on show as the member's face: the account shows no picture until they choose another.
+    // The photo on show as the member's face: the account shows no picture
+    // until they choose another, and Google's picture is never copied in again
+    // (Q16: the takedown is final).
     const cleared = row.ownerId
       ? await tx
         .update(usersTable)
-        .set({ profileImageUrl: null })
+        .set({ profileImageUrl: null, noAutoPicture: true })
         .where(and(eq(usersTable.id, row.ownerId), sql`${usersTable.profileImageUrl} LIKE ${"%" + item.key}`))
         .returning({ id: usersTable.id })
       : [];
