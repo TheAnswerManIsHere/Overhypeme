@@ -592,6 +592,17 @@ test.describe("7b — admin screens in regular use (PR287, PR288, PR293, PR308, 
       // Launch Phase 5, Increment 6b — the withdrawn NSFW opt-in has no toggle in the editor.
       await expect(page.getByText("NSFW Mode"), "6b: the editor offers no NSFW opt-in").toHaveCount(0);
 
+      // Issue #1110 (PR #1216 round 1) — a suspension draft never outlives its account:
+      // a note typed, then the panel closed and the account reselected, opens empty.
+      await page.getByRole("button", { name: "Suspend User" }).click();
+      await page.locator("#suspend-member-note").fill("a note for someone else");
+      await page.getByTitle("Close").click();
+      await row(email).click();
+      await page.getByRole("button", { name: "Suspend User" }).click();
+      await expect(page.locator("#suspend-member-note"), "1110: a closed draft's note is discarded").toHaveValue("");
+      await expect(page.locator("#suspend-reason"), "1110: a closed draft's reason is discarded").toHaveValue("");
+      await page.locator("#suspend-member-note").locator("..").getByRole("button", { name: "Cancel", exact: true }).click();
+
       // Launch Phase 5, Increment 6a — suspend with a reason, shown to the admin with a badge; unsuspend clears it.
       await page.getByRole("button", { name: "Suspend User" }).click();
       const suspend = page.getByRole("button", { name: "Suspend", exact: true });
