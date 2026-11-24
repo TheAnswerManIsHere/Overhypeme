@@ -1,5 +1,6 @@
 import type Stripe from "stripe";
 import { logger } from "./logger";
+import { adaptStripeSync } from "./stripeSyncAdaptations";
 import { stripeDriver } from "./stripeDriver.js";
 import { guardPool } from "@workspace/db";
 import type { StripeApi, StripeSyncApi } from "./stripeApi.js";
@@ -213,6 +214,9 @@ async function buildStripeSync(liveMode: boolean) {
   const secretKey = await getStripeSecretKey(liveMode);
   const webhookSecret = await getStripeWebhookSecret(liveMode);
   const build = await stripeDriver().buildSync({ liveMode, secretKey, webhookSecret });
+  // The library's mirror cannot take an id-less preview invoice; skip just that
+  // (stripeSyncAdaptations.ts, Q40). Here so delivery and replay both get it.
+  adaptStripeSync(build);
   // stripe-replit-sync builds its own `pg.Pool` with no error listener at all
   // (`dist/index.js:37`), so a connection the database drops, idle or held,
   // would crash the server (#826). Guard it where it is reachable.

@@ -48,6 +48,7 @@ import { __setStripeDriverForTests } from "../lib/stripeDriver.js";
 import { realStripeDriver } from "../lib/stripeRealDriver.js";
 import { FAKE_SECRET_KEY, __forgetFakeWebhookEndpointsForTests, fakeStripeDriver } from "../lib/stripeFakeDriver.js";
 import { FAKE_ACCOUNT_ID } from "../lib/stripeFakeFixture.js";
+import { isAdaptedStripeSync } from "../lib/stripeSyncAdaptations.js";
 import { StripeFakeUnsupportedError } from "../lib/stripeFakeErrors.js";
 import { __setPartitionReaderForTests, partitionRefusal } from "../lib/stripeDatabasePartition.js";
 import {
@@ -479,6 +480,13 @@ describe("the fake Stripe driver and the database partition", () => {
         sync.processWebhook(Buffer.from(JSON.stringify({ id: "evt_fake", type: "charge.refunded" })), "t=1,v1=x"),
         (err: unknown) => err instanceof StripeFakeUnsupportedError && err.member === "webhooks.constructEventAsync",
       );
+    });
+
+    it("every sync instance is built with the preview-invoice mirror adaptation (Issue #1244, Q40)", async () => {
+      useFake();
+      partitionAnswers(FAKE_OWNED);
+      const sync = await getStripeSync();
+      assert.ok(isAdaptedStripeSync(sync), "getStripeSync() handed out an instance without adaptStripeSync applied");
     });
 
     it("a reboot after the fake's memory is gone re-registers the webhook instead of failing setup", async () => {
