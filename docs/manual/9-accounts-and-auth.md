@@ -85,7 +85,8 @@ the right screen.
    account that already existed with a date under 18 gets the same
    adults-only screen. An account from before the Terms existed is asked
    once to accept them, and asked again whenever they change; until it
-   does, it can look around but not act.
+   does, it can look around but not act, except to cancel a membership,
+   which never waits on agreeing to a new version.
 
 **Your picture is your photo.** The photo you upload or choose as your
 profile photo is your picture everywhere the site shows one (the header,
@@ -277,9 +278,6 @@ How each limit is set is in
 
 ## Boundaries & known limitations
 
-- **No Terms acknowledgement yet.** Onboarding records marketing consent
-  only; Phase 14 adds the Terms and Privacy pages and asks every account
-  once (David overrode the recommendation to add minimal text now).
 - **Adult content isn't on.** The data model can mark facts, memes and
   images as adult, and record an adult verification, but nothing uses
   either yet. The old opt-in for NSFW images is withdrawn, so a photo the

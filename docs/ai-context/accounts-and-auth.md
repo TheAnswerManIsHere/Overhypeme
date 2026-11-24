@@ -115,8 +115,11 @@ the server enforces it:
   callback for an under-age account (the callback is the deletion request's
   identity proof for an Apple-only account; not cancelling a deletion, not
   resubmitting set-up, no other sign-in or recovery route), and the recovery
-  routes, `POST /users/me/legal-acceptance` and a deletion request for one
-  that has not accepted the current Terms. The contact form is open in
+  routes, `POST /users/me/legal-acceptance`, a deletion request and the
+  two membership-cancelling routes (`POST /stripe/portal`, `POST
+  /stripe/subscription/cancel`) for one that has not accepted the current
+  Terms: a member need not agree to a new version to stop paying (David,
+  Q25: 1, 2026-11-24). The contact form is open in
   every state. **An under-age account's reads are narrowed too**: every GET
   outside `UNDER_AGE_READS` (`GET /auth/user`, `GET /logout`,
   `GET /users/me/deletion`) runs with `req.user` cleared, exactly as a
@@ -585,7 +588,8 @@ a forward migration ([`docs/retired/README.md`](../retired/README.md)).
   accounts are asked once**, on `/account/terms` (`GET`/`POST
   /users/me/legal-acceptance`), and again when either version changes. Until
   then they are `terms_unaccepted`: they read everything and act on
-  nothing; "Not now" lets them keep reading for the browser visit.
+  nothing but accepting, leaving, asking for help and cancelling a
+  membership; "Not now" lets them keep reading for the browser visit.
 
 ## Session management
 
