@@ -260,6 +260,37 @@ export function falContentRefusal(err: unknown): string | null {
 }
 
 /**
+ * HTTP statuses with which fal rejects a request as it stands: malformed or
+ * invalid input (400, 422), an endpoint or file that is not there (404, 410),
+ * an input too large or of the wrong type (413, 415). The same request draws
+ * the same answer on every retry. Absent on purpose: 401/402/403 (our key or
+ * account, which an operator can fix while the render waits), 408 and 429
+ * (timing), and every 5xx.
+ */
+const FAL_PERMANENT_REJECTION_STATUSES = new Set([400, 404, 410, 413, 415, 422]);
+
+/**
+ * fal's reason when it rejected a request for a cause a retry cannot change,
+ * other than a content refusal (`falContentRefusal` owns that one), else
+ * null. An expired reference-photo link lands here: fal cannot fetch it and
+ * answers with a 4xx (Issue #1020). Call it only on an error that was fal's
+ * answer to the request itself, never on a failed status read, whose 4xx
+ * means our request is unknown or gone and a new submission can succeed.
+ */
+export function falPermanentRejection(err: unknown): string | null {
+  if (!err || typeof err !== "object") return null;
+  const { status, body } = err as { status?: unknown; body?: unknown };
+  if (typeof status !== "number" || !FAL_PERMANENT_REJECTION_STATUSES.has(status)) return null;
+  if (falContentRefusal(err)) return null;
+  const detail = (body as { detail?: unknown } | null | undefined)?.detail;
+  const reasons = (Array.isArray(detail) ? detail : [detail])
+    .map((d) => (typeof d === "string" ? d : d && typeof d === "object" ? (d as { msg?: unknown }).msg : null))
+    .filter((m): m is string => typeof m === "string" && m.trim() !== "")
+    .map((m) => m.trim());
+  return reasons.length ? `HTTP ${status}: ${reasons.join("; ")}` : `HTTP ${status}`;
+}
+
+/**
  * The attempt error recorded when a render's fal submission fails. A content
  * refusal names the engine and fal's reason instead of the bare HTTP status
  * ("Unprocessable Entity"), so a moderator can tell the model declined the

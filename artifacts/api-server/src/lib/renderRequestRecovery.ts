@@ -47,7 +47,21 @@ export const COLLECT_TIMEOUT_MS = 8 * 60_000;
 
 export type DrawOutcome =
   | { ok: true; data: unknown; generationRequestId: number; vendorRequestId: string }
-  | { ok: false; err: unknown; generationRequestId: number | null; vendorRequestId: string | null };
+  | {
+      ok: false;
+      err: unknown;
+      generationRequestId: number | null;
+      vendorRequestId: string | null;
+      /**
+       * True when the error is fal's own HTTP answer to this request: its
+       * submission was rejected, or its finished result replays the model's
+       * error. False when nothing was learned about the request itself (a
+       * status read refused or timed out, a dropped connection, a wait that ran
+       * out), which a retry can resolve. Only an answered error can be
+       * permanent (Issue #1020).
+       */
+      answered: boolean;
+    };
 
 export interface DrawRequest {
   attemptId: number;
@@ -142,7 +156,7 @@ async function collect(
   const transport = renderFal();
   const signal = jobAbortSignal();
   const deadline = now() + COLLECT_TIMEOUT_MS;
-  const fail = (err: unknown): DrawOutcome => ({ ok: false, err, generationRequestId: row.id, vendorRequestId });
+  const fail = (err: unknown, answered = false): DrawOutcome => ({ ok: false, err, generationRequestId: row.id, vendorRequestId, answered });
   for (;;) {
     let status: string;
     try {
@@ -174,8 +188,9 @@ async function collect(
       rethrowIfOwnershipLost(err);
       // Finished: an HTTP answer here is the model's own outcome. No answer at
       // all (a dropped connection) says nothing, and the retry reads it again.
-      if (httpStatusOf(err) != null) await setStatus(row.id, "FAILED");
-      return fail(err);
+      const answered = httpStatusOf(err) != null;
+      if (answered) await setStatus(row.id, "FAILED");
+      return fail(err, answered);
     }
     // A finished answer with nothing usable in it is the request's outcome
     // too: never COMPLETED, so it is never collected again.
@@ -199,8 +214,9 @@ async function submitAndCollect(req: DrawRequest): Promise<DrawOutcome> {
     // fal answered with an error, so it did not accept the request: nothing to
     // collect later. A transport failure leaves the row open: whether fal took
     // the request is unknown, and the history decides on the next run.
-    if (typeof (err as { status?: unknown } | null)?.status === "number") await setStatus(rowId, "FAILED");
-    return { ok: false, err, generationRequestId: rowId, vendorRequestId: null };
+    const answered = httpStatusOf(err) != null;
+    if (answered) await setStatus(rowId, "FAILED");
+    return { ok: false, err, generationRequestId: rowId, vendorRequestId: null, answered };
   }
   await setStatus(rowId, "IN_QUEUE", vendorRequestId);
   return collect({ id: rowId, endpointId: req.endpointId }, vendorRequestId, "IN_QUEUE", req);
