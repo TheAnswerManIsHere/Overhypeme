@@ -38,6 +38,16 @@ const ROUTES_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "routes")
 
 type Declared = { file: string; method: string; key: string; path: string; declaration: string };
 
+/**
+ * The value every route parameter gets: an id no row can hold. These requests
+ * are real, and the allowed ones reach their handlers, so an id like 1 lands
+ * on whatever row another file in the shard inserted first (POST
+ * /facts/:factId/share added a share to routes.adminFacts' fact; Build on
+ * 48d29b6). Any answer but READ_ONLY_MODE, a 404 included, proves a request
+ * got past the switch.
+ */
+const NO_ROW = "2147483646";
+
 /** Every unsafe route each router file declares, with its declaration's text up to the handler. */
 function declaredUnsafeRoutes(): Declared[] {
   const out: Declared[] = [];
@@ -52,7 +62,7 @@ function declaredUnsafeRoutes(): Declared[] {
         file,
         method,
         key: `${method} ${m[2]}`,
-        path: m[2]!.replace(/\$\{[^}]+\}/g, "x").replace(/:[A-Za-z_]+/g, "1").replace(/\*[A-Za-z_]+/g, "x"),
+        path: m[2]!.replace(/\$\{[^}]+\}/g, "x").replace(/:[A-Za-z_]+/g, NO_ROW).replace(/\*[A-Za-z_]+/g, "x"),
         declaration: end === -1 ? rest : rest.slice(0, end),
       });
     }
@@ -149,7 +159,7 @@ describe("with the switch on", () => {
     for (const [key, v] of Object.entries(READ_ONLY_ROUTES)) {
       if (!v.allowed || key === "PATCH /users/me" || key === "POST /auth/logout") continue;
       const [method, path] = key.split(" ") as [string, string];
-      const res = await request(app)[method.toLowerCase() as "post"](`/api${path.replace(/:[A-Za-z_]+/g, "1")}`)
+      const res = await request(app)[method.toLowerCase() as "post"](`/api${path.replace(/:[A-Za-z_]+/g, NO_ROW)}`)
         .set("authorization", `Bearer ${sid}`).send({});
       assert.notEqual(res.body?.code, READ_ONLY_CODE, `${key} was refused`);
     }
