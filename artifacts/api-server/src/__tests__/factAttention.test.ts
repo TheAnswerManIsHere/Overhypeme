@@ -14,7 +14,8 @@
  *   - each reason's count equals the filtered list's total, in one response;
  *   - an unknown reason is refused;
  *   - the fingerprint fill covers a deactivated fact and stops at its cap;
- *   - a compiled prompt records the generation that compiled it.
+ *   (that a stored prompt records its generation, through the real compile
+ *   and the real fallback redraw, is in imagePromptJobs.test.ts).
  */
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -23,7 +24,7 @@ import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { db, factsTable, usersTable, factGagsTable, factGagExamplesTable } from "@workspace/db";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
-import { imagePromptAttemptsTable, evalRunsTable, asyncJobsTable } from "@workspace/db/schema";
+import { imagePromptAttemptsTable, evalRunsTable } from "@workspace/db/schema";
 import { eq, inArray, sql } from "drizzle-orm";
 import {
   buildPlaceholderFactEnrichment,
@@ -38,7 +39,6 @@ import { buildTestApp } from "./helpers/buildTestApp.js";
 import { ATTENTION_REASONS, ATTENTION_FAIL_MIN, ATTENTION_FAIL_WINDOW, UNRECORDED_PLANLESS_GENERATION, type AttentionReason } from "../lib/factAttention.js";
 import { backfillEmbeddings } from "../lib/embeddings.js";
 import { IMAGE_ENGINE_IDS, fallbackEngineIdFor } from "../lib/imageEngineRouting.js";
-import { persistCompiledPromptAndEnqueueGeneration } from "../lib/imagePromptJobs.js";
 
 const RUN = randomUUID().slice(0, 8);
 const T2I = IMAGE_ENGINE_IDS.photoreal.t2i;
@@ -336,12 +336,4 @@ describe("the needs-attention checks (2C)", () => {
     });
   });
 
-  it("a compiled prompt records the generation that compiled it", async () => {
-    const { factId } = await healthyFact();
-    const attemptId = await render(factId, null, { queued: true });
-    await persistCompiledPromptAndEnqueueGeneration({ attemptId, compiledPrompt: { prompt: "p" } });
-    const [row] = await db.select({ c: imagePromptAttemptsTable.compiledPrompt }).from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.id, attemptId));
-    assert.equal((row!.c as Record<string, unknown>)[PROMPT_GENERATION_VERSION_KEY], IMAGE_PROMPT_GENERATION_VERSION);
-    await db.delete(asyncJobsTable).where(eq(asyncJobsTable.dedupeKey, `image_generation:attempt:${attemptId}`));
-  });
 });

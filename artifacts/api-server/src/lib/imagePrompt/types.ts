@@ -148,6 +148,12 @@ export interface CompiledPromptDiagnostics {
 export interface CompiledImagePrompt {
   /** Final prompt text passed to the image engine. */
   prompt: string;
+  /**
+   * The prompt-generation version (`IMAGE_PROMPT_GENERATION_VERSION`) that
+   * compiled this prompt, under `PROMPT_GENERATION_VERSION_KEY`. Written by the
+   * compiler, so a stored prompt records it whichever path saved it.
+   */
+  promptGenerationVersion: string;
   /** Optional negative prompt. Empty string is normalized to undefined. */
   negativePrompt?: string;
   /** Engine-specific freeform notes (not sent to fal). */

@@ -11,7 +11,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { getTableConfig } from "drizzle-orm/pg-core";
 
-import { EMPTY_VISUAL_STRATEGY_OVERRIDE, buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import { EMPTY_VISUAL_STRATEGY_OVERRIDE, buildPlaceholderFactEnrichment, IMAGE_PROMPT_GENERATION_VERSION, PROMPT_GENERATION_VERSION_KEY } from "@workspace/api-zod";
 
 import {
   LEGACY_FIXTURE_ALLOWLIST,
@@ -167,6 +167,12 @@ describe("the scrub primitives", () => {
     assert.equal(scrubber.prose(read), out.jokeRead, "a note equal to the joke read stays equal to it");
     assert.equal(scrubber.prose("The note it was written under."), out.humorNoteUsed, "and to the note the gags were written under");
     assert.notEqual(scrubber.prose("A different note."), out.jokeRead, "a different note stays different");
+  });
+
+  it("walks a stored compiled prompt carrying the generation that compiled it, kept as written", () => {
+    // The compiler records it (PR #1181); the shape must describe it or the export stops on every new render.
+    const out = SHAPES.compiledPrompt.transform({ prompt: "p", imagePrompt: "p", [PROMPT_GENERATION_VERSION_KEY]: IMAGE_PROMPT_GENERATION_VERSION }, ctx()) as Record<string, unknown>;
+    assert.equal(out[PROMPT_GENERATION_VERSION_KEY], IMAGE_PROMPT_GENERATION_VERSION);
   });
 
   it("stops on a key the shape does not describe, naming the path and never the value", () => {
