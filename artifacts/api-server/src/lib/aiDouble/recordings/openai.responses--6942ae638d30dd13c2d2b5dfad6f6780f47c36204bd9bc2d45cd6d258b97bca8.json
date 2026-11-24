@@ -1,0 +1,283 @@
+{
+  "kind": "openai.responses",
+  "request": {
+    "input": [
+      {
+        "content": "You read facts for Overhype.me, a positive personalized impossible-facts meme generator. Each fact is a short, exaggerated boast about a person, in the style of the Chuck Norris jokes. The person is written as \"Alex\" (they/them); in the product the visitor's own name replaces it.\n\nA moderator will check your reading before anyone draws a picture of the fact. Do two things, in this order.\n\n1. RESEARCH. Find every reference the fact makes that a reader needs outside knowledge to get: a brand, show, film, song, event, place, public figure, idiom, meme, saying, profession's jargon or insider term. Use the web_search tool to confirm what a reference means whenever it names something public; rely on background knowledge only when search does not help, and say so in the meaning. Ordinary words used in their ordinary sense are not references. A fact with no references is common: return an empty list, never invent one.\n\nFor each reference:\n- phrase: the words in the fact that make it, exactly as written.\n- meaning: what it normally is or means, in one or two sentences, then how THIS fact bends it (a role reversal, an inversion, a literalised pun, an impossible scale) with Alex in the surprising role.\n- pictureImplication: what a picture must show for the joke to land, and the obvious misreading it must avoid (\"show sharks watching Alex on TV, NOT Alex watching sharks\"). Never ask for a real logo, brand mark or the fact's text in the picture; a brand appears only through its setting.\n- sources: the pages your search found that confirm the meaning (title and URL). Empty when none helped.\n\n2. HUMOR NOTE. Then, from the fact and that research, write the humor note: two or three concise sentences for the moderator. Say the normal expectation and what the fact reverses or makes impossible; the relationship or evidence a picture must preserve; and, when one is easy to make, the tempting wrong reading. Use the research's meanings; do not contradict them. This is an interpretation, not a reasoning transcript and not a scene to draw. Name the person \"Alex\".\n\nHard rules:\n- Do not invent details. If you cannot confirm a reference, say so in its meaning.\n- Keep everything positive about Alex: the joke is always that Alex is impossibly great.\n- Return ONLY the JSON object matching the response schema.",
+        "role": "system"
+      },
+      {
+        "content": "FACT:\nAlex once counted to infinity. Twice. The second time they did it backwards to check their work.",
+        "role": "user"
+      }
+    ],
+    "max_output_tokens": 29000,
+    "model": "gpt-6.1-sol",
+    "reasoning": {
+      "effort": "low"
+    },
+    "text": {
+      "format": {
+        "name": "fact_reading",
+        "schema": {
+          "additionalProperties": false,
+          "properties": {
+            "humorNote": {
+              "type": "string"
+            },
+            "references": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "meaning": {
+                    "type": "string"
+                  },
+                  "phrase": {
+                    "type": "string"
+                  },
+                  "pictureImplication": {
+                    "type": "string"
+                  },
+                  "sources": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "title": {
+                          "type": "string"
+                        },
+                        "url": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "title",
+                        "url"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "phrase",
+                  "meaning",
+                  "pictureImplication",
+                  "sources"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "references",
+            "humorNote"
+          ],
+          "type": "object"
+        },
+        "strict": true,
+        "type": "json_schema"
+      }
+    },
+    "tools": [
+      {
+        "type": "web_search"
+      }
+    ]
+  },
+  "fingerprint": "6942ae638d30dd13c2d2b5dfad6f6780f47c36204bd9bc2d45cd6d258b97bca8",
+  "recordedAt": "2026-11-24T00:14:46.763Z",
+  "clients": {
+    "@fal-ai/client": "1.9.5",
+    "openai": "6.33.0"
+  },
+  "target": "gpt-6.1-sol",
+  "response": {
+    "id": "recorded-4",
+    "object": "response",
+    "created_at": 1795479280,
+    "status": "completed",
+    "access_programs": {
+      "cyber": "standard"
+    },
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1795479286,
+    "error": null,
+    "frequency_penalty": 0,
+    "image": {
+      "context_compression": "disabled"
+    },
+    "incomplete_details": null,
+    "input_transformations": [],
+    "instructions": null,
+    "max_output_tokens": 29000,
+    "max_tool_calls": null,
+    "model": "gpt-6.1-sol",
+    "moderation": null,
+    "output": [
+      {
+        "id": "rs_0a79223657cab930006b04d6f28ce087d0ae4345e5b1ad5b1b",
+        "type": "reasoning",
+        "content": [],
+        "encrypted_content": "gAAAAABrBNb2wzwpQkTaU9EvQDI3TTkl8fthiIggOWxL4FKZhRAxRH7Eh2u3X6vBPrnMWtPwgVknoc3Gp58cjlQ44X4SaSVKpK5xDFeDltWFcD3Hxvit3FsAJpX_5BmJ72CxtA3eQIjKdCPxMSek1V8X0PDepo0Ip6d7BQhOpvTEeFq5BacAvfFnWHgrZqdf8Eo0UH9xe7cX2Ka-HHuiryaZA1BedmgDftPnuI6nBrGKubmVNv2Z5tLpPzbnxNXEEN8D3YUxCiszWzGksR_iBB28sM_vQxTUwIXH0O_IAEwy3v0-bvRsmV0ft80C_5fj-NYuUp9RrHn0ZDMo__PfmVZVKCBkyHf6CNUibnuWCm-3aXDLAN3IhMZDlTxQO8BSvZzqATrpEWbPGAePeVY4crquOu2Oqjcn3htzPT5ZDEQCHMCYdqgpRuJuFyRO3QWkf506oSxgqJLW27g0BhiDu6TYZv_dRLfQRb2xYteCfIpCmDDP_xW536R1cGUrY4k1NkDXR11vbm98fbZC4tumZuCzkpkOjvTsrkxbOTK67rTNP8uVxsvYzhs46ApSV7MA-Pvi84e_rntXJ0uBXcimxg-IoI4YJkiEFr52gxv-Z741eFkZpqS_NWoDMF53iDe4gMRsqflfw_TgBdFhfL61JQxy5qSUXZdcyVsMOmpLTRF2Uxdsh6zbBBY6NN8HYhKR7MB8HtHJm4cLipjzfg9_u7L35Imz-ilbs-p2A8FLIfNiz0wknZZ0QmT77jujp-osZM2rhW5yFaZ5OrJG3LPF5lVr8HY0vcMbolRel02vz7750x-7xXJJMZbt8gyBVTf67X4ipnOsZLUURUdyfUFuOW-TT2A7eF0DmuM6GattXivqqceoqD-bjxZ46PkN2ewNFnagJbVW1-_CQvzqIThsO8z9TEWlvMPrnmmFne2OSwldVZJHvC5xgQvIBQKP-06W0lmRl_o-Uh5swzdGq5BwsWJtPVnx-xofBuV34CAON9EC8eUUnWbBDtXpgsekvK49x3nA0HNWb2-zD5EycM6pR1uy0NBTrluWVdzeuNAn5IbrX_8LYX_XmKudDaRVHNsmE-fil-XQUC7_KrK_hGw58J0SsmfbDJG-u9wF2fbKn0IaVrZfgwjc6HUHeX00L0njGrdhjwafk1LAwmpyWut-7er0xr2EY3hB3gA5eaMrDrEGAPT4W0LalpoQ4pYEYKd20h3R82D2A_0E55dz-Zxs3swEBIAd0Oq3iyF-hZJt1Ff8twMiQRxEg3yUmcnwc3qkcKTqJltu7t832a6eZJpyzZxXBLCdYSTQk6iMSCvRhSeM_xqAQnsWlcB-5SWfKVLeZm5Oe8JXzfBgxnSDZxbhpV5DSZGOasrk0x6TU4bsG9C32PBLIOeAJz3IouftRslVeoHr7Nu-44xKgbD-Ga4nxiRt_jT5CoVH_Bzv_LGX41nKyhsaPdRHn8IcK13S2j7wiT2QQGJrB48xapmIFSlh8AMG5w2bF-uW9ohazIfyfLoxBH_8_-he8phMLZoyXQ9rHPDvNBMexjef9YvC1Y4UXmSe859_k-EyQx-Zcj49CaSYcuxl_DyYIypVgLSxJgXGUk8bri2dgTHb0JMpbjNpLgm8KC8jiaKghumPvV7P-t4LMKff5AdMdE1rhqiLRBmh4PctN3ShIUWriJWpEqXp89K7h9AZFCWnrlloRTg4KaPGmwbkyLqfV_SUIHHLh2gcmA1f8fxR1f2qPPWRnuK5xGEUg0bE999WOMMfatActw9XlD09eYxdOALPa-1wXVv4gzPyYkCUSGpdBknfSAwzZ6Ct0_cs8yVLDVtmilDUQaiDHOIkKcb2nMkmgQlP5v2E8jhWVhMzjBkFSRf4QKlJhHYT_efj2A1rJw0vE2fqbTNjWThuEXkR2ZlSNMKKAwaa6N5PplP6yN8X9G3UH_AFX2cf6TTwzYFt3LmIjnaHHG2XH-q3pA5t8hEnH8_-FI-G4mWRiOnhLRtvJJu-6OymmqxZ2F4kIS2sz8ZEnpODP4I4if9D2xIn5Lm8BZs7HoN5CgK2OLx33XzcJebiLueV2jjnLsmsQAwOPQEPcjpwLkGhY6tatvU7YtyWxdgacAsLoiT--yzYQWbOFmWPBWJcwvich1zf8lfqmheH9a9xFtQ9WB9cF_sEn5QmT9KaMVHcIW7P66-FB3W6oj3haL6cRGAJIF_twLXpHAPsChC-cIcmwCetelCt6f_52bPXxjfjmnphCxwaiB_arJFabVKFDCyydVqc8DRHydMJgUhUH_osuo5WxzMToIGKDEzx8j1FRaK3jaxy1j9R5mQddcixaqmGl47ZYSmrVfwx3uOyrlNLDyiay26a5q3KwUb0bGr0ZpcQ3oU5I_6XVsx3gZuyNCk7XyNpkwv4d_NPpLStUB-PcebcQu00kS0QqECtKNBqxL5wuwICkZIpZ4YafB8B7aiqBhV6JDvV26cJYBBellIH_HWn-MLde1DDvA9BIW8iAymzifKRoU1z-YJ7YXy3Ehe5PAaouw6b7adLMj7pr8eGDGxCAt18mqQamnfmn59tifzAi8Ess8v1XxthmHm2jIJDqlYbWw1aW9Sih5gUTQUS5DzxhyWGvEp1GrUFdLWV4z0vfPTAyl6Pmo4Q4rX75tsrHOFPa4PYS5ij4K3qe62UVGyKVSZzi6fWV6o842I2Fv0ZrZxZd1tHJMoBKPu_KsWQIRBtlsD_BCZSmKqsIyMhztN1vgyFeyfpR7djjGQgd03ttqMdxBP4YMG3ImE8hgAlHvEBUMLiRg7UcuD-UQoMb_f-r8DlurzU7rXq0in5SOM2Pq3W8y23tJ9wN0a_ragqA7M1sqnJFsXjmT6Df1pITA9XAF2kKvL3NAZajVXs1tXWktVdulOk3gQGhpyqLaW35C2x1jfSjNXDBkb6ITdlUK_KW1xvxwXJPMXKqPFbjan3-u1O4fuySeF6qaMUe7GzRhYiLiJa00xeUQANf-M7SoDSj93-2-2ShzAAqsEcFJkx2waq1QhmbOCikivxbTGMk1XTLI4W89ZXhDnghrTVnUp2SutKMPuFfL2juhUAs6Wn2UPzOSTbaWi1eb97mFuMAzKKktozBKddBQWZVjmmhBhlBCsqIt1KA1pWccF6NsSLybwZZ1qc9kB7k3J89-srafE8wFZY4PODpvoN_zFgIVMHKxC0v5qo73asU2JTWuTthIJnaIWo8YOAKgsLVIlImOP7xwsAcSh5EfRlX--FcmfWeztKd88=",
+        "summary": []
+      },
+      {
+        "id": "msg_0a79223657cab930006b04d6f4886c87d0abe1c3176c345149",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "{\"references\":[],\"humorNote\":\"Counting to infinity can never finish, but Alex finishes twice—and even counts backwards the second time to verify the result. The joke depends on both completed counts and the casual double-check of an impossible achievement; merely showing Alex counting a very large number would miss it.\"}"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": "24h",
+    "reasoning": {
+      "context": "all_turns",
+      "effort": "low",
+      "mode": "standard",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1,
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "description": null,
+        "name": "fact_reading",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "references",
+            "humorNote"
+          ],
+          "properties": {
+            "references": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "phrase",
+                  "meaning",
+                  "pictureImplication",
+                  "sources"
+                ],
+                "properties": {
+                  "phrase": {
+                    "type": "string"
+                  },
+                  "meaning": {
+                    "type": "string"
+                  },
+                  "pictureImplication": {
+                    "type": "string"
+                  },
+                  "sources": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "title",
+                        "url"
+                      ],
+                      "properties": {
+                        "title": {
+                          "type": "string"
+                        },
+                        "url": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "humorNote": {
+              "type": "string"
+            }
+          }
+        },
+        "strict": true
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tool_usage": {
+      "image_gen": {
+        "input_tokens": 0,
+        "input_tokens_details": {
+          "image_tokens": 0,
+          "text_tokens": 0
+        },
+        "output_tokens": 0,
+        "output_tokens_details": {
+          "image_tokens": 0,
+          "text_tokens": 0
+        },
+        "total_tokens": 0
+      },
+      "web_search": {
+        "num_requests": 0
+      }
+    },
+    "tools": [
+      {
+        "type": "web_search",
+        "return_token_budget": "default",
+        "search_content_types": [
+          "text"
+        ],
+        "search_context_size": "medium",
+        "user_location": {
+          "type": "approximate",
+          "city": null,
+          "country": "US",
+          "region": null,
+          "timezone": null
+        }
+      }
+    ],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 5060,
+      "input_tokens_details": {
+        "cache_write_tokens": 5057,
+        "cache_write_tokens_details": {
+          "ttl_12h_tokens": 0,
+          "ttl_30m_tokens": 5057
+        },
+        "cached_tokens": 0
+      },
+      "output_tokens": 122,
+      "output_tokens_details": {
+        "reasoning_tokens": 50
+      },
+      "total_tokens": 5182
+    },
+    "user": null,
+    "metadata": {},
+    "output_text": "{\"references\":[],\"humorNote\":\"Counting to infinity can never finish, but Alex finishes twice—and even counts backwards the second time to verify the result. The joke depends on both completed counts and the casual double-check of an impossible achievement; merely showing Alex counting a very large number would miss it.\"}"
+  }
+}

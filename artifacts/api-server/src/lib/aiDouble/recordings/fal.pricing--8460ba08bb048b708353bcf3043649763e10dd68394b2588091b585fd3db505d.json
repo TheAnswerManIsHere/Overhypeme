@@ -4,7 +4,7 @@
     "endpoint": "openai/gpt-image-2.6/sunburst/edit"
   },
   "fingerprint": "8460ba08bb048b708353bcf3043649763e10dd68394b2588091b585fd3db505d",
-  "recordedAt": "2026-11-23T05:23:33.329Z",
+  "recordedAt": "2026-11-24T00:18:00.425Z",
   "clients": {
     "@fal-ai/client": "1.9.5",
     "openai": "6.33.0"
