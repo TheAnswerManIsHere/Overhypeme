@@ -27,8 +27,8 @@ import { ANALYTICS_NOTICE_STORAGE } from "./helpers/dismissedNotices";
 const DESKTOP = { width: 1280, height: 900 };
 
 /** Open the meme builder from /facts/:id/meme; it opens directly on the image step. */
-async function openImageStep(page: Page, factId: number): Promise<void> {
-  await page.goto(`/facts/${factId}/meme`);
+async function openImageStep(page: Page, factId: number, query = ""): Promise<void> {
+  await page.goto(`/facts/${factId}/meme${query}`);
   await expect(page.getByText("Build your meme", { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: "Make my meme" })).toBeVisible();
 }
@@ -207,9 +207,26 @@ test.describe("Public described screens", () => {
     await stubPublicFacts(page, { facts: [factDetail({ id: 39, text: "{NAME} out-ran the weekend." })] });
     await seedIdentity(page);
     await openImageStep(page, 39);
-    await expect(page.getByText("Sign up to create a meme using your photo")).toBeVisible();
+    await expect(page.getByText("Sign up or sign in to make a meme with your photo")).toBeVisible();
     await expect(page.getByTestId("meme-visibility")).toHaveCount(0);
     await expect(page.getByRole("group", { name: /visibility/i })).toHaveCount(0);
+  });
+
+  // Issue #880 — signed out, the photo step invites both a returning member and
+  // a newcomer, and its one button goes to /login carrying the way back,
+  // query string included.
+  test("logged out, the image step invites sign-in or sign-up and returns to the builder", async ({ page }) => {
+    await stubPublicFacts(page, { facts: [factDetail({ id: 40, text: "{NAME} out-ran the weekend." })] });
+    await seedIdentity(page);
+    await openImageStep(page, 40, "?ref=e2e");
+    await expect(page.getByText("Sign up or sign in to make a meme with your photo")).toBeVisible();
+    await expect(page.getByText("Already have an account? Just sign in. New here? Sign up first.")).toBeVisible();
+    await expect(page.getByText("Sign up to create a meme using your photo")).toHaveCount(0);
+    const action = page.getByRole("button", { name: "Sign up or sign in", exact: true });
+    await expect(action).toBeVisible();
+    await action.click();
+    await page.waitForURL((url) => url.pathname === "/login");
+    expect(new URL(page.url()).searchParams.get("from")).toBe("/facts/40/meme?ref=e2e");
   });
 
   // PR402 step 7 — a plain registered account sees the control, Private dimmed with the LEGEND badge.
