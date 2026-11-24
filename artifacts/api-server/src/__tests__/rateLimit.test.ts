@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import type { Request, Response } from "express";
 import { createRateLimiter, RATE_MAX, RATE_WINDOW_MS } from "../lib/rateLimit.js";
-import { purgeRateLimitCountersByPrefix } from "../lib/sharedRateLimiter.js";
+import { checkSharedRateLimit, purgeRateLimitCountersByPrefix, refundSharedRateLimit } from "../lib/sharedRateLimiter.js";
 
 const TEST_KEY_PREFIX = "rl|test.";
 const RUN_ID = crypto.randomUUID();
@@ -55,4 +55,24 @@ describe("createRateLimiter", () => {
   // Expired-row retention moved to jobs/rateLimitCounterPurger.ts; its
   // behavior is covered by rateLimitCounterPurger.test.ts, which asserts what
   // actually got deleted rather than only that the call returns.
+
+  it("refunds only the window that counted the hit: a refund after a rollover leaves the new window's count alone", async () => {
+    const scope = { endpoint: `test.refund-rollover.${RUN_ID}`, ip: "10.0.0.77" };
+    const shortWindow = { limit: 10, windowMs: 50 };
+    const counted = await checkSharedRateLimit(scope, shortWindow);
+    assert.equal(counted.count, 1);
+    await new Promise((r) => setTimeout(r, 80));
+    // The window has rolled over; a wrong guess is counted in the new one.
+    const next = await checkSharedRateLimit(scope, { limit: 10, windowMs: 60_000 });
+    assert.equal(next.count, 1, "the old window ended, so the new one starts at 1");
+    assert.notEqual(next.resetAt, counted.resetAt);
+    // The slow request from the old window now refunds: it must not touch the new window.
+    await refundSharedRateLimit(scope, counted.resetAt);
+    const after = await checkSharedRateLimit(scope, { limit: 10, windowMs: 60_000 });
+    assert.equal(after.count, 2, "the new window kept its hit");
+    // A refund for the live window still lands.
+    await refundSharedRateLimit(scope, after.resetAt);
+    const final = await checkSharedRateLimit(scope, { limit: 10, windowMs: 60_000 });
+    assert.equal(final.count, 2, "one refunded, one more counted");
+  });
 });

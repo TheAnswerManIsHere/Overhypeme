@@ -14,7 +14,7 @@ import { getSafeReturnTo } from "../lib/safeReturnTo";
 import { isAdminById } from "./auth";
 import { sendEmail, buildPasswordResetEmail, buildEmailVerificationEmail, buildEmailChangeVerificationEmail } from "../lib/email";
 import { getSiteBaseUrl } from "../lib/siteUrl";
-import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
+import { checkSharedRateLimit, refundSharedRateLimit } from "../lib/sharedRateLimiter";
 import { ipFromRequest } from "../lib/transientRenderLog";
 import { logger } from "../lib/logger";
 import { sanitizeAndValidatePersonalName, sanitizeAndValidatePronouns } from "../lib/validators/personalName";
@@ -55,6 +55,11 @@ const RESEND_VERIFICATION_WINDOW_MS = 60 * 60 * 1000;
 // per-email (distributed credential stuffing / a targeted account); register is
 // limited per-IP (signup spam). Thresholds are deliberately generous so a
 // fumbling legitimate user is not locked out while automated abuse is bounded.
+// The per-IP login limit counts only FAILED sign-ins (David, Q5, Issue #1043):
+// every attempt is counted on arrival and a correct password gives its hit
+// back, so many people on one shared address can all sign in, while wrong
+// guesses from one address are still capped exactly. The per-email limit
+// counts every attempt, as before.
 const LOGIN_IP_MAX = 10;
 const LOGIN_IP_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_EMAIL_MAX = 30;
@@ -235,8 +240,9 @@ router.post("/auth/register", async (req: Request, res: Response) => {
 });
 
 router.post("/auth/local-login", async (req: Request, res: Response) => {
+  const loginIpScope = { endpoint: "auth.local-login", ip: ipFromRequest(req) };
   const loginIpLimit = await checkSharedRateLimit(
-    { endpoint: "auth.local-login", ip: ipFromRequest(req)},
+    loginIpScope,
     { limit: LOGIN_IP_MAX, windowMs: LOGIN_IP_WINDOW_MS },
   );
   if (!loginIpLimit.allowed) {
@@ -300,6 +306,15 @@ router.post("/auth/local-login", async (req: Request, res: Response) => {
   if (!valid) {
     res.status(401).json({ error: "Invalid email or password" });
     return;
+  }
+  // The password was right, so this was not a failed sign-in: give its
+  // per-address hit back (Q5). A suspended account refused below knew the
+  // password too, so it is refunded as well. The refund is bookkeeping: if it
+  // cannot be saved, the sign-in still goes ahead and the hit simply counts.
+  try {
+    await refundSharedRateLimit(loginIpScope, loginIpLimit.resetAt);
+  } catch (err) {
+    logger.warn({ err }, "[localAuth] per-address sign-in refund could not be saved; continuing");
   }
 
   const sessionData: SessionData = {
