@@ -8,7 +8,7 @@
         "role": "system"
       },
       {
-        "content": "The personalized subject may be referred to by these names: [\"Alex\"]. Only replace those names and their pronouns with personalization tokens; leave other role labels or character names as plain text.\n\nConvert this fact to a template:\n\n\"At an audit desk, Alex sits upright with a composed, businesslike expression, pressing a “VERIFIED” stamp onto a sheet reading “∞, …, 3, 2, 1”. Beside it lies another sheet reading “1, 2, 3, …, ∞”, already stamped “COMPLETE”. Across the desk, infinity is personified as a floating ∞ symbol with a face and small arms, staring wide-eyed at the two finished records while nervously wringing its hands. Alex slides the verified reverse count toward infinity as routine finished paperwork.\"",
+        "content": "The personalized subject may be referred to by these names: [\"Alex\"]. Only replace those names and their pronouns with personalization tokens; leave other role labels or character names as plain text.\n\nConvert this fact to a template:\n\n\"In a classroom, Alex stands beside a blackboard with a calm, focused expression, chalk poised at the end of the second of two lines. The first reads “0 → 1 → 2 → … → ∞ ✓”; the second reads “∞ → … → 2 → 1 → 0 ✓”. Alex is putting the finishing stroke on the second checkmark, treating both completed journeys as routine bookkeeping.\"",
         "role": "user"
       }
     ],
@@ -18,24 +18,24 @@
       "type": "json_object"
     }
   },
-  "fingerprint": "9d1ff3ea8f3e0f5d25178e18eca09a0c5a5dca059f76a75a5c2c1ce55f3e36a0",
-  "recordedAt": "2026-11-24T00:15:48.777Z",
+  "fingerprint": "131d458b7a349f0263c406948cdbfbd709c939e61d1d05ff7381c1ee4017f5ce",
+  "recordedAt": "2026-11-24T05:59:04.070Z",
   "clients": {
     "@fal-ai/client": "1.9.5",
     "openai": "6.33.0"
   },
   "target": "gpt-5.4-mini",
   "response": {
-    "id": "recorded-9",
+    "id": "recorded-7",
     "object": "chat.completion",
-    "created": 1795479345,
+    "created": 1795499943,
     "model": "gpt-5.4-mini-2026-03-17",
     "choices": [
       {
         "index": 0,
         "message": {
           "role": "assistant",
-          "content": "{\"template\":\"At an audit desk, {NAME} sits upright with a composed, businesslike expression, pressing a “VERIFIED” stamp onto a sheet reading “∞, …, 3, 2, 1”. Beside it lies another sheet reading “1, 2, 3, …, ∞”, already stamped “COMPLETE”. Across the desk, infinity is personified as a floating ∞ symbol with a face and small arms, staring wide-eyed at the two finished records while nervously wringing its hands. {NAME} slides the verified reverse count toward infinity as routine finished paperwork.\"}",
+          "content": "{\"template\":\"In a classroom, {NAME} stands beside a blackboard with a calm, focused expression, chalk poised at the end of the second of two lines. The first reads “0 → 1 → 2 → … → ∞ ✓”; the second reads “∞ → … → 2 → 1 → 0 ✓”. {NAME} is putting the finishing stroke on the second checkmark, treating both completed journeys as routine bookkeeping.\"}",
           "refusal": null,
           "annotations": []
         },
@@ -43,15 +43,15 @@
       }
     ],
     "usage": {
-      "prompt_tokens": 1623,
-      "completion_tokens": 180,
-      "total_tokens": 1803,
+      "prompt_tokens": 1589,
+      "completion_tokens": 140,
+      "total_tokens": 1729,
       "prompt_tokens_details": {
         "cached_tokens": 1280,
         "audio_tokens": 0
       },
       "completion_tokens_details": {
-        "reasoning_tokens": 42,
+        "reasoning_tokens": 35,
         "audio_tokens": 0,
         "accepted_prediction_tokens": 0,
         "rejected_prediction_tokens": 0

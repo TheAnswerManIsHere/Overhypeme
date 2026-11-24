@@ -60,7 +60,7 @@ import type { ResolvedRecipe } from "./imagePrompt/recipe";
 import type { CompiledImagePrompt } from "./imagePrompt/types";
 import { generationModeFromSubjectRenderMode } from "./sourceImageAnalysis";
 import { hasUnresolvedFactTokens } from "./renderCanonical";
-import { isValidPromptIdentitySnapshot } from "./imagePrompt/promptIdentity";
+import { isValidPromptIdentitySnapshot, reducePromptName } from "./imagePrompt/promptIdentity";
 import { resolveRenderStyle, isValidRenderStyleSnapshot } from "./imagePrompt/styleResolution";
 import { buildEngineInput } from "./engineInterpreter";
 import { downloadToBuffer, extractFirstImageUrl, imageEngineParams } from "./imageEngineRequest";
@@ -613,6 +613,11 @@ async function loadAttempt(attemptId: number): Promise<ImagePromptAttempt | null
  *  4. The canonical "Alex / they-them" fallback (anonymous/admin render).
  *
  * Used both to render legacy fact templates and as the compiler's final token gate.
+ * Every name it returns is prompt-reduced (`reducePromptName`: the first name,
+ * capped), as David decided on 2026-07-20 and kept on 2026-10-15 (Issue #693):
+ * the image model never gets a full display name. Sources 2 and 3 store the
+ * full name, so they are reduced here; the meme caption is composited
+ * elsewhere and keeps the full name.
  */
 async function resolveAttemptIdentity(
   attempt: ImagePromptAttempt,
@@ -628,7 +633,7 @@ async function resolveAttemptIdentity(
   // 2. Legacy moderation reviewRenderSubject.
   const reviewSubject = rc.reviewRenderSubject;
   if (reviewSubject && typeof reviewSubject.name === "string" && reviewSubject.name.trim()) {
-    return { name: reviewSubject.name, pronouns: reviewSubject.pronouns ?? null };
+    return { name: reducePromptName({ displayName: reviewSubject.name }), pronouns: reviewSubject.pronouns ?? null };
   }
   // 3-4. Legacy live user, else canonical fallback.
   let name = "Alex";
@@ -639,7 +644,7 @@ async function resolveAttemptIdentity(
       .from(usersTable)
       .where(eq(usersTable.id, attempt.userId))
       .limit(1);
-    if (u?.displayName) name = u.displayName;
+    if (u?.displayName) name = reducePromptName({ displayName: u.displayName });
     pronouns = u?.pronouns ?? null;
   }
   return { name, pronouns };

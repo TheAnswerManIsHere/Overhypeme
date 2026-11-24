@@ -8,7 +8,7 @@
         "role": "system"
       },
       {
-        "content": "The personalized subject may be referred to by these names: [\"Alex\"]. Only replace those names and their pronouns with personalization tokens; leave other role labels or character names as plain text.\n\nConvert this fact to a template:\n\n\"At a worktable, Alex calmly presses the final button on a normal-sized manual tally counter labeled “DOWN”, whose display reads “1”. Beside it sits a matching counter labeled “UP”, its number display impossibly reading “∞”. Both counters have little faces beneath their displays: the first looks utterly stunned, while the second stares in exhausted disbelief at its final digit. Alex looks between the two readings with quiet satisfaction.\"",
+        "content": "The personalized subject may be referred to by these names: [\"Alex\"]. Only replace those names and their pronouns with personalization tokens; leave other role labels or character names as plain text.\n\nConvert this fact to a template:\n\n\"In a stairwell, Alex calmly steps down onto the bottom landing marked “0”, looking toward the last numbered step with quiet concentration. The steps immediately above are marked “1”, “2”, and “3”; the staircase continues through a compressed run of steps to a top landing marked “∞ ✓”. Chalk arrows run up one side of the stairs and back down the other, with Alex adding a final checkmark beside the bottom zero.\"",
         "role": "user"
       }
     ],
@@ -18,24 +18,24 @@
       "type": "json_object"
     }
   },
-  "fingerprint": "53106e5f914d3933b2662cbc1808d4bc8ef83997c3fac3d1d8d15be895374247",
-  "recordedAt": "2026-11-24T00:15:46.673Z",
+  "fingerprint": "0ca462dbcf918a35201ac923ff624542c3e5de4512d8dcdd44266097184f2121",
+  "recordedAt": "2026-11-24T05:59:04.374Z",
   "clients": {
     "@fal-ai/client": "1.9.5",
     "openai": "6.33.0"
   },
   "target": "gpt-5.4-mini",
   "response": {
-    "id": "recorded-8",
+    "id": "recorded-9",
     "object": "chat.completion",
-    "created": 1795479345,
+    "created": 1795499943,
     "model": "gpt-5.4-mini-2026-03-17",
     "choices": [
       {
         "index": 0,
         "message": {
           "role": "assistant",
-          "content": "{\"template\":\"At a worktable, {NAME} calmly presses the final button on a normal-sized manual tally counter labeled “DOWN”, whose display reads “1”. Beside it sits a matching counter labeled “UP”, its number display impossibly reading “∞”. Both counters have little faces beneath their displays: the first looks utterly stunned, while the second stares in exhausted disbelief at its final digit. {NAME} looks between the two readings with quiet satisfaction.\"}",
+          "content": "{\"template\":\"In a stairwell, {NAME} calmly steps down onto the bottom landing marked “0”, looking toward the last numbered step with quiet concentration. The steps immediately above are marked “1”, “2”, and “3”; the staircase continues through a compressed run of steps to a top landing marked “∞ ✓”. Chalk arrows run up one side of the stairs and back down the other, with {NAME} adding a final checkmark beside the bottom zero.\"}",
           "refusal": null,
           "annotations": []
         },
@@ -43,15 +43,15 @@
       }
     ],
     "usage": {
-      "prompt_tokens": 1591,
-      "completion_tokens": 146,
-      "total_tokens": 1737,
+      "prompt_tokens": 1592,
+      "completion_tokens": 165,
+      "total_tokens": 1757,
       "prompt_tokens_details": {
         "cached_tokens": 1280,
         "audio_tokens": 0
       },
       "completion_tokens_details": {
-        "reasoning_tokens": 40,
+        "reasoning_tokens": 57,
         "audio_tokens": 0,
         "accepted_prediction_tokens": 0,
         "rejected_prediction_tokens": 0

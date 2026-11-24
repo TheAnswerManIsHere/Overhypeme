@@ -8,7 +8,7 @@
         "role": "system"
       },
       {
-        "content": "Classify this submitted Overhype.me fact.\n\nInspect the EXACT spelling and capitalization of factTextExact. Do NOT lowercase, title-case, or otherwise normalize the case before semantic interpretation — capitalization is meaningful (e.g. \"Earth\" vs \"earth\").\n\nfactTextExact:\nAlex once counted to infinity. Twice. The second time they did it backwards to check their work.\n\nNotes:\n- The fact text has been rendered to canonical plain English (identity tokens resolved).\n- Classify the joke mechanism of the fact itself.\n- If the fact includes hashtags or brand/company names, detect them as context, but do not let them override the core archetype.\n- Identify capitalization-sensitive or ambiguity-sensitive terms whose visual interpretation matters and list them in semanticEntities. Do not list every noun — only terms where interpretation materially affects the visual prompt or is genuinely ambiguous.",
+        "content": "Classify this submitted Overhype.me fact.\n\nInspect the EXACT spelling and capitalization of factTextExact. Do NOT lowercase, title-case, or otherwise normalize the case before semantic interpretation — capitalization is meaningful (e.g. \"Earth\" vs \"earth\").\n\nfactTextExact:\nAlex once counted to infinity. Twice. The second time They did it backwards to check their work.\n\nNotes:\n- The fact text has been rendered to canonical plain English (identity tokens resolved).\n- Classify the joke mechanism of the fact itself.\n- If the fact includes hashtags or brand/company names, detect them as context, but do not let them override the core archetype.\n- Identify capitalization-sensitive or ambiguity-sensitive terms whose visual interpretation matters and list them in semanticEntities. Do not list every noun — only terms where interpretation materially affects the visual prompt or is genuinely ambiguous.",
         "role": "user"
       }
     ],
@@ -298,24 +298,24 @@
       "type": "json_schema"
     }
   },
-  "fingerprint": "199caa15cd3353d003629076b6a6d206b4a3ab53789d1fc860f1842dbaeee5b1",
-  "recordedAt": "2026-11-24T00:14:48.777Z",
+  "fingerprint": "ce04cdb678b5c928288c0aa1535be7663d3fb31326e21536d956aad9d41939bb",
+  "recordedAt": "2026-11-24T05:58:09.407Z",
   "clients": {
     "@fal-ai/client": "1.9.5",
     "openai": "6.33.0"
   },
   "target": "gpt-5.5",
   "response": {
-    "id": "recorded-5",
+    "id": "recorded-4",
     "object": "chat.completion",
-    "created": 1795479281,
+    "created": 1795499877,
     "model": "gpt-5.5-2026-04-23",
     "choices": [
       {
         "index": 0,
         "message": {
           "role": "assistant",
-          "content": "{\"primaryArchetype\":\"logic_formal_impossibility\",\"subtype\":\"infinity_impossibility\",\"modifiers\":[\"symbolic_abstraction_required\",\"mock_heroic\",\"single_subject_focus\"],\"visualLiteralness\":\"symbolic_abstraction\",\"visualComplexity\":\"medium\",\"overhypeFit\":\"strong\",\"adultSuitability\":\"safe\",\"adultSuitabilityNotes\":\"\",\"suggestedHashtags\":[\"infinity\",\"counting\",\"math\",\"numbers\",\"backwards\"],\"taxonomyConfidence\":0.98,\"adminReviewNotes\":\"\",\"culturalReferences\":[],\"semanticEntities\":[]}",
+          "content": "{\"primaryArchetype\":\"logic_formal_impossibility\",\"subtype\":\"infinity_impossibility\",\"modifiers\":[\"single_subject_focus\",\"mock_heroic\",\"symbolic_abstraction_required\",\"metaphorical_visualization\",\"clear_causal_relationship\"],\"visualLiteralness\":\"symbolic_abstraction\",\"visualComplexity\":\"medium\",\"overhypeFit\":\"strong\",\"adultSuitability\":\"safe\",\"adultSuitabilityNotes\":\"\",\"suggestedHashtags\":[\"infinity\",\"counting\",\"math\",\"numbers\",\"genius\",\"precision\"],\"taxonomyConfidence\":0.98,\"adminReviewNotes\":\"\",\"culturalReferences\":[{\"sourcePhrase\":\"infinity\",\"referenceType\":\"mechanism_knowledge\",\"canonicalReference\":\"Infinity\",\"explanation\":\"The joke relies on knowing that infinity is not a reachable final number, so counting to it once, twice, or backwards is formally impossible.\",\"visualImplication\":\"Use symbolic mathematical imagery such as endless number lines, infinite chalkboards, or glowing infinity symbols rather than a merely long list of numbers.\",\"confidence\":0.97,\"requiresAdminReview\":false},{\"sourcePhrase\":\"check their work\",\"referenceType\":\"idiom_or_phrase\",\"canonicalReference\":\"check your work\",\"explanation\":\"This phrase evokes the routine math-class habit of verifying an answer, made absurd because the task being verified is infinite and impossible.\",\"visualImplication\":\"Frame the subject like an impossibly confident mathematician reviewing an endless calculation.\",\"confidence\":0.8,\"requiresAdminReview\":false}],\"semanticEntities\":[{\"surfaceText\":\"infinity\",\"normalizedText\":\"infinity\",\"entityKind\":\"abstract_concept\",\"visualReferent\":\"the mathematical concept of an endless, unfinishable quantity\",\"capitalizationSignal\":\"lowercase_common_noun\",\"materiallyAffectsVisualPrompt\":true,\"requiresAdminReview\":false,\"confidence\":0.95,\"notes\":\"This abstract mathematical concept is the core visual referent; it should not be mistaken for a physical place or object.\"}]}",
           "refusal": null,
           "annotations": []
         },
@@ -324,8 +324,8 @@
     ],
     "usage": {
       "prompt_tokens": 4981,
-      "completion_tokens": 639,
-      "total_tokens": 5620,
+      "completion_tokens": 920,
+      "total_tokens": 5901,
       "prompt_tokens_details": {
         "cached_tokens": 0,
         "audio_tokens": 0

@@ -8,7 +8,7 @@
         "role": "system"
       },
       {
-        "content": "The personalized subject may be referred to by these names: [\"Alex\"]. Only replace those names and their pronouns with personalization tokens; leave other role labels or character names as plain text.\n\nConvert this fact to a template:\n\n\"In a classroom, Alex stands beside a blackboard with two neatly written rows: “1, 2, 3, …, ∞” and “∞, …, 3, 2, 1”. Both rows end with large checkmarks; Alex calmly finishes the second checkmark with chalk, expression focused and matter-of-fact. Beside the board, a mathematics professor stares open-mouthed at the two completed rows, clutching an unused eraser.\"",
+        "content": "The personalized subject may be referred to by these names: [\"Alex\"]. Only replace those names and their pronouns with personalization tokens; leave other role labels or character names as plain text.\n\nConvert this fact to a template:\n\n\"At a worktable, Alex sits beside a large hand-wound reel of numbered paper bearing the short label “Counted ✓”. A paper tab marked “∞ ✓” protrudes from the reel’s center; the last loose stretch runs outward from the reel through “3, 2, 1, 0”. With an unhurried, satisfied expression, Alex holds the final zero flat and adds a checkmark, the entire rest of the count already wound back into the reel.\"",
         "role": "user"
       }
     ],
@@ -18,24 +18,24 @@
       "type": "json_object"
     }
   },
-  "fingerprint": "65717a8d9359e43ae139da73d1134a347b6451c2d75dcf12b871449efea1941f",
-  "recordedAt": "2026-11-24T00:15:46.353Z",
+  "fingerprint": "fff7c1fef09cc9bcc3d1d946aeb4db0ce90e8b15557e6ad52f06d35d3838ef09",
+  "recordedAt": "2026-11-24T05:59:04.087Z",
   "clients": {
     "@fal-ai/client": "1.9.5",
     "openai": "6.33.0"
   },
   "target": "gpt-5.4-mini",
   "response": {
-    "id": "recorded-7",
+    "id": "recorded-8",
     "object": "chat.completion",
-    "created": 1795479345,
+    "created": 1795499943,
     "model": "gpt-5.4-mini-2026-03-17",
     "choices": [
       {
         "index": 0,
         "message": {
           "role": "assistant",
-          "content": "{\"template\":\"In a classroom, {NAME} stands beside a blackboard with two neatly written rows: “1, 2, 3, …, ∞” and “∞, …, 3, 2, 1”. Both rows end with large checkmarks; {NAME} calmly finishes the second checkmark with chalk, expression focused and matter-of-fact. Beside the board, a mathematics professor stares open-mouthed at the two completed rows, clutching an unused eraser.\"}",
+          "content": "{\"template\":\"At a worktable, {NAME} sits beside a large hand-wound reel of numbered paper bearing the short label “Counted ✓”. A paper tab marked “∞ ✓” protrudes from the reel’s center; the last loose stretch runs outward from the reel through “3, 2, 1, 0”. With an unhurried, satisfied expression, {NAME} holds the final zero flat and adds a checkmark, the entire rest of the count already wound back into the reel.\"}",
           "refusal": null,
           "annotations": []
         },
@@ -43,15 +43,15 @@
       }
     ],
     "usage": {
-      "prompt_tokens": 1602,
-      "completion_tokens": 131,
-      "total_tokens": 1733,
+      "prompt_tokens": 1603,
+      "completion_tokens": 167,
+      "total_tokens": 1770,
       "prompt_tokens_details": {
         "cached_tokens": 1280,
         "audio_tokens": 0
       },
       "completion_tokens_details": {
-        "reasoning_tokens": 13,
+        "reasoning_tokens": 49,
         "audio_tokens": 0,
         "accepted_prediction_tokens": 0,
         "rejected_prediction_tokens": 0
