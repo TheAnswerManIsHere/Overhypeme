@@ -147,18 +147,16 @@ deliberately excludes them and points here instead.
   - `bulk` (default for any queue that doesn't set `{ lane }`) — `enrichment`,
     `fact_enrichment_backfill`, `fact_character_fill`, `fact_visual_concepts`,
     `email`, `review_render_scenarios_prepare`.
-  - `ai_meme_backfill` — `fact_ai_meme_backfill`, `maxConcurrency: 1`.
-    **Retired** with the legacy AI-background generator (compiler review,
-    Phase 2: every picture starts from a photo): nothing enqueues there, and
-    its handler ends a leftover job without generating.
+  (The `ai_meme_backfill` lane went with the legacy AI-background
+  generator's queue in fact lifecycle 3.2d; migration 0169 deleted the jobs
+  left on it.)
   A queue's lane is set via `registerJobHandler(queue, handler, { lane })`; see
   [`decisions.md`](./decisions.md#2026-07--split-the-async-jobs-worker-into-fastrenderbulk-lanes).
   (Check `asyncJobs.ts` for the live list of queues.)
 - **Poll intervals are per-lane defaults, all env-overridable.** `fast` 2s;
-  `render`, `bulk`, `ai_meme_backfill` 5s each
+  `render`, `bulk` 5s each
   (`DEFAULT_*_INTERVAL_MS`, `asyncJobs.ts`), each overridable via
-  `ASYNC_JOBS_FAST_INTERVAL_MS` / `_RENDER_` / `_WORKER_` /
-  `_AI_MEME_BACKFILL_INTERVAL_MS`. Env override is the **only** way to change
+  `ASYNC_JOBS_FAST_INTERVAL_MS` / `_RENDER_` / `_WORKER_`. Env override is the **only** way to change
   them — the old `intervalMs` argument is gone.
 - **Lane is orthogonal to retry and dedupe; ordering is per-lane, not
   global.** `{ lane }` selects *scheduling* only — retries and dedupe behave

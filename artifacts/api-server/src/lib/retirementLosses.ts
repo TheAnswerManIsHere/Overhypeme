@@ -5,7 +5,9 @@
  * docs/plans/PLAN_RETIRE_VARIANTS.md) and 0151 (refresh and resubmission reviews
  * retired; plan docs/plans/PLAN_FACT_LIFECYCLE_REBUILD.md, 1H), and 0160 (the
  * taxonomy drops; the same plan, 2A/2B: its three tables are declared whole in
- * RETIRED_TABLES, its deleted jobs counted by taxonomyDropLosses).
+ * RETIRED_TABLES, its deleted jobs counted by taxonomyDropLosses), and 0167
+ * and 0169 (fact administration's drops, 3.2e: the edit history declared in
+ * RETIRED_TABLES, the backfill queue's jobs counted by aiMemeBackfillDropLosses).
  *
  * For 0142:
  * Read on the restored snapshot while `facts.parent_id` still exists, using
@@ -17,7 +19,7 @@
  * column, or without a variant, gets an empty map: no allowance at all. Tables
  * resolve in the connection's own schema, as 0142's do.
  *
- * @purpose Count, per table, the rows a retiring migration (0142, 0151, 0160) will delete, before it runs, for the upgrade rehearsal's expected counts.
+ * @purpose Count, per table, the rows a retiring migration (0142, 0151, 0160, 0167, 0169) will delete, before it runs, for the upgrade rehearsal's expected counts.
  * @subsystem upgrade-rehearsal
  */
 import type pg from "pg";
@@ -171,8 +173,12 @@ export const RETIRED_ADMIN_CONFIG_KEYS: readonly string[] = ["review_duplicate_t
  *   - 0160 (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 2A/2B; Issue #1018, 2.1c): the
  *     legacy enrichment versions (converted to fact_taxonomy_runs by 0159), the
  *     manual-override history, and the engine-revision record.
+ *   - 0167 (the same plan, item 23; Issue #1018, 3.2e): the approved-text edit
+ *     history, whose route went in 3.2c.
  */
-export const RETIRED_TABLES: readonly string[] = ["fact_enrichment_versions", "enrichment_override_history", "engine_revision_bumps"];
+export const RETIRED_TABLES: readonly string[] = [
+  "fact_enrichment_versions", "enrichment_override_history", "engine_revision_bumps", "fact_text_edit_history",
+];
 
 /**
  * The async jobs migration 0160 will delete, by its own rule: every job on the
@@ -184,6 +190,19 @@ export async function taxonomyDropLosses(c: pg.ClientBase): Promise<RetirementLo
     `SELECT count(*)::text AS n FROM async_jobs
       WHERE queue IN ('fact_enrichment_backfill', 'fact_character_fill', 'projection_repair')
          OR (queue = 'enrichment' AND payload ? 'reviewId' AND NOT (payload ? 'factId'))`,
+  );
+  const n = Number(rows[0]?.n ?? 0);
+  return n > 0 ? new Map([["async_jobs", n]]) : new Map();
+}
+
+/**
+ * The async jobs migration 0169 will delete: every job on the retired
+ * AI-background backfill queue, whose handler 3.2d removed (plan
+ * PLAN_FACT_LIFECYCLE_REBUILD.md, item 23; Issue #1018, 3.2e).
+ */
+export async function aiMemeBackfillDropLosses(c: pg.ClientBase): Promise<RetirementLosses> {
+  const { rows } = await c.query<{ n: string }>(
+    `SELECT count(*)::text AS n FROM async_jobs WHERE queue = 'fact_ai_meme_backfill'`,
   );
   const n = Number(rows[0]?.n ?? 0);
   return n > 0 ? new Map([["async_jobs", n]]) : new Map();

@@ -202,8 +202,8 @@ states) and preview/runtime parity where relevant.
 
 **Async job tests** — Test the terminal state, not the enqueue. Assert
 `pending → processing → done | failed` transitions and that per-item/aggregate
-status is reported. The image preview bench must **not** read the production
-`aiScenePrompts` cache (tests assert this) — see
+status is reported. The image preview bench caches nothing (the one scene-prompt cache,
+`facts.ai_scene_prompts`, was dropped by migration 0169) — see
 `.agents/memory/image-prompt-preview-parity.md`.
 
 **Migration / backfill tests** — Run `migrate` against the local public schema,

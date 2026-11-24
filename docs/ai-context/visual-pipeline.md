@@ -615,7 +615,8 @@ required, and a render it already made stays on the grid outside the tally.
 The comparison's round 1 draws photo panels only (9 panels, 54 cells). The
 legacy AI-background generator (`fact_ai_meme_backfill`) is removed: its
 route, its queue, its handler and its scheduling lane are gone (fact lifecycle
-3.2d), and the jobs left on its queue are deleted by 3.2e's migration. The
+3.2d), and migration 0169 (3.2e) deleted the jobs left on its queue and
+dropped its scene prompts (`facts.ai_scene_prompts`) and status column. The
 pictures it stored stay readable on the fact (`facts.ai_meme_images`, which
 the image worker still appends to).
 
@@ -1221,8 +1222,8 @@ Franklin"` / he/him; production uses the real user identity
 model word differently. No temperature is sent: the planner runs `gpt-5.5` at high
 effort, which takes none (the parameter audit, 2026-11-14,
 `engineParameterAudit.test.ts`). Divergence is **sampling, not caching** —
-previews don't cache and don't read the `aiScenePrompts` blob (that cache serves
-only the AI background backfill). Making outputs identical needs result-reuse
+previews don't cache (the retired AI-background generator's scene-prompt cache,
+`facts.ai_scene_prompts`, was dropped by migration 0169). Making outputs identical needs result-reuse
 — **ask David first** (see `.agents/memory/image-prompt-preview-parity.md`).
 
 ## Known failure modes

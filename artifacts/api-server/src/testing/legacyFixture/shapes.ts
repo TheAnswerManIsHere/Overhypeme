@@ -48,7 +48,6 @@ export type ShapeName =
   | "factEnrichment"
   | "visualStrategyOverride"
   | "visualConceptCandidatesBlob"
-  | "aiScenePrompts"
   | "aiMemeImages"
   | "visualPlan"
   | "compiledPrompt"
@@ -144,14 +143,6 @@ const visualConceptCandidatesBlob: ShapeDef = {
 };
 
 // ─── fixture-local projections of interface-only shapes ────────────────────
-
-/** `AiScenePrompts` (aiMemePipeline.ts:186-191). */
-const aiScenePromptsProjection = z.object({
-  fact_type: z.enum(["action", "abstract"]),
-  male: z.string(),
-  female: z.string(),
-  neutral: z.string(),
-});
 
 /** `AiMemeImages` (aiMemePipeline.ts:193-197): object paths per gender; "" is a deleted slot (routes/memes.ts:1664). */
 const aiMemeImagesProjection = z.object({
@@ -275,7 +266,6 @@ export const SHAPES: Record<ShapeName, ShapeDef> = {
   factEnrichment,
   visualStrategyOverride,
   visualConceptCandidatesBlob,
-  aiScenePrompts: plain(aiScenePromptsProjection, {}),
   aiMemeImages: plain(aiMemeImagesProjection, {
     "male[*]": { media: "fact-gallery" },
     "female[*]": { media: "fact-gallery" },

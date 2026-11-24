@@ -35,7 +35,6 @@ export const SENTINELS = {
   roleVisual: "zqx role visual",
   conceptTitle: "zqx concept title",
   conceptScene: "zqx concept scene",
-  scenePrompt: "zqx scene prompt",
   frozenName: "Zqxfrozen",
   reviewSubjectName: "Zqxreviewer Typedname",
   compiledText: "zqx compiled prompt text",

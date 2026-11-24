@@ -111,22 +111,8 @@ export const factsTable = pgTable("facts", {
   /** Who approved the humor note; null when the account is deleted. */
   humorNoteApprovedBy: varchar("humor_note_approved_by").references(() => usersTable.id, { onDelete: "set null" }),
   humorNoteApprovedAt: timestamp("humor_note_approved_at", { withTimezone: true }),
-  /** LLM-generated scene prompts for AI meme backgrounds (3 gender variants). */
-  aiScenePrompts: jsonb("ai_scene_prompts"),
   /** Object storage paths for generated AI meme background images (9 total: 3 genders × 3 each). */
   aiMemeImages: jsonb("ai_meme_images"),
-  /**
-   * AI-meme backfill lifecycle for the durable `fact_ai_meme_backfill` queue:
-   * "pending" | "processing" | "ok" | "failed" | "skipped". Mirrors
-   * `enrichment_status`'s lifecycle, with two extra values this queue's crash-recovery
-   * design needs: "processing" (set immediately before the paid pipeline call,
-   * so a worker crash mid-run is distinguishable from a queued-but-not-started
-   * job) and "skipped" (a terminal, non-error outcome — the fact was
-   * deactivated before its handler ran). Null on facts that never ran AI-meme
-   * generation through this queue (legacy rows; live-fact generation via
-   * `memes.ts`/`pulidJobs.ts`, which don't use this queue).
-   */
-  aiMemeBackfillStatus: varchar("ai_meme_backfill_status", { length: 16 }),
   /**
    * The fact's stored AI taxonomy (FactEnrichment from @workspace/api-zod): the
    * latest stored run's output, read-only (plan PLAN_FACT_LIFECYCLE_REBUILD.md,
@@ -148,14 +134,6 @@ export const factsTable = pgTable("facts", {
    * (re)classified in-place. Mirrors `pending_reviews.enrichment_status`.
    */
   enrichmentStatus: varchar("enrichment_status", { length: 16 }),
-  /**
-   * Eval harness (Slice 2B): part of the GOLDEN SET — a curated set of stable
-   * active facts rendered by every eval run for regression comparison. Toggled
-   * by admins on active facts only. `eval_golden_reason` records why it's a
-   * good regression case.
-   */
-  evalGolden: boolean("eval_golden").notNull().default(false),
-  evalGoldenReason: text("eval_golden_reason"),
   embedding: vector("embedding", { dimensions: 384 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
@@ -168,8 +146,6 @@ export const factsTable = pgTable("facts", {
     // on how the table was built, which the structure proof would read as drift.
     sql`(${table.approvalSource} IS NULL) = (${table.approvedAt} IS NULL) AND (${table.approvalSource} IS NULL OR ${table.approvalSource} = 'moderator' OR ${table.approvalSource} = 'legacy')`,
   ),
-  // The partial `IDX_facts_eval_golden` (WHERE eval_golden) is migration-only —
-  // drizzle-kit's partial-index detection is brittle (see imagePromptAttempts.ts).
   // The rule that a live fact has an approved gag spans facts and fact_gags, so
   // it is a deferred constraint trigger declared in migration 0139 only; it
   // replaced the facts_active_requires_concept CHECK, which read the gag from

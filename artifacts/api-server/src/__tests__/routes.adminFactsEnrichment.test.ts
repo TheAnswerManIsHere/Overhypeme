@@ -136,13 +136,11 @@ describe("GET /admin/facts/:id", () => {
   it("omits the embedding and heavy generation blobs", async () => {
     const id = await insertFact({
       enrichment: VALID,
-      aiScenePrompts: { foo: "bar" },
       aiMemeImages: { male: ["blob.png"], female: [], neutral: [] },
     });
     const res = await request(adminApp).get(`/api/admin/facts/${id}`);
     assert.equal(res.status, 200);
     assert.equal("embedding" in res.body, false);
-    assert.equal("aiScenePrompts" in res.body, false);
     assert.equal("aiMemeImages" in res.body, false);
     // but the derived presence flag is present
     assert.equal(typeof res.body.hasEmbedding, "boolean");

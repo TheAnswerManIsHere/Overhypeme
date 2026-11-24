@@ -935,9 +935,9 @@ router.delete("/admin/facts/:id", requireAdmin, lifecycleRoute("delete", deleteF
 // GET /admin/facts/:id — admin detail shape for the Facts editor. Intentionally
 // trimmed: includes the editable scalars + the enrichment blob and
 // enrichmentStatus, but omits the embedding vector and the large generation
-// blobs (aiScenePrompts, aiMemeImages) the editor never
-// touches. `:id` must be a positive integer (a non-numeric segment is a 400,
-// never a silent match against a static subpath like /import).
+// blob (aiMemeImages) the editor never touches. `:id` must be a positive
+// integer (a non-numeric segment is a 400, never a silent match against a
+// static subpath like /import).
 router.get("/admin/facts/:id", requireAdmin, async (req: Request, res: Response) => {
   const id = Number(req.params["id"]);
   if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }

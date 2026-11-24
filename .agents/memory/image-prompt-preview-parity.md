@@ -33,9 +33,9 @@ for the same fact.
 The planner is a reasoning model (`gpt-5.5` at high effort) and takes no
 temperature (the parameter audit, 2026-11-14), so two separate live calls
 produce differently-worded prose ("baby" vs "newborn baby gripping the wheel")
-even with byte-identical input. The preview does NOT cache and does NOT read the
-production `aiScenePrompts` blob (that cache serves only the AI background
-backfill). So if a preview and a production prompt differ: first suspect input
+even with byte-identical input. The preview does NOT cache (the retired AI
+background backfill's scene-prompt cache, `facts.ai_scene_prompts`, was
+dropped by migration 0169). So if a preview and a production prompt differ: first suspect input
 drift (identity/style/aspect), then sampling — not a cache.
 
 **How to apply:** to make outputs byte-identical a surface must reuse the

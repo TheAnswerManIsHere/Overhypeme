@@ -98,7 +98,6 @@ const partialGag = {
 const activeFact = await insertLiveFact({
   text: KEPT_FACT_TEXT, submittedById: userId, canonicalText: "Alex counted to infinity, twice, and the second time it was backwards.",
   hasPronouns: false, enrichment, enrichmentAiDerived: { ...placeholderEnrichment, adminReviewNotes: S.adminReviewNotes },
-  aiScenePrompts: { fact_type: "action", male: S.scenePrompt, female: S.scenePrompt, neutral: "" },
   embedding: Array.from({ length: 384 }, (_, i) => (i % 7) / 10),
   createdAt: at,
 }, activeGag);
