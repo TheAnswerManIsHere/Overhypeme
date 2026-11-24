@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type TouchEvent as ReactTouchEvent } from "react";
+import { MEME_CANVAS_DIMS } from "@workspace/api-zod";
 import { LivePreview } from "../../parts/LivePreview";
 import type { AspectRatio, MemeTextOptions } from "../../types";
 
@@ -11,6 +12,27 @@ interface Props {
   aspectRatio: AspectRatio;
   framingOffset: { x: number; y: number };
   onFramingChange: (next: { x: number; y: number }) => void;
+  /**
+   * The wide layout (Issue #850): the preview fills the space it is given,
+   * in proportion, and has no resize handle. The remembered handle height
+   * is neither read nor erased here, so the stacked layout still finds it.
+   */
+  fill?: boolean;
+}
+
+/** The preview's 1px border on each side, which the fitted canvas must clear. */
+const FILL_BORDER_PX = 2;
+
+/**
+ * The largest canvas display size that keeps `ratio` (width / height) and
+ * fits inside `area`. Pure, so the wide layout's fitting is unit-testable.
+ */
+export function fitCanvas(area: { w: number; h: number }, ratio: number): { w: number; h: number } {
+  const maxW = Math.max(0, area.w - FILL_BORDER_PX);
+  const maxH = Math.max(0, area.h - FILL_BORDER_PX);
+  // Whichever side limits the fit is used exactly; the other follows the ratio.
+  if (maxW / ratio <= maxH) return { w: Math.floor(maxW), h: Math.floor(maxW / ratio) };
+  return { w: Math.floor(maxH * ratio), h: Math.floor(maxH) };
 }
 
 const CANVAS_HEIGHT_KEY = "mbfo_locked_preview_max_h";
@@ -54,6 +76,7 @@ export function LockedPreview({
   aspectRatio,
   framingOffset,
   onFramingChange,
+  fill = false,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dragStateRef = useRef<{
@@ -139,49 +162,96 @@ export function LockedPreview({
 
   const canvasMaxHeightStyle = maxH != null ? `${maxH}px` : `${DEFAULT_MAX_VH}vh`;
 
+  // Wide layout: measure the area beside the controls and fit the canvas to it.
+  const areaRef = useRef<HTMLDivElement>(null);
+  const [area, setArea] = useState<{ w: number; h: number } | null>(null);
+  useEffect(() => {
+    if (!fill) return;
+    const el = areaRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      setArea({ w: r.width, h: r.height });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [fill]);
+
+  const dims = MEME_CANVAS_DIMS[aspectRatio];
+  const fitted = fill && area ? fitCanvas(area, dims.w / dims.h) : null;
+
+  const dragHandlers = {
+    onMouseDown: (e: ReactMouseEvent) => {
+      if (!backgroundUrl) return;
+      begin(e.clientX, e.clientY);
+    },
+    onMouseMove: (e: ReactMouseEvent) => move(e.clientX, e.clientY),
+    onMouseUp: end,
+    onMouseLeave: end,
+    onTouchStart: (e: ReactTouchEvent) => {
+      if (!backgroundUrl) return;
+      const t = e.touches[0];
+      if (!t) return;
+      begin(t.clientX, t.clientY);
+    },
+    onTouchMove: (e: ReactTouchEvent) => {
+      const t = e.touches[0];
+      if (!t) return;
+      move(t.clientX, t.clientY);
+    },
+    onTouchEnd: end,
+    onTouchCancel: end,
+  };
+  const dragStyle = { touchAction: "none" as const, cursor: backgroundUrl ? (grabbing ? "grabbing" : "grab") : "default" };
+
+  const livePreview = (
+    <LivePreview
+      factText={factText}
+      name={name}
+      pronouns={pronouns}
+      backgroundUrl={backgroundUrl}
+      textOptions={textOptions}
+      aspectRatio={aspectRatio}
+      framingOffset={framingOffset}
+      canvasRef={canvasRef}
+      canvasStyle={
+        !fill
+          ? { maxWidth: "100%", maxHeight: canvasMaxHeightStyle, width: "auto", height: "auto" }
+          : fitted
+            ? { width: `${fitted.w}px`, height: `${fitted.h}px`, maxWidth: "none" }
+            : { visibility: "hidden", width: 0, height: 0 }
+      }
+    />
+  );
+
+  if (fill) {
+    return (
+      <div className="flex h-full min-h-0 flex-col bg-[#111] px-6 pt-4 pb-3" data-testid="locked-preview-fill">
+        <div ref={areaRef} className="flex min-h-0 flex-1 items-center justify-center" data-testid="locked-preview-area">
+          <div className="relative select-none" style={dragStyle} {...dragHandlers} data-testid="locked-preview">
+            {livePreview}
+          </div>
+        </div>
+        {/* The hint always takes its row, so the area above never changes size
+            when a photo is chosen. */}
+        <p className="mt-2 h-4 select-none text-center text-[10px] text-white/40">
+          {backgroundUrl ? "Drag the photo to reposition" : ""}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-[#111] px-4 pb-1">
       <div
         className="relative mx-auto max-w-md select-none"
-        style={{ touchAction: "none", cursor: backgroundUrl ? (grabbing ? "grabbing" : "grab") : "default" }}
-        onMouseDown={(e) => {
-          if (!backgroundUrl) return;
-          begin(e.clientX, e.clientY);
-        }}
-        onMouseMove={(e) => move(e.clientX, e.clientY)}
-        onMouseUp={end}
-        onMouseLeave={end}
-        onTouchStart={(e) => {
-          if (!backgroundUrl) return;
-          const t = e.touches[0];
-          if (!t) return;
-          begin(t.clientX, t.clientY);
-        }}
-        onTouchMove={(e) => {
-          const t = e.touches[0];
-          if (!t) return;
-          move(t.clientX, t.clientY);
-        }}
-        onTouchEnd={end}
-        onTouchCancel={end}
+        style={dragStyle}
+        {...dragHandlers}
         data-testid="locked-preview"
       >
-        <LivePreview
-          factText={factText}
-          name={name}
-          pronouns={pronouns}
-          backgroundUrl={backgroundUrl}
-          textOptions={textOptions}
-          aspectRatio={aspectRatio}
-          framingOffset={framingOffset}
-          canvasRef={canvasRef}
-          canvasStyle={{
-            maxWidth: "100%",
-            maxHeight: canvasMaxHeightStyle,
-            width: "auto",
-            height: "auto",
-          }}
-        />
+        {livePreview}
         {/* Nothing is drawn over the canvas: the preview must show the meme
             exactly as it is saved (#870), watermark included, and the
             watermark can sit in any corner — so the drag hint lives in the

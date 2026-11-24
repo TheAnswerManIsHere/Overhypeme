@@ -345,10 +345,16 @@ being `56b4a22` by *Replit Agent*, "Published your App", with no file changes
 running (`healthz` on port 8080 answered `000`). So the next close-out sync
 after any publish finds the Repl ahead. Handle it as any Repl commit
 (`claude-core.md`, *This environment's git constraints*): push it to a branch
-(`replit/publish-commit-<date>`), reset the Repl's `main` to `origin/main`,
+named after the commit itself (`replit/commit-<short sha>`), **read the push
+back** (`git ls-remote origin refs/heads/replit/commit-<short sha>` prints
+that same commit), and only then reset the Repl's `main` to `origin/main`
 and start the dev workflows again. An empty commit needs no pull request;
 one that changes files does. Never fast-forward over it, and never let it
-reach GitHub's `main` without a PR.
+reach GitHub's `main` without a PR. (Until 2026-11-24 the branch was named
+by date, `replit/publish-commit-<date>`. The second publish that day could
+not be pushed to a name the first already held, and the Repl was reset
+anyway. That commit was empty, so nothing was lost, but a real tweak would
+have been. PR #1245's build report found it.)
 
 What to check after a publish, and the ways back from a bad one, are
 [`deploy-and-rollback.md`](../engineering/deploy-and-rollback.md).

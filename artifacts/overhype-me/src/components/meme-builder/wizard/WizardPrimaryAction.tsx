@@ -17,6 +17,13 @@ interface Props {
    * taken from the controls panel, so keep it to a single compact row.
    */
   aboveAction?: ReactNode;
+  /**
+   * `fixed` (default) pins the bar across the bottom of the screen, under
+   * the stacked layout's scrolling controls. `inline` places it in flow at
+   * the foot of the wide layout's controls column (Issue #850), so it never
+   * spans or covers the preview beside it.
+   */
+  placement?: "fixed" | "inline";
 }
 
 const BRAND_ORANGE = "#ff6b35";
@@ -29,6 +36,7 @@ export function WizardPrimaryAction({
   subText,
   aboveAction,
   writes,
+  placement = "fixed",
 }: Props) {
   const button = (
       <button
@@ -43,7 +51,11 @@ export function WizardPrimaryAction({
   );
   return (
     <div
-      className="fixed inset-x-0 bottom-0 bg-gradient-to-t from-[#111] via-[#111] to-transparent pt-6 pb-[max(env(safe-area-inset-bottom),16px)] px-4"
+      className={
+        placement === "inline"
+          ? "shrink-0 border-t border-white/10 bg-[#111] pt-4 pb-[max(env(safe-area-inset-bottom),16px)] px-4"
+          : "fixed inset-x-0 bottom-0 bg-gradient-to-t from-[#111] via-[#111] to-transparent pt-6 pb-[max(env(safe-area-inset-bottom),16px)] px-4"
+      }
       data-testid="wizard-primary-action"
     >
       {aboveAction && <div className="mb-3">{aboveAction}</div>}
