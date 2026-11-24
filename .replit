@@ -157,16 +157,17 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.production]
+STRIPE_ACCOUNT_ID_TEST = "acct_1TGbDFBoYd2wqzWn"
 
 [userenv.shared]
 RESEND_FROM_EMAIL = "noreply@overhype.me"
 VITE_GA_MEASUREMENT_ID = "G-QYCH0VLMB3"
 VITE_POSTHOG_KEY = "phc_kpLCG3LwiCxn4Eq7k7sc8aCyKFD39zxhbdwfKbYTpZSm"
-STRIPE_ACCOUNT_ID_TEST = "acct_1TGbDFBoYd2wqzWn"
 STRIPE_ACCOUNT_ID_LIVE = "acct_1TGk96PUPouDdcHb"
 ALLOWED_ORIGINS = "https://overhype.me"
 
 [userenv.development]
+STRIPE_ACCOUNT_ID_TEST = "acct_1UfOd5BYg36SqRmT"
 TEST_DATABASE_URL = "postgresql://postgres:password@helium/heliumdb_test?sslmode=disable"
 TEST_SHARDS = "4"
 

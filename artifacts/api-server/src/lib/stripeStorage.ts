@@ -2,6 +2,7 @@ import { db } from "@workspace/db";
 import { usersTable, membershipHistoryTable } from "@workspace/db/schema";
 import { eq, desc, sql, and, gte, isNull } from "drizzle-orm";
 import { effectiveTierForRow, effectiveTierPredicate } from "./membershipState";
+import { expectedAccountIdFor } from "./stripeAccountGuard.js";
 
 // Membership history events that indicate the user lost Legendary access
 // involuntarily (refund or chargeback). These trigger an in-app notice so
@@ -183,7 +184,22 @@ export class StripeStorage {
     };
   }
 
+  /**
+   * The active catalog of the Stripe account this environment declares for
+   * `liveMode`, and of no other account.
+   *
+   * The synced `stripe` schema can hold rows from more than one account: an
+   * environment moved to a new account keeps the old account's rows until
+   * something removes them, and both are test-mode rows (Issue #1220, where the
+   * dev app moved from a shared sandbox to its own). Filtering on `livemode`
+   * alone would list both catalogs, and a price from the old account fails at
+   * checkout because the checkout client is built for the declared one. So the
+   * account is part of the read, resolved here rather than by each caller, and
+   * an environment that declares no account for the mode lists nothing.
+   */
   async listProductsWithPrices(liveMode: boolean = false) {
+    const accountId = expectedAccountIdFor(liveMode);
+    if (!accountId) return [];
     const result = await db.execute(
       sql`SELECT
             p.id as product_id,
@@ -197,7 +213,8 @@ export class StripeStorage {
             pr.active as price_active
           FROM stripe.products p
           LEFT JOIN stripe.prices pr ON pr.product = p.id AND pr.active = true AND pr.livemode = ${liveMode}
-          WHERE p.active = true AND p.livemode = ${liveMode}
+            AND pr._account_id = ${accountId}
+          WHERE p.active = true AND p.livemode = ${liveMode} AND p._account_id = ${accountId}
           ORDER BY p.id, pr.unit_amount`,
     );
 

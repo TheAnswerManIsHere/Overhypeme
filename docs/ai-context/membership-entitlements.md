@@ -129,7 +129,17 @@ secret key has been verified against the declared id.** `stripeClient.ts` is
 the only construction site, and both of its exported constructors go through
 `verifyStripeAccount`, so boot, the mode toggle, checkout, webhooks and the
 admin mutation routes are covered by one boundary, not by a list of callers
-that has to stay complete. Withholding the client is the safety mechanism.
+that has to stay complete. **The dev app and production use different test-mode
+sandboxes** (Issue #1220, David's Q34, 2026-11-24): the sync library deletes
+every managed webhook its own database does not know, so two environments
+on one sandbox delete each other's endpoint at every boot. `.replit` declares
+`STRIPE_ACCOUNT_ID_TEST` per environment (`[userenv.development]`: the
+Development Sandbox; `[userenv.production]`: the Production Sandbox), and the
+`STRIPE_*_TEST` secrets are unsynced in Production app secrets so each
+environment keeps its own keys under the same names. Live mode is one account,
+shared. The catalog read (`stripeStorage.listProductsWithPrices`) filters by
+the declared account as well as by mode, because the synced `stripe` schema
+keeps a previous account's rows until an admin sync purges them. Withholding the client is the safety mechanism.
 Everything else here is operator signal. **One client exists before
 verification, and it does one thing:** `verifyStripeAccount` builds a raw
 client (`createRawStripeClient`) solely to call `stripe.accounts.retrieve()`
