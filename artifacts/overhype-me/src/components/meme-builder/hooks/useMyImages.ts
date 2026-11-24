@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export interface MyImageRow {
   objectPath: string;
@@ -21,6 +21,7 @@ interface UploadsResponse {
   uploadCount: number;
   maxUploads: number;
   displayLimit: number;
+  nextCursor?: string | null;
 }
 
 interface FetchState {
@@ -29,9 +30,18 @@ interface FetchState {
   maxUploads: number;
   isLoading: boolean;
   isError: boolean;
+  /** The server pages uploads; these fetch the rest (#875, R6). */
+  nextCursor: string | null;
+  loadingMore: boolean;
 }
 
-const EMPTY: FetchState = { rows: [], uploadCount: 0, maxUploads: 0, isLoading: true, isError: false };
+export interface MyImagesResult extends FetchState {
+  hasMore: boolean;
+  loadMore: () => void;
+}
+
+const EMPTY: FetchState = { rows: [], uploadCount: 0, maxUploads: 0, isLoading: true, isError: false, nextCursor: null, loadingMore: false };
+const URL_BASE = "/api/users/me/uploads?transform=raw";
 
 /**
  * Lists the current user's raw uploads from GET /api/users/me/uploads (its
@@ -41,11 +51,18 @@ const EMPTY: FetchState = { rows: [], uploadCount: 0, maxUploads: 0, isLoading: 
 export function useMyImages(opts: {
   enabled: boolean;
   reloadKey?: number;
-}): FetchState {
+}): MyImagesResult {
   const { enabled, reloadKey } = opts;
   const [state, setState] = useState<FetchState>(EMPTY);
+  /**
+   * The list's lifecycle: every reset (disabled, reloaded, unmounted) starts a
+   * new one, and a "load more" answer from an earlier lifecycle is dropped, so
+   * an old page can never land on a fresh list (#875 R6, Codex 4662294957).
+   */
+  const generation = useRef(0);
 
   useEffect(() => {
+    generation.current += 1;
     if (!enabled) {
       setState({ ...EMPTY, isLoading: false });
       return;
@@ -53,7 +70,7 @@ export function useMyImages(opts: {
     let cancelled = false;
     setState((prev) => ({ ...prev, isLoading: true, isError: false }));
 
-    fetch("/api/users/me/uploads?transform=raw", { credentials: "include" })
+    fetch(URL_BASE, { credentials: "include" })
       .then(async (res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = (await res.json()) as UploadsResponse;
@@ -64,17 +81,41 @@ export function useMyImages(opts: {
           maxUploads: data.maxUploads,
           isLoading: false,
           isError: false,
+          nextCursor: data.nextCursor ?? null,
+          loadingMore: false,
         });
       })
       .catch(() => {
         if (cancelled) return;
-        setState({ rows: [], uploadCount: 0, maxUploads: 0, isLoading: false, isError: true });
+        setState({ ...EMPTY, isLoading: false, isError: true });
       });
 
     return () => {
       cancelled = true;
+      generation.current += 1;
     };
   }, [enabled, reloadKey]);
 
-  return state;
+  const loadMore = () => {
+    const cursor = state.nextCursor;
+    if (!cursor || state.loadingMore) return;
+    const mine = generation.current;
+    const current = () => generation.current === mine;
+    setState((prev) => ({ ...prev, loadingMore: true }));
+    fetch(`${URL_BASE}&cursor=${encodeURIComponent(cursor)}`, { credentials: "include" })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = (await res.json()) as UploadsResponse;
+        if (!current()) return;
+        setState((prev) => ({
+          ...prev,
+          rows: [...prev.rows, ...data.uploads.filter((u) => !prev.rows.some((r) => r.objectPath === u.objectPath))],
+          nextCursor: data.nextCursor ?? null,
+          loadingMore: false,
+        }));
+      })
+      .catch(() => { if (current()) setState((prev) => ({ ...prev, loadingMore: false })); });
+  };
+
+  return { ...state, hasMore: !!state.nextCursor, loadMore };
 }

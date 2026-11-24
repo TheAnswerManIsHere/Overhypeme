@@ -170,6 +170,10 @@ describe("GagsPanel", () => {
     expect(within(tiles[0]!).getByTestId("gag-render-picked")).toBeTruthy();
     expect(within(tiles[0]!).queryByTestId("gag-approve-render")).toBeNull();
     expect(within(tiles[2]!).getByTestId("gag-render-status").textContent).toMatch(/Not drawn yet/);
+    // Image-surface audit R10 (#875): a drawn render opens full size in a new tab.
+    const open = within(tiles[1]!).getByTestId("gag-render-open");
+    expect(open.getAttribute("href")).toBe("/api/admin/gags/2/renders/j/image");
+    expect(open.getAttribute("target")).toBe("_blank");
 
     fireEvent.click(within(tiles[1]!).getByTestId("gag-approve-render"));
     await waitFor(() => expect(calls.some((c) => c.url.endsWith("/approve"))).toBe(true));

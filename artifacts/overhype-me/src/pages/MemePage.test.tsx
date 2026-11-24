@@ -39,6 +39,8 @@ const meme = {
   viewerHasHearted: false,
   originalWidth: 1080,
   originalHeight: 1080,
+  createdAt: "2026-11-20T12:00:00.000Z",
+  createdByName: "Sarah",
   isPublic: true,
 };
 
@@ -79,6 +81,33 @@ describe("MemePage — Make this fact about me (#851)", () => {
       expect(screen.queryByText(/make this fact about you/i)).toBeNull();
     },
   );
+});
+
+// Image-surface audit R8 (#875): the meme page says when the meme was made, on
+// both layouts, and links to its fact.
+describe("MemePage — when it was made, and its fact (#875 R8)", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(meme), { status: 200, headers: { "Content-Type": "application/json" } })),
+    );
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("shows the creation date on phone and desktop, and links to the fact", async () => {
+    renderAt("/m/abc");
+    const phone = await screen.findByTestId("meme-made-on");
+    const desktop = screen.getByTestId("meme-made-on-desktop");
+    for (const el of [phone, desktop]) {
+      expect(el.textContent).toMatch(/2026/);
+      expect(el.textContent).toMatch(/Sarah/);
+    }
+    const links = screen.getAllByRole("link", { name: /view full fact/i });
+    expect(links.length).toBeGreaterThan(0);
+    for (const l of links) expect(l.getAttribute("href")).toBe("/facts/42");
+  });
 });
 
 // #591 (David, 2026-11-21, Q2): a private meme's link reads as private, not as

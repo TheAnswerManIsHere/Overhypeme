@@ -4,6 +4,7 @@
  *   GET  /api/admin/provenance/trace?q=<id or link>  every matching record, its chain, the method that matched
  *   POST /api/admin/provenance/trace-image           the same, from a picture file (its stamp, its bytes, its watermark)
  *   GET  /api/admin/provenance/images/:id            the stored picture a record names
+ *   POST /api/admin/content/takedown                 take down a member's meme or photo (audit R9, #875)
  */
 import express, { Router, type IRouter, type Request, type Response } from "express";
 import { pipeline } from "node:stream/promises";
@@ -14,6 +15,9 @@ import { requireAdmin } from "./admin";
 import { traceIdOrLink, traceImageFile } from "../lib/provenance/trace";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import { logger } from "../lib/logger";
+import { z } from "zod";
+import { takeDownContent } from "../lib/contentTakedown";
+import type { AuthenticatedRequest } from "../middlewares/authMiddleware";
 
 const router: IRouter = Router();
 const storage = new ObjectStorageService();
@@ -67,6 +71,28 @@ router.get("/admin/provenance/images/:id", requireAdmin, async (req: Request, re
     logger.error({ err, id }, "[provenance] image stream failed");
     res.status(500).json({ error: "image_stream_failed" });
   }
+});
+
+// POST /admin/content/takedown — body { kind, key, reason }. Takes down a
+// member's meme (key: its slug) or photo (key: its object path): it leaves
+// every surface now, its owner cannot restore it, and the purger removes it
+// within the hour. Quarantined content is never touched (it is evidence).
+const TakedownBody = z.object({
+  kind: z.enum(["meme", "photo"]),
+  key: z.string().trim().min(1).max(512),
+  reason: z.string().trim().min(3).max(500),
+}).strict();
+router.post("/admin/content/takedown", requireAdmin, async (req: Request, res: Response) => {
+  const parsed = TakedownBody.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "kind, key and a reason are required" }); return; }
+  const { kind, key, reason } = parsed.data;
+  const result = await takeDownContent({ kind, key }, (req as AuthenticatedRequest).user.id, reason);
+  if (result.status === "not_found") {
+    res.status(404).json({ error: kind === "meme" ? "No live or restorable meme with that link" : "No live or restorable photo at that path" });
+    return;
+  }
+  logger.info({ kind, key, adminId: (req as AuthenticatedRequest).user.id, ownerId: result.ownerId }, "[takedown] content taken down");
+  res.json({ success: true, wasProfile: result.wasProfile });
 });
 
 export default router;

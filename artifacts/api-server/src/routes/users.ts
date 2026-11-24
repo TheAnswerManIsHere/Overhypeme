@@ -13,6 +13,7 @@ import {
 } from "@workspace/db/schema";
 import { getViewerFactRatings, getViewerReactionTargetIds } from "../lib/reactions";
 import { eq, desc, inArray, and, sql } from "drizzle-orm";
+import { z } from "zod";
 import { GetMySubmissionCountsQueryParams, ListMySubmissionsQueryParams, RecordSearchBody } from "@workspace/api-zod";
 import crypto from "crypto";
 import { sendEmail, buildEmailChangeVerificationEmail } from "../lib/email";
@@ -26,7 +27,7 @@ import { userOwnsUpload } from "../lib/uploadOwnership";
 import { liveContent, restoreWindowDays } from "../lib/contentVisibility";
 import {
   deleteAiImage, deleteUpload, listAiImagesPage, listMemesPage, listRecentlyDeleted, listUploadsPage,
-  restoreAiImage, restoreUpload, type ContentChangeResult,
+  purgeNow, restoreAiImage, restoreUpload, type ContentChangeResult,
 } from "../lib/myContent";
 import { effectiveTierExpr } from "../lib/membershipState";
 import { countMySubmissions, listMySubmissions } from "../lib/mySubmissions";
@@ -712,6 +713,20 @@ router.get("/users/me/recently-deleted", async (req: Request, res: Response) => 
   const [list, restoreWindow] = await Promise.all([listRecentlyDeleted(req.user.id), restoreWindowDays()]);
   res.setHeader("Cache-Control", "no-store");
   res.json({ ...list, restoreWindowDays: restoreWindow });
+});
+
+// POST /users/me/recently-deleted/purge — body { kind, key }: "Delete now".
+// Ends one of the current user's deleted items' restore window at once; it
+// leaves Recently deleted and the content purger removes it within the hour.
+const PurgeNowBody = z.object({
+  kind: z.enum(["photo", "generated", "meme"]),
+  key: z.string().trim().min(1).max(512),
+}).strict();
+router.post("/users/me/recently-deleted/purge", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const parsed = PurgeNowBody.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "kind and key are required" }); return; }
+  respondContentChange(res, await purgeNow(req.user.id, parsed.data), "Nothing to delete");
 });
 
 // GET /api/users/me/spend — authenticated user's monthly spend history (computed at request time)

@@ -230,7 +230,7 @@ router.get("/memes/:slug", async (req: Request, res: Response) => {
     res.status(404).json({ error: "Meme not found" });
     return;
   }
-  if (!meme.isLive) { res.status(410).json({ error: "This meme has been removed by its creator.", deleted: true }); return; }
+  if (!meme.isLive) { res.status(410).json({ error: "This meme has been removed.", deleted: true }); return; }
   // A private meme visible to its owner must never be cached publicly.
   if (!meme.isPublic) setNoStore(res);
 

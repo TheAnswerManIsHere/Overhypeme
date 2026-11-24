@@ -34,6 +34,8 @@ export const ADMIN_ACTION_VALUES = [
   "gag_renders_requested",
   // Imports
   "import",
+  // A member's meme or photo taken down (image-surface audit R9, #875)
+  "content_takedown",
 ] as const;
 
 export type AdminAction = (typeof ADMIN_ACTION_VALUES)[number];

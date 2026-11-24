@@ -156,6 +156,61 @@ function promptOf(t: TracedRecord): string | null {
   return typeof fromSnapshot === "string" ? fromSnapshot : null;
 }
 
+/**
+ * Take down a member's meme or photo (image-surface audit R9, #875): it leaves
+ * every surface now, its owner cannot restore it, and the hourly purger
+ * removes it. Asks for a reason, which is recorded with the takedown.
+ */
+function TakedownControl({ kind, itemKey }: { kind: "meme" | "photo"; itemKey: string }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [outcome, setOutcome] = useState<{ ok: boolean; text: string } | null>(null);
+  const label = kind === "meme" ? "meme" : "photo";
+
+  async function submit() {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/admin/content/takedown", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, key: itemKey, reason }),
+      });
+      const body = await res.json().catch(() => ({})) as { error?: string; wasProfile?: boolean };
+      setOutcome(res.ok
+        ? { ok: true, text: `Taken down. It is gone from the site now and is removed from storage within the hour.${body.wasProfile ? " It was their profile photo; their account now shows no picture." : ""}` }
+        : { ok: false, text: body.error ?? "The takedown failed." });
+      if (res.ok) setOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (outcome?.ok) return <p className="text-xs text-green-700 dark:text-green-400" data-testid="takedown-done">{outcome.text}</p>;
+  return (
+    <div className="space-y-1" data-testid="takedown">
+      {!open ? (
+        <Button size="sm" variant="danger" onClick={() => setOpen(true)} data-testid="takedown-open">Take down this {label}</Button>
+      ) : (
+        <div className="rounded-sm border border-destructive/40 p-2 space-y-2">
+          <p className="text-xs text-foreground">
+            This removes the member's {label} from the site now. They cannot restore it, and it is deleted from storage within the hour.
+          </p>
+          <Input aria-label="Reason for the takedown" placeholder="Reason (recorded)" value={reason} onChange={(e) => setReason(e.target.value)} />
+          <div className="flex gap-2">
+            <Button size="sm" variant="danger" disabled={busy || reason.trim().length < 3} onClick={() => void submit()} data-testid="takedown-confirm">
+              {busy ? "Taking down…" : "Take down"}
+            </Button>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => setOpen(false)}>Cancel</Button>
+          </div>
+        </div>
+      )}
+      {outcome && !outcome.ok && <p className="text-xs text-destructive" data-testid="takedown-error">{outcome.text}</p>}
+    </div>
+  );
+}
+
 function RecordCard({ t }: { t: TracedRecord }) {
   const r = t.record;
   const req = t.generationRequest;
@@ -189,6 +244,12 @@ function RecordCard({ t }: { t: TracedRecord }) {
           {typeof r.snapshot?.["caption"] === "string" && <Row label="Caption drawn"><span className="whitespace-pre-wrap">{r.snapshot["caption"] as string}</span></Row>}
           {isIdentity(r.snapshot?.["identity"]) && (
             <Row label="Personalised as">{r.snapshot["identity"].name ?? "—"} ({r.snapshot["identity"].pronouns ?? "—"})</Row>
+          )}
+          {r.memeSlug && t.stillExists.meme !== false && (
+            <div className="pt-2"><TakedownControl kind="meme" itemKey={r.memeSlug} /></div>
+          )}
+          {r.kind === "upload" && r.objectPath && (
+            <div className="pt-2"><TakedownControl kind="photo" itemKey={r.objectPath} /></div>
           )}
         </div>
         {r.objectPath && r.mime.startsWith("image/") && (

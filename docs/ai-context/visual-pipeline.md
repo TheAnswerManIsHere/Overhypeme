@@ -360,7 +360,9 @@ and member uploads (`userImageUpload.ts`,
   "legacy path, settings not recorded". Given the picture itself (a file, dropped or pasted),
   it tries all three of the id stamped in the metadata, the exact hash of the bytes, and the
   watermark, and shows every record any of them found and what each said — so a stamp and a
-  watermark that disagree are both on screen.
+  watermark that disagree are both on screen. A record of a member's meme or
+  upload offers **Take down**, the admin takedown described in
+  `accounts-and-auth.md`, *Content a member deletes from My content*.
 
 ## Frozen render inputs: identity + style (reproducibility)
 

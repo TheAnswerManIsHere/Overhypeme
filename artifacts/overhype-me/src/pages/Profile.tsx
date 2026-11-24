@@ -10,7 +10,7 @@ import { DeleteAccountSection } from "@/components/account/DeleteAccountSection"
 import { ShieldAlert, ShieldCheck, ShieldOff, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, ImageIcon, UserCircle2, Image, Eraser, ChevronLeft, ChevronRight, KeyRound, Eye, EyeOff, Bell, Crown } from "lucide-react";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { Link, useLocation } from "wouter";
-import { useQueryClient, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient, useQuery } from "@tanstack/react-query";
 import { PronounEditor } from "@/components/ui/PronounEditor";
 import { useSignOut } from "@/hooks/use-sign-out";
 import { AccessGate } from "@/components/AccessGate";
@@ -54,18 +54,23 @@ function ProfilePhotoThumbnailPicker({
   interface UploadsResponse {
     uploads: UploadRow[];
     uploadCount: number;
+    nextCursor?: string | null;
   }
-  const { data } = useQuery<UploadsResponse>({
+  // Paged like Library, so every upload can be picked, not only the first page (#875, R6).
+  const query = useInfiniteQuery({
     queryKey: ["my-uploads-for-profile-picker"],
-    queryFn: async () => {
-      const res = await fetch(`${BASE_URL}api/users/me/uploads?transform=raw`, {
+    queryFn: async ({ pageParam }) => {
+      const cursor = pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : "";
+      const res = await fetch(`${BASE_URL}api/users/me/uploads?transform=raw${cursor}`, {
         credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to load uploads");
-      return res.json();
+      return (await res.json()) as UploadsResponse;
     },
+    initialPageParam: "" as string,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
-  const uploads = data?.uploads ?? [];
+  const uploads = query.data ? query.data.pages.flatMap((p) => p.uploads) : [];
   if (uploads.length < 2) return null;
   return (
     <div className="mt-4">
@@ -100,6 +105,17 @@ function ProfilePhotoThumbnailPicker({
             </button>
           );
         })}
+        {query.hasNextPage && (
+          <button
+            type="button"
+            data-testid="profile-picker-load-more"
+            onClick={() => { void query.fetchNextPage(); }}
+            disabled={query.isFetchingNextPage}
+            className="shrink-0 h-16 w-16 rounded-sm border-2 border-dashed border-border text-[9px] font-bold uppercase tracking-wider text-muted-foreground hover:border-primary/70 disabled:opacity-50"
+          >
+            {query.isFetchingNextPage ? "…" : "More"}
+          </button>
+        )}
       </div>
     </div>
   );

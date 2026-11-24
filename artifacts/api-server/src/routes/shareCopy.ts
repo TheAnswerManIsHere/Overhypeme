@@ -226,7 +226,7 @@ router.get("/share-copy/:memeId/:platform", async (req: Request, res: Response) 
     return;
   }
   if (meme.status === "deleted") {
-    res.status(410).json({ error: "This meme has been removed by its creator." });
+    res.status(410).json({ error: "This meme has been removed." });
     return;
   }
 
