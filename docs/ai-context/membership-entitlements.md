@@ -281,7 +281,7 @@ gone, or every retry failed — the way back is the **Missed Stripe events**
 panel on the admin Billing page (Issue #1244,
 `docs/plans/PLAN_REPLAY_MISSED_STRIPE_EVENT.md`). It lists exactly what the
 payment alert counts (`compareStripeEvents`'s own `missing` set), and Replay
-(`lib/stripeEventReplay.ts`) reads the event from Stripe by id with the
+(`artifacts/api-server/src/lib/stripeEventReplay.ts`) reads the event from Stripe by id with the
 verified client for the active mode — never from the request body — then runs
 the library's mirror and `processAuthenticEvent`, the same function the
 webhook calls after its signature check. So a replay has the delivery's
