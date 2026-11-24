@@ -1,36 +1,31 @@
 /**
- * Launch Phase 14, increment 4: the browser's under-18 mark is lifted only by
- * an account support has corrected, never by a fresh sign-up.
+ * Launch Phase 14, increment 4: the browser's under-18 mark is never lifted;
+ * the one account let past it is one support has corrected that has not
+ * finished set-up. An ordinary member signing in leaves it in place.
  */
 import { beforeEach, describe, expect, it } from "vitest";
-import { isAgeRefusedBrowser, isCorrectedAdult, liftAgeRefusalIfCorrected, markAgeRefusedBrowser } from "./age-refusal";
+import { isAgeRefusedBrowser, isSupportCorrected, markAgeRefusedBrowser } from "./age-refusal";
 
 describe("the adults-only browser mark", () => {
   beforeEach(() => window.localStorage.clear());
 
-  it("is lifted by a corrected account: not under age and 18+ by a stored date", () => {
-    markAgeRefusedBrowser();
-    liftAgeRefusalIfCorrected({ eligibility: "unonboarded", is18Plus: true });
-    expect(isAgeRefusedBrowser()).toBe(false);
+  it("lets past only a support-corrected account that has not finished set-up", () => {
+    expect(isSupportCorrected({ eligibility: "unonboarded", is18Plus: true })).toBe(true);
   });
 
-  it("stays for a fresh sign-up, which has no stored date", () => {
+  it("does not let past an ordinary member, a fresh sign-up, an unverified or an under-age account", () => {
+    expect(isSupportCorrected({ eligibility: "eligible", is18Plus: true })).toBe(false);
+    expect(isSupportCorrected({ eligibility: "terms_unaccepted", is18Plus: true })).toBe(false);
+    expect(isSupportCorrected({ eligibility: "unonboarded", is18Plus: false })).toBe(false);
+    expect(isSupportCorrected({ eligibility: "unverified", is18Plus: null })).toBe(false);
+    expect(isSupportCorrected({ eligibility: "underage", is18Plus: true })).toBe(false);
+    expect(isSupportCorrected(null)).toBe(false);
+  });
+
+  it("is kept with no expiry: nothing here removes it", () => {
     markAgeRefusedBrowser();
-    liftAgeRefusalIfCorrected({ eligibility: "unonboarded", is18Plus: false });
-    liftAgeRefusalIfCorrected({ eligibility: "unverified", is18Plus: null });
-    liftAgeRefusalIfCorrected(null);
+    isSupportCorrected({ eligibility: "unonboarded", is18Plus: true });
+    isSupportCorrected({ eligibility: "eligible", is18Plus: true });
     expect(isAgeRefusedBrowser()).toBe(true);
-  });
-
-  it("stays for an account still under age, whatever else it reports", () => {
-    markAgeRefusedBrowser();
-    liftAgeRefusalIfCorrected({ eligibility: "underage", is18Plus: true });
-    expect(isAgeRefusedBrowser()).toBe(true);
-  });
-
-  it("names the corrected state exactly", () => {
-    expect(isCorrectedAdult({ eligibility: "eligible", is18Plus: true })).toBe(true);
-    expect(isCorrectedAdult({ eligibility: "underage", is18Plus: false })).toBe(false);
-    expect(isCorrectedAdult(undefined)).toBe(false);
   });
 });

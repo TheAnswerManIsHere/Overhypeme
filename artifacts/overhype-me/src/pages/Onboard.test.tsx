@@ -1,7 +1,7 @@
 /**
  * The one onboarding screen (launch Phase 5, increment 3, #795; plan S22).
  *
- * @purpose Proves the display-name precedence (draft, the account's own display name, the browser's name, blank; a provider first name never counts) and that the screen leaves the browser copy to the account mirror, the pronoun precedence (draft, account, device for an account with none, name suggestion, blank), the client's age arithmetic to the day, that a reload brings the saved draft back into the form, that the date question states no age and a young date shows nothing before it is submitted, that Finish needs the Terms tick and posts every field with the challenge token and the legal versions shown, that a submitted under-age answer marks this browser and goes to the adults-only screen, and that a marked browser is sent there without being asked.
+ * @purpose Proves the display-name precedence (draft, the account's own display name, the browser's name, blank; a provider first name never counts) and that the screen leaves the browser copy to the account mirror, the pronoun precedence (draft, account, device for an account with none, name suggestion, blank), the client's age arithmetic to the day, that a reload brings the saved draft back into the form, that the date question states no age and a young date shows nothing before it is submitted, that Finish needs the Terms tick and posts every field with the challenge token and the legal versions shown, that a submitted under-age answer marks this browser and goes to the adults-only screen, and that a marked browser is sent there without being asked, except for an account support has corrected, which finishes set-up shown its corrected date.
  * @subsystem accounts-auth
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -12,12 +12,13 @@ import { LEGAL_VERSIONS } from "@/generated/legal";
 const setLocation = vi.fn();
 const syncFromProfile = vi.fn();
 let refreshLands = true;
+let authUser: { eligibility: string; is18Plus: boolean | null } | null = null;
 vi.mock("wouter", () => ({
   useLocation: () => ["/onboard", setLocation],
   Link: ({ href, children, className }: { href: string; children: React.ReactNode; className?: string }) => <a href={href} className={className}>{children}</a>,
 }));
 vi.mock("@workspace/replit-auth-web", () => ({
-  useAuth: () => ({ isAuthenticated: true, isLoading: false, refreshUser: vi.fn(async () => refreshLands) }),
+  useAuth: () => ({ isAuthenticated: true, isLoading: false, user: authUser, refreshUser: vi.fn(async () => refreshLands) }),
 }));
 vi.mock("@/hooks/use-person-name", () => ({
   usePersonName: () => ({ name: "Sarah", pronouns: "they/them", pronounsSupplied: false, syncFromProfile }),
@@ -205,6 +206,30 @@ describe("Onboard screen", () => {
     window.localStorage.setItem("overhype.ageRefused", "1");
     render(<Onboard />);
     await waitFor(() => expect(setLocation).toHaveBeenCalledWith("/account/adults-only"));
+    window.localStorage.removeItem("overhype.ageRefused");
+  });
+
+  it("an account support corrected finishes set-up in a marked browser, shown its corrected date; the mark stays", async () => {
+    window.localStorage.setItem("overhype.ageRefused", "1");
+    authUser = { eligibility: "unonboarded", is18Plus: true };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      completed: false, emailVerified: true, marketingDefault: false, marketingWordingVersion: "v",
+      accountPronouns: null, displayName: null, providerFirstName: null, draft: null, dateOfBirth: "1990-06-15",
+    }), { status: 200 })));
+    render(<Onboard />);
+    expect((await screen.findByTestId("onboard-dob-corrected")).textContent).toMatch(/6\/15\/1990.*corrected by support/);
+    expect(setLocation).not.toHaveBeenCalledWith("/account/adults-only");
+    expect(window.localStorage.getItem("overhype.ageRefused")).toBe("1");
+    authUser = null;
+    window.localStorage.removeItem("overhype.ageRefused");
+  });
+
+  it("after that, a fresh sign-up in the same browser is still sent to the adults-only screen", async () => {
+    window.localStorage.setItem("overhype.ageRefused", "1");
+    authUser = { eligibility: "unonboarded", is18Plus: false };
+    render(<Onboard />);
+    await waitFor(() => expect(setLocation).toHaveBeenCalledWith("/account/adults-only"));
+    authUser = null;
     window.localStorage.removeItem("overhype.ageRefused");
   });
 

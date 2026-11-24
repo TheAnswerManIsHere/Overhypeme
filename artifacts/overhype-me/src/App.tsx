@@ -18,7 +18,6 @@ import { clearAllWizardStates } from "@/components/meme-builder/wizard/state/wiz
 import { FactExpansionProvider } from "@/contexts/fact-expansion-context";
 import { useAuth, AuthProvider } from "@workspace/replit-auth-web";
 import { currentDestination, setupRedirectFor, termsDeferredThisVisit } from "@/lib/setup-redirect";
-import { liftAgeRefusalIfCorrected } from "@/lib/age-refusal";
 import SentryFallback from "@/components/SentryFallback";
 
 // Pages — lazy-loaded so each route is its own JS chunk
@@ -151,14 +150,11 @@ function SetupRedirect() {
   const search = useSearch();
   useEffect(() => {
     if (isLoading || !isAuthenticated) return;
-    // A browser marked by an under-18 answer is unmarked once support has
-    // corrected the account (launch Phase 14, increment 4).
-    liftAgeRefusalIfCorrected({ eligibility: user?.eligibility, is18Plus: user?.is18Plus });
     const target = setupRedirectFor(user?.eligibility, currentDestination(location, window.location.search), {
       termsDeferred: termsDeferredThisVisit(),
     });
     if (target) setLocation(target);
-  }, [isAuthenticated, isLoading, user?.eligibility, user?.is18Plus, location, search, setLocation]);
+  }, [isAuthenticated, isLoading, user?.eligibility, location, search, setLocation]);
   return null;
 }
 
