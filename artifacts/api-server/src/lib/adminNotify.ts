@@ -198,7 +198,7 @@ export async function notifyAdminsOfDispute(opts: AdminDisputeNotifyOpts): Promi
     if (emails.length === 0) return;
 
     const { subject, text, html } = buildDisputeNotificationEmail(opts);
-    await Promise.all(emails.map(to => sendEmail({ to, subject, text, html })));
+    await Promise.all(emails.map(to => sendEmail({ to, kind: "admin_dispute_notify", subject, text, html })));
   } catch (err) {
     logger.error({ err }, "[notifyAdminsOfDispute] Failed");
   }
@@ -490,7 +490,7 @@ export async function notifyAdminsOfFraudWarning(opts: AdminFraudWarningNotifyOp
     if (emails.length === 0) return;
 
     const { subject, text, html } = buildFraudWarningEmail(opts);
-    await Promise.all(emails.map(to => sendEmail({ to, subject, text, html })));
+    await Promise.all(emails.map(to => sendEmail({ to, kind: "admin_fraud_warning", subject, text, html })));
   } catch (err) {
     logger.error({ err }, "[notifyAdminsOfFraudWarning] Failed");
   }

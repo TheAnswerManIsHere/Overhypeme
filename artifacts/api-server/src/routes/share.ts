@@ -213,6 +213,7 @@ router.post("/share/invite", async (req: Request, res: Response) => {
   try {
     await sendEmail({
       to: recipientNormalized,
+      kind: "share_invite",
       ...payload,
     }, db);
   } catch {

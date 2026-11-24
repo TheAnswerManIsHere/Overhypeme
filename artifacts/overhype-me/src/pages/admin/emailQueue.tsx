@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, Component, type ReactNode, type ErrorInfo } from "react";
+import { emailQueueStatusLabel, isSkippedRow } from "@/lib/email-queue-status";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { ResponsiveTable, type ResponsiveColumn } from "@/components/admin/ResponsiveTable";
 import { Button } from "@/components/ui/Button";
@@ -137,6 +138,8 @@ interface EmailQueueRow {
   nextAttemptAt: string;
   createdAt: string;
   updatedAt: string;
+  /** Set when the row finished without sending on purpose (Issue #1212). */
+  skipReason?: string | null;
 }
 
 interface ApiResponse {
@@ -162,9 +165,12 @@ const STATUS_OPTIONS: { value: "" | OutboxStatus; label: string }[] = [
   { value: "pending", label: "Pending" },
   { value: "recovering", label: "Picking back up" },
   { value: "processing", label: "Sending" },
-  { value: "done", label: "Delivered" },
+  { value: "done", label: "Finished" },
   { value: "failed", label: "Abandoned" },
 ];
+
+/** A deliberate skip (Issue #1212) is neither delivered nor failed. */
+const SKIPPED_BADGE_CLASS = "bg-muted text-muted-foreground border-border";
 
 function statusBadgeClass(status: string): string {
   switch (status) {
@@ -278,9 +284,9 @@ function EmailDetailModal({ row, onClose, onRetry, retrying, retryError }: Email
               label="Status"
               value={
                 <span
-                  className={`inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-full border ${statusBadgeClass(row.status)}`}
+                  className={`inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-full border ${isSkippedRow(row) ? SKIPPED_BADGE_CLASS : statusBadgeClass(row.status)}`}
                 >
-                  {row.status}
+                  {emailQueueStatusLabel(row)}
                 </span>
               }
             />
@@ -501,7 +507,7 @@ export default function AdminEmailQueue() {
   }
 
   async function handleClear(status: "done" | "failed" | "pending") {
-    const label = status === "done" ? "delivered" : status === "failed" ? "abandoned" : "pending";
+    const label = status === "done" ? "finished (delivered or skipped)" : status === "failed" ? "abandoned" : "pending";
     const confirmed = window.confirm(
       `Delete all ${label} emails from the queue? This cannot be undone.`
     );
@@ -582,14 +588,14 @@ export default function AdminEmailQueue() {
             className="h-8 px-3 text-xs gap-1 text-green-600 dark:text-green-400 border-green-500/40 hover:bg-green-500/10"
             onClick={() => void handleClear("done")}
             disabled={clearing !== null || loading}
-            title="Delete all delivered emails"
+            title="Delete all finished emails: delivered and skipped"
           >
             {clearing === "done" ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
             ) : (
               <Trash2 className="w-3.5 h-3.5" />
             )}
-            Clear delivered
+            Clear finished
           </Button>
           <Button
             variant="outline"
@@ -658,9 +664,9 @@ export default function AdminEmailQueue() {
                 </p>
               </div>
               <span
-                className={`shrink-0 inline-flex items-center px-2 py-0.5 text-[10px] font-semibold rounded-full border ${statusBadgeClass(row.status)}`}
+                className={`shrink-0 inline-flex items-center px-2 py-0.5 text-[10px] font-semibold rounded-full border ${isSkippedRow(row) ? SKIPPED_BADGE_CLASS : statusBadgeClass(row.status)}`}
               >
-                {row.status}
+                {emailQueueStatusLabel(row)}
               </span>
             </div>
           )}
@@ -724,9 +730,9 @@ export default function AdminEmailQueue() {
               className: "whitespace-nowrap",
               cell: (row) => (
                 <span
-                  className={`inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-full border ${statusBadgeClass(row.status)}`}
+                  className={`inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-full border ${isSkippedRow(row) ? SKIPPED_BADGE_CLASS : statusBadgeClass(row.status)}`}
                 >
-                  {row.status}
+                  {emailQueueStatusLabel(row)}
                 </span>
               ),
             },

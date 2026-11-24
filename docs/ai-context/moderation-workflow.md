@@ -184,7 +184,9 @@ Locking should be the very first thing that happens as part of step 1."*).
 - **The database holds it.** Trigger `facts_text_is_locked` (migration 0141)
   refuses any `UPDATE` that changes `facts.text`. A token or normalisation
   repair that would rewrite stored text needs its own migration that lifts the
-  rule, on David's say. `PATCH /admin/facts/:id` refuses a changed wording with
+  rule, on David's say. Its one use so far is migration 0165, the fact wording
+  house style's one-time pass (David, 2026-11-23, Q2: 1), which disables the
+  trigger for its own update and re-enables it in the same transaction. `PATCH /admin/facts/:id` refuses a changed wording with
   `WORDING_LOCKED` (an unchanged or normalisation-equal wording is ignored);
   the confirmation-gated approved-text edit and the staging-fact text edit
   that re-ran prep are gone. Past entries in the text-edit history

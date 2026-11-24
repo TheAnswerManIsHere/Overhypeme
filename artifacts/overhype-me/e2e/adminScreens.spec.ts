@@ -189,12 +189,12 @@ test.describe("Admin described screens", () => {
   test("Email Queue shows its filters, its actions and its table", async ({ page }) => {
     await page.goto("/admin/email-queue");
     await expect(page.locator("main header").getByRole("heading", { level: 1 })).toHaveText("Email Queue");
-    for (const filter of ["All", "Pending", "Sending", "Delivered", "Abandoned"]) {
+    for (const filter of ["All", "Pending", "Sending", "Finished", "Abandoned"]) {
       await expect(page.getByRole("button", { name: filter, exact: true })).toBeVisible();
     }
     await expect(page.getByText(/^[\d,]+ records?$/)).toBeVisible();
     await expect(page.getByText(/^Auto-purge: (\d+d|off)$/)).toBeVisible();
-    for (const action of [/clear pending/i, /clear delivered/i, /clear abandoned/i, /refresh/i]) {
+    for (const action of [/clear pending/i, /clear finished/i, /clear abandoned/i, /refresh/i]) {
       await expect(page.getByRole("button", { name: action })).toBeVisible();
     }
     const columns = page.getByRole("columnheader");

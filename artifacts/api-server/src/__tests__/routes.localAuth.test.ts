@@ -325,6 +325,54 @@ describe("sign-up return destination (Issue #1203)", () => {
     assert.equal((await verify(await token(id))).body.returnTo, long);
   });
 
+  // The two cases PR #1222's build report found the plan listed and the PR
+  // left out: links made by the real resend paths, not inserted by hand. The
+  // test run's re_test_ key suppresses the outbox row (sendVerificationEmail
+  // passes insertUnderTestKey: false), so the raw token is never readable.
+  // The test therefore takes the token row the real path created and re-keys
+  // it to a known value. The row, and the account it belongs to, are the
+  // resend's own; only its secret is replaced.
+  async function newestTokenFromRealSend(userId: string): Promise<string> {
+    const rows = await db.select({ id: emailVerificationTokensTable.id }).from(emailVerificationTokensTable)
+      .where(eq(emailVerificationTokensTable.userId, userId));
+    const newest = rows.sort((a, b) => b.id - a.id)[0];
+    assert.ok(newest, "the resend created a link");
+    const raw = randomBytes(32).toString("hex");
+    await db.update(emailVerificationTokensTable)
+      .set({ tokenHash: createHash("sha256").update(raw).digest("hex") })
+      .where(eq(emailVerificationTokensTable.id, newest.id));
+    return raw;
+  }
+  async function registerWithSession(returnTo: string): Promise<{ id: string; sid: string }> {
+    const id = await register(returnTo);
+    return { id, sid: await bearerForUser(id) };
+  }
+
+  it("a link from the real resend request returns the stored page", async () => {
+    const { id, sid } = await registerWithSession("/fact/99");
+    const res = await request(makeApp()).post("/auth/resend-verification").set("authorization", `Bearer ${sid}`);
+    assert.equal(res.status, 200, res.text);
+    await new Promise((r) => setTimeout(r, 150)); // the normal resend sends without awaiting
+    const before = (await db.select({ id: emailVerificationTokensTable.id }).from(emailVerificationTokensTable).where(eq(emailVerificationTokensTable.userId, id))).length;
+    assert.ok(before >= 2, "the resend made a second link beside registration's");
+    const verified = await verify(await newestTokenFromRealSend(id));
+    assert.equal(verified.status, 200, verified.text);
+    assert.equal(verified.body.returnTo, "/fact/99");
+    assert.equal(await stored(id), null);
+  });
+
+  it("after a failed first send, the check-email screen's own send returns the stored page", async () => {
+    const { id, sid } = await registerWithSession("/memes/xyz?ref=1");
+    await new Promise((r) => setTimeout(r, 150));
+    // The first send failed: no link exists for the account.
+    await db.delete(emailVerificationTokensTable).where(eq(emailVerificationTokensTable.userId, id));
+    const res = await request(makeApp()).post("/auth/resend-verification").set("authorization", `Bearer ${sid}`).send({ ifNoneOut: true });
+    assert.equal(res.status, 200, res.text);
+    assert.equal(res.body.status, "sent");
+    const verified = await verify(await newestTokenFromRealSend(id));
+    assert.equal(verified.body.returnTo, "/memes/xyz?ref=1");
+  });
+
   it("an email-change confirmation neither reads nor clears the sign-up page", async () => {
     const id = await register("/fact/7");
     await db.update(usersTable).set({ emailVerifiedAt: new Date() }).where(eq(usersTable.id, id));

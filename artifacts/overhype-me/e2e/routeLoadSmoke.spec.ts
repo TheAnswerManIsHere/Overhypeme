@@ -218,8 +218,9 @@ function fulfill(route: Route, body: unknown, status = 200): Promise<void> {
 
 /**
  * Answers the fact sheet's writes for stubbed facts as the server does
- * (routes/admin.ts; lib/factSheet.ts): the hashtag and humor-note saves, and
- * Deactivate, which turns the row off so the sheet reads it back deactivated.
+ * (routes/admin.ts; lib/factSheet.ts; lib/factLifecycle.ts): the hashtag and
+ * humor-note saves, and Deactivate and Reactivate, which turn the row off and
+ * on so the sheet reads it back.
  * Register after `stubAdminFacts`.
  */
 async function stubFactWrites(page: Page, rows: AdminFactRow[]) {
@@ -236,7 +237,8 @@ async function stubFactWrites(page: Page, rows: AdminFactRow[]) {
     writes.push({ id: row.id, method, sub, body });
     if (method === "PUT" && sub === "/hashtags") return fulfill(route, { hashtags: [...(body as { hashtags: string[] }).hashtags].sort() });
     if (method === "PUT" && sub === "/humor-note") return fulfill(route, { humorNote: { text: (body as { text: string }).text, approvedAt: new Date().toISOString() } });
-    if (method === "DELETE" && sub === "") { row.isActive = false; return fulfill(route, { success: true, deleted: false }); }
+    if (method === "POST" && sub === "/deactivate") { row.isActive = false; return fulfill(route, { isActive: false }); }
+    if (method === "POST" && sub === "/reactivate") { row.isActive = true; return fulfill(route, { isActive: true }); }
     return route.fallback();
   });
   return { writes };
@@ -301,7 +303,7 @@ test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
     await expect(taxonomy.getByRole("button", { name: /save enrichment|revert to ai/i }), "nothing saves or overrides the taxonomy").toHaveCount(0);
   });
 
-  test("PR242 7 — a live fact's sheet offers Deactivate; a deactivated one offers none, and neither offers Send Back or Resubmit (plan 1H)", async ({ page }) => {
+  test("PR242 7 — a live fact's sheet offers Deactivate, a deactivated one Reactivate, and neither offers Send Back or Resubmit (plan 1H, 3B)", async ({ page }) => {
     const ROOT = "{NAME} w1 juggles thunderstorms.";
     const INACTIVE = "{NAME} w1 once out-stared a glacier.";
     const root = adminFactRow({ id: 96301, text: ROOT });
@@ -317,12 +319,12 @@ test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
     await expect(sheet.getByTestId("sheet-status")).toHaveText("Live");
     await expect(page.getByTestId("send-back-button"), "Send Back to Review is removed").toHaveCount(0);
     await expect(page.getByTestId("resubmit-for-moderation-button"), "Resubmit for Moderation is removed").toHaveCount(0);
-    // The confirmation says Deactivate is one-way for now, before the admin presses it.
+    // The confirmation says what Deactivate keeps and that it can be undone, before the admin presses it.
     await sheet.getByTestId("deactivate-fact-button").click();
-    await expect(sheet.getByTestId("sheet-deactivate-confirm")).toContainText("can't be reactivated from the admin yet");
+    await expect(sheet.getByTestId("sheet-deactivate-confirm")).toContainText("It can be reactivated later.");
     await sheet.getByTestId("deactivate-fact-confirm").click();
     await expect(sheet.getByTestId("sheet-status"), "the sheet reads the fact back deactivated").toHaveText("Deactivated");
-    expect(server.writes.at(-1)).toMatchObject({ id: 96301, method: "DELETE", sub: "" });
+    expect(server.writes.at(-1)).toMatchObject({ id: 96301, method: "POST", sub: "/deactivate" });
     await expect(sheet.getByTestId("deactivate-fact-button"), "a deactivated fact is not offered Deactivate").toHaveCount(0);
     await sheet.getByRole("button", { name: "Close the fact sheet" }).click();
 
@@ -332,6 +334,10 @@ test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
     await expect(page.getByTestId("resubmit-for-moderation-button")).toHaveCount(0);
     await expect(page.getByText(/through moderation|re-moderate/i), "no hint points at a removed route").toHaveCount(0);
     await expect(page.getByRole("button", { name: /add variant/i })).toHaveCount(0);
+    // Reactivate brings it back (oracle item 21); the server's rule-12 refusal is the API tests'.
+    await sheet.getByTestId("reactivate-fact-button").click();
+    await expect(sheet.getByTestId("sheet-status"), "the sheet reads the fact back live").toHaveText("Live");
+    expect(server.writes.at(-1)).toMatchObject({ id: 96302, method: "POST", sub: "/reactivate" });
   });
 
   // Plan PLAN_FACT_LIFECYCLE_REBUILD.md, item 1 (Issue #1018, increment 1.4):

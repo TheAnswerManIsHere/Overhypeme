@@ -62,7 +62,7 @@ describe("AdminEmailQueue", () => {
     render(<AdminEmailQueue />);
     fireEvent.click(await screen.findByRole("button", { name: "Abandoned", exact: true } as never));
     await waitFor(() => expect(calls.some((c) => c.url.includes("status=failed"))).toBe(true));
-    fireEvent.click(screen.getByRole("button", { name: "Delivered", exact: true } as never));
+    fireEvent.click(screen.getByRole("button", { name: "Finished", exact: true } as never));
     await waitFor(() => expect(calls.some((c) => c.url.includes("status=done"))).toBe(true));
   });
 });

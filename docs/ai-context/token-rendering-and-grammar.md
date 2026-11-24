@@ -213,6 +213,8 @@ only fail and were removed (in git history before PR #960's follow-up). A future
 repair to stored wording is its own migration that lifts the rule, on David's
 say; the subject-contraction transform it would reuse stays, tested, in
 `artifacts/api-server/src/lib/expandSubjectContractionBackfill.ts`.
+The first such repair is migration 0165, the house style's one-time pass
+(above).
 
 ### The fact wording house style: `applyHouseStyle`
 
@@ -228,11 +230,13 @@ the server and the submit page:
   (`{SUBJ}` → `{Subj}`); a conjugation pair has both branches capitalized
   (`{does|do}` → `{Does|Do}`); `{NAME}`, digits and symbols are left; a
   brand-style first word with a capital inside it (`iPhone`, `eBay`) is left
-  as written (Q3).
+  as written (Q3); a letter whose capital is more than one character (`ß`) or
+  does not lowercase back to it (`µ`) is left as written.
 - **End:** whether a mark is already there is read behind every trailing
   closing quote and bracket, so `.` `!` `?` `…` there are kept, including one
   inside a final aside (`(Twice.)`, `(yes, really!)`); an emoji ending is left
-  as written (Q4); a trailing `,` `;` `:` becomes `.` (Q5); anything else gets
+  as written (Q4), though `©` `®` `™` are not emoji here and take a period;
+  a trailing `,` `;` `:` becomes `.` (Q5); anything else gets
   a `.`, inside closing quotes (`said "no."`), after a bracket that closes a
   phrase (`zero (really).`), inside a bracket only when that bracket's own
   opener begins the fact (`("no.")`, `({NAME} wins (really).)`), and never
@@ -252,6 +256,16 @@ submit page's preview renders `applyHouseStyle(template)` without rewriting the
 advanced editor's text. It changes nothing the duplicate check compares
 (`duplicateMatchText` ignores case and punctuation), the caption split or the
 has-pronouns flag (`factHouseStyle.test.ts`).
+
+**Its SQL twin** is `pg_temp.house_style` in migration 0165, the one-time pass
+that brought every stored fact and pending submission to the rule.
+`houseStyleParity.test.ts` holds the two equal over the rule's table, a
+generated corpus, the emoji set over every code point and capitalization over
+every Latin letter; letter case elsewhere comes from the database's locale
+and can differ on a few letters of other scripts. A change to
+`applyHouseStyle` after that pass changes nothing stored, and any fact it
+would now tidy differently keeps its draft ideas only while the record below
+still matches.
 
 Draft gag-idea sets record the wording they were drafted for
 (`factTextUsed` on the candidates blob); the freshness check hashes that

@@ -26,6 +26,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import {
   db,
   factGagsTable,
+  factsTable,
   imagePromptAttemptsTable,
   type FactGag,
 } from "@workspace/db";
@@ -231,6 +232,14 @@ async function resolveScope(tx: Tx, factId: number, actor: GagActor): Promise<{ 
     }
   } else if (actor.reviewId != null) {
     throw new GagError("REVIEW_NOT_EDITABLE", "That review is no longer open.");
+  } else {
+    // No review open and none named: the fact sheet, which edits an approved
+    // fact's draft (plan 3B). A fact never approved (a rejected submission's)
+    // has nothing to publish, so its gags are not worked on at all.
+    const [fact] = await tx.select({ approvedAt: factsTable.approvedAt }).from(factsTable).where(eq(factsTable.id, factId)).limit(1);
+    if (fact && fact.approvedAt == null) {
+      throw new GagError("REVIEW_NOT_EDITABLE", "This fact was never approved, so its gags can't be changed.");
+    }
   }
   return open;
 }

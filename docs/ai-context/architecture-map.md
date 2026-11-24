@@ -241,6 +241,11 @@ deliberately excludes them and points here instead.
   the row back `recovering`, so a person can send a held-back email and only a
   worker that sends under the key takes it. The email queue page reads the
   job vocabulary (`pending`, `recovering`, `processing`, `done`, `failed`).
+  **Mail to a suspended account (Issue #1212).** Before the delivery-failure
+  branches, and again in the transaction that records the possible send, the
+  handler skips any job whose kind is not in `SUSPENSION_PERMITTED_KINDS` when
+  the address it will send to belongs to a suspended account
+  (`accounts-and-auth.md` § Suspension).
   **Completion checkpoints (plan §F).** A reading run's result and the
   Visual-Idea job it starts commit in one fenced transaction (the taxonomy
   run no longer moves a review, Issue #1018 increment 1.2c-ii). A stop

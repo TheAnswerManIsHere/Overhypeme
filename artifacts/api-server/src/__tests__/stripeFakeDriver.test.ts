@@ -424,6 +424,52 @@ describe("the fake Stripe driver and the database partition", () => {
       assert.equal(isSyncRunning(), false, "the scoped sync finished");
     });
 
+    it("lists only the declared account's catalog when the mirror holds another account's test-mode rows (Issue #1220)", async () => {
+      useFake();
+      partitionAnswers(FAKE_OWNED);
+      const sync = await getStripeSync();
+      await sync.syncBackfill({ object: "all" });
+
+      // The shape Issue #1220 leaves behind: an environment moved to a new
+      // sandbox still holds the old sandbox's synced rows, also test mode. A
+      // sandbox copies its catalog with the SAME product ids, and the sync
+      // upserts on id, so a shared product moves to the new account while the
+      // old account's price for it stays behind, still joined by product id.
+      // Boot runs only the library backfill, which never purges those rows.
+      const OTHER = "acct_tother_sandbox_1220";
+      const product = { id: "prod_tother_1220", object: "product", active: true, livemode: false,
+        name: "Legendary Monthly - Test", description: null, metadata: { overhype_membership: "true" } };
+      const price = { id: "price_tother_1220", object: "price", active: true, livemode: false,
+        product: product.id, unit_amount: 499, currency: "usd", recurring: { interval: "month" } };
+      const strandedPrice = { ...price, id: "price_tother_stranded_1220", product: "prod_fake_legendary" };
+      try {
+        await db.execute(sql`INSERT INTO stripe.accounts (_raw_data) VALUES (${JSON.stringify({ id: OTHER, object: "account" })}::jsonb) ON CONFLICT DO NOTHING`);
+        await db.execute(sql`INSERT INTO stripe.products (_raw_data, _account_id) VALUES (${JSON.stringify(product)}::jsonb, ${OTHER})`);
+        await db.execute(sql`INSERT INTO stripe.prices (_raw_data, _account_id) VALUES (${JSON.stringify(price)}::jsonb, ${OTHER})`);
+        await db.execute(sql`INSERT INTO stripe.prices (_raw_data, _account_id) VALUES (${JSON.stringify(strandedPrice)}::jsonb, ${OTHER})`);
+
+        const catalog = await stripeStorage.listProductsWithPrices(false);
+        assert.ok(catalog.some((p) => p.id === "prod_fake_legendary"), "the declared account's product is listed");
+        assert.ok(!catalog.some((p) => p.id === product.id), "another account's product is not listed");
+        assert.ok(
+          catalog.every((p) => p.prices.every((pr) => pr.id !== price.id)),
+          "another account's price is not listed",
+        );
+        const legendary = catalog.find((p) => p.id === "prod_fake_legendary")!;
+        assert.deepEqual(
+          legendary.prices.map((p) => p.id).sort(),
+          ["price_fake_legendary_annual", "price_fake_legendary_lifetime", "price_fake_legendary_monthly"],
+          "a price the old account left on a shared product id is not listed",
+        );
+        // Live mode declares no account under the fake: nothing is listed.
+        assert.deepEqual(await stripeStorage.listProductsWithPrices(true), []);
+      } finally {
+        await db.execute(sql`DELETE FROM stripe.prices WHERE _account_id = ${OTHER}`);
+        await db.execute(sql`DELETE FROM stripe.products WHERE _account_id = ${OTHER}`);
+        await db.execute(sql`DELETE FROM stripe.accounts WHERE id = ${OTHER}`);
+      }
+    });
+
     it("refuses webhook processing by name, before any event is handled (the event channel is next)", async () => {
       useFake();
       partitionAnswers(FAKE_OWNED);

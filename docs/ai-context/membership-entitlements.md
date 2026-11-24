@@ -129,7 +129,27 @@ secret key has been verified against the declared id.** `stripeClient.ts` is
 the only construction site, and both of its exported constructors go through
 `verifyStripeAccount`, so boot, the mode toggle, checkout, webhooks and the
 admin mutation routes are covered by one boundary, not by a list of callers
-that has to stay complete. Withholding the client is the safety mechanism.
+that has to stay complete. **The dev app and production use different test-mode
+sandboxes** (Issue #1220, David's Q34, 2026-11-24): the sync library deletes
+every managed webhook its own database does not know, so two environments
+on one sandbox delete each other's endpoint at every boot. `.replit` declares
+`STRIPE_ACCOUNT_ID_TEST` per environment (`[userenv.development]`: the
+Development Sandbox; `[userenv.production]`: the Production Sandbox), and
+`STRIPE_SECRET_KEY_TEST` and `STRIPE_PUBLISHABLE_KEY_TEST` are unsynced in
+Production app secrets (since the publish of 2026-11-24), so each environment
+keeps its own keys under the same names. Neither environment sets
+`STRIPE_WEBHOOK_SECRET_TEST`: the library verifies events with the signing
+secret it stored when it created that environment's endpoint. When the
+variable is set it replaces that stored secret, and a workspace secret syncs to
+production by default, so one value under that name fails verification in the
+environment whose endpoint did not issue it. The admin Billing page's
+unchecked `STRIPE_WEBHOOK_SECRET_TEST` row and "Action required" box, and the
+boot warning, still ask for it and are expected for now (Issue #1232). A publish that
+shows these two as synced again hands production the dev keys, and the guard
+then refuses to boot it. Live mode is one account,
+shared. The catalog read (`stripeStorage.listProductsWithPrices`) filters by
+the declared account as well as by mode, because the synced `stripe` schema
+keeps a previous account's rows until an admin sync purges them. Withholding the client is the safety mechanism.
 Everything else here is operator signal. **One client exists before
 verification, and it does one thing:** `verifyStripeAccount` builds a raw
 client (`createRawStripeClient`) solely to call `stripe.accounts.retrieve()`

@@ -151,6 +151,17 @@ itself never leaves the admin console. Lifting the suspension sends a second
 email saying they can sign in again. Doing either again when nothing changes
 sends nothing, and the admin is told whether the email was queued.
 
+While an account is suspended, the site **stops sending it ordinary email**:
+review results, Fact of the Day, share invitations to its address and the
+like, including anything queued before the suspension or tried again later.
+That mail is dropped for good, not saved for when the suspension is lifted.
+A suspended member still gets what they need: the two suspension emails,
+the support form's reply, anything about their billing (since charges carry
+on), and notices about deleting their account. An email whose sending was
+already under way in the instant the suspension lands can still go out; every
+later one is checked again. In the admin Email Queue, a held-back email reads
+*"Skipped — recipient suspended"*.
+
 Suspension blocks the **person**, not the catalogue: the account's facts,
 memes and comments stay live, and its membership billing is left alone. An
 admin can lift it at any time, and the account carries on as before; a
