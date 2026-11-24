@@ -163,8 +163,10 @@ up skips straight to [Preview](#preview) with the saved template and does
 ### Onboarding
 
 The one screen every account completes **once**, after verifying its email and
-before it can act: date of birth (under 13 is refused, nothing stored), pronouns
-and name confirmed, the marketing choice recorded, and one Turnstile challenge.
+before it can act: date of birth (asked neutrally; a submitted date under 18
+is recorded as a refusal and the account can then only sign out or be deleted),
+pronouns and name confirmed, the marketing choice recorded, agreement to the
+Terms and acknowledgement of the Privacy page, and one Turnstile challenge.
 Every sign-in method goes through it, accounts from before launch Phase 5
 included. It is not a separate account type — until it's done you can still
 sign in and browse, and every write is refused.

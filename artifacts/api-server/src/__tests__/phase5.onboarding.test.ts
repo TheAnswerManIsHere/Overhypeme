@@ -2,7 +2,7 @@
  * The one onboarding screen's server side (launch Phase 5, increment 3, #795;
  * plan S4, S5, S8, S22, T2).
  *
- * @purpose Proves, through the real app stack, that only a verified account can save a draft or complete onboarding, that a date under 13 is refused with nothing stored (draft and completion alike), that completion writes the date, pronouns, the consent record with its method and wording version, and the completion time in one write and clears the draft, that the marketing default follows the edge country, that a failed challenge records nothing, that completing twice changes nothing, and that age and eligibility derive from the row to the day.
+ * @purpose Proves, through the real app stack, that only a verified account can save a draft or complete onboarding, that a draft with a date under 18 stores nothing while a submitted one is recorded as a refusal on the account (date not stored, nothing else destroyed, no resubmission), that completion requires and records agreement to the current Terms and Privacy versions (an old or invented version refused), that completion writes the date, pronouns, the consent record with its method and wording version, and the completion time in one write and clears the draft, that the marketing default follows the edge country, that a failed challenge records nothing, that completing twice changes nothing, and that age and eligibility derive from the row to the day.
  * @subsystem accounts-auth
  */
 import { describe, it, before, after } from "node:test";
@@ -11,7 +11,9 @@ import { randomUUID } from "node:crypto";
 
 import request from "supertest";
 import { db } from "@workspace/db";
-import { usersTable } from "@workspace/db/schema";
+import { usersTable, legalAcceptancesTable } from "@workspace/db/schema";
+import { acceptCurrentLegal } from "./helpers/legalAcceptance.js";
+import { requiredLegalVersions } from "../lib/legalAcceptance.js";
 import { eq, like } from "drizzle-orm";
 
 import { createApp } from "../app.js";
@@ -20,6 +22,7 @@ import { ageInYears, eligibilityOf, isPlausibleBirthDate } from "../lib/eligibil
 import { MARKETING_WORDING_VERSION, consentMethod } from "../routes/onboarding.js";
 
 const USER_PREFIX = "t-p5onb-";
+const ACCEPTED = requiredLegalVersions();
 
 async function user(opts: { verified?: boolean; onboarded?: boolean; pronouns?: string | null } = {}): Promise<string> {
   const id = `${USER_PREFIX}${randomUUID()}`;
@@ -29,8 +32,11 @@ async function user(opts: { verified?: boolean; onboarded?: boolean; pronouns?: 
     firstName: "Sarah",
     emailVerifiedAt: opts.verified === false ? null : new Date(),
     onboardingCompletedAt: opts.onboarded ? new Date() : null,
+    dateOfBirth: opts.onboarded ? "1990-01-01" : null,
     pronouns: opts.pronouns ?? null,
   });
+  // An account onboarded since launch Phase 14 agreed to the Terms at set-up.
+  if (opts.onboarded) await acceptCurrentLegal(id);
   return id;
 }
 
@@ -51,7 +57,11 @@ function yearsAgo(years: number, dayOffset = 0): { dobYear: string; dobMonth: st
   return { dobYear: String(d.getUTCFullYear()), dobMonth: String(d.getUTCMonth() + 1), dobDay: String(d.getUTCDate()) };
 }
 
-const COMPLETE = { displayName: "Sarah Connor", pronouns: "she/her", ...yearsAgo(30), marketingOptIn: true, captchaToken: "dev-bypass" };
+const COMPLETE = { displayName: "Sarah Connor", pronouns: "she/her", ...yearsAgo(30), marketingOptIn: true, captchaToken: "dev-bypass", legalAcceptance: ACCEPTED };
+
+async function acceptances(userId: string) {
+  return db.select().from(legalAcceptancesTable).where(eq(legalAcceptancesTable.userId, userId));
+}
 
 before(async () => {
   // lib/captcha.ts passes any token in a non-production run with no secret.
@@ -94,16 +104,17 @@ describe("PUT /api/users/me/onboarding/draft", () => {
     assert.deepEqual(got.body.draft, { displayName: "Sar", pronouns: "they/them", dobYear: "1990", marketingOptIn: false });
   });
 
-  it("a date under 13 is refused and nothing is written, not even the other fields", async () => {
+  it("a date under 18 is refused and nothing is written, not even the other fields, and no refusal is recorded", async () => {
     const id = await user();
     const sid = await bearer(id);
     const res = await request(createApp()).put("/api/users/me/onboarding/draft").set("authorization", `Bearer ${sid}`)
-      .send({ pronouns: "she/her", ...yearsAgo(13, 1) });
+      .send({ pronouns: "she/her", ...yearsAgo(18, 1) });
     assert.equal(res.status, 422);
     assert.equal(res.body.code, "UNDER_AGE");
     const r = await row(id);
     assert.equal(r.onboardingDraft, null);
     assert.equal(r.dateOfBirth, null);
+    assert.equal(r.ageRefusedAt, null, "a draft is not a submission");
   });
 
   it("an unverified account cannot save a draft", async () => {
@@ -146,9 +157,28 @@ describe("POST /api/users/me/onboarding", () => {
     assert.equal(r.marketingConsentMethod, "default_checked");
     assert.equal(r.marketingConsentWordingVersion, MARKETING_WORDING_VERSION);
     assert.equal(r.onboardingDraft, null);
+    const accepted = (await acceptances(id)).map((a) => `${a.document}@${a.version}`).sort();
+    assert.deepEqual(accepted, [`privacy@${ACCEPTED.privacy}`, `terms@${ACCEPTED.terms}`]);
     const me = await request(app).get("/api/auth/user").set("authorization", `Bearer ${sid}`);
     assert.equal(me.body.user.eligibility, "eligible");
     assert.equal(me.body.user.is18Plus, true);
+  });
+
+  it("set-up requires agreeing to the current Terms and Privacy versions, and records nothing without it", async () => {
+    const app = createApp();
+    for (const [label, legalAcceptance, code] of [
+      ["missing", undefined, "LEGAL_ACCEPTANCE_MISSING"],
+      ["privacy not acknowledged", { terms: ACCEPTED.terms }, "LEGAL_ACCEPTANCE_MISSING"],
+      ["an old Terms version", { ...ACCEPTED, terms: "2000-01-01" }, "LEGAL_VERSION_OUTDATED"],
+      ["an invented Privacy version", { ...ACCEPTED, privacy: "2099-12-31" }, "LEGAL_VERSION_OUTDATED"],
+    ] as const) {
+      const id = await user();
+      const res = await request(app).post("/api/users/me/onboarding").set("authorization", `Bearer ${await bearer(id)}`).send({ ...COMPLETE, legalAcceptance });
+      assert.equal(res.status, 400, label);
+      assert.equal(res.body.code, code, label);
+      assert.equal((await row(id)).onboardingCompletedAt, null, label);
+      assert.equal((await acceptances(id)).length, 0, label);
+    }
   });
 
   it("keeps a custom pronoun set exactly as chosen", async () => {
@@ -190,22 +220,44 @@ describe("POST /api/users/me/onboarding", () => {
     assert.ok(r.marketingConsentAt instanceof Date, "a decline is recorded with its time too");
   });
 
-  it("under 13 is refused with nothing stored and nothing destroyed", async () => {
+  it("a submitted date under 18 is recorded as a refusal: the date is not stored and nothing is destroyed", async () => {
     const id = await user({ pronouns: "he/him" });
-    const res = await request(createApp()).post("/api/users/me/onboarding").set("authorization", `Bearer ${await bearer(id)}`).send({ ...COMPLETE, ...yearsAgo(12) });
+    const app = createApp();
+    const sid = await bearer(id);
+    const res = await request(app).post("/api/users/me/onboarding").set("authorization", `Bearer ${sid}`).send({ ...COMPLETE, ...yearsAgo(18, 1) });
     assert.equal(res.status, 422);
     assert.equal(res.body.code, "UNDER_AGE");
     const r = await row(id);
+    assert.ok(r.ageRefusedAt instanceof Date, "the refusal is recorded on the account");
     assert.equal(r.dateOfBirth, null);
     assert.equal(r.onboardingCompletedAt, null);
     assert.equal(r.marketingConsentAt, null);
     assert.equal(r.pronouns, "he/him", "the account is left as it was");
+    assert.equal((await acceptances(id)).length, 0);
+    const me = await request(app).get("/api/auth/user").set("authorization", `Bearer ${sid}`);
+    assert.equal(me.body.user.eligibility, "underage");
   });
 
-  it("thirteen today is old enough", async () => {
+  it("after a refusal, set-up cannot be resubmitted with a different date", async () => {
     const id = await user();
-    const res = await request(createApp()).post("/api/users/me/onboarding").set("authorization", `Bearer ${await bearer(id)}`).send({ ...COMPLETE, ...yearsAgo(13) });
+    const app = createApp();
+    const sid = await bearer(id);
+    await request(app).post("/api/users/me/onboarding").set("authorization", `Bearer ${sid}`).send({ ...COMPLETE, ...yearsAgo(16) });
+    const retry = await request(app).post("/api/users/me/onboarding").set("authorization", `Bearer ${sid}`).send({ ...COMPLETE, ...yearsAgo(30) });
+    assert.equal(retry.status, 403);
+    assert.equal(retry.body.code, "UNDER_AGE");
+    const draft = await request(app).put("/api/users/me/onboarding/draft").set("authorization", `Bearer ${sid}`).send({ ...yearsAgo(30) });
+    assert.equal(draft.status, 403);
+    const r = await row(id);
+    assert.equal(r.onboardingCompletedAt, null);
+    assert.equal(r.dateOfBirth, null);
+  });
+
+  it("eighteen today is old enough", async () => {
+    const id = await user();
+    const res = await request(createApp()).post("/api/users/me/onboarding").set("authorization", `Bearer ${await bearer(id)}`).send({ ...COMPLETE, ...yearsAgo(18) });
     assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal((await row(id)).ageRefusedAt, null);
   });
 
   it("pronouns are required: blank is refused", async () => {
@@ -256,11 +308,27 @@ describe("age and eligibility derive from the row", () => {
     assert.equal(isPlausibleBirthDate("1899-12-31", now), false);
     assert.equal(isPlausibleBirthDate("2000-02-29", now), true);
   });
-  it("verify, then onboard, then act", () => {
-    assert.equal(eligibilityOf({ emailVerifiedAt: null, onboardingCompletedAt: null }), "unverified");
-    assert.equal(eligibilityOf({ emailVerifiedAt: null, onboardingCompletedAt: new Date() }), "unverified");
-    assert.equal(eligibilityOf({ emailVerifiedAt: new Date(), onboardingCompletedAt: null }), "unonboarded");
-    assert.equal(eligibilityOf({ emailVerifiedAt: new Date(), onboardingCompletedAt: new Date() }), "eligible");
+  it("verify, then onboard, then accept, then act", () => {
+    const v = new Date();
+    assert.equal(eligibilityOf({ emailVerifiedAt: null, onboardingCompletedAt: null }, now), "unverified");
+    assert.equal(eligibilityOf({ emailVerifiedAt: null, onboardingCompletedAt: v }, now), "unverified");
+    assert.equal(eligibilityOf({ emailVerifiedAt: v, onboardingCompletedAt: null }, now), "unonboarded");
+    assert.equal(eligibilityOf({ emailVerifiedAt: v, onboardingCompletedAt: v }, now), "terms_unaccepted", "absent acceptance fails closed");
+    assert.equal(eligibilityOf({ emailVerifiedAt: v, onboardingCompletedAt: v, legalAccepted: false }, now), "terms_unaccepted");
+    assert.equal(eligibilityOf({ emailVerifiedAt: v, onboardingCompletedAt: v, legalAccepted: true }, now), "eligible");
+  });
+  it("under 18 comes after suspension and before everything else, and lapses on the 18th birthday", () => {
+    const v = new Date();
+    const adult = { emailVerifiedAt: v, onboardingCompletedAt: v, legalAccepted: true };
+    assert.equal(eligibilityOf({ ...adult, dateOfBirth: "2008-11-02" }, now), "underage");
+    assert.equal(eligibilityOf({ ...adult, dateOfBirth: "2008-11-01" }, now), "eligible");
+    assert.equal(eligibilityOf({ ...adult, dateOfBirth: "2008-11-02", deletionPending: true }, now), "underage");
+    assert.equal(eligibilityOf({ ...adult, dateOfBirth: "2008-11-02", suspendedAt: v }, now), "suspended");
+    // A refusal is permanent: it does not lapse, whatever date is later stored.
+    assert.equal(eligibilityOf({ ...adult, dateOfBirth: "1990-01-01", ageRefusedAt: v }, now), "underage");
+    assert.equal(eligibilityOf({ emailVerifiedAt: v, onboardingCompletedAt: null, ageRefusedAt: v }, now), "underage");
+    // An un-onboarded account's absent date is not under age.
+    assert.equal(eligibilityOf({ emailVerifiedAt: v, onboardingCompletedAt: null, dateOfBirth: null }, now), "unonboarded");
   });
   it("consent method from the box and its default", () => {
     assert.equal(consentMethod(true, true), "default_checked");

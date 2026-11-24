@@ -41,6 +41,7 @@ import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/
 import { createApp } from "../app.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 import { createLegacyEnginesTable, dropLegacyEnginesTable, insertLegacyEngine, legacyEngineIds } from "./helpers/legacyEnginesTable.js";
+import { acceptCurrentLegal } from "./helpers/legalAcceptance.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATION_SQL = readFileSync(
@@ -85,6 +86,7 @@ before(async () => {
     membershipTier: "legendary",
     emailVerifiedAt: new Date(), onboardingCompletedAt: new Date(),
   });
+  await acceptCurrentLegal(adminId);
   adminSid = await bearer(adminId);
   const fact = await insertLiveFact({ text: "{NAME} outran a sunrise.", submittedById: adminId, enrichment: buildPlaceholderFactEnrichment() }, buildPlaceholderGag());
   factId = fact!.id;

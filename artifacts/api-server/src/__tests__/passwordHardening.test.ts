@@ -25,6 +25,7 @@ import { createSession, SESSION_COOKIE, type SessionData } from "../lib/auth.js"
 import { createApp } from "../app.js";
 import { providerEmailVerified } from "../routes/auth.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
+import { acceptCurrentLegal } from "./helpers/legalAcceptance.js";
 
 const USER_PREFIX = "t_pwhard_";
 
@@ -40,6 +41,7 @@ async function createUser(password = "old-password-1"): Promise<string> {
   const id = `${USER_PREFIX}${randomUUID()}`;
   // Verified and onboarded: the full-stack cases run behind the verified-actor gate.
   await db.insert(usersTable).values({ id, email: `${id}@test.local`, passwordHash: await bcrypt.hash(password, 4), emailVerifiedAt: new Date(), onboardingCompletedAt: new Date() });
+  await acceptCurrentLegal(id);
   return id;
 }
 

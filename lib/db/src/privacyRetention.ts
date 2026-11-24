@@ -120,7 +120,7 @@ export const PRIVACY_RETENTION_ROWS: readonly PrivacyRetentionRow[] = [
   {
     information: "Your account",
     howLong: "Until you delete it. Deletion takes effect 14 days after you ask, so you can change your mind; an open payment dispute delays it until the dispute is settled",
-    covers: ["users", "account_deletion_requests", "activity_feed", "user_fact_preferences", "image_prompt_attempts"],
+    covers: ["users", "account_deletion_requests", "activity_feed", "user_fact_preferences", "image_prompt_attempts", "legal_acceptances"],
   },
   {
     information: "An account that never finished signing up",

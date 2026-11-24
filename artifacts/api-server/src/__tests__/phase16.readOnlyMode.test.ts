@@ -20,6 +20,8 @@ import { createApp } from "../app.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 import { READ_ONLY_ROUTES } from "../middlewares/readOnlyGate.js";
 import { MUTATING_GETS } from "../middlewares/requireEligibleActor.js";
+import { acceptCurrentLegal } from "./helpers/legalAcceptance.js";
+
 import {
   READ_ONLY_CODE,
   READ_ONLY_CONFIG_KEY,
@@ -68,6 +70,7 @@ async function member(isAdmin = false): Promise<string> {
     isAdmin,
     dateOfBirth: "1990-01-01", // adult: photo uploads reach the read-only gate
   });
+  await acceptCurrentLegal(id);
   return id;
 }
 

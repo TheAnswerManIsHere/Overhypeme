@@ -71,7 +71,7 @@ const PAYMENT_LEDGER = "payment records, kept while the account exists; the purg
 export const RETENTION_SCHEDULE: Readonly<Record<string, RetentionEntry>> = {
   // ── Accounts and sign-in ─────────────────────────────────────────────────
   users: {
-    personal: "email, name, birth date, pronouns, profile picture, password hash, marketing consent",
+    personal: "email, name, birth date, pronouns, profile picture, password hash, marketing consent, when a set-up form gave a date under 18",
     rules: [
       {
         kind: "job",
@@ -168,6 +168,13 @@ export const RETENTION_SCHEDULE: Readonly<Record<string, RetentionEntry>> = {
   share_intents: {
     personal: "who shared which meme where",
     rules: [{ kind: "account-deletion", effect: "deleted" }, { kind: "with-parent", parent: "memes" }],
+  },
+  legal_acceptances: {
+    personal: "which version of the Terms and the Privacy page an account accepted, and when",
+    rules: [
+      { kind: "kept", reason: "the evidence of what each account agreed to (launch Phase 14, increment 4; plan S-b)" },
+      { kind: "account-deletion", effect: "deleted" },
+    ],
   },
   support_requests: {
     personal: "a support request: the sender's email address, their message, and their account",

@@ -61,6 +61,8 @@ async function finishSetUp(page: Page): Promise<void> {
   await page.waitForResponse((r) => r.url().endsWith("/api/users/me/onboarding/draft") && r.request().method() === "PUT");
   await page.reload();
   await expect(page.getByLabel("Year"), "the draft survives a reload").toHaveValue("1988", { timeout: 30_000 });
+  // Agreeing to the Terms is set-up's own explicit step (launch Phase 14, increment 4).
+  await page.getByTestId("onboard-legal-agree").check();
   const finish = page.getByRole("button", { name: "Finish set-up" });
   await expect(finish).toBeEnabled({ timeout: 30_000 });
   await finish.click();

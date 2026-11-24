@@ -105,6 +105,8 @@ test("a production-mode account: register, verify, act, sign out, recover the pa
   await expect(page.getByLabel("Year"), "the draft survives a reload").toHaveValue("1990", { timeout: 30_000 });
   await expect(page.getByLabel("Month")).toHaveValue("6");
   // Cloudflare's always-pass test keys: the widget solves itself.
+  // Agreeing to the Terms is set-up's own explicit step (launch Phase 14, increment 4).
+  await page.getByTestId("onboard-legal-agree").check();
   const finish = page.getByRole("button", { name: "Finish set-up" });
   await expect(finish).toBeEnabled({ timeout: 30_000 });
   await finish.click();

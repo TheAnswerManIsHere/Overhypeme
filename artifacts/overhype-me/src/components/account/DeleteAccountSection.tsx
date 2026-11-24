@@ -12,14 +12,15 @@ import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
-/** Where a provider re-authentication comes back to: this section, open, ready to confirm. */
-const DELETE_CONFIRM_RETURN = "/profile?delete=confirm";
-
 type Provider = "google" | "apple";
 const PROVIDER_LABEL: Record<Provider, string> = { google: "Google", apple: "Apple" };
 
+/**
+ * A provider re-authentication comes back to the page this section is on
+ * (Profile, or the adults-only screen), open and ready to confirm.
+ */
 function providerReauthUrl(provider: Provider): string {
-  return `${BASE_URL}api/login/${provider}?returnTo=${encodeURIComponent(DELETE_CONFIRM_RETURN)}`;
+  return `${BASE_URL}api/login/${provider}?returnTo=${encodeURIComponent(`${window.location.pathname}?delete=confirm`)}`;
 }
 
 function backFromSignIn(): boolean {

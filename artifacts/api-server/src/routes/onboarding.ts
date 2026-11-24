@@ -1,5 +1,5 @@
 /**
- * @purpose The one onboarding screen's server side (launch Phase 5, plan S5, S8, S22): reads what the form starts from (the account's display name and a provider's first name kept apart), saves a half-finished form as a draft, and completes onboarding in one write — the display name (the shared name rule), date of birth (under 13 refused with nothing stored), pronouns, the marketing-consent record and a fresh Turnstile challenge — for a verified account.
+ * @purpose The one onboarding screen's server side (launch Phase 5, plan S5, S8, S22): reads what the form starts from (the account's display name and a provider's first name kept apart), saves a half-finished form as a draft, and completes onboarding in one write — the display name (the shared name rule), date of birth (a submitted date under 18 recorded as a refusal on the account, the date not stored), agreement to the current Terms and Privacy page (recorded in legal_acceptances), pronouns, the marketing-consent record and a fresh Turnstile challenge — for a verified account.
  * @subsystem accounts-auth
  */
 import { Router, type IRouter, type Request, type Response } from "express";
@@ -8,6 +8,7 @@ import { usersTable } from "@workspace/db/schema";
 import { and, eq, isNull } from "drizzle-orm";
 import { verifyCaptcha } from "../lib/captcha";
 import { MINIMUM_AGE, ageInYears } from "../lib/eligibility";
+import { checkAcceptance, recordLegalAcceptance } from "../lib/legalAcceptance";
 import { ipFromRequest } from "../lib/transientRenderLog";
 import { REFUSAL_CODE } from "../middlewares/requireEligibleActor";
 import { sanitizeAndValidatePersonalName, sanitizeAndValidatePronouns } from "../lib/validators/personalName";
@@ -87,9 +88,13 @@ function birthDateOf(draft: OnboardingDraft): string | null {
   return `${draft.dobYear.padStart(4, "0")}-${draft.dobMonth.padStart(2, "0")}-${draft.dobDay.padStart(2, "0")}`;
 }
 
+/**
+ * The answer to a date under 18. The same words the adults-only screen shows;
+ * a mistyped date is corrected through support (launch Phase 14, Q3).
+ */
 function refuseUnderAge(res: Response): void {
   res.status(422).json({
-    error: "Overhype.me is for people 13 and over.",
+    error: "Overhype.me is for adults.",
     code: "UNDER_AGE",
   });
 }
@@ -108,7 +113,7 @@ function requireVerified(req: Request, res: Response): req is Request & { user: 
     res.status(403).json({ error: "Verify your email address to continue.", code: "EMAIL_VERIFICATION_REQUIRED" });
     return false;
   }
-  if (req.user.eligibility === "suspended" || req.user.eligibility === "deletion_pending") {
+  if (req.user.eligibility === "suspended" || req.user.eligibility === "deletion_pending" || req.user.eligibility === "underage") {
     res.status(403).json({ error: "This account cannot be set up now.", code: REFUSAL_CODE[req.user.eligibility] });
     return false;
   }
@@ -145,8 +150,9 @@ router.get("/auth/onboarding", async (req: Request, res: Response) => {
   });
 });
 
-// Saves progress. A complete date under 13 is refused and nothing is written,
-// not even the other fields (plan S4, S22).
+// Saves progress. A complete date under 18 is refused and nothing is written,
+// not even the other fields (plan S4, S22): a draft is not a submission, so it
+// records no refusal (launch Phase 14, increment 4).
 router.put("/users/me/onboarding/draft", async (req: Request, res: Response) => {
   if (!requireVerified(req, res)) return;
   if (req.user.onboardingCompleted) {
@@ -174,7 +180,7 @@ router.post("/users/me/onboarding", async (req: Request, res: Response) => {
     res.json({ completed: true });
     return;
   }
-  const body = (req.body ?? {}) as DraftBody & { captchaToken?: unknown };
+  const body = (req.body ?? {}) as DraftBody & { captchaToken?: unknown; legalAcceptance?: unknown };
   const draft = toDraft(body);
 
   const dob = birthDateOf(draft);
@@ -184,6 +190,16 @@ router.post("/users/me/onboarding", async (req: Request, res: Response) => {
     return;
   }
   if (age < MINIMUM_AGE) {
+    // A submitted date under 18 is a refusal recorded on the account, and the
+    // date itself is not kept (launch Phase 14, increment 4; Q3). Nothing
+    // else is destroyed (decisions.md, 2026-10-30): the unfinished-sign-up
+    // clean-up removes the account at 30 days as before. The gate then admits
+    // only signing out and asking for deletion, so set-up cannot be
+    // resubmitted with another date.
+    await db
+      .update(usersTable)
+      .set({ ageRefusedAt: new Date(), onboardingDraft: null })
+      .where(and(eq(usersTable.id, req.user.id), isNull(usersTable.onboardingCompletedAt), isNull(usersTable.ageRefusedAt)));
     refuseUnderAge(res);
     return;
   }
@@ -209,6 +225,14 @@ router.post("/users/me/onboarding", async (req: Request, res: Response) => {
     res.status(400).json({ error: "marketingOptIn is required", field: "marketingOptIn" });
     return;
   }
+  // Agreeing to the Terms and acknowledging the Privacy page is part of
+  // set-up, checked against the current versions here, not trusted from the
+  // form (launch Phase 14, increment 4).
+  const acceptance = checkAcceptance(body.legalAcceptance);
+  if (!acceptance.ok) {
+    res.status(400).json({ error: acceptance.error, code: acceptance.code, field: "legalAcceptance" });
+    return;
+  }
   const token = typeof body.captchaToken === "string" ? body.captchaToken : "";
   const ip = ipFromRequest(req);
   if (!token || !(await verifyCaptcha(token, ip === "unknown" ? undefined : ip))) {
@@ -217,19 +241,26 @@ router.post("/users/me/onboarding", async (req: Request, res: Response) => {
   }
 
   const now = new Date();
-  await db
-    .update(usersTable)
-    .set({
-      dateOfBirth: dob,
-      displayName: displayName.value,
-      pronouns: pronouns.value,
-      marketingConsentAt: now,
-      marketingConsentMethod: consentMethod(draft.marketingOptIn, marketingDefaultFor(req)),
-      marketingConsentWordingVersion: MARKETING_WORDING_VERSION,
-      onboardingCompletedAt: now,
-      onboardingDraft: null,
-    })
-    .where(and(eq(usersTable.id, req.user.id), isNull(usersTable.onboardingCompletedAt)));
+  const method = consentMethod(draft.marketingOptIn, marketingDefaultFor(req));
+  const userId = req.user.id;
+  await db.transaction(async (tx) => {
+    const completed = await tx
+      .update(usersTable)
+      .set({
+        dateOfBirth: dob,
+        displayName: displayName.value,
+        pronouns: pronouns.value,
+        marketingConsentAt: now,
+        marketingConsentMethod: method,
+        marketingConsentWordingVersion: MARKETING_WORDING_VERSION,
+        onboardingCompletedAt: now,
+        onboardingDraft: null,
+      })
+      .where(and(eq(usersTable.id, userId), isNull(usersTable.onboardingCompletedAt), isNull(usersTable.ageRefusedAt)))
+      .returning({ id: usersTable.id });
+    // The acceptance is recorded only with the completion it belongs to.
+    if (completed.length > 0) await recordLegalAcceptance(tx, userId, now);
+  });
 
   res.json({ completed: true });
 });

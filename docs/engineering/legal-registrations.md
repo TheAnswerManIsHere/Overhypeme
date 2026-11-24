@@ -12,8 +12,14 @@ pages. Re-read them if a step no longer matches what you see.
 ## 1. The copyright agent (US Copyright Office) — $6
 
 **Why:** the DMCA safe harbour covers a site only once it has a designated
-agent on file with the Copyright Office. The Copyright page says the filing
-has "not yet been filed".
+agent on file with the Copyright Office. 17 U.S.C. § 512(c)(2) (Cornell LII,
+read 2026-11-23): "The limitations on liability established in this
+subsection apply to a service provider only if the service provider has
+designated an agent to receive notifications of claimed infringement
+described in paragraph (3), by making available through its service,
+including on its website in a location accessible to the public, and by
+providing to the Copyright Office, substantially the following
+information". The Copyright page says the filing has "not yet been filed".
 
 **Where:** <https://dmca.copyright.gov/osp/login.html>, the "Login/Register"
 link on <https://www.copyright.gov/dmca-directory/>: "Click below to sign in to
@@ -57,7 +63,15 @@ under a new version. That edit is Claude's; the number is not.
 ## 2. NCMEC, as an electronic service provider — no fee stated, an email
 
 **Why:** US-based providers must report apparent child sexual abuse material
-they become aware of to NCMEC's CyberTipline (18 U.S.C. § 2258A). Phase 14's
+they become aware of to NCMEC's CyberTipline. 18 U.S.C. § 2258A(a)(1)(A)
+(Cornell LII, read 2026-11-23): a provider "shall, as soon as reasonably
+possible after obtaining actual knowledge of any facts or circumstances
+described in paragraph (2)(A), take the actions described in subparagraph
+(B)", and (B)(i) is "providing to the CyberTipline of NCMEC … the mailing
+address, telephone number, facsimile number, electronic mailing address of,
+and individual point of contact for, such provider". `unable to verify:
+the verbatim text of (B)(ii), the report of the facts themselves; reading
+§ 2258A(a)(1)(B)(ii) on the same page settles it.` Phase 14's
 increment 7 builds the manual path (Q2), and filing through it needs NCMEC
 credentials. Due before Seed (plan, *Implementation Steps*). Increment 7 does
 not wait for it.

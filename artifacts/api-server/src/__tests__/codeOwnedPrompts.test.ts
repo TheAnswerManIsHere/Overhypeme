@@ -33,6 +33,8 @@ import {
   seedImagePromptConfig,
 } from "../lib/imagePromptConfig.js";
 import { REFERENCE_RESEARCH_SYSTEM_DEFAULT, getReferenceResearchSystem } from "../lib/referenceResearchConfig.js";
+import { acceptCurrentLegal } from "./helpers/legalAcceptance.js";
+
 import {
   FACT_VISUAL_CONCEPTS_SYSTEM_DEFAULT,
   getVisualConceptsSystem,
@@ -58,6 +60,7 @@ describe("AI settings are set in code and have no admin surface", () => {
     saved = await db.select().from(adminConfigTable).where(inArray(adminConfigTable.key, ALL_AI_KEYS));
     adminId = `t_cop_${randomUUID()}`;
     await db.insert(usersTable).values({ id: adminId, email: `${adminId}@test.local`, isAdmin: true, membershipTier: "legendary", emailVerifiedAt: new Date(), onboardingCompletedAt: new Date() });
+    await acceptCurrentLegal(adminId);
     const data: SessionData = {
       user: { id: adminId, membershipTier: "legendary" } as unknown as SessionData["user"],
       access_token: "test-token",
