@@ -493,6 +493,9 @@ const HOUSE_STYLE_REPLACED_ENDING = new Set([",", ";", ":"]);
  *  tone, a variation selector, a keycap, a joiner or a tag character. */
 const HOUSE_STYLE_EMOJI_END_RE =
   /(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|[\u{1F3FB}-\u{1F3FF}\uFE0F\u20E3\u200D\u{E0020}-\u{E007F}])$/u;
+/** Text symbols Unicode counts as pictographs but a fact ending in one still
+ *  takes a period: `Chuck Norris™.` */
+const HOUSE_STYLE_NOT_EMOJI = new Set(["©", "®", "™"]);
 /** Lower-case pronoun tokens a fact may start with, including the legacy
  *  forms the renderer still substitutes, mapped to their capitalized form. */
 const HOUSE_STYLE_START_TOKENS: Readonly<Record<string, string>> = {
@@ -504,9 +507,11 @@ function upperFirstLetter(word: string): string {
   const first = String.fromCodePoint(word.codePointAt(0)!);
   if (!/^\p{Ll}$/u.test(first)) return word;
   const upper = first.toUpperCase();
-  // A letter whose capital is not one character (ß → SS) is left as written,
-  // so the rule never changes a fact's length beyond its first letter.
-  if ([...upper].length !== 1) return word;
+  // A letter whose capital is not one character (ß → SS), or does not
+  // lowercase back to it (µ → Μ → μ), is left as written: the rule never
+  // changes a fact's length, and its SQL twin in migration 0165 makes the
+  // same call from the database's own case tables.
+  if ([...upper].length !== 1 || upper.toLowerCase() !== first) return word;
   return upper + word.slice(first.length);
 }
 
@@ -585,7 +590,7 @@ function houseStyleEnd(text: string): string {
   while (probe > 0 && (closesQuote(probe - 1) || isBracket(probe - 1))) probe--;
   if (probe === 0) return text;
   if (HOUSE_STYLE_TERMINAL.has(text[probe - 1]!)) return text;
-  if (HOUSE_STYLE_EMOJI_END_RE.test(text.slice(0, probe))) return text; // Q4
+  if (!HOUSE_STYLE_NOT_EMOJI.has(text[probe - 1]!) && HOUSE_STYLE_EMOJI_END_RE.test(text.slice(0, probe))) return text; // Q4
 
   // Where a new mark goes: inside closing quotes, and inside a bracket only
   // when its own opener begins the fact (`("no.")`); after any other bracket

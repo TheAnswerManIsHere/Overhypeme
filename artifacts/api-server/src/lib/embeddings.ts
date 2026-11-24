@@ -26,11 +26,17 @@ export async function embedText(text: string): Promise<number[]> {
   return response.data[0].embedding;
 }
 
-/** Persist an embedding (and optional canonical_text) for a fact row. */
-export async function storeEmbedding(factId: number, embedding: number[], canonicalText?: string): Promise<void> {
+/**
+ * Persist an embedding (and optional canonical_text) for a fact row. With
+ * `renderedFrom`, the write lands only while the fact's wording is still the
+ * wording the canonical was rendered from, so a fill that read a fact before
+ * a wording pass (migration 0165) cannot store an old plain-name version
+ * after it.
+ */
+export async function storeEmbedding(factId: number, embedding: number[], canonicalText?: string, renderedFrom?: string): Promise<void> {
   await db.update(factsTable)
     .set({ embedding, ...(canonicalText !== undefined ? { canonicalText } : {}) })
-    .where(eq(factsTable.id, factId));
+    .where(renderedFrom === undefined ? eq(factsTable.id, factId) : and(eq(factsTable.id, factId), eq(factsTable.text, renderedFrom)));
 }
 
 /**
@@ -133,7 +139,7 @@ export async function backfillEmbeddings(opts: {
     try {
       const canonical = renderCanonical(fact.text);
       const embedding = await embed(canonical);
-      await storeEmbedding(fact.id, embedding, canonical);
+      await storeEmbedding(fact.id, embedding, canonical, fact.text);
       processed++;
     } catch (err) {
       logger.error({ err, factId: fact.id }, "[embeddings] Backfill failed for fact");
