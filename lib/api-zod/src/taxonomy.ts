@@ -293,7 +293,9 @@ export const TAXONOMY_VERSION = "v1";
 // v7: the classifier no longer receives a fact-status label or another fact's
 // text; every fact is classified from its own text only
 // (`docs/ai-context/decisions.md`).
-export const CLASSIFICATION_PROMPT_VERSION = "v7";
+// v8: the classifier no longer suggests hashtags; they are generated once, on
+// the submit form, where the submitter reviews them (David, 2026-11-24).
+export const CLASSIFICATION_PROMPT_VERSION = "v8";
 export const PREVIEW_PROMPT_VERSION = "v1";
 
 // ─── Hashtag normalization ─────────────────────────────────────────────────
@@ -606,12 +608,13 @@ export const factEnrichmentBase = z.object({
   overhypeFit: z.enum(OVERHYPE_FIT_VALUES),
   adultSuitability: z.enum(ADULT_SUITABILITY_VALUES),
   adultSuitabilityNotes: z.string().trim().max(500).default(""),
-  suggestedHashtags: z
-    .array(z.string())
-    .transform((arr) =>
-      Array.from(new Set(arr.map(normalizeHashtag).filter((t) => t.length > 0))),
-    )
-    .pipe(z.array(z.string().regex(/^[a-z0-9]+$/)).min(3).max(8)),
+  /**
+   * Retired (v8): enrichment no longer generates hashtags — they are generated
+   * once, by the submit form's suggester where the submitter reviews them
+   * (David, 2026-11-24). Optional so blobs enriched before v8 still validate;
+   * nothing reads it.
+   */
+  suggestedHashtags: z.array(z.string()).optional(),
   taxonomyConfidence: z.number().min(0).max(1),
   adminReviewNotes: z.string().trim().max(800).default(""),
   culturalReferences: z.array(culturalReferenceSchema).max(20).default([]),
@@ -704,7 +707,6 @@ export function buildPlaceholderFactEnrichment(): FactEnrichment {
     overhypeFit: "strong",
     adultSuitability: "safe",
     adultSuitabilityNotes: "",
-    suggestedHashtags: ["overhype", "legend", "placeholder"],
     taxonomyConfidence: 1,
     adminReviewNotes: "",
     culturalReferences: [],
@@ -807,7 +809,6 @@ export const factEnrichmentWireSchema = z.object({
   overhypeFit: z.enum(OVERHYPE_FIT_VALUES),
   adultSuitability: z.enum(ADULT_SUITABILITY_VALUES),
   adultSuitabilityNotes: z.string(),
-  suggestedHashtags: z.array(z.string()),
   taxonomyConfidence: z.number(),
   adminReviewNotes: z.string(),
   culturalReferences: z.array(culturalReferenceWireSchema),

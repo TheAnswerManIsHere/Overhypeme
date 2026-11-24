@@ -507,8 +507,7 @@ async function approveForProduction(
     );
   }
 
-  // The taxonomy, when there is a valid one, is stored data: its suggested
-  // hashtags are a fallback for the final list and it is kept as the review's
+  // The taxonomy, when there is a valid one, is stored data kept as the review's
   // audit snapshot. Its absence or failure blocks nothing.
   const classification = validateEnrichment(stagingFact.enrichment);
   const enrichment = classification.ok ? classification.data : null;
@@ -521,10 +520,11 @@ async function approveForProduction(
   // "a gag is missing" where the truth is "the review moved".
 
   // Final discovery tags. The moderator's curated list from the approve body is
-  // authoritative; absent that, fall back to the submitter's tags (else the
-  // taxonomy's suggestions). Computed BEFORE any mutation so the required-hashtags
+  // authoritative; absent that, fall back to the submitter's tags. Hashtags are
+  // generated once, on the submit form, and moderation generates none (David,
+  // 2026-11-24). Computed BEFORE any mutation so the required-hashtags
   // gate can reject cleanly: a fact is never approved with an empty tag list.
-  const finalTags = resolveFinalApprovalTags(opts.hashtags, review.hashtags as unknown[] | null, enrichment?.suggestedHashtags);
+  const finalTags = resolveFinalApprovalTags(opts.hashtags, review.hashtags as unknown[] | null);
   if (finalTags.length === 0) {
     res.status(400).json({
       error: "A fact can't be approved without at least one hashtag. Add a hashtag and try again.",

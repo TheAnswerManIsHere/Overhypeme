@@ -39,7 +39,6 @@ export const FIELD_DOCS = Object.fromEntries(
 
 export const FIELD_DOC_USAGE = {
   finalHashtags: "field-label",
-  aiSuggestedHashtags: "field-label",
   "vso.panel": "panel-level",
   "vso.coreSceneOverride": "field-label",
   "vso.moderatorIntent": "field-label",

@@ -124,10 +124,10 @@ describe("FieldInfo inside the review-modal backdrop stack", () => {
 
 describe("FieldLabel", () => {
   it("renders the registry label text with the info button as a SIBLING of <label>", () => {
-    const { container } = render(<FieldLabel docKey="aiSuggestedHashtags" />);
+    const { container } = render(<FieldLabel docKey="vso.coreSceneOverride" />);
     const label = container.querySelector("label");
-    expect(label?.textContent).toBe(fieldLabel("aiSuggestedHashtags"));
-    const btn = screen.getByTestId("field-info-aiSuggestedHashtags");
+    expect(label?.textContent).toBe(fieldLabel("vso.coreSceneOverride"));
+    const btn = screen.getByTestId("field-info-vso.coreSceneOverride");
     expect(label?.contains(btn)).toBe(false);
   });
 

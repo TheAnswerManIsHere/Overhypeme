@@ -52,7 +52,6 @@ export interface FactSheetView {
   commentCount: number;
   shareCount: number;
   enrichmentStatus: string | null;
-  suggestedHashtags: string[];
   hasEmbedding: boolean;
   attention: string[];
   /** The draft differs from the published set: "Publish changes" or "Discard changes" (plan 3B). */
