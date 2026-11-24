@@ -53,7 +53,6 @@ const VALID_APPROVAL_ENRICHMENT: FactEnrichment = {
   overhypeFit: "strong",
   adultSuitability: "safe",
   adultSuitabilityNotes: "",
-  suggestedHashtags: ["strength", "legendary", "pushups"],
   taxonomyConfidence: 0.95,
   adminReviewNotes: "",
   culturalReferences: [],
@@ -792,6 +791,7 @@ describe("approval renderability gating", () => {
         stagingFactId: staging.id,
         enrichment,
         enrichmentStatus: "ok",
+        hashtags: ["strength"],
       })
       .returning();
     return { reviewId: review.id, stagingFactId: staging.id };
@@ -857,9 +857,39 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
       workflowStage: "test_renders", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
+      hashtags: ["strength"],
     }).returning();
     return { reviewId: review.id, stagingFactId: staging.id, submitterId };
   }
+
+  // Regression (David, 2026-11-24): hashtags are generated once, on the submit
+  // form. Approval used to fall back to the enrichment's own AI tags when the
+  // submitter left none — the second generator that put the placeholder name
+  // into tags like "alexpower". A pre-v8 stored blob still carrying them must
+  // not be borrowed: with no submitter or moderator tags, approval refuses.
+  it("does not borrow enrichment's stored AI tags when the review has none", async () => {
+    const submitterId = await createTestUser();
+    const legacyEnrichment = { ...VALID_APPROVAL_ENRICHMENT, suggestedHashtags: ["alexpower", "strength", "legendary"] };
+    const [staging] = await db.insert(factsTable).values({
+      text: "{NAME} bench-presses the Earth.", submittedById: submitterId, isActive: false, enrichment: legacyEnrichment,
+    }).returning();
+    await addGag(staging.id);
+    const [review] = await db.insert(pendingReviewsTable).values({
+      submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
+      workflowStage: "test_renders", stagingFactId: staging.id, enrichment: legacyEnrichment, enrichmentStatus: "ok",
+    }).returning();
+    const adminId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+
+    const res = await request(makeApp())
+      .post(`/admin/reviews/${review.id}/approve-for-production`)
+      .set("Authorization", `Bearer ${sid}`)
+      .send({});
+    assert.equal(res.status, 400, JSON.stringify(res.body));
+    assert.equal((res.body as { code?: string }).code, "HASHTAGS_REQUIRED");
+    const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
+    assert.equal(fact.isActive, false);
+  });
 
   it("activates the staging fact, marks the review approved, and is idempotent", async () => {
     const { reviewId, stagingFactId } = await seedProductionReview();
@@ -925,7 +955,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     await addGag(staging.id);
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
-      workflowStage: "test_renders", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
+      workflowStage: "test_renders", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok", hashtags: ["strength"],
     }).returning();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
@@ -1060,7 +1090,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
       workflowStage: "test_renders", stagingFactId: staging.id,
-      enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
+      enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok", hashtags: ["strength"],
     }).returning();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
@@ -1092,7 +1122,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     }).returning();
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
-      workflowStage: "test_renders", stagingFactId: staging.id, enrichment: withoutConcept, enrichmentStatus: "ok",
+      workflowStage: "test_renders", stagingFactId: staging.id, enrichment: withoutConcept, enrichmentStatus: "ok", hashtags: ["strength"],
     }).returning();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
@@ -1132,7 +1162,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     const picks = await giveExampleSet(staging.id, g2!.id, { ...second, coreSceneOverride: "{NAME} an older version of take two." }, "pending");
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} bench-presses the Moon.", submittedById: submitterId, status: "pending",
-      workflowStage: "test_renders", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
+      workflowStage: "test_renders", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok", hashtags: ["strength"],
     }).returning();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
@@ -1166,7 +1196,7 @@ describe("PATCH /admin/reviews/:id (draft autosave)", () => {
     await addGag(staging.id);
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} does a thing", submittedById: submitterId, status: "pending",
-      workflowStage: "test_renders", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
+      workflowStage: "test_renders", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok", hashtags: ["strength"],
     }).returning();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });

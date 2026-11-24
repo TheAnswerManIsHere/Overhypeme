@@ -104,8 +104,6 @@ export async function factSheet(factId: number) {
       commentCount: factsTable.commentCount,
       shareCount: factsTable.shareCount,
       enrichmentStatus: factsTable.enrichmentStatus,
-      /** The stored taxonomy's suggestions: a source the hashtag editor offers, never shipped by itself. */
-      suggestedHashtags: sql<string[] | null>`(${factsTable.enrichment} -> 'suggestedHashtags')`,
       hasEmbedding: sql<boolean>`(${factsTable.embedding} IS NOT NULL)`,
       humorNote: factsTable.humorNote,
       humorNoteReadingId: factsTable.humorNoteReadingId,
@@ -146,7 +144,6 @@ export async function factSheet(factId: number) {
   const { humorNote, humorNoteReadingId, humorNoteApprovedBy, humorNoteApprovedByName, humorNoteApprovedAt, approvedAt, attention, ...rest } = row;
   return {
     ...rest,
-    suggestedHashtags: Array.isArray(rest.suggestedHashtags) ? rest.suggestedHashtags.filter((t): t is string => typeof t === "string") : [],
     approvedAt: approvedAt!.toISOString(),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

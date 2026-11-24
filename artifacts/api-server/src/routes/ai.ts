@@ -60,8 +60,13 @@ const SUGGEST_HASHTAGS_SYSTEM_PROMPT =
   "Return ONLY valid JSON of the form {\"hashtags\": [\"tag1\", \"tag2\", ...]}. " +
   "Provide 3-6 lowercase, single-word, alphanumeric tags that describe the fact's " +
   "TOPIC or THEME so people can find it (e.g. strength, coffee, legendary). " +
-  "The person's name shown in the fact is a placeholder for whoever the meme is " +
-  "about — never tag the name. Never use the app name (overhype/overhypeme). " +
+  "The fact is about a person, written as a placeholder like {NAME} or as a name " +
+  "such as Alex; that name is a stand-in for whoever the meme is about, not a topic. " +
+  "Avoid the person's name anywhere in a tag, including glued to another word " +
+  "(name Alex: not alex, alexpower or alexrules). But keep a tag that only contains " +
+  "the name's letters inside a different word or reference the fact really mentions " +
+  "(name Alex: alexanderthegreat or alexa are fine when the fact is about them). " +
+  "Never use the app name (overhype/overhypeme). " +
   "No '#', no spaces, no punctuation, no duplicates.";
 
 /**

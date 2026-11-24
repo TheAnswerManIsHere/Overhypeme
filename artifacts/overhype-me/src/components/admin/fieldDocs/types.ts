@@ -77,7 +77,6 @@ export interface ValueDoc {
 export type FieldDocKey =
   // Hashtags (the approval step)
   | "finalHashtags"
-  | "aiSuggestedHashtags"
   // Visual Strategy Overrides
   | "vso.panel"
   | "vso.coreSceneOverride"

@@ -4,13 +4,13 @@ import { FinalHashtagsEditor } from "./FinalHashtagsEditor";
 
 describe("FinalHashtagsEditor", () => {
   it("renders the final tags and the empty-state warning when none", () => {
-    render(<FinalHashtagsEditor finalHashtags={[]} onFinalHashtagsChange={vi.fn()} aiSuggestions={[]} />);
+    render(<FinalHashtagsEditor finalHashtags={[]} onFinalHashtagsChange={vi.fn()} />);
     expect(screen.getByTestId("final-hashtags-empty-warning")).toBeTruthy();
   });
 
   it("adds a normalized tag via the input on Enter", () => {
     const onChange = vi.fn();
-    render(<FinalHashtagsEditor finalHashtags={["earth"]} onFinalHashtagsChange={onChange} aiSuggestions={[]} />);
+    render(<FinalHashtagsEditor finalHashtags={["earth"]} onFinalHashtagsChange={onChange} />);
     const input = screen.getByPlaceholderText("Add hashtag…");
     fireEvent.change(input, { target: { value: "#Strength!" } });
     fireEvent.keyDown(input, { key: "Enter" });
@@ -19,30 +19,26 @@ describe("FinalHashtagsEditor", () => {
 
   it("removes a tag via its chip", () => {
     const onChange = vi.fn();
-    render(<FinalHashtagsEditor finalHashtags={["earth", "pushups"]} onFinalHashtagsChange={onChange} aiSuggestions={[]} />);
+    render(<FinalHashtagsEditor finalHashtags={["earth", "pushups"]} onFinalHashtagsChange={onChange} />);
     const chip = screen.getByText("earth").closest("span");
     fireEvent.click(chip!.querySelector("button")!);
     expect(onChange).toHaveBeenCalledWith(["pushups"]);
   });
 
-  it("offers AI suggestions not already in the final list, and pulls one in on +", () => {
-    const onChange = vi.fn();
-    render(
-      <FinalHashtagsEditor
-        finalHashtags={["earth"]}
-        onFinalHashtagsChange={onChange}
-        aiSuggestions={["earth", "legendary"]}
-      />,
-    );
-    // "earth" is already final, so only "legendary" is offered as a source chip.
-    const suggestion = screen.getByTitle("Add to final hashtags");
-    fireEvent.click(suggestion);
-    expect(onChange).toHaveBeenCalledWith(["earth", "legendary"]);
+  // Regression (David, 2026-11-24): hashtags are generated once, by the submit
+  // form's AI where the submitter reviews them. Moderation offered a second,
+  // enrichment-generated set ("AI suggested" + "Add all"), which carried the
+  // placeholder name into tags like "alexpower". The editor offers none.
+  it("offers no AI-suggested tags of its own: generation happens once, on the submit form", () => {
+    render(<FinalHashtagsEditor finalHashtags={["earth"]} onFinalHashtagsChange={vi.fn()} />);
+    expect(screen.queryByText("AI suggested")).toBeNull();
+    expect(screen.queryByText("Add all")).toBeNull();
+    expect(screen.queryByTitle("Add to final hashtags")).toBeNull();
   });
 
   it("rejects a denied tag (subject/app/humor) at Add time instead of adding it", () => {
     const onChange = vi.fn();
-    render(<FinalHashtagsEditor finalHashtags={["earth"]} onFinalHashtagsChange={onChange} aiSuggestions={[]} />);
+    render(<FinalHashtagsEditor finalHashtags={["earth"]} onFinalHashtagsChange={onChange} />);
     const input = screen.getByPlaceholderText("Add hashtag…");
 
     for (const junk of ["alex", "overhype", "funny"]) {
@@ -56,34 +52,5 @@ describe("FinalHashtagsEditor", () => {
     fireEvent.change(input, { target: { value: "space" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onChange).toHaveBeenCalledWith(["earth", "space"]);
-  });
-
-  it("does not offer denied AI suggestions and skips them in 'Add all'", () => {
-    const onChange = vi.fn();
-    render(
-      <FinalHashtagsEditor
-        finalHashtags={[]}
-        onFinalHashtagsChange={onChange}
-        aiSuggestions={["funny", "space", "overhype"]}
-      />,
-    );
-    // Only "space" is a legitimate suggestion chip.
-    expect(screen.queryByText("funny")).toBeNull();
-    expect(screen.queryByText("overhype")).toBeNull();
-    fireEvent.click(screen.getByText("Add all"));
-    expect(onChange).toHaveBeenCalledWith(["space"]);
-  });
-
-  it("'Add all' merges every not-yet-added suggestion", () => {
-    const onChange = vi.fn();
-    render(
-      <FinalHashtagsEditor
-        finalHashtags={["earth"]}
-        onFinalHashtagsChange={onChange}
-        aiSuggestions={["legendary", "pushups"]}
-      />,
-    );
-    fireEvent.click(screen.getByText("Add all"));
-    expect(onChange).toHaveBeenCalledWith(["earth", "legendary", "pushups"]);
   });
 });
