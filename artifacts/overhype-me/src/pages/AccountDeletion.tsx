@@ -5,6 +5,7 @@
 import { AccountStateShell } from "@/components/account/AccountStateShell";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "wouter";
+import { loginHrefFrom } from "@/lib/safe-return-to";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -99,7 +100,7 @@ export default function AccountDeletion() {
             If your account is scheduled for deletion, sign in to keep it. You can do this any time before the date in your email.
           </p>
         )}
-        <Link href={`/login?returnTo=${encodeURIComponent(KEEP_ACCOUNT_PATH)}`}>
+        <Link href={loginHrefFrom(KEEP_ACCOUNT_PATH)}>
           <Button variant={scheduledFor ? "outline" : undefined} className="w-full">Sign in</Button>
         </Link>
         <Link href="/" className="block text-xs text-muted-foreground hover:text-foreground underline">Back to Overhype.me</Link>

@@ -1,4 +1,5 @@
 import { Link, useLocation } from "wouter";
+import { loginHrefHere } from "@/lib/safe-return-to";
 import { Search, User, LogIn } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Button } from "@/components/ui/Button";
@@ -162,7 +163,7 @@ export function Navbar() {
             {isAuthenticated && !authLoading ? (
               <AccountMenuAvatarTrigger avatarUrl={navAvatarUrl} fallbackInitial={accountFallbackInitial} onClick={() => setLocation("/profile")} />
             ) : !isColdMobile ? (
-              <button onClick={() => setLocation("/login")} className="w-8 h-8 rounded-full bg-secondary border border-border flex items-center justify-center text-muted-foreground" aria-label="Sign in">
+              <button onClick={() => setLocation(loginHrefHere())} className="w-8 h-8 rounded-full bg-secondary border border-border flex items-center justify-center text-muted-foreground" aria-label="Sign in">
                 <User className="w-4 h-4" />
               </button>
             ) : null}
@@ -238,7 +239,7 @@ export function Navbar() {
               {!authLoading && (isAuthenticated ? (
                 <AccountMenuAvatarTrigger avatarUrl={navAvatarUrl} fallbackInitial={accountFallbackInitial} onClick={() => setLocation("/profile")} />
               ) : (
-                <Button variant="primary" size="sm" onClick={() => setLocation('/login')} className="gap-2 whitespace-nowrap">
+                <Button variant="primary" size="sm" onClick={() => setLocation(loginHrefHere())} className="gap-2 whitespace-nowrap">
                   <LogIn className="w-4 h-4" /> SIGN IN
                 </Button>
               ))}
