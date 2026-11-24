@@ -61,15 +61,15 @@ async function expectRequiredMarker(page: Page, card: Locator): Promise<void> {
   await expect(header).not.toHaveCSS("color", red);
 }
 
-/** Open the Facts editor on a stubbed fact and expand its gags and AI taxonomy panel. */
+/** Open a stubbed fact's sheet from the Facts list, on its Gags tab. */
 async function openFactEnrichment(page: Page, id: number, text: string): Promise<Locator> {
   await page.goto("/admin/facts");
-  await page.getByText(text, { exact: true }).first().click();
-  await expect(page.getByText(new RegExp(`edit fact #${id}`, "i"))).toBeVisible();
-  const panel = page.getByTestId("fact-enrichment-panel");
-  await panel.getByRole("button", { name: /gags and ai taxonomy/i }).click();
-  await expect(panel.getByTestId("visual-concept-card")).toBeVisible();
-  return panel;
+  await page.getByTestId(`fact-row-${id}`).click();
+  const sheet = page.getByTestId("fact-sheet");
+  await expect(sheet.getByTestId("sheet-wording")).toHaveText(text);
+  await sheet.getByTestId("sheet-tab-gags").click();
+  await expect(sheet.getByTestId("visual-concept-card")).toBeVisible();
+  return sheet;
 }
 
 /** Open a stubbed review that is waiting at moderation Step 2. */
@@ -109,10 +109,10 @@ test.describe("Admin described screens", () => {
         for (const tab of ["Facts", "Utilities"]) {
           await expect(page.locator("main").getByRole("button", { name: tab, exact: true })).toBeVisible();
         }
-        await expect(page.getByPlaceholder("Search facts…")).toBeVisible();
+        await expect(page.getByRole("textbox", { name: "Search facts" })).toBeVisible();
         const show = page.getByRole("combobox", { name: "Show facts" });
         await expect(show).toHaveValue("active");
-        await expect(show.locator("option")).toHaveText(["Active", "Inactive", "Both"]);
+        await expect(show.locator("option")).toHaveText(["Live", "Deactivated", "Both"]);
         // The override filters went with the override system (PLAN_FACT_LIFECYCLE_REBUILD.md, 2A).
         for (const toggle of ["Overridden", "Needs review"]) {
           await expect(page.getByRole("button", { name: toggle, exact: true })).toHaveCount(0);
@@ -245,38 +245,65 @@ test.describe("Admin described screens", () => {
     await expectRequiredMarker(page, panel.getByTestId("visual-concept-card"));
   });
 
-  // PR256 R5 — the Facts editor on a fact shows its usual panels and fields.
-  test("the Facts editor opened on a fact shows its usual panels and fields with no error", async ({ page }) => {
+  // Plan PLAN_FACT_LIFECYCLE_REBUILD.md, items 18–19 (Issue #1018, increment
+  // 3.1): a row carries its needs-attention reasons and opens the fact sheet,
+  // the one editor: four tabs, the Overview's five groups, the old editor's
+  // counters, prompt diagnostics and edit history gone.
+  test("a Facts row shows its reasons and opens the fact sheet: four tabs, five groups, no old editor", async ({ page }) => {
     await stubAdminFacts(page, [{
-      row: adminFactRow({ id: 97101, text: "{NAME} does not sleep. {Subj} {waits|wait}." }),
+      row: adminFactRow({ id: 97101, text: "{NAME} does not sleep. {Subj} {waits|wait}.", attention: ["example_missing", "taxonomy_missing"] }),
       enrichment: enrichmentWithConcept("{NAME} sits awake at dawn while the moon yawns."),
     }]);
     await page.goto("/admin/facts");
-    await page.getByText("{NAME} does not sleep. {Subj} {waits|wait}.", { exact: true }).first().click();
-    const editor = page.locator("main");
-    await expect(editor.getByText(/^edit fact #97101$/i)).toBeVisible();
-    for (const label of [
-      /^id$/i, /^created at$/i, /^updated at$/i, /^caption split$/i, /^text$/i, /^upvotes$/i, /^downvotes$/i,
-      /^score$/i, /^wilson score$/i, /^comment count$/i, /^share count$/i, /^submitted by id$/i,
-    ]) {
-      await expect(editor.getByText(label).first(), `field ${label}`).toBeVisible();
+    const row = page.getByTestId("fact-row-97101");
+    await expect(row.getByTestId("fact-row-97101-reason-example_missing")).toHaveText("Example missing");
+    await expect(row.getByTestId("fact-row-97101-reason-taxonomy_missing")).toHaveText("Taxonomy missing");
+    await expect(page.getByText("Approved facts only.", { exact: false })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Show facts" }).locator("option")).toHaveText(["Live", "Deactivated", "Both"]);
+    await row.click();
+
+    const sheet = page.getByTestId("fact-sheet");
+    await expect(sheet.getByRole("tab")).toHaveText(["Overview", "Reading and taxonomy", "Gags", "Renders"]);
+    for (const g of ["identity", "scoring", "usage", "pictures", "hashtags"]) {
+      await expect(sheet.getByTestId(`sheet-group-${g}`), `group ${g}`).toBeVisible();
     }
-    // Variants are retired (plan PLAN_RETIRE_VARIANTS.md): no parent, use-case or variant control.
-    await expect(editor.getByText(/parent id/i)).toHaveCount(0);
-    await expect(editor.getByText(/^use case$/i)).toHaveCount(0);
-    await expect(editor.getByText(/^variants/i)).toHaveCount(0);
-    await expect(editor.getByRole("button", { name: /add variant/i })).toHaveCount(0);
-    for (const section of ["Gags and AI taxonomy", "Approved text edit history", "Prompt Diagnostics"]) {
-      await expect(editor.getByRole("button", { name: section, exact: true })).toBeVisible();
+    await expect(sheet.getByTestId("sheet-attention")).toContainText("Example missing");
+    // The old editor is gone: no counter boxes, no prompt diagnostics, no edit history, no Save Changes.
+    await expect(page.getByRole("spinbutton")).toHaveCount(0);
+    for (const gone of ["Prompt Diagnostics", "Approved text edit history", "Save Changes"]) {
+      await expect(page.getByRole("button", { name: gone, exact: true }), gone).toHaveCount(0);
     }
-    // The version panel went with the override system (PLAN_FACT_LIFECYCLE_REBUILD.md, 2A).
-    await expect(editor.getByRole("button", { name: /enrichment version history|visual taxonomy enrichment/i })).toHaveCount(0);
-    await expect(editor.getByTestId("fact-enrichment-panel")).toBeVisible();
-    for (const action of ["Save Changes", "Discard", "Cancel", "Deactivate Fact"]) {
-      await expect(editor.getByRole("button", { name: action, exact: true })).toBeVisible();
-    }
+    await expect(page.getByText(/^edit fact #/i)).toHaveCount(0);
+    await sheet.getByTestId("sheet-tab-reading").click();
+    await expect(sheet.getByRole("textbox", { name: "Humor note" })).toBeVisible();
+    await expect(sheet.getByTestId("fact-taxonomy-panel")).toBeVisible();
+    await sheet.getByTestId("sheet-tab-renders").click();
+    await expect(sheet.getByTestId("sheet-renders-read-only")).toBeVisible();
     await expect(page.getByText("Something broke")).toHaveCount(0);
-    await expect(page.getByText(/fact not found/i)).toHaveCount(0);
+  });
+
+  // Plan Phase 3 Definition of Done: "the sheet is usable at phone width".
+  test("the fact sheet fills a phone's screen and its tabs and close button are reachable", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await stubAdminFacts(page, [{
+      row: adminFactRow({ id: 97102, text: "{NAME} counted to infinity. Twice." }),
+      enrichment: enrichmentWithConcept("{NAME} writes the last number on a chalkboard."),
+    }]);
+    await page.goto("/admin/facts");
+    await page.getByTestId("fact-row-97102").click();
+    const sheet = page.getByTestId("fact-sheet");
+    const box = await sheet.boundingBox();
+    expect(box, "the sheet is on screen").not.toBeNull();
+    expect(Math.round(box!.width), "full width").toBe(390);
+    expect(Math.round(box!.height), "full height").toBe(844);
+    const scrollWidth = await sheet.evaluate((el) => el.scrollWidth);
+    expect(scrollWidth, "nothing in the sheet runs off the side").toBeLessThanOrEqual(390);
+    for (const t of ["reading", "gags", "renders", "overview"]) {
+      await sheet.getByTestId(`sheet-tab-${t}`).click();
+      await expect(sheet.getByTestId(`sheet-panel-${t}`)).toBeVisible();
+    }
+    await sheet.getByRole("button", { name: "Close the fact sheet" }).click();
+    await expect(sheet).toHaveCount(0);
   });
 
   // PR687 step 4 (mechanical half) — the moderation page shows the server's refusal and saves nothing.
@@ -306,16 +333,17 @@ test.describe("Admin described screens", () => {
   });
 
   // Plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1F (increment 1.3a): a live fact's
-  // gags are not edited between Phase 1 and Phase 3, so the Facts page shows
-  // them read-only and says where editing comes back; "Draft more gags" is
-  // gone. The save refusal's wording and wrapping are the moderation test's above.
-  test("the Facts page shows a live fact's gags read-only, with no save and no Draft more gags", async ({ page }) => {
+  // gags are not edited until Publish changes (3.2), so the fact sheet's Gags
+  // tab shows them read-only and says where editing comes back; "Draft more
+  // gags" is gone. The save refusal's wording and wrapping are the moderation
+  // test's above.
+  test("the fact sheet shows a live fact's gags read-only, with no save and no Draft more gags", async ({ page }) => {
     await stubAdminFacts(page, [{
       row: adminFactRow({ id: 97201, text: "{NAME} leaps canyons." }),
       enrichment: enrichmentWithConcept("{NAME} leaps a canyon in one stride."),
     }]);
     const panel = await openFactEnrichment(page, 97201, "{NAME} leaps canyons.");
-    await expect(panel.getByTestId("gags-read-only-note")).toContainText("Gags can't be changed here.");
+    await expect(panel.getByTestId("sheet-gags-read-only")).toContainText("Publish changes");
     const gag = panel.getByTestId("gag-card").first();
     await expect(gag).toBeVisible();
     await expect(gag.getByTestId("gag-save")).toHaveCount(0);

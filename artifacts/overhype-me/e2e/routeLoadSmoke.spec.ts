@@ -207,74 +207,46 @@ test.describe("Route-load smoke — no crash/reload loop, no error boundary", ()
 // The dev stack's database holds no live fact and cannot make one: going live
 // takes the AI prep pipeline, and a staging fact's prep never finishes with no
 // AI key. So the facts these tests open are stubbed reads, and their writes
-// are answered by `stubFactWrites` the way `routes/admin.ts` answers them (the
-// wording lock's 409). Bulk import is the exception: it runs
-// against the real server.
+// are answered by `stubFactWrites` the way `routes/admin.ts` answers them.
+// Bulk import is the exception: it runs against the real server.
 import type { Route } from "@playwright/test";
 import { adminFactRow, enrichmentWithConcept, stubAdminFacts, type AdminFactRow } from "./helpers/adminStubs";
-
-interface TextEditEntry {
-  id: number;
-  oldText: string;
-  newText: string;
-  reason: string;
-  createdAt: string;
-  actor: { id: string; name: string | null; email: string | null };
-}
 
 function fulfill(route: Route, body: unknown, status = 200): Promise<void> {
   return route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 }
 
 /**
- * Answers the Facts editor's writes for stubbed facts as the server does: a
- * fact's wording is locked (plan PLAN_THREE_GAGS.md, increment 3), so a PATCH
- * that changes it is refused with WORDING_LOCKED; anything else saves. Rows are
- * mutated in place, so the stubbed list reads back what was saved. `history`
- * seeds the read-only text-edit history from before the lock. Register after
- * `stubAdminFacts`.
+ * Answers the fact sheet's writes for stubbed facts as the server does
+ * (routes/admin.ts; lib/factSheet.ts): the hashtag and humor-note saves, and
+ * Deactivate, which turns the row off so the sheet reads it back deactivated.
+ * Register after `stubAdminFacts`.
  */
-async function stubFactWrites(page: Page, rows: AdminFactRow[], history = new Map<number, TextEditEntry[]>()) {
+async function stubFactWrites(page: Page, rows: AdminFactRow[]) {
   const byId = new Map(rows.map((r) => [r.id, r]));
-  const patches: { id: number; body: Record<string, unknown> }[] = [];
+  const writes: { id: number; method: string; sub: string; body: unknown }[] = [];
   await page.route(/\/api\/admin\/facts\/(\d+)(\/[a-z-]+)?(\?.*)?$/, async (route) => {
     const req = route.request();
     const m = /\/api\/admin\/facts\/(\d+)(\/[a-z-]+)?$/.exec(new URL(req.url()).pathname)!;
     const row = byId.get(Number(m[1]));
-    if (!row) return route.fallback();
-    const sub = m[2] ?? "";
     const method = req.method();
-    if (method === "GET" && sub === "/text-edit-history") {
-      const entries = [...(history.get(row.id) ?? [])].reverse();
-      return fulfill(route, { entries, total: entries.length, limit: 20, offset: 0 });
-    }
-    if (method === "PATCH" && sub === "/enrichment") {
-      const body = req.postDataJSON() as { enrichment: unknown };
-      return fulfill(route, { success: true, enrichment: body.enrichment });
-    }
-    if (method !== "PATCH" || sub !== "") return route.fallback();
-
-    const body = req.postDataJSON() as Record<string, unknown>;
-    patches.push({ id: row.id, body });
-    const { text, ...rest } = body as { text?: string };
-    if (text !== undefined && text.trim() !== row.text) {
-      return fulfill(route, { error: "A fact's wording can't be changed once it is accepted.", code: "WORDING_LOCKED" }, 409);
-    }
-    Object.assign(row, rest);
-    return fulfill(route, { success: true, fact: row });
+    if (!row || method === "GET") return route.fallback();
+    const sub = m[2] ?? "";
+    const body = req.postData() ? req.postDataJSON() : undefined;
+    writes.push({ id: row.id, method, sub, body });
+    if (method === "PUT" && sub === "/hashtags") return fulfill(route, { hashtags: [...(body as { hashtags: string[] }).hashtags].sort() });
+    if (method === "PUT" && sub === "/humor-note") return fulfill(route, { humorNote: { text: (body as { text: string }).text, approvedAt: new Date().toISOString() } });
+    if (method === "DELETE" && sub === "") { row.isActive = false; return fulfill(route, { success: true, deleted: false }); }
+    return route.fallback();
   });
-  return { patches };
+  return { writes };
 }
 
-async function selectFact(page: Page, id: number, text: string): Promise<void> {
-  await page.getByText(text, { exact: true }).first().click();
-  await expect(page.getByText(`Edit Fact #${id}`, { exact: true })).toBeVisible();
-}
-
-/** A fact's wording as the Facts list shows it (the list row, not the edit box). */
-function listedText(page: Page, text: string) {
-  const exact = new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
-  return page.locator("p.line-clamp-2").filter({ hasText: exact });
+async function openSheet(page: Page, id: number, text: string) {
+  await page.getByTestId(`fact-row-${id}`).click();
+  const sheet = page.getByTestId("fact-sheet");
+  await expect(sheet.getByTestId("sheet-wording")).toHaveText(text);
+  return sheet;
 }
 
 test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
@@ -284,16 +256,11 @@ test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
     await page.setViewportSize({ width: 1280, height: 900 });
   });
 
-  test("Three gags, increment 3 — a fact's wording is read-only with the way to replace it; other saves work; the old edit history still reads", async ({ page }) => {
+  test("the fact sheet: the wording is read-only; hashtags and the humor note save at once; the taxonomy keeps Re-run and its history", async ({ page }) => {
     const LIVE = "{NAME} w1 outran the sunrise.";
-    const EARLIER = "{NAME} w1 outran the dawn.";
     const live = adminFactRow({ id: 96201, text: LIVE });
     await stubAdminFacts(page, [{ row: live, enrichment: enrichmentWithConcept("{NAME} sprints past the rising sun.") }]);
-    const history = new Map<number, TextEditEntry[]>([[96201, [{
-      id: 1, oldText: EARLIER, newText: LIVE, reason: "made before the wording lock",
-      createdAt: "2026-10-01T12:00:00.000Z", actor: { id: "dev-admin", name: "Dev Admin", email: null },
-    }]]]);
-    const server = await stubFactWrites(page, [live], history);
+    const server = await stubFactWrites(page, [live]);
     // Its taxonomy run history (increment 2.1b): a failed Re-run after the stored one.
     await page.route("**/api/admin/facts/96201/taxonomy-runs", (route) => route.fulfill({ json: { runs: [
       { id: 2, outcome: "failed", origin: "rerun", output: null, error: "the classifier timed out", requestedByName: "Dee Admin", createdAt: "2026-11-21T10:00:00Z" },
@@ -301,26 +268,29 @@ test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
     ] } }));
 
     await page.goto("/admin/facts");
-    await selectFact(page, 96201, LIVE);
+    const sheet = await openSheet(page, 96201, LIVE);
 
-    // The wording is shown, not offered for editing, with the way to replace it.
-    await expect(page.getByTestId("fact-wording"), "the wording is shown").toHaveText(LIVE);
-    await expect(page.getByText("Text", { exact: true }).locator("xpath=following-sibling::textarea"), "no box edits the wording").toHaveCount(0);
-    await expect(page.getByTestId("fact-wording-locked-note"), "the note says how to replace a wrong wording").toContainText("deactivate this fact and submit the corrected wording as a new fact");
+    // The wording is shown, and no box anywhere on the Overview edits it.
+    const identity = sheet.getByTestId("sheet-group-identity");
+    await expect(identity.locator("input, textarea, select"), "no box edits the wording or the counters").toHaveCount(0);
 
-    // A non-text edit saves at once and sends no wording.
-    await page.getByPlaceholder("user UUID or blank").fill("e2e-submitter");
-    await page.getByRole("button", { name: "Save Changes" }).click();
-    await expect(page.getByText("Saved successfully.", { exact: true }), "the non-text edit saves").toBeVisible();
-    expect(server.patches.at(-1)?.body, "the save sends no text").not.toHaveProperty("text");
-    expect(server.patches.at(-1)?.body, "the save carries the edited field").toHaveProperty("submittedById", "e2e-submitter");
+    // A hashtag added saves at once (plan item 20).
+    const tags = sheet.getByTestId("sheet-group-hashtags");
+    await tags.getByPlaceholder("Add hashtag…").fill("sunrise");
+    await tags.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(sheet.getByTestId("sheet-hashtags-status")).toHaveText("Saved");
+    expect(server.writes.at(-1), "the save sends the whole list").toMatchObject({ method: "PUT", sub: "/hashtags", body: { hashtags: ["legend", "sunrise"] } });
 
-    // The gags and the AI taxonomy are read-only; the taxonomy keeps Re-run
-    // (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 2A).
-    const panel = page.getByTestId("fact-enrichment-panel");
-    await panel.getByRole("button", { name: /gags and ai taxonomy/i }).click();
-    await expect(panel.getByTestId("visual-concept-card")).toBeVisible();
-    const taxonomy = panel.getByTestId("fact-taxonomy-panel");
+    // The humor note saves at once, and says the gags stay as they are.
+    await sheet.getByTestId("sheet-tab-reading").click();
+    await expect(sheet.getByTestId("sheet-humor-note")).toContainText("the published gags stay as they are");
+    await sheet.getByRole("textbox", { name: "Humor note" }).fill("The sun is the one losing.");
+    await sheet.getByTestId("sheet-save-note").click();
+    await expect(sheet.getByTestId("sheet-humor-note")).toContainText("Saved");
+    expect(server.writes.at(-1)).toMatchObject({ method: "PUT", sub: "/humor-note", body: { text: "The sun is the one losing." } });
+
+    // The AI taxonomy is read-only and keeps Re-run (plan 2A) and its history.
+    const taxonomy = sheet.getByTestId("fact-taxonomy-panel");
     await expect(taxonomy.getByTestId("taxonomy-summary"), "the stored taxonomy is shown").toBeVisible();
     await expect(taxonomy.getByTestId("taxonomy-rerun"), "the taxonomy keeps Re-run").toBeEnabled();
     const runs = taxonomy.getByTestId("taxonomy-run");
@@ -328,17 +298,10 @@ test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
     await expect(runs.first(), "newest first, with who asked").toContainText("Failed");
     await expect(runs.first()).toContainText("Re-run, by Dee Admin");
     await expect(runs.first().getByTestId("taxonomy-run-error")).toHaveText("the classifier timed out");
-    await expect(panel.getByPlaceholder("Add hashtag…"), "no box edits the AI's hashtags").toHaveCount(0);
-    await expect(panel.getByRole("button", { name: /save enrichment|revert to ai/i }), "nothing saves or overrides the taxonomy").toHaveCount(0);
-
-    // An edit made before the lock still reads in the history.
-    await page.getByTestId("fact-text-edit-history-toggle").click();
-    const entry = page.getByTestId("fact-text-edit-history-toggle").locator("xpath=..").locator("li").first();
-    await expect(entry.getByText(EARLIER, { exact: true }), "the history shows the earlier wording").toHaveCSS("text-decoration-line", "line-through");
-    await expect(entry.getByText(`→ ${LIVE}`, { exact: true }), "the history shows the wording it became").toBeVisible();
+    await expect(taxonomy.getByRole("button", { name: /save enrichment|revert to ai/i }), "nothing saves or overrides the taxonomy").toHaveCount(0);
   });
 
-  test("PR242 7 — an active fact offers Deactivate; neither offers Send Back or Resubmit (removed, plan PLAN_FACT_LIFECYCLE_REBUILD.md 1H); no variant controls", async ({ page }) => {
+  test("PR242 7 — a live fact's sheet offers Deactivate; a deactivated one offers none, and neither offers Send Back or Resubmit (plan 1H)", async ({ page }) => {
     const ROOT = "{NAME} w1 juggles thunderstorms.";
     const INACTIVE = "{NAME} w1 once out-stared a glacier.";
     const root = adminFactRow({ id: 96301, text: ROOT });
@@ -347,39 +310,28 @@ test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
       { row: root, enrichment: enrichmentWithConcept("{NAME} tosses three storm clouds.") },
       { row: inactive, enrichment: enrichmentWithConcept("{NAME} glares at an iceberg.") },
     ]);
-    await stubFactWrites(page, [root, inactive]);
+    const server = await stubFactWrites(page, [root, inactive]);
 
     await page.goto("/admin/facts");
-    await selectFact(page, 96301, ROOT);
-
-    // An active fact offers Deactivate, and no Send Back to Review or Resubmit.
-    await expect(page.getByTestId("deactivate-fact-button"), "an active fact can be deactivated").toHaveText("Deactivate Fact");
+    let sheet = await openSheet(page, 96301, ROOT);
+    await expect(sheet.getByTestId("sheet-status")).toHaveText("Live");
     await expect(page.getByTestId("send-back-button"), "Send Back to Review is removed").toHaveCount(0);
     await expect(page.getByTestId("resubmit-for-moderation-button"), "Resubmit for Moderation is removed").toHaveCount(0);
     // The confirmation says Deactivate is one-way for now, before the admin presses it.
-    await page.getByTestId("deactivate-fact-button").click();
-    await expect(page.getByText(/can't be reactivated from the admin yet/), "the confirmation says there is no way back yet").toBeVisible();
-    await page.getByTestId("deactivate-fact-confirm").locator("..").getByRole("button", { name: "Cancel", exact: true }).click();
-    // Variants are retired (plan PLAN_RETIRE_VARIANTS.md): no way to add one, and no nesting in the list.
-    await expect(page.getByRole("button", { name: /add variant/i })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: /expand variants/i })).toHaveCount(0);
+    await sheet.getByTestId("deactivate-fact-button").click();
+    await expect(sheet.getByTestId("sheet-deactivate-confirm")).toContainText("can't be reactivated from the admin yet");
+    await sheet.getByTestId("deactivate-fact-confirm").click();
+    await expect(sheet.getByTestId("sheet-status"), "the sheet reads the fact back deactivated").toHaveText("Deactivated");
+    expect(server.writes.at(-1)).toMatchObject({ id: 96301, method: "DELETE", sub: "" });
+    await expect(sheet.getByTestId("deactivate-fact-button"), "a deactivated fact is not offered Deactivate").toHaveCount(0);
+    await sheet.getByRole("button", { name: "Close the fact sheet" }).click();
 
-    // An inactive fact has no route back yet (Reactivate arrives with the fact sheet), and nothing to deactivate.
-    await selectFact(page, 96302, INACTIVE);
-    await expect(page.getByTestId("resubmit-for-moderation-button"), "Resubmit for Moderation is removed").toHaveCount(0);
-    await expect(page.getByTestId("send-back-button")).toHaveCount(0);
-    await expect(page.getByTestId("deactivate-fact-button"), "an inactive fact is not offered Deactivate").toHaveCount(0);
-
-    // Step 7: the editor refuses the toggle itself and says why, so no false→true save can be sent.
-    // It names no route back: moderation no longer reactivates a fact (plan PLAN_FACT_LIFECYCLE_REBUILD.md 1H).
-    const activeToggle = page.getByTitle("Deactivated — can't be reactivated yet");
-    await expect(activeToggle, "PR242 step 7: toggling an inactive fact Active is refused").toBeDisabled();
-    await expect(
-      page.getByText("A deactivated fact can't be reactivated from the admin yet.", { exact: true }),
-      "PR242 step 7: the refusal says there is no way back yet",
-    ).toBeVisible();
+    sheet = await openSheet(page, 96302, INACTIVE);
+    await expect(sheet.getByTestId("sheet-status")).toHaveText("Deactivated");
+    await expect(sheet.getByTestId("deactivate-fact-button")).toHaveCount(0);
+    await expect(page.getByTestId("resubmit-for-moderation-button")).toHaveCount(0);
     await expect(page.getByText(/through moderation|re-moderate/i), "no hint points at a removed route").toHaveCount(0);
-
+    await expect(page.getByRole("button", { name: /add variant/i })).toHaveCount(0);
   });
 
   // Plan PLAN_FACT_LIFECYCLE_REBUILD.md, item 1 (Issue #1018, increment 1.4):
