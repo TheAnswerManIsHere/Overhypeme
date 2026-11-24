@@ -53,16 +53,16 @@
     "temperature": 0.7
   },
   "fingerprint": "c3ca894ad323d13878db4f448d09da99f26c661c3a6f816d34b8b400103922ee",
-  "recordedAt": "2026-11-24T05:59:07.871Z",
+  "recordedAt": "2026-11-24T23:56:07.417Z",
   "clients": {
     "@fal-ai/client": "1.9.5",
     "openai": "6.33.0"
   },
   "target": "gpt-6-luna",
   "response": {
-    "id": "recorded-10",
+    "id": "recorded-5",
     "object": "chat.completion",
-    "created": 1795499947,
+    "created": 1795564566,
     "model": "gpt-6-luna",
     "choices": [
       {
