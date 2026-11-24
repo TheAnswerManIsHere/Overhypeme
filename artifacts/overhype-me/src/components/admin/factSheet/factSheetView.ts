@@ -59,7 +59,8 @@ export interface FactSheetView {
   hasUnpublishedChanges: boolean;
   reviewId: number | null;
   hashtags: string[];
-  usage: { memes: number; aiPictures: number };
+  /** What members have attached, as the delete counts it: every meme, AI picture and comment row, whatever a comment's review status. */
+  usage: { memes: number; aiPictures: number; comments: number };
   pictures: FactSheetGagPictures[];
   reading: ReviewReadingView & { approvedByName: string | null };
 }

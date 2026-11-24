@@ -216,7 +216,8 @@ function OverviewTab({ fact, hashtags }: { fact: FactSheetView; hashtags: Hashta
 
       <Group title="Usage" testId="sheet-group-usage">
         <Fields>
-          <Field label="Comments" mono>{fact.commentCount}</Field>
+          <Field label="Approved comments" mono>{fact.commentCount}</Field>
+          <Field label="All comments, any status" mono>{fact.usage.comments}</Field>
           <Field label="Shares" mono>{fact.shareCount}</Field>
           <Field label="Member memes" mono>{fact.usage.memes}</Field>
           <Field label="Member AI pictures" mono>{fact.usage.aiPictures}</Field>
@@ -431,11 +432,14 @@ const ACTION_DONE: Record<FactLifecycleAction, string> = {
 };
 
 /** What members have attached to the fact, in words, or null when nothing is: a permanent delete is refused while anything is (plan 3B). */
-export function attachedWords(fact: Pick<FactSheetView, "usage" | "commentCount">): string | null {
+export function attachedWords(fact: Pick<FactSheetView, "usage">): string | null {
+  // usage counts every comment row, as the delete does, not the public
+  // counter of approved comments (commentCount).
+  const { memes, aiPictures, comments } = fact.usage;
   const parts = [
-    fact.usage.memes ? `${fact.usage.memes} meme${fact.usage.memes === 1 ? "" : "s"}` : null,
-    fact.usage.aiPictures ? `${fact.usage.aiPictures} AI picture${fact.usage.aiPictures === 1 ? "" : "s"}` : null,
-    fact.commentCount ? `${fact.commentCount} comment${fact.commentCount === 1 ? "" : "s"}` : null,
+    memes ? `${memes} meme${memes === 1 ? "" : "s"}` : null,
+    aiPictures ? `${aiPictures} AI picture${aiPictures === 1 ? "" : "s"}` : null,
+    comments ? `${comments} comment${comments === 1 ? "" : "s"}` : null,
   ].filter((p): p is string => p != null);
   return parts.length ? joinWithAnd(parts) : null;
 }
