@@ -286,7 +286,7 @@ export function PhotoCropEditor({
       </div>
 
       <p className="text-center text-xs text-muted-foreground">
-        Drag to move, pinch or slide to zoom. What's in the circle is your photo.
+        Drag to move, pinch or slide to zoom. The whole square is saved: your picture shows the circle, and memes use the square.
       </p>
 
       {error && <p className="text-destructive text-sm font-medium text-center">{error}</p>}

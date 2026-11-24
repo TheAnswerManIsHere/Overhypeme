@@ -1083,7 +1083,7 @@ export default function Profile() {
               <DialogContent className="max-w-sm" data-testid="profile-photo-crop-dialog">
                 <DialogTitle className="font-display uppercase tracking-tight">Frame your photo</DialogTitle>
                 <DialogDescription className="text-xs">
-                  Memes use the square inside the circle.
+                  Put your face in the circle.
                 </DialogDescription>
                 {cropFile && (
                   <PhotoCropEditor
