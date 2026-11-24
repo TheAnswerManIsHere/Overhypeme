@@ -77,3 +77,16 @@ export function loginHrefHere(): string {
 export function returnToFromSearch(search: string): string {
   return getSafeReturnTo(new URLSearchParams(search).get("returnTo")) ?? "/";
 }
+
+/** Where set-up ends when a sign-up recorded no page to return to (as before Issue #1203). */
+const PROFILE_AFTER_VERIFY = "/profile?emailVerified=1";
+
+/**
+ * Onboarding after an email is verified, ending on the page the sign-up came
+ * from when the server handed one back (Issue #1203, Q6), re-checked here, and
+ * on the profile otherwise. `verified=1` lets onboarding count it once.
+ */
+export function onboardAfterVerify(returnTo: unknown): string {
+  const destination = getSafeReturnTo(returnTo) ?? PROFILE_AFTER_VERIFY;
+  return `/onboard?returnTo=${encodeURIComponent(destination)}&verified=1`;
+}

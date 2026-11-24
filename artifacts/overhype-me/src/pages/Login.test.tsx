@@ -68,3 +68,33 @@ describe("Login — a suspended account can reach support (#1099)", () => {
     expect(supportLink()).toBeNull();
   });
 });
+
+describe("Login — an email sign-up carries the page it started from (Issue #1203)", () => {
+  async function registerFrom(search: string) {
+    window.history.replaceState(null, "", `/login${search}`);
+    fetchMock.mockReturnValue(answer(201, { user: { id: "u1", email: "sam@example.com" } }));
+    render(<Login />);
+    fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+    fireEvent.change(screen.getByPlaceholderText("your@email.com"), { target: { value: "sam@example.com" } });
+    fireEvent.change(screen.getByPlaceholderText("First"), { target: { value: "Sam" } });
+    fireEvent.change(screen.getByPlaceholderText("Last"), { target: { value: "Lee" } });
+    fireEvent.change(screen.getByPlaceholderText("Min 8 characters"), { target: { value: "hunter2222" } });
+    fireEvent.submit(document.querySelector("form")!);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/auth/register");
+    return JSON.parse(String(init.body)) as Record<string, unknown>;
+  }
+
+  it("sends the safe `from` page with the registration", async () => {
+    expect((await registerFrom("?from=%2Ffact%2F42%3Fname%3DSam")).returnTo).toBe("/fact/42?name=Sam");
+  });
+
+  it("sends no page when there is none", async () => {
+    expect((await registerFrom("")).returnTo).toBeUndefined();
+  });
+
+  it("sends no page for an off-site `from`", async () => {
+    expect((await registerFrom("?from=https%3A%2F%2Fevil.com")).returnTo).toBeUndefined();
+  });
+});

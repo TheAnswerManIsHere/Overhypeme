@@ -50,7 +50,11 @@ Every link to the login page carries the page you were on, so signing in
 takes you back there (David, 2026-11-21): the Sign In button in the top bar,
 the prompts to comment, rate or heart, the pricing page, the activity feed,
 the shared-meme page and "sign in to keep" an account scheduled for
-deletion. A new Google or Apple account carries it through set-up too. Only
+deletion. A new Google or Apple account carries it through set-up too, and
+so does a new account made with an email and password: the page is saved
+with the account when you sign up, so the confirmation link brings you back
+to it after set-up even if you open it on your phone, and a resent link does
+the same. Only
 the home page and the sign-in pages themselves (forgot password, check your
 email and the like) carry nothing, and those land on the home page. That
 destination is only ever a page on our own site. Anything else — another
