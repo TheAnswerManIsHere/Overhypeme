@@ -70,6 +70,22 @@ const TABLE: ReadonlyArray<readonly [string, string]> = [
   ["don't say 'no'", "Don't say 'no.'"],
   ["the Joneses' dog said 'hi'", "The Joneses' dog said 'hi.'"],
   ["{NAME}'s dog", "{NAME}'s dog."],
+  // End: a trailing bracket is matched to its own opener (PR #1213 round 1)
+  ["(unlike others) {NAME} can divide by zero (really)", "(Unlike others) {NAME} can divide by zero (really)."],
+  ["({NAME} wins) (really)", "({NAME} wins) (really)."],
+  ["({NAME} wins (really))", "({NAME} wins (really).)"],
+  ["(({NAME} wins) twice)", "(({NAME} wins) twice.)"],
+  ["[{NAME} wins (really)]", "[{NAME} wins (really).]"],
+  ["[(a) b] c (d)", "[(A) b] c (d)."],
+  ['{NAME} said ("no")', '{NAME} said ("no").'],
+  ["{NAME} wins :)", "{NAME} wins :)."],
+  // End: a mark already inside a trailing bracket is kept, with nothing added
+  ["{NAME} counted to infinity. (Twice.)", "{NAME} counted to infinity. (Twice.)"],
+  ["{NAME} can divide by zero (yes, really!)", "{NAME} can divide by zero (yes, really!)"],
+  ["{NAME} wins. [Citation needed.]", "{NAME} wins. [Citation needed.]"],
+  ["(unlike others) {NAME} counted to infinity. (Twice.)", "(Unlike others) {NAME} counted to infinity. (Twice.)"],
+  ['{NAME} said (and meant "no!")', '{NAME} said (and meant "no!")'],
+  ["{NAME} won (🏆)", "{NAME} won (🏆)"],
 ];
 
 describe("applyHouseStyle — the rule table", () => {

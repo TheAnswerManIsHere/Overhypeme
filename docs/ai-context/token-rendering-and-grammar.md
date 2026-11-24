@@ -229,11 +229,14 @@ the server and the submit page:
   (`{does|do}` → `{Does|Do}`); `{NAME}`, digits and symbols are left; a
   brand-style first word with a capital inside it (`iPhone`, `eBay`) is left
   as written (Q3).
-- **End:** `.` `!` `?` `…` are kept; a trailing `,` `;` `:` becomes `.` (Q5);
-  an emoji ending is left as written (Q4); anything else gets a `.`, inside
-  closing quotes (`said "no."`), after a bracket that closes a phrase
-  (`zero (really).`), inside a bracket that wraps the whole fact (`("no.")`),
-  and never inside a token. A final `'` is a closing quote only when an
+- **End:** whether a mark is already there is read behind every trailing
+  closing quote and bracket, so `.` `!` `?` `…` there are kept, including one
+  inside a final aside (`(Twice.)`, `(yes, really!)`); an emoji ending is left
+  as written (Q4); a trailing `,` `;` `:` becomes `.` (Q5); anything else gets
+  a `.`, inside closing quotes (`said "no."`), after a bracket that closes a
+  phrase (`zero (really).`), inside a bracket only when that bracket's own
+  opener begins the fact (`("no.")`, `({NAME} wins (really).)`), and never
+  inside a token. A closer with no opener is not a bracket (`:)` → `:).`). A final `'` is a closing quote only when an
   earlier opening single quote is unclosed; otherwise it is an apostrophe
   (`the Joneses'.`).
 - **Nothing between** the first letter and the ending changes.

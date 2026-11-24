@@ -482,9 +482,9 @@ export function applyDeterministicGrammar(template: string): string {
 const HOUSE_STYLE_OPENERS = new Set(['"', "'", "“", "‘", "(", "[", "«", "¿", "¡"]);
 /** Closing quotes, always set aside to find a fact's last character. */
 const HOUSE_STYLE_CLOSING_QUOTES = new Set(['"', "”", "»"]);
-/** Closing brackets, set aside only when the matching opener wraps the whole
- *  fact (`("no")` → `("no.")`); a bracket closing a phrase takes the period
- *  after it (`zero (really)` → `zero (really).`). */
+/** Closing brackets, set aside only when their own opener begins the fact
+ *  (`("no")` → `("no.")`); a bracket closing a phrase takes the period after
+ *  it (`zero (really)` → `zero (really).`). */
 const HOUSE_STYLE_CLOSING_BRACKETS: Readonly<Record<string, string>> = { ")": "(", "]": "[" };
 const HOUSE_STYLE_TERMINAL = new Set([".", "!", "?", "…"]);
 /** A trailing mark that a period replaces (Q5). */
@@ -557,27 +557,48 @@ function closesSingleQuote(text: string, pos: number): boolean {
   return open > 0;
 }
 
+/** The index of the opener a closing bracket at `pos` closes, nesting
+ *  respected, or -1 when it closes none (the `)` of `:)`). */
+function matchingOpener(text: string, pos: number): number {
+  const close = text[pos]!;
+  const open = HOUSE_STYLE_CLOSING_BRACKETS[close]!;
+  let depth = 0;
+  for (let i = pos; i >= 0; i--) {
+    if (text[i] === close) depth++;
+    else if (text[i] === open && --depth === 0) return i;
+  }
+  return -1;
+}
+
 function houseStyleEnd(text: string): string {
   let lead = 0;
   while (lead < text.length && HOUSE_STYLE_OPENERS.has(text[lead]!)) lead++;
-  const leadingOpeners = text.slice(0, lead);
+  const closesQuote = (pos: number): boolean => {
+    const c = text[pos]!;
+    return HOUSE_STYLE_CLOSING_QUOTES.has(c) || ((c === "'" || c === "’") && closesSingleQuote(text, pos));
+  };
+  const isBracket = (pos: number): boolean => text[pos]! in HOUSE_STYLE_CLOSING_BRACKETS;
+
+  // Is a mark already there? Asked behind every trailing closing quote and
+  // bracket (the table's step 3), so `(Twice.)` and `(yes, really!)` are left.
+  let probe = text.length;
+  while (probe > 0 && (closesQuote(probe - 1) || isBracket(probe - 1))) probe--;
+  if (probe === 0) return text;
+  if (HOUSE_STYLE_TERMINAL.has(text[probe - 1]!)) return text;
+  if (HOUSE_STYLE_EMOJI_END_RE.test(text.slice(0, probe))) return text; // Q4
+
+  // Where a new mark goes: inside closing quotes, and inside a bracket only
+  // when its own opener begins the fact (`("no.")`); after any other bracket
+  // (`(unlike others) … (really).`).
   let end = text.length;
   while (end > 0) {
-    const c = text[end - 1]!;
-    const wrappingBracket = c in HOUSE_STYLE_CLOSING_BRACKETS && leadingOpeners.includes(HOUSE_STYLE_CLOSING_BRACKETS[c]!);
-    if (HOUSE_STYLE_CLOSING_QUOTES.has(c) || wrappingBracket || ((c === "'" || c === "’") && closesSingleQuote(text, end - 1))) {
-      end--;
-      continue;
-    }
+    const wraps = isBracket(end - 1) && (() => { const o = matchingOpener(text, end - 1); return o >= 0 && o < lead; })();
+    if (closesQuote(end - 1) || wraps) { end--; continue; }
     break;
   }
-  if (end === 0) return text;
   const body = text.slice(0, end);
   const tail = text.slice(end);
-  const last = body[body.length - 1]!;
-  if (HOUSE_STYLE_TERMINAL.has(last)) return text;
-  if (HOUSE_STYLE_EMOJI_END_RE.test(body)) return text; // Q4
-  if (HOUSE_STYLE_REPLACED_ENDING.has(last)) return `${body.slice(0, -1)}.${tail}`; // Q5
+  if (HOUSE_STYLE_REPLACED_ENDING.has(body[body.length - 1]!)) return `${body.slice(0, -1)}.${tail}`; // Q5
   return `${body}.${tail}`;
 }
 
