@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { profilePictureUrl } from "../lib/profilePicture";
 import { z } from "zod";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
@@ -154,7 +155,8 @@ router.get("/admin/users", requireAdmin, async (req: Request, res: Response) => 
     db.select({ total: count() }).from(usersTable).where(where),
   ]);
 
-  res.json({ users, total, page, limit });
+  // The same picture rule as every other surface: the uploaded photo or none.
+  res.json({ users: users.map((u) => ({ ...u, profileImageUrl: profilePictureUrl(u.profileImageUrl) })), total, page, limit });
 });
 
 router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Response) => {

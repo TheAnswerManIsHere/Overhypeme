@@ -130,10 +130,10 @@ describe("union semantics", () => {
   });
 
   it("the admin overlay ADDS rather than replaces", async () => {
-    // `custom_avatar` is off for registered and on for admin, so a registered
-    // admin gets it purely from the overlay.
-    assert.equal(await can(registered, "custom_avatar"), false);
-    assert.equal(await can(registeredAdmin, "custom_avatar"), true);
+    // `meme_private_visibility` is off for registered and on for admin, so a
+    // registered admin gets it purely from the overlay.
+    assert.equal(await can(registered, "meme_private_visibility"), false);
+    assert.equal(await can(registeredAdmin, "meme_private_visibility"), true);
   });
 
   it("turning the admin row off does not remove what the account's own tier grants", async () => {

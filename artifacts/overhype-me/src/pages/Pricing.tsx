@@ -10,15 +10,15 @@ import { isReadOnlyNow } from "@/lib/readOnlyNotice";
 
 // Pricing framing: Free is the whole loop (browse, vote, submit, make and share
 // memes with your own photo); Legendary is the perks the entitlement grid
-// grants it — private memes, no CAPTCHAs, higher limits, a photo avatar, no
-// ads. AI memes of you went with PuLID (launch Phase 4, removal 3), so nothing
+// grants it — private memes, no CAPTCHAs, higher limits, no ads. Your own
+// photo as your picture is free for everyone (plan PLAN_PHOTO_IS_YOUR_PICTURE.md). AI memes of you went with PuLID (launch Phase 4, removal 3), so nothing
 // here sells them.
 const FREE_FEATURES = [
   { icon: <Check className="w-4 h-4" />,         text: "Browse all Facts" },
   { icon: <ThumbsUp className="w-4 h-4" />,      text: "Vote on Facts" },
   { icon: <Send className="w-4 h-4" />,          text: "Submit Facts (with CAPTCHA)" },
   { icon: <MessageSquare className="w-4 h-4" />, text: "Leave Comments (with CAPTCHA)" },
-  { icon: <UserCircle className="w-4 h-4" />,    text: "Profile Photo (your face, reused everywhere)" },
+  { icon: <UserCircle className="w-4 h-4" />,    text: "Your photo as your picture (your face, reused everywhere)" },
   { icon: <Image className="w-4 h-4" />,         text: "Photo Memes (your own photo behind the fact)" },
   { icon: <Share2 className="w-4 h-4" />,        text: "Share Memes" },
 ];
@@ -26,7 +26,6 @@ const FREE_FEATURES = [
 const LEGENDARY_FEATURES = [
   { icon: <Check className="w-4 h-4" />,        text: "Everything in Free" },
   { icon: <Lock className="w-4 h-4" />,         text: "Private memes, only you can see them" },
-  { icon: <UserCircle className="w-4 h-4" />,   text: "Your photo as your avatar" },
   { icon: <ShieldOff className="w-4 h-4" />,    text: "No CAPTCHAs" },
   { icon: <CalendarDays className="w-4 h-4" />, text: "Fact of the Day email" },
 ];
@@ -154,7 +153,7 @@ export default function Pricing() {
             Make every meme<br /><span className="text-primary">yours alone.</span>
           </h1>
           <p className="text-[15px] text-muted-foreground mb-10 leading-relaxed max-w-sm">
-            Keep memes private, skip the CAPTCHAs, post at higher limits, and wear your own photo as your avatar.
+            Keep memes private, skip the CAPTCHAs, post at higher limits, and see no ads.
           </p>
 
           {/* Perk cards */}

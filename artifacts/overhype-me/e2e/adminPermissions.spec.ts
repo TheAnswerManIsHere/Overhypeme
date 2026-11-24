@@ -18,11 +18,9 @@
  *                   tier does not, and revoking it takes the capability away
  *
  * Deliberately NOT asserted, so the names do not outrun the assertions:
- *   - Steps 1-3 name `custom_avatar`, observed on Profile's Photo pill. That
- *     pill only renders for an account with a `profileImageUrl`, which needs
- *     object storage. This file proves the same MECHANISM on a different
- *     feature key (`comment_captcha_bypass`); `custom_avatar`'s own wiring
- *     is not covered here.
+ *   - Steps 1-3 named `custom_avatar`, which is retired with the avatar
+ *     system (plan PLAN_PHOTO_IS_YOUR_PICTURE.md). This file proves the same
+ *     MECHANISM on `comment_captcha_bypass`.
  *   - Step 6 says "the site reloads as a registered user would see it". What is
  *     asserted is that the resolver's answer for this session becomes the
  *     non-admin answer AND that one gated product surface (the comment form's
@@ -58,7 +56,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { FREE_ACCOUNT, PAID_ACCOUNT, TEST_ACCOUNT_PASSWORD, csrfToken, signInThroughForm } from "./helpers/testAccounts";
+import { FREE_ACCOUNT, TEST_ACCOUNT_PASSWORD, csrfToken, signInThroughForm } from "./helpers/testAccounts";
 import { factDetail, stubPublicFacts } from "./helpers/apiStubs";
 
 /**
@@ -443,34 +441,10 @@ async function withStoredPhoto(page: Page) {
   await page.route(`**${STUB_PHOTO_URL}`, (route) => route.fulfill({ contentType: "image/jpeg", body: FIXTURE_PHOTO }));
 }
 
-/** The real stored avatar selection, read and written as the signed-in account. */
-async function avatarSource(page: Page): Promise<string> {
-  const res = await page.context().request.get("/api/users/me");
-  expect(res.ok()).toBe(true);
-  return String((await res.json()).avatarSource ?? "avatar");
-}
-async function setAvatarSource(page: Page, value: string) {
-  const res = await page.context().request.patch("/api/users/me", {
-    headers: { "X-CSRF-Token": await csrfToken(page) },
-    data: { avatarSource: value },
-  });
-  expect(res.ok(), `PATCH avatarSource=${value} -> ${res.status()}`).toBe(true);
-}
-
-/** Opens Profile's editor, where the Profile Photo section and its Avatar / Photo pills live on desktop. */
-async function openProfileEditor(page: Page) {
-  await page.goto("/profile", { waitUntil: "domcontentloaded" });
-  await page.getByRole("button", { name: "Edit Profile" }).filter({ visible: true }).click();
-  await expect(page.getByText("Profile Photo", { exact: false }).filter({ visible: true }).first()).toBeVisible();
-}
-
-const unlockedPhotoPill = (page: Page) => page.locator('button[title="Use custom photo"]').filter({ visible: true });
-const lockedPhotoPill = (page: Page) => page.locator('button[title="Custom photo avatars are a Legendary feature"]').filter({ visible: true });
 /** The header's avatar image (the control that opens Profile). */
 const headerAvatar = (page: Page) => page.getByRole("button", { name: "Open your profile" }).filter({ visible: true }).locator("img");
 /** Profile's own large avatar on desktop. */
 const profileAvatar = (page: Page) => page.locator("img.rounded-full.object-cover").filter({ visible: true }).first();
-const GENERATED_ICON = /^https:\/\/api\.dicebear\.com\//;
 
 /**
  * The resolver's answer for one feature, for this session. Read through the
@@ -497,41 +471,6 @@ test.describe("7b — Admin permissions on the features the steps name (PR425, P
   test.beforeEach(() => { captured = []; });
   test.afterEach(async ({ page }) => {
     if (captured.length > 0) await restoreCapturedCells(page);
-  });
-
-  // PR425 steps 1, 2, 3 and 5, on custom_avatar itself.
-  test("the Admin cell alone grants a registered-tier admin the custom-avatar photo, and unchecking it takes it away", async ({ page }) => {
-    await loginAsAdmin(page);
-    const tier = await adminRowOnlyGrants(page, "custom_avatar");
-    expect(tier, "steps 1 and 5 are about a registered-tier admin").toBe("registered");
-    await withStoredPhoto(page);
-    const before = await avatarSource(page);
-    try {
-      // Step 1 — available through the Admin row; selecting it works.
-      await openProfileEditor(page);
-      await expect(unlockedPhotoPill(page), "PR425 step 1: the custom-avatar option should be available to the admin").toBeVisible();
-      await unlockedPhotoPill(page).click();
-      await expect(headerAvatar(page), "selecting the photo should show it as the avatar").toHaveAttribute("src", STUB_PHOTO_URL);
-
-      // Steps 2 and 5 — the Admin cell off, the registered tier off: refused, generated icon.
-      await toggleGridCellInUi(page, "disable", "Custom Avatar Photo");
-      await openProfileEditor(page);
-      await expect(lockedPhotoPill(page), "PR425 step 2: with the Admin cell off the custom-avatar selection should be refused (locked)").toBeVisible();
-      await expect(unlockedPhotoPill(page)).toHaveCount(0);
-      await expect(
-        lockedPhotoPill(page).locator("svg.lucide-crown"),
-        "PR425 step 5: with only its own Admin cell off, the registered-tier admin's option is gone behind the Legendary lock",
-      ).toHaveCount(1);
-      await expect(headerAvatar(page), "PR425 step 2: the avatar should fall back to the generated icon").toHaveAttribute("src", GENERATED_ICON);
-      await expect(profileAvatar(page), "PR425 step 2: ...on Profile too").toHaveAttribute("src", GENERATED_ICON);
-
-      // Step 3 — re-checked: available again.
-      await toggleGridCellInUi(page, "enable", "Custom Avatar Photo");
-      await openProfileEditor(page);
-      await expect(unlockedPhotoPill(page), "PR425 step 3: re-checking the Admin cell should make the option available again").toBeVisible();
-    } finally {
-      await setAvatarSource(page, before);
-    }
   });
 
   // PR425 steps 6, 10 and 12, and R8.
@@ -590,7 +529,7 @@ test.describe("7b — Admin permissions on the features the steps name (PR425, P
 
   // PR472 R7 (both halves), PR425 steps 6 (the registered half), 17 and 20, and
   // PR242 step 1 — all as the ordinary free account, signed in once.
-  test("the free account: refused at /admin/help, photo withheld and its selection refused, and a submission confirmed", async ({ page, browser }) => {
+  test("the free account: refused at /admin/help, its stored photo is its picture, and a submission confirmed", async ({ page, browser }) => {
     await page.context().clearCookies();
     await page.goto("/admin/help", { waitUntil: "domcontentloaded" });
     await expect(page.getByRole("heading", { name: "Access Denied" }), "PR472 R7: /admin/help signed out shows Access Denied").toBeVisible({ timeout: 30_000 });
@@ -605,18 +544,16 @@ test.describe("7b — Admin permissions on the features the steps name (PR425, P
     const adminCsrf = (await admin.cookies()).find((c) => c.name === "csrf_token")?.value ?? "";
     let reviewId: number | null = null;
     try {
-      // PR425 step 20 — a stored, unselected photo: the account's own Profile shows the generated icon.
+      // A free member's stored photo is their picture, in the header and on
+      // Profile (plan PLAN_PHOTO_IS_YOUR_PICTURE.md; it replaced PR425 steps
+      // 17, 18 and 20, which tested the retired Legendary photo avatar).
       await withStoredPhoto(page);
       await page.goto("/profile", { waitUntil: "domcontentloaded" });
       await expect(page.getByRole("button", { name: "Edit Profile" }).filter({ visible: true })).toBeVisible();
-      await expect(profileAvatar(page), "PR425 step 20: the account's own Profile should show the generated icon").toHaveAttribute("src", GENERATED_ICON);
+      await expect(profileAvatar(page), "a free member's Profile shows their photo").toHaveAttribute("src", STUB_PHOTO_URL);
+      await expect(headerAvatar(page), "...and so does the header").toHaveAttribute("src", STUB_PHOTO_URL);
       // PR425 step 6's comparison: a registered member's Profile has no Admin Panel.
       await expect(page.getByRole("button", { name: "Admin Panel" }), "a registered member's Profile shows no Admin Panel").toHaveCount(0);
-
-      // PR425 step 17 — selecting the photo is refused with the upgrade path, not a silent no-op.
-      await openProfileEditor(page);
-      await lockedPhotoPill(page).click();
-      await expect(page, "PR425 step 17: tapping the locked Photo pill should lead to the upgrade prompt").toHaveURL(/\/pricing\/?$/);
 
       // PR242 step 1. The seeded account is onboarded (seed-e2e-test-accounts.ts),
       // which is what lets it submit; the AI conversion and its two helpers are
@@ -647,23 +584,6 @@ test.describe("7b — Admin permissions on the features the steps name (PR425, P
     }
   });
 
-  // PR425 step 18 — the paid account selects its stored photo and the header avatar shows it.
-  test("the paid account selects its stored photo and the avatar shows it", async ({ page }) => {
-    await signInThroughForm(page, PAID_ACCOUNT.email, TEST_ACCOUNT_PASSWORD);
-    await withStoredPhoto(page);
-    const before = await avatarSource(page);
-    try {
-      if (before === "photo") await setAvatarSource(page, "avatar");
-      await openProfileEditor(page);
-      await expect(headerAvatar(page)).toHaveAttribute("src", GENERATED_ICON);
-      const selected = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/users/me" && r.request().method() === "PATCH");
-      await unlockedPhotoPill(page).click();
-      expect((await selected).status(), "PR425 step 18: the selection should be accepted").toBe(200);
-      await expect(headerAvatar(page), "PR425 step 18: the header avatar should show the photo").toHaveAttribute("src", STUB_PHOTO_URL);
-    } finally {
-      await setAvatarSource(page, before);
-    }
-  });
 });
 
 /**

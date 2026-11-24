@@ -159,7 +159,7 @@ the server enforces it:
   draft cleared; completing twice changes nothing). The date question states
   no age before it is answered, and a young date in a draft says nothing.
   Every account that completes set-up is 18 or over and is then offered the
-  optional profile photo.
+  optional profile photo, which becomes their picture ([*A member's picture*](#a-members-picture)).
 - **The web shell** (`App.tsx`'s `SetupRedirect`, rule in
   `artifacts/overhype-me/src/lib/setup-redirect.ts`) sends a suspended
   account to `/account/suspended`, one scheduled for deletion to
@@ -467,7 +467,7 @@ derivative or a meme from the Library moves it to **Recently deleted** for
 a not-live one goes only to its owner and is never cached (so Recently
 deleted can show thumbnails), and anything else is 404. A class-guard test
 fails if any file outside `contentVisibility.ts` spells `deleted_at IS
-NULL`. The current profile photo cannot be deleted. A deleted meme's page
+NULL`. The current profile photo cannot be deleted (it is the member's picture: [*A member's picture*](#a-members-picture)). A deleted meme's page
 keeps its "removed" 410, which says only "This meme has been removed.":
 the same page answers a creator's delete, an account deletion and an admin
 takedown, so it never names who removed it.
@@ -481,6 +481,42 @@ recorded reason (`artifacts/api-server/src/lib/contentTakedown.ts`) does the sam
 meme or photo, live or still restorable, clears a taken-down profile photo
 from the account, never touches quarantined content (it is evidence), and
 writes a `content_takedown` admin action. Its control is on Image Trace.
+
+### A member's picture
+
+A member's picture is the photo they uploaded and chose as their profile
+photo, for every member, free or Legendary, or none, when the browser shows
+their initial (plan `docs/plans/PLAN_PHOTO_IS_YOUR_PICTURE.md`; David, Q1
+2026-11-21 and Q11 2026-11-23, Issue #849). The generated-avatar system (DiceBear
+icons, the style picker, the Avatar/Photo switch, the `custom_avatar` feature)
+was removed by migration 0162; recovery is the `pre-cut/avatar-system` tag plus
+a forward migration ([`docs/retired/README.md`](../retired/README.md)).
+
+- **One reader.** `profilePictureUrl` in
+  `artifacts/api-server/src/lib/profilePicture.ts` passes only a first-party
+  `/api/storage/objects/` path; `GET /users/me`, the admin users list and the
+  three fact and comment projections all use it.
+- **One setter.** `POST /users/me/profile-image` (through `makeProfilePhoto` in
+  `artifacts/api-server/src/lib/profilePhoto.ts`) makes the upload public, then in one
+  transaction moves the `is_profile` marker and points the account at it, so
+  the shown photo, the Profile-marked photo and the deletion-protected photo are
+  one. `PATCH /users/me` refuses a picture.
+- **Google's picture is copied in.** At a Google sign-in, an adult member with
+  no photo gets the Google picture as a real upload marked as their profile
+  photo (`artifacts/api-server/src/lib/providerPicture.ts`): Google's image host over https
+  only, no redirects, a timeout and a 5 MB cap, then the full upload pipeline.
+  The provider URL is never stored. A member without an adult date of birth is
+  skipped (photo uploads are for adults), so a brand-new Google member, who has
+  no date of birth until onboarding, gets the copy at a later Google sign-in if
+  they still have no photo. An account the verified-actor gate would refuse
+  (suspended, under age, awaiting deletion, unverified, not onboarded or
+  behind on the Terms) gets nothing: signing in does not let it add media. The
+  copy sets the picture only if the member still has none when it saves: every
+  selection takes the owner's content lock and the account row first
+  (`artifacts/api-server/src/lib/profilePhoto.ts`), so a photo the member
+  chooses while the picture is being fetched wins, and the copied upload is
+  discarded for the purger. Apple sends no picture. Nothing waits on the copy,
+  and a failure leaves the member photo-less.
 
 ## Age, audience and the NSFW opt-in
 
@@ -655,6 +691,10 @@ and the last-admin guard could approve zeroing the real population.
 - `artifacts/api-server/src/lib/userRole.ts` — role derivation.
 - `artifacts/api-server/src/middlewares/tierMiddleware.ts` —
   `requireRole`/`requireAdmin`.
+- `artifacts/api-server/src/lib/profilePicture.ts`,
+  `artifacts/api-server/src/lib/profilePhoto.ts` and
+  `artifacts/api-server/src/lib/providerPicture.ts` — a member's picture: the one reader, the one setter
+  and the Google copy ([*A member's picture*](#a-members-picture)).
 - `artifacts/api-server/src/routes/admin.ts` — user PATCH, the hard
   DELETE (the engine's admin removal), verify-email override.
 - `artifacts/api-server/src/lib/eligibility.ts` and

@@ -171,7 +171,9 @@ test("read-only mode: the picture menu's Delete explains itself above the menu; 
     await signInThroughForm(page, FREE_ACCOUNT.email, TEST_ACCOUNT_PASSWORD);
     // The password form opened before the pause.
     await page.goto("/profile");
-    const desktopPhoto = page.locator('img[class*="w-[120px]"]');
+    // The desktop picture: the member's photo, or their initial when they have
+    // none (the test account has none), both drawn at 120px.
+    const desktopPhoto = page.locator('[data-testid^="profile-picture"][class*="w-[120px]"]');
     await expect(page.getByTitle("Upload profile photo").first()).toBeAttached(); // open site: the upload overlay is there
     await page.getByRole("button", { name: /(set a|change) password/i }).click();
     await setSwitch(admin.page, true);

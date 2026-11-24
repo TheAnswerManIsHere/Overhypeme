@@ -8,13 +8,13 @@ to refresh it: `docs/tests/TESTING.md`, *The legacy fixture*.
 ## What it is
 
 - Extracted at source commit `efe0732ffe0ba54a7061486a94f77a9506884b04`, whose journal holds 102 migrations (latest `0101_user_generation_costs_is_estimated`), all applied on the source; scrub ruleset version 2.
-- `manifest.json` sha256 `b2526e169f36ceeea1f9935e43d54ad5b2547b39df3ff5b83367f991e4bdfd77`. A recording made over this fixture names that digest. (Edited by hand at increment 2.1c of the fact lifecycle rebuild, Issue #1018: the tables and columns migration 0160 dropped were removed from the fixture, its manifest and the `engine_revision` setting; nothing else was re-extracted.)
-- 1151 rows in 28 tables, one NDJSON file per table.
+- `manifest.json` sha256 `3a557ae2bc2f1ebea6caf61e6d508125ad02d2391e0270a3229f4717a9b66d95`. A recording made over this fixture names that digest. (Edited by hand at increment 2.1c of the fact lifecycle rebuild, Issue #1018: the tables and columns migration 0160 dropped were removed from the fixture, its manifest and the `engine_revision` setting; nothing else was re-extracted. Edited by hand again for migration 0163, Issue #849: the users' `avatar_style` and `avatar_source` columns and the `custom_avatar` feature-flag and tier rows were removed.)
+- 1146 rows in 28 tables, one NDJSON file per table.
 
 | Table | Rows |
 |---|---|
-| `feature_flags` | 8 |
-| `tier_feature_permissions` | 30 |
+| `feature_flags` | 7 |
+| `tier_feature_permissions` | 26 |
 | `entitlement_grid_revision` | 1 |
 | `look_styles` | 19 |
 | `motion_presets` | 8 |

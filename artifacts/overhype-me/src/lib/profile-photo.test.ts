@@ -1,5 +1,5 @@
 /**
- * @purpose Proves Profile's "Add a real photo of you" banner asks only an account that has not uploaded a photo of its own: an upload counts whether or not the account may show it as its picture (#848), while a Google or Apple picture alone still asks.
+ * @purpose Proves Profile's "Add a real photo of you" banner asks only an account that has not uploaded a photo of its own: an upload counts for every member (#848), and anything that is not an uploaded photo still asks.
  * @subsystem accounts-auth
  */
 import { describe, it, expect } from "vitest";
@@ -21,19 +21,14 @@ describe("hasUploadedProfilePhoto", () => {
 });
 
 describe("shouldAskForRealPhoto", () => {
-  it("does not ask a free account that uploaded a photo in onboarding (#848)", () => {
-    // The upload route stores the photo but leaves avatarSource at "avatar"
-    // for an account without custom_avatar, by design.
-    expect(shouldAskForRealPhoto({ avatarSource: "avatar", profileImageUrl: UPLOAD })).toBe(false);
+  it("does not ask a member who uploaded a photo, free or Legendary (#848)", () => {
+    expect(shouldAskForRealPhoto({ profileImageUrl: UPLOAD })).toBe(false);
   });
-  it("does not ask an account whose picture is its photo", () => {
-    expect(shouldAskForRealPhoto({ avatarSource: "photo", profileImageUrl: UPLOAD })).toBe(false);
+  it("asks a member with no photo", () => {
+    expect(shouldAskForRealPhoto({ profileImageUrl: null })).toBe(true);
+    expect(shouldAskForRealPhoto({})).toBe(true);
   });
-  it("asks an account with no photo", () => {
-    expect(shouldAskForRealPhoto({ avatarSource: "avatar", profileImageUrl: null })).toBe(true);
-    expect(shouldAskForRealPhoto({ avatarSource: null, profileImageUrl: null })).toBe(true);
-  });
-  it("still asks an account whose only picture came from Google or Apple", () => {
-    expect(shouldAskForRealPhoto({ avatarSource: "avatar", profileImageUrl: PROVIDER })).toBe(true);
+  it("asks when the only value is not an uploaded photo", () => {
+    expect(shouldAskForRealPhoto({ profileImageUrl: PROVIDER })).toBe(true);
   });
 });

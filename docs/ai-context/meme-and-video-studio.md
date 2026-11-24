@@ -110,7 +110,7 @@ rendered on.
 Upload: `POST /storage/upload-meme` (`routes/storage.ts:105-125`), JPEG
 only (415 otherwise, `userImageUpload.ts:92-96`), delegates to
 `processAndStoreUserUpload(..., {variant:"meme"})` — the same pipeline
-used for avatars (`userImageUpload.ts:16-24`). Bytes are stored verbatim, no server-side
+used for profile photos (`userImageUpload.ts:16-24`). Bytes are stored verbatim, no server-side
 resize/recompress (`storage.ts:96-100`); a row lands in
 `upload_image_metadata` (schema `lib/db/src/schema/memes.ts:81-119`,
 tracking width/height/size/Arachnid scan/`isProfile`/`transform`).

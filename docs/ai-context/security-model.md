@@ -181,6 +181,13 @@ never by URL shape.** Each surface routes through one shared helper so the
 decision can't drift (see the "duplicate source of truth" and path-classification
 traps in [`known-failure-patterns.md`](./known-failure-patterns.md)).
 
+- **A member's picture** — the one setter (`makeProfilePhoto`) makes the chosen
+  upload public before pointing the account at it, and the one reader
+  (`profilePictureUrl`) passes only a first-party storage path, so no
+  third-party URL is ever served as a picture. Google sign-in makes one
+  server-side fetch, to Google's image host only, over https, with no
+  redirects, a timeout and a 5 MB cap, then the full upload pipeline. Home:
+  [*A member's picture*](./accounts-and-auth.md#a-members-picture).
 - **Object ACLs** — `canAccessObjectEntity({ userId, objectFile, READ })` in
   `storage.ts` is the base gate. `userCanReadObject()` layers the legacy
   `upload_image_metadata` owner fallback + ACL heal; `userOwnsAiReferenceImage()`

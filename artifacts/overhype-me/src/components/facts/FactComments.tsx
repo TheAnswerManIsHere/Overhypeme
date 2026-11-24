@@ -6,7 +6,8 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { Link, useLocation } from "wouter";
 import { motion } from "framer-motion";
 import { format } from "date-fns";
-import { Flame, Loader2, CheckCircle2, Crown, User as UserIcon } from "lucide-react";
+import { Flame, Loader2, CheckCircle2, Crown } from "lucide-react";
+import { UserAvatar } from "@/components/UserAvatar";
 import { FactSummary, useListComments, getListCommentsQueryKey } from "@workspace/api-client-react";
 import { useAppMutations } from "@/hooks/use-mutations";
 import { useAuth } from "@workspace/replit-auth-web";
@@ -267,13 +268,8 @@ export function FactComments({
       <div key={c.id} className="bg-card p-5 border-l-4 border-muted rounded-sm">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
-            {c.authorImage ? (
-              <img src={c.authorImage} alt="Avatar" className="w-8 h-8 rounded-sm" />
-            ) : (
-              <div className="w-8 h-8 bg-muted flex items-center justify-center rounded-sm">
-                <UserIcon className="w-4 h-4 text-muted-foreground" />
-              </div>
-            )}
+            {/* The author's picture: their uploaded photo, or their initial. */}
+            <UserAvatar avatarUrl={c.authorImage ?? null} fallbackInitial={c.authorName?.trim()[0]?.toUpperCase()} size="md" />
             <span className="font-bold text-primary">{c.authorName || "ANONYMOUS"}</span>
           </div>
           <span className="text-xs text-muted-foreground font-medium">{format(new Date(c.createdAt), "MMM dd, yyyy")}</span>

@@ -1,5 +1,5 @@
 /**
- * @purpose Circular avatar for a given URL, falling back to an initial or a person icon, with, for a Legendary user, a gold ring and (at md and lg) a crown; it renders as a button, or as a span for any other `as` value including the default "div", and the account menu is its one importer.
+ * @purpose Circular avatar for a given URL, falling back to an initial or a person icon, with, for a Legendary user, a gold ring and (at md and lg) a crown; it renders as a button, or as a span for any other `as` value including the default "div"; the account menu and fact comments use it, and the URL it shows is the member's uploaded photo (plan PLAN_PHOTO_IS_YOUR_PICTURE.md).
  * @subsystem frontend-shell
  */
 import { forwardRef } from "react";

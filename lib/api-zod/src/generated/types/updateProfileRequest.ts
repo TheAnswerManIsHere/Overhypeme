@@ -22,7 +22,4 @@ export interface UpdateProfileRequest {
    */
   pronouns?: string;
   email?: string;
-  avatarStyle?: string;
-  avatarSource?: string;
-  profileImageUrl?: string;
 }

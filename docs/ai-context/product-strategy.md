@@ -34,8 +34,9 @@ about a friend, sends it, and the friend arrives and makes one.
 - **Credits** make AI pictures. One credit is one picture. Credits never
   expire, and there is one balance.
 - **A credit pack**, bought once by anyone.
-- **Membership**, monthly or annual: the perks (no watermark, private memes,
-  photo avatar) plus credits added every month.
+- **Membership**, monthly or annual: the perks (no watermark, private memes)
+  plus credits added every month. (The photo avatar left the perks on
+  2026-11-23: a member's own photo is their picture, for everyone; Issue #849, [the rule](accounts-and-auth.md#a-members-picture).)
 - AI pictures are no longer members-only: anyone holding credits can make one.
 
 Placeholder prices: pack $4.99 for 30 credits; membership $4.99 a month with 40

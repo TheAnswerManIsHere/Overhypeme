@@ -43,8 +43,6 @@ export const usersTable = pgTable("users", {
    * scheduled job being healthy; the sweep only converges the stored tier.
    */
   membershipValidUntil: timestamp("membership_valid_until", { withTimezone: true }),
-  avatarStyle: varchar("avatar_style", { length: 30 }).default("bottts"),
-  avatarSource: varchar("avatar_source", { length: 10 }).default("avatar"),
   // No default (launch Phase 5, 0114): null means "not chosen yet", and the
   // onboarding screen fills it. No account is assigned pronouns unseen.
   pronouns: varchar("pronouns", { length: 80 }),

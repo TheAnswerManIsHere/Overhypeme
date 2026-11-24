@@ -331,8 +331,8 @@ export default function Onboard() {
 
       // Task #507: re-tag the new upload as the profile photo. The endpoint
       // clears any prior is_profile tag, sets the new one, updates
-      // users.profileImageUrl + avatarSource=photo, and re-asserts the
-      // public ACL — all in one transaction.
+      // users.profileImageUrl (their picture, for every member), and makes it
+      // public — all in one transaction.
       const setRes = await fetch(`${BASE_URL}api/users/me/profile-image`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

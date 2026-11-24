@@ -75,11 +75,11 @@ test("a user's uploaded photo is stored, readable by its owner, and by nobody el
   await anonymous.close();
 });
 
-// #848: a free account that sets an uploaded photo as its profile photo (the
-// onboarding photo step's call) is not asked for one again on Profile, and
-// keeps its generated avatar as its picture, since a photo avatar is
-// Legendary's (custom_avatar).
-test("a free account's profile photo stops Profile asking for one, and its picture stays generated", async ({ page }) => {
+// #848 and plan PLAN_PHOTO_IS_YOUR_PICTURE.md: a free account that sets an
+// uploaded photo as its profile photo (the onboarding photo step's call) is
+// not asked for one again on Profile, and that photo is its picture: shown,
+// and loading, in the header and on Profile.
+test("a free account's profile photo stops Profile asking for one and is shown as its picture", async ({ page }) => {
   await signInThroughForm(page, FREE_ACCOUNT.email, TEST_ACCOUNT_PASSWORD);
 
   const upload = await uploadFixturePhoto(page);
@@ -103,10 +103,21 @@ test("a free account's profile photo stops Profile asking for one, and its pictu
 
   const me = (await (await page.request.get("/api/users/me")).json()) as Record<string, unknown>;
   expect(me["profileImageUrl"]).toBe(`/api/storage${objectPath}`);
-  expect(me["avatarSource"]).toBe("avatar");
+  expect("avatarSource" in me).toBe(false);
 
   await page.goto("/profile");
   // The banner renders in the same pass as the loaded profile's heading.
   await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText("Add a real photo of you")).toHaveCount(0);
+
+  // The photo is displayed and actually loads, not only named in the JSON.
+  const picture = `/api/storage${objectPath}`;
+  const header = page.getByRole("button", { name: "Open your profile" }).filter({ visible: true }).locator("img");
+  const onProfile = page.getByTestId("profile-picture").filter({ visible: true }).first();
+  for (const [where, img] of [["header", header], ["Profile", onProfile]] as const) {
+    await expect(img, `${where} shows the photo`).toHaveAttribute("src", picture);
+    await expect
+      .poll(() => img.evaluate((el) => (el as HTMLImageElement).complete && (el as HTMLImageElement).naturalWidth > 0), { message: `${where}'s photo loads` })
+      .toBe(true);
+  }
 });

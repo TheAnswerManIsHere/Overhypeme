@@ -80,7 +80,8 @@ provider linking; password reset; email change with verification; **a
 verified email gates every authenticated action** (provider-verified emails
 count); one onboarding path for every sign-in method; pronouns chosen on the
 device carried through OAuth sign-up, and the default is never "he/him";
-generated avatars; custom photo avatar (Legendary); "My content" listing every
+your own photo as your picture, for every member (the generated avatars and
+the Legendary photo avatar were removed 2026-11-23, Issue #849; [the rule](accounts-and-auth.md#a-members-picture)); "My content" listing every
 upload and generation with per-item delete; **self-service account deletion**
 that never destroys legally retained safety records; an age gate (18+ for an
 account, decided in the compliance phase: Issue #1030 Q3, 2026-11-17);
@@ -125,7 +126,7 @@ share need a verified account; budget-reached states.
 **Paying (no existing purchases to honour):** one **credit** balance that never
 expires; a **credit pack** anyone can buy; and **membership**, monthly or
 annual, which adds credits every month and carries the perks: private memes,
-custom avatar, the branded watermark removed (free downloads carry one) and
+the branded watermark removed (free downloads carry one) and
 multiple saved reference photos. The balance is shown wherever credits are
 spent. Prices are placeholders until real bills at screen size are read
 ([product strategy](./product-strategy.md#what-is-paid)). Early access, ad-free

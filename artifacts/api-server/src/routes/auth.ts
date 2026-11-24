@@ -36,6 +36,7 @@ import { getSiteBaseUrl } from "../lib/siteUrl";
 import { getSafeReturnTo } from "../lib/safeReturnTo";
 import { logger } from "../lib/logger";
 import { recordTaskCompleted } from "../lib/recurringTasks";
+import { copyProviderPictureIn } from "../lib/providerPicture";
 import { effectiveTierForRow } from "../lib/membershipState";
 import { isReadOnly } from "../lib/readOnlyMode";
 
@@ -229,15 +230,12 @@ async function upsertUser(
   const existingFirstName = existing[0]?.firstName ?? null;
   const existingLastName = existing[0]?.lastName ?? null;
 
-  const profileImageUrl = (claims.picture as string) || null;
-
   const conflictSet: Record<string, unknown> = {
     ...(provider === "google" ? { googleLinked: true } : { appleLinked: true }),
     updatedAt: new Date(),
   };
-  if (!existing[0]?.profileImageUrl && profileImageUrl) {
-    conflictSet.profileImageUrl = profileImageUrl;
-  }
+  // The provider's picture is never stored as a URL: Google's is copied in as
+  // a real upload after sign-in (copyProviderPictureIn), and Apple sends none.
   if (!existingFirstName && oidcFirstName) conflictSet.firstName = oidcFirstName;
   if (!existingLastName && oidcLastName) conflictSet.lastName = oidcLastName;
   // A provider that vouches for the address verifies it, on a new account and
@@ -252,7 +250,6 @@ async function upsertUser(
       email,
       firstName: oidcFirstName,
       lastName: oidcLastName,
-      profileImageUrl,
       googleLinked: provider === "google",
       appleLinked: provider === "apple",
       isActive: true,
@@ -443,6 +440,10 @@ async function handleOAuthCallback(
     res.status(403).send("Account deactivated");
     return;
   }
+
+  // A Google picture becomes the member's first photo when they have none;
+  // nothing waits on it, and a failure only leaves them photo-less.
+  if (provider === "google") void copyProviderPictureIn(dbUser.id, (claims as unknown as Record<string, unknown>).picture);
 
   const sessionData: SessionData = {
     user: {

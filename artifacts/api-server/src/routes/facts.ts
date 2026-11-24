@@ -1,7 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { effectiveAvatarUrl, effectiveAvatarUrls } from "../lib/effectiveAvatar";
-import { isRealAdminRow } from "../lib/adminIdentity";
-import { effectiveTierExpr } from "../lib/membershipState";
+import { profilePictureUrl } from "../lib/profilePicture";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { moderateComment, checkDuplicateInternal } from "./ai";
 import { logActivity } from "../lib/activity";
@@ -44,30 +42,17 @@ async function buildFactSummaries(facts: (typeof factsTable.$inferSelect)[], use
   const rMap = userId ? await getViewerFactRatings(userId, ids) : new Map<number, string>();
 
   const sIds = [...new Set(facts.filter((f) => f.submittedById).map((f) => f.submittedById!))];
-  const sMap = new Map<string, { displayName: string | null; avatarUrl: string }>();
+  const sMap = new Map<string, { displayName: string | null; avatarUrl: string | null }>();
   if (sIds.length) {
-    // Selects what the effective-avatar projection needs, and resolves it over
-    // the whole batch rather than per row. This projection previously emitted
-    // `profileImageUrl` directly, with no `avatarSource` check at all — so a
-    // user who uploaded an identity photo for meme generation and never chose
-    // it as their avatar had it shown publicly beside every fact they
-    // submitted.
+    // A member's picture is their uploaded profile photo, or none (lib/profilePicture.ts).
     const rows = await db.select({
       id: usersTable.id,
       displayName: usersTable.displayName,
       profileImageUrl: usersTable.profileImageUrl,
-      avatarSource: usersTable.avatarSource,
-      avatarStyle: usersTable.avatarStyle,
-      email: usersTable.email,
-      isAdmin: usersTable.isAdmin,
-      membershipTier: effectiveTierExpr(),
     })
       .from(usersTable).where(and(inArray(usersTable.id, sIds), eq(usersTable.isActive, true)));
-    const avatars = await effectiveAvatarUrls(
-      rows.map((r) => ({ ...r, isRealAdmin: isRealAdminRow(r) })),
-    );
     for (const r of rows) {
-      sMap.set(r.id, { displayName: r.displayName, avatarUrl: avatars.get(r.id)! });
+      sMap.set(r.id, { displayName: r.displayName, avatarUrl: profilePictureUrl(r.profileImageUrl) });
     }
   }
 
@@ -422,27 +407,17 @@ router.get("/facts/:factId/comments", async (req: Request, res: Response) => {
     .orderBy(...orderBy).limit(limit).offset(offset);
 
   const authorIds = [...new Set(rows.filter((r) => r.authorId).map((r) => r.authorId!))];
-  const aMap = new Map<string, { displayName: string | null; avatarUrl: string }>();
+  const aMap = new Map<string, { displayName: string | null; avatarUrl: string | null }>();
   if (authorIds.length) {
-    // Same batch projection as the submitter map above, and the same
-    // pre-existing leak being closed: comment-author avatars ignored
-    // `avatarSource` entirely.
+    // Same projection as the submitter map above.
     const users = await db.select({
       id: usersTable.id,
       displayName: usersTable.displayName,
       profileImageUrl: usersTable.profileImageUrl,
-      avatarSource: usersTable.avatarSource,
-      avatarStyle: usersTable.avatarStyle,
-      email: usersTable.email,
-      isAdmin: usersTable.isAdmin,
-      membershipTier: effectiveTierExpr(),
     })
       .from(usersTable).where(and(inArray(usersTable.id, authorIds), eq(usersTable.isActive, true)));
-    const avatars = await effectiveAvatarUrls(
-      users.map((u) => ({ ...u, isRealAdmin: isRealAdminRow(u) })),
-    );
     for (const u of users) {
-      aMap.set(u.id, { displayName: u.displayName, avatarUrl: avatars.get(u.id)! });
+      aMap.set(u.id, { displayName: u.displayName, avatarUrl: profilePictureUrl(u.profileImageUrl) });
     }
   }
 
@@ -496,14 +471,6 @@ router.post("/facts/:factId/comments", async (req: AuthenticatedRequest, res: Re
 
   const [comment] = await db.insert(commentsTable).values({ factId, authorId: req.user.id, text, status: "pending" }).returning();
 
-  // `req.user` carries `profileImageUrl` but not the avatar-selection columns,
-  // so the effective-avatar projection below needs them from the row.
-  const [commentAuthor] = await db
-    .select({ avatarSource: usersTable.avatarSource, avatarStyle: usersTable.avatarStyle })
-    .from(usersTable)
-    .where(eq(usersTable.id, req.user.id))
-    .limit(1);
-
   void logActivity({
     userId: req.user.id,
     actionType: "comment_posted",
@@ -523,17 +490,8 @@ router.post("/facts/:factId/comments", async (req: AuthenticatedRequest, res: Re
   res.status(201).json({
     id: comment.id, factId: comment.factId, text: comment.text, status: "pending",
     authorId: req.user.id, authorName: req.user.displayName ?? null,
-    // The third public avatar projection — the echo of the comment just
-    // created. It emitted `req.user.profileImageUrl` raw, so it leaked the same
-    // identity photo the listing above no longer does.
-    authorImage: await effectiveAvatarUrl({
-      id: req.user.id,
-      profileImageUrl: req.user.profileImageUrl ?? null,
-      avatarSource: commentAuthor?.avatarSource ?? null,
-      avatarStyle: commentAuthor?.avatarStyle ?? null,
-      membershipTier: req.user.membershipTier ?? null,
-      isRealAdmin: !!req.user.isRealAdmin,
-    }),
+    // The third picture projection: the echo of the comment just created.
+    authorImage: profilePictureUrl(req.user.profileImageUrl),
     createdAt: comment.createdAt.toISOString(),
     heartCount: 0,
     viewerHasHearted: false,

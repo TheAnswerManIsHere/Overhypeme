@@ -1142,6 +1142,13 @@
       "when": 1789500000000,
       "tag": "0162_age_refusal_and_legal_acceptances",
       "breakpoints": true
+    },
+    {
+      "idx": 163,
+      "version": "7",
+      "when": 1789600000000,
+      "tag": "0163_retire_avatar_system",
+      "breakpoints": true
     }
   ]
 }
