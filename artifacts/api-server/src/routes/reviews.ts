@@ -8,7 +8,7 @@ import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage"
 import { db } from "@workspace/db";
 import {
   pendingReviewsTable, factReadingsTable, factsTable, usersTable, activityFeedTable,
-  hashtagsTable, factHashtagsTable, imagePromptAttemptsTable, factGagsTable,
+  imagePromptAttemptsTable, factGagsTable,
 } from "@workspace/db/schema";
 import { eq, desc, sql, and, or, ilike, count, inArray } from "drizzle-orm";
 import { requireAdmin } from "./admin";
@@ -49,6 +49,7 @@ import {
   CANDIDATE_SCENE_MAX_CHARS,
 } from "@workspace/api-zod";
 import { sanitizeHashtagsForPersistence, resolveFinalApprovalTags } from "../lib/hashtags";
+import { FACT_HASHTAG_LIMIT, attachHashtags } from "../lib/factHashtags";
 import { resolveReviewCycleEnrichment, resolveSavedCoreSceneForReview, createTriageReview } from "../lib/moderationStaging";
 import { prepareFirstTimeStagingPrep, ensureFirstTimeStagingPrepJobs } from "../lib/firstTimeStagingPrep";
 import {
@@ -442,7 +443,7 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
 // approved with an empty final list (see approveForProduction).
 const ReviewDecisionBody = z.object({
   adminNote: z.string().max(500).optional(),
-  hashtags: z.array(z.string()).max(50).optional(),
+  hashtags: z.array(z.string()).max(FACT_HASHTAG_LIMIT).optional(),
 });
 // rejectionReason is required: it judges whether the FACT belongs in the
 // database. adminNote is optional and reaches the submitter's email.
@@ -450,28 +451,6 @@ const RejectBody = z.object({
   adminNote: z.string().max(500).optional(),
   rejectionReason: z.enum(REJECTION_REASON_VALUES),
 });
-
-/** A drizzle executor — either the root `db` or an open transaction `tx`. */
-type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
-
-/**
- * Attach hashtags to a fact, upserting into the hashtags master + join table.
- * Takes the executor so the caller can run it INSIDE the approval transaction —
- * a fact is required to have tags, so activation + tag attachment must succeed or
- * fail together (never a live, untagged fact). Routes its input through the shared
- * sanitizer so it can never drift from the canonical normalization (callers
- * already sanitize; the high cap here only re-asserts and de-dupes).
- */
-async function attachHashtags(tx: DbExecutor, factId: number, tags: string[]): Promise<void> {
-  for (const name of sanitizeHashtagsForPersistence(tags, { limit: 50 })) {
-    let [ht] = await tx.select().from(hashtagsTable).where(eq(hashtagsTable.name, name)).limit(1);
-    if (!ht) { [ht] = await tx.insert(hashtagsTable).values({ name }).returning(); }
-    const [joined] = await tx.insert(factHashtagsTable).values({ factId, hashtagId: ht.id }).onConflictDoNothing().returning();
-    if (joined) {
-      await tx.update(hashtagsTable).set({ factCount: sql`${hashtagsTable.factCount} + 1` }).where(eq(hashtagsTable.id, ht.id));
-    }
-  }
-}
 
 /**
  * The final gate — activate a prepared staging fact for production.
