@@ -217,6 +217,7 @@ function installLlmCounter(): void {
 async function seedHandlerAttempt(opts: {
   snapshot: unknown;
   renderedFactText?: string | null;
+  renderControls?: Record<string, unknown>;
 }): Promise<number> {
   const [fact] = await db
     .insert(factsTable)
@@ -238,11 +239,11 @@ async function seedHandlerAttempt(opts: {
         classificationMethod: "fal_detector", analyzerVersion: "v1",
       } as never,
       identityPolicy: defaultIdentityPolicyForRenderMode("human_identity_i2i") as never,
-      renderControls: {
+      renderControls: (opts.renderControls ?? {
         aspectRatio: "portrait",
         contentMode: "sfw",
         promptIdentity: { version: 1, name: "David", pronouns: "he/him", source: "review_sample" },
-      } as never,
+      }) as never,
       factEnrichmentSnapshot: opts.snapshot as never,
       renderedFactText: opts.renderedFactText === undefined ? FACT_TEXT_RENDERED : opts.renderedFactText,
       archetypeStrategyVersion: "v2",
@@ -320,6 +321,30 @@ describe("image_prompt_generation handler — stored bubble token", () => {
     assert.ok(compiled.imagePrompt.includes('containing exactly the text "David did it again!"'), compiled.imagePrompt);
     assert.doesNotMatch(compiled.imagePrompt, /\{NAME\}/);
     assert.ok(await generationJob(attemptId), "image_generation enqueued");
+  });
+});
+
+describe("image_prompt_generation handler — the image model gets the shortened name (Issue #693)", () => {
+  it("a moderation render's sample subject reaches the prompt as its first name only", async () => {
+    installLlmCounter();
+    const attemptId = await seedHandlerAttempt({
+      snapshot: handlerEnrichment({
+        coreSceneOverride: "{NAME} stands in a library surrounded by glowing books.",
+        bubbles: [{ type: "speech", entity: "subject", text: "{NAME} did it again!" }],
+      }),
+      renderControls: {
+        aspectRatio: "portrait",
+        contentMode: "sfw",
+        reviewRenderSubject: { name: "Raena Franklin", pronouns: "she/her" },
+      },
+    });
+
+    const res = await runHandler(attemptId);
+    assert.equal(res.ok, true, JSON.stringify(res));
+
+    const compiled = (await attemptRow(attemptId)).compiledPrompt as { imagePrompt: string };
+    assert.ok(compiled.imagePrompt.includes('containing exactly the text "Raena did it again!"'), compiled.imagePrompt);
+    assert.doesNotMatch(compiled.imagePrompt, /Franklin/);
   });
 });
 

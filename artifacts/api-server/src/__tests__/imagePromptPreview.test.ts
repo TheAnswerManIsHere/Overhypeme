@@ -234,8 +234,8 @@ describe("image-prompt preview — human i2i", () => {
     }
     assert.equal(
       promptSection(String(res.body.compiledPrompt.imagePrompt), "CORE SCENE"),
-      "David Franklin lifts a mountain over his head with one arm.",
-      "the fact's gag, compiled directly",
+      "David lifts a mountain over his head with one arm.",
+      "the fact's gag, compiled directly, with the shortened name a render sends (Issue #693)",
     );
 
     // Compiler injected the transformation-aware human identity paragraph, in
@@ -398,6 +398,25 @@ describe("image-prompt preview — CORE SCENE source", () => {
     assert.equal(res.status, 200, JSON.stringify(res.body));
     const prompt = String(res.body.compiledPrompt.imagePrompt);
     assert.equal(promptSection(prompt, "CORE SCENE"), "David rides a giant rubber duck across a packed stadium.");
+  });
+
+  it("compiles with the shortened name a real render sends, not the full typed name (Issue #693)", async () => {
+    const factId = await seedFact({
+      enrichment: overrideEnrichment({
+        coreSceneOverride: "{NAME} rides a giant rubber duck across a packed stadium.",
+        bubbles: [{ type: "speech", entity: "subject", text: "{NAME} did it again!" }],
+      }),
+    });
+
+    const res = await request(adminApp())
+      .post("/api/admin/image-prompt/preview")
+      .send({ factId, subjectRenderMode: "human_identity_i2i", previewName: "David Franklin" });
+
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const prompt = String(res.body.compiledPrompt.imagePrompt);
+    assert.equal(promptSection(prompt, "CORE SCENE"), "David rides a giant rubber duck across a packed stadium.");
+    assert.ok(prompt.includes('containing exactly the text "David did it again!"'), prompt);
+    assert.doesNotMatch(prompt, /Franklin/);
   });
 
   it("carries the CORE SCENE but no retired required visual detail an older gag still stores (PLAN_GAG_DIRECT_RENDER.md, D)", async () => {

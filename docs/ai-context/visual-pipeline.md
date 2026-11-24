@@ -385,10 +385,16 @@ style, so they were already reproducible and are intentionally left on their
 existing `reviewRenderSubject` mechanism.
 
 **The identity fed into the image prompt is reduced to a short prompt-safe
-name** — `reducePromptName()`: prefer the validated `firstName`; else the
-first whitespace-delimited token of `displayName`; else the canonical
-fallback (`"Alex"`) — grapheme-safe-bounded to `RENDERED_IDENTITY_NAME_MAX`
-(20 chars, `promptIdentityBudget.ts`). This is a **render-time reducer only**,
+name** — `reducePromptName()`: the first whitespace-delimited token of the
+validated `displayName` (the name the member chose wins, #709); else
+`firstName`; else the canonical fallback (`"Alex"`) — grapheme-safe-bounded to
+`RENDERED_IDENTITY_NAME_MAX` (20 chars, `promptIdentityBudget.ts`). It applies
+to every identity the worker compiles with (`resolveAttemptIdentity`),
+including a moderation render's stored `reviewRenderSubject`, which keeps the
+full sample name ("David Franklin") and is reduced at compile; the admin
+Runtime Compiled Prompt Preview reduces its sample name the same way, so it
+shows the prompt a render sends (#693). The engine-comparison panels
+(`comparison/runs.ts`) still compile with the full sample name. This is a **render-time reducer only**,
 not a new profile storage bound: `validators/personalName.ts` remains the
 sole source of truth for what a user may store, and the composited meme
 **caption** (`createMemeRecord.ts`) independently uses the full stored

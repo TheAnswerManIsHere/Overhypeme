@@ -24,6 +24,7 @@ import { requireAdmin } from "./admin";
 import { analyzeSourceImage } from "../lib/sourceImageAnalysis";
 import { DirectGagInputError } from "../lib/imagePrompt/directInput";
 import { assembleImagePromptForPreview } from "../lib/imagePrompt/preview";
+import { reducePromptName } from "../lib/imagePrompt/promptIdentity";
 import { liveRecipeForEngine } from "../lib/imagePrompt/recipeStore";
 import { resolveReviewCycleEnrichment } from "../lib/moderationStaging";
 import { loadGags, primaryGag, workingContent, type GagContent } from "../lib/gags/resolver";
@@ -233,8 +234,10 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
       stylePrompt,
       referenceImageUrl: body.referenceImageUrl ?? null,
       // The same sample subject the fact text renders with, so {NAME} never
-      // reaches the engine prompt.
-      renderedSubject: { name: previewName, pronouns: previewPronouns },
+      // reaches the engine prompt — shortened as a render's worker shortens it
+      // (`resolveAttemptIdentity`), so the preview shows the prompt a render
+      // sends (Issue #693).
+      renderedSubject: { name: reducePromptName({ displayName: previewName }), pronouns: previewPronouns },
       recipe,
     }).compiled;
   } catch (err) {
