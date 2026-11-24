@@ -249,7 +249,7 @@ test.describe("Admin described screens", () => {
   // 3.1): a row carries its needs-attention reasons and opens the fact sheet,
   // the one editor: four tabs, the Overview's five groups, the old editor's
   // counters, prompt diagnostics and edit history gone.
-  test("a Facts row shows its reasons and opens the fact sheet: four tabs, five groups, no old editor", async ({ page }) => {
+  test("a Facts row shows its reasons and opens the fact sheet: five tabs, five groups, no old editor", async ({ page }) => {
     await stubAdminFacts(page, [{
       row: adminFactRow({ id: 97101, text: "{NAME} does not sleep. {Subj} {waits|wait}.", attention: ["example_missing", "taxonomy_missing"] }),
       enrichment: enrichmentWithConcept("{NAME} sits awake at dawn while the moon yawns."),
@@ -263,7 +263,7 @@ test.describe("Admin described screens", () => {
     await row.click();
 
     const sheet = page.getByTestId("fact-sheet");
-    await expect(sheet.getByRole("tab")).toHaveText(["Overview", "Reading and taxonomy", "Gags", "Renders"]);
+    await expect(sheet.getByRole("tab")).toHaveText(["Overview", "Reading and taxonomy", "Gags", "Renders", "History"]);
     for (const g of ["identity", "scoring", "usage", "pictures", "hashtags"]) {
       await expect(sheet.getByTestId(`sheet-group-${g}`), `group ${g}`).toBeVisible();
     }
@@ -298,7 +298,7 @@ test.describe("Admin described screens", () => {
     expect(Math.round(box!.height), "full height").toBe(844);
     const scrollWidth = await sheet.evaluate((el) => el.scrollWidth);
     expect(scrollWidth, "nothing in the sheet runs off the side").toBeLessThanOrEqual(390);
-    for (const t of ["reading", "gags", "renders", "overview"]) {
+    for (const t of ["reading", "gags", "renders", "history", "overview"]) {
       await sheet.getByTestId(`sheet-tab-${t}`).click();
       await expect(sheet.getByTestId(`sheet-panel-${t}`)).toBeVisible();
     }
@@ -321,7 +321,7 @@ test.describe("Admin described screens", () => {
     const sheet = page.getByTestId("fact-sheet");
     const wording = sheet.getByTestId("sheet-wording");
     await expect(wording).toHaveText(LONG);
-    for (const t of ["overview", "reading", "gags", "renders"]) {
+    for (const t of ["overview", "reading", "gags", "renders", "history"]) {
       await expect(sheet.getByTestId(`sheet-tab-${t}`), `tab ${t} is on screen`).toBeInViewport({ ratio: 1 });
     }
     await expect(sheet.getByTestId("deactivate-fact-button"), "Deactivate is on screen").toBeInViewport({ ratio: 1 });

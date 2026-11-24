@@ -9,6 +9,7 @@
  */
 import { ATTENTION_REASONS, type AttentionReason, type GagExampleKind, type ReviewReadingView } from "@workspace/api-zod";
 import { readError } from "@/components/admin/readError";
+import type { FactHistoryEntry } from "./historyWords";
 
 /** Each reason as a short label (the list's chips) and a sentence (the sheet). */
 export const ATTENTION_WORDS: Record<AttentionReason, { label: string; sentence: string }> = {
@@ -98,4 +99,11 @@ export type FactLifecycleAction = "publish" | "discard" | "deactivate" | "reacti
 /** Run one; throws the server's refusal in words (a go-live gap names the gag and the renders it needs). */
 export async function runFactAction(factId: number, action: FactLifecycleAction): Promise<void> {
   await send("POST", `/api/admin/facts/${factId}/${action}`, undefined, "That didn't work. Nothing was changed.");
+}
+
+/** The fact's History, newest first (GET /admin/facts/:id/history; plan 3C). */
+export async function loadFactHistory(factId: number): Promise<{ history: FactHistoryEntry[]; limit: number }> {
+  const r = await fetch(`/api/admin/facts/${factId}/history`, { credentials: "include" });
+  if (!r.ok) throw new Error((await readError(r)) || "Could not load the history.");
+  return (await r.json()) as { history: FactHistoryEntry[]; limit: number };
 }

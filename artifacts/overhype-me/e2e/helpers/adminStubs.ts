@@ -232,6 +232,8 @@ export async function stubAdminFacts(
         return json(route, gagsView(row.id, row.isActive, gag, entry.review ?? null));
       case "/sheet":
         return json(route, factSheetOf(row, enrichment, gag));
+      case "/history":
+        return json(route, { history: [], limit: 500 });
       default:
         return route.continue();
     }

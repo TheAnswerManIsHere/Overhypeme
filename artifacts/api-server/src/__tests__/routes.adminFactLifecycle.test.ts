@@ -22,7 +22,7 @@ import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { db, factsTable, usersTable, factGagsTable, factGagExamplesTable, adminActionsTable } from "@workspace/db";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
-import { imagePromptAttemptsTable } from "@workspace/db/schema";
+import { imagePromptAttemptsTable, pendingReviewsTable } from "@workspace/db/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import {
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
@@ -224,11 +224,44 @@ describe("an approved fact's lifecycle actions", () => {
     });
   });
 
+  describe("History", () => {
+    it("lists the fact's actions newest first, with who did them, including a Triage action keyed only to its review", async () => {
+      const { factId, gagId } = await completeFact();
+      const [review] = await db.insert(pendingReviewsTable).values({ submittedText: `{NAME} history ${RUN}`, stagingFactId: factId, approvedFactId: factId, status: "approved" }).returning({ id: pendingReviewsTable.id });
+      await db.insert(adminActionsTable).values({ reviewId: review!.id, actorId: adminId, action: "duplicate_check", detail: { outcome: "distinct" }, createdAt: new Date(Date.now() - 60_000) });
+      await saveGagContent(factId, gagId, B, live());
+      assert.equal((await post(factId, "discard")).status, 200);
+      assert.equal((await post(factId, "deactivate")).status, 200);
+
+      const res = await request(app).get(`/api/admin/facts/${factId}/history`);
+      assert.equal(res.status, 200, JSON.stringify(res.body));
+      const actionsSeen = (res.body.history as { action: string }[]).map((h) => h.action);
+      assert.deepEqual(actionsSeen.slice(0, 2), ["deactivate", "discard"], "newest first");
+      assert.equal(actionsSeen.at(-1), "duplicate_check", "the review-only Triage record is included, oldest");
+      const entry = res.body.history[0];
+      assert.equal(entry.actorId, adminId);
+      assert.equal(entry.actorName, `${adminId}@test.local`);
+      assert.ok(Date.parse(entry.createdAt));
+      await db.delete(adminActionsTable).where(eq(adminActionsTable.reviewId, review!.id));
+      await db.delete(pendingReviewsTable).where(eq(pendingReviewsTable.id, review!.id));
+    });
+
+    it("leaves out another fact's records", async () => {
+      const a = await completeFact();
+      const b = await completeFact();
+      assert.equal((await post(b.factId, "deactivate")).status, 200);
+      const res = await request(app).get(`/api/admin/facts/${a.factId}/history`);
+      assert.equal(res.status, 200);
+      assert.equal((res.body.history as { action: string }[]).some((h) => h.action === "deactivate"), false);
+    });
+  });
+
   it("is a 404 for a staging fact, for every action", async () => {
     const [f] = await db.insert(factsTable).values({ text: `{NAME} staged ${RUN} ${randomUUID().slice(0, 6)}`, isActive: false }).returning({ id: factsTable.id });
     factIds.push(f!.id);
     for (const action of ["publish", "discard", "deactivate", "reactivate"]) {
       assert.equal((await post(f!.id, action)).status, 404, action);
     }
+    assert.equal((await request(app).get(`/api/admin/facts/${f!.id}/history`)).status, 404, "history");
   });
 });

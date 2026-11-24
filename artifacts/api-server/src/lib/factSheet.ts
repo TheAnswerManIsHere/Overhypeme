@@ -23,6 +23,7 @@ import {
   memesTable,
   userAiImagesTable,
   pendingReviewsTable,
+  adminActionsTable,
 } from "@workspace/db/schema";
 import { GAG_EXAMPLE_KINDS, type AttentionReason, type GagExampleKind } from "@workspace/api-zod";
 import { ATTENTION_REASONS_COLUMN, approvedFact } from "./factAttention";
@@ -226,3 +227,39 @@ export async function saveFactHumorNote(factId: number, text: string, actorId: s
     return { kind: "saved", value: { text, approvedAt: approvedAt.toISOString() } };
   });
 }
+
+/** The most History shows: far more than any fact's real record, so a runaway writer can't stall the sheet. */
+export const FACT_HISTORY_LIMIT = 500;
+
+/**
+ * The fact's History tab (plan 3C, oracle item 22): every admin action on the
+ * fact, newest first — the records keyed to the fact and, since a Triage action
+ * happens before a fact exists, those keyed only to one of its reviews (the
+ * review that staged it, or approved it). Null when the fact is not approved,
+ * as the sheet is.
+ */
+export async function factHistory(factId: number) {
+  const [fact] = await db.select({ id: factsTable.id }).from(factsTable).where(and(eq(factsTable.id, factId), isApproved)).limit(1);
+  if (!fact) return null;
+  const actor = alias(usersTable, "actor");
+  const reviewIds = db.select({ id: pendingReviewsTable.id }).from(pendingReviewsTable)
+    .where(sql`${pendingReviewsTable.stagingFactId} = ${factId} OR ${pendingReviewsTable.approvedFactId} = ${factId}`);
+  const rows = await db
+    .select({
+      id: adminActionsTable.id,
+      action: adminActionsTable.action,
+      reviewId: adminActionsTable.reviewId,
+      actorName: userName(actor),
+      actorId: adminActionsTable.actorId,
+      detail: adminActionsTable.detail,
+      createdAt: adminActionsTable.createdAt,
+    })
+    .from(adminActionsTable)
+    .leftJoin(actor, eq(actor.id, adminActionsTable.actorId))
+    .where(sql`${adminActionsTable.factId} = ${factId} OR ${adminActionsTable.reviewId} IN (${reviewIds})`)
+    .orderBy(desc(adminActionsTable.createdAt), desc(adminActionsTable.id))
+    .limit(FACT_HISTORY_LIMIT);
+  return rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }));
+}
+
+export type FactHistoryEntry = NonNullable<Awaited<ReturnType<typeof factHistory>>>[number];

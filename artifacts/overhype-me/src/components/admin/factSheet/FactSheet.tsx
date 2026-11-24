@@ -16,6 +16,7 @@
  *                         (its working copy, which members never see).
  *   Renders             — the Test Renders step's `GagsPanel`, drawing and
  *                         approving the draft's pictures.
+ *   History             — every admin action on the fact, newest first (3C).
  *
  * Increment 3.2 (plan 3B): the footer carries Publish changes and Discard
  * changes whenever the draft differs from the published set, and Deactivate
@@ -35,6 +36,7 @@ import { DEFAULT_SUBJECT_EXAMPLE_NAMES } from "@/components/admin/subjectExample
 import {
   ATTENTION_WORDS,
   knownReasons,
+  loadFactHistory,
   loadFactSheet,
   runFactAction,
   saveHashtags,
@@ -42,12 +44,14 @@ import {
   type FactLifecycleAction,
   type FactSheetView,
 } from "./factSheetView";
+import { describeHistory, type FactHistoryEntry } from "./historyWords";
 
 export const FACT_SHEET_TABS = [
   { id: "overview", label: "Overview" },
   { id: "reading", label: "Reading and taxonomy" },
   { id: "gags", label: "Gags" },
   { id: "renders", label: "Renders" },
+  { id: "history", label: "History" },
 ] as const;
 export type FactSheetTab = (typeof FACT_SHEET_TABS)[number]["id"];
 
@@ -338,6 +342,49 @@ function ReadingTab({ fact, onSaved, onDirtyChange }: { fact: FactSheetView; onS
   );
 }
 
+/** Every admin action on the fact, newest first (plan 3C, oracle item 22). */
+function HistoryTab({ factId }: { factId: number }) {
+  const [entries, setEntries] = useState<FactHistoryEntry[] | null>(null);
+  const [limit, setLimit] = useState(0);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let live = true;
+    loadFactHistory(factId)
+      .then((r) => { if (live) { setEntries(r.history); setLimit(r.limit); } })
+      .catch((err: unknown) => { if (live) setError(err instanceof Error ? err.message : "Could not load the history."); });
+    return () => { live = false; };
+  }, [factId]);
+
+  if (error) return <p className="text-sm text-destructive flex items-center gap-2" role="alert"><AlertTriangle className="w-4 h-4" /> {error}</p>;
+  if (!entries) return <p className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading the history…</p>;
+  if (entries.length === 0) return <p className="text-sm text-muted-foreground" data-testid="sheet-history-empty">No admin actions are recorded for this fact.</p>;
+  return (
+    <div className="space-y-2">
+      <ol className="divide-y divide-border border border-border rounded-sm" data-testid="sheet-history">
+        {entries.map((e) => {
+          const { title, detail } = describeHistory(e);
+          return (
+            <li key={e.id} className="px-3 py-2.5" data-testid="sheet-history-entry">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+                <span className="text-sm font-semibold text-foreground">{title}</span>
+                <span className="text-xs font-mono text-muted-foreground">{when(e.createdAt)}</span>
+              </div>
+              {detail && <p className="text-sm text-muted-foreground break-words">{detail}</p>}
+              <p className="text-xs text-muted-foreground">
+                {e.actorName ?? (e.actorId ? "A deleted admin" : "The system")}
+                {e.reviewId != null && <span className="font-mono"> · review #{e.reviewId}</span>}
+              </p>
+            </li>
+          );
+        })}
+      </ol>
+      {entries.length >= limit && limit > 0 && (
+        <p className="text-xs text-muted-foreground">Showing the latest {limit} actions.</p>
+      )}
+    </div>
+  );
+}
+
 /** What the footer is asking the admin to confirm. */
 type Confirming = "deactivate" | "discard" | null;
 
@@ -403,6 +450,8 @@ export function FactSheet({
   // The Gags and Renders tabs' latest view of the draft, and its reload key.
   const [gagView, setGagView] = useState<FactGagsView | null>(null);
   const [gagsReload, setGagsReload] = useState(0);
+  // Bumped by every action, so an open History tab shows it.
+  const [historyKey, setHistoryKey] = useState(0);
   // Unsaved work a tab switch or closing would lose, and the leave it holds.
   const [unsavedNote, setUnsavedNote] = useState(false);
   const [unsavedGags, setUnsavedGags] = useState<string[]>([]);
@@ -462,6 +511,7 @@ export function FactSheet({
       setActionDone(ACTION_DONE[action]);
       setGagView(null);
       setGagsReload((k) => k + 1);
+      setHistoryKey((k) => k + 1);
       onChanged();
       load();
     } catch (err) {
@@ -565,6 +615,8 @@ export function FactSheet({
             <OverviewTab fact={fact} hashtags={hashtags} />
           ) : tab === "reading" ? (
             <ReadingTab key={fact.id} fact={fact} onSaved={load} onDirtyChange={onNoteDirty} />
+          ) : tab === "history" ? (
+            <HistoryTab key={`${fact.id}-${fact.updatedAt}-${historyKey}`} factId={fact.id} />
           ) : (
             <div className="space-y-3">
               <p className="text-xs text-muted-foreground" data-testid={`sheet-${tab}-note`}>{GAG_TAB_NOTES[tab]}</p>
