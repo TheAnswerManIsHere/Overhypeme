@@ -887,3 +887,11 @@ answered from disk at no cost (the two failure controls included, when
 the directory already holds their expected rejections), the run pays only
 for the rest and reports how many it reused. Use it only when the vendor clients have not changed
 since those recordings were taken; after a client upgrade, record afresh.
+A top-up keeps every recording it starts with, so after a prompt change
+leave out of the starting set both the changed call's own recordings and
+every later recording whose request carries that call's old output (search
+the folder for a phrase of the old output). A leftover beside its
+replacement is never reached by a replay, but `acceptanceRun.test.ts`
+edits the first recording it finds for a kind and can pick the stale one
+(PR #1182 — Bugfix: the acceptance journeys replay again after the
+possessive-name tokenizer prompt).
