@@ -674,8 +674,7 @@ export default function Profile() {
       // sets the new one, updates users.profileImageUrl atomically, and
       // re-asserts the public ACL — all in one transaction.
       await setProfileImageFromUpload(objectPath);
-      await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
-      await queryClient.invalidateQueries({ queryKey: ["my-uploads-for-profile-picker"] });
+      await refreshPicture();
     } catch (err: unknown) {
       const errObj = err as { message?: string };
       setPhotoError(errObj?.message ?? "Photo upload failed.");
@@ -703,6 +702,15 @@ export default function Profile() {
     }
   }
 
+  /** The picture changed: the profile, the picker and the Library all re-read it, so a Profile badge never lingers. */
+  async function refreshPicture(): Promise<void> {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() }),
+      queryClient.invalidateQueries({ queryKey: ["my-uploads-for-profile-picker"] }),
+      queryClient.invalidateQueries({ queryKey: ["my-uploads"] }),
+    ]);
+  }
+
   /**
    * "Remove my picture" (plan PLAN_AVATAR_TAKEDOWN_AND_REMOVE.md, Q17): back
    * to their initial; their photos stay in their library, and Google's
@@ -719,12 +727,9 @@ export default function Profile() {
         throw new Error(data.error ?? "Could not remove your picture.");
       }
       setRemovePictureConfirm(false);
-      await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
-      await queryClient.invalidateQueries({ queryKey: ["my-uploads-for-profile-picker"] });
-      await queryClient.invalidateQueries({ queryKey: ["my-uploads"] });
+      await refreshPicture();
     } catch (err: unknown) {
-      const errObj = err as { message?: string };
-      setPhotoError(errObj?.message ?? "Could not remove your picture.");
+      setPhotoError(err instanceof Error ? err.message : "Could not remove your picture.");
     } finally {
       setPhotoUploading(false);
     }
@@ -1321,8 +1326,7 @@ export default function Profile() {
                     setPhotoUploading(true);
                     try {
                       await setProfileImageFromUpload(objectPath);
-                      await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
-                      await queryClient.invalidateQueries({ queryKey: ["my-uploads-for-profile-picker"] });
+                      await refreshPicture();
                     } catch (err: unknown) {
                       const errObj = err as { message?: string };
                       setPhotoError(errObj?.message ?? "Could not change your photo.");

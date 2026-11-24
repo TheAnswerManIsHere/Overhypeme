@@ -22,8 +22,8 @@ export class PhotoNotAvailableError extends Error {
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-/** The picture-write lock order: the owner's content lock, then their account row. */
-async function lockPictureOwner(tx: Tx, userId: string) {
+/** The picture-write lock order every picture writer takes: the owner's content lock, then their account row. */
+export async function lockPictureOwner(tx: Tx, userId: string) {
   await lockOwnerContent(tx, userId);
   const [row] = await tx
     .select({ profileImageUrl: usersTable.profileImageUrl, noAutoPicture: usersTable.noAutoPicture })

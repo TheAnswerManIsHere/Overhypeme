@@ -7,7 +7,8 @@ import { adminActionsTable, memesTable, uploadImageMetadataTable, usersTable } f
 import { and, eq, isNull, ne, or, sql } from "drizzle-orm";
 import type { AdminAction } from "@workspace/api-zod";
 
-import { liveContent, lockOwnerContent, restorable } from "./contentVisibility";
+import { liveContent, restorable } from "./contentVisibility";
+import { lockPictureOwner } from "./profilePhoto";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -72,10 +73,7 @@ export async function takeDownContent(
       .where(and(eq(t.objectPath, item.key), isNull(t.arachnidMatchType), takeable(t, now)))
       .limit(1);
     if (!target) return { status: "not_found" };
-    if (target.ownerId) {
-      await lockOwnerContent(tx, target.ownerId);
-      await tx.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.id, target.ownerId)).for("update");
-    }
+    if (target.ownerId) await lockPictureOwner(tx, target.ownerId);
     const [row] = await tx
       .update(t)
       .set({ ...ended, isProfile: false })
