@@ -496,7 +496,14 @@ a forward migration ([`docs/retired/README.md`](../retired/README.md)).
   The provider URL is never stored. A member without an adult date of birth is
   skipped (photo uploads are for adults), so a brand-new Google member, who has
   no date of birth until onboarding, gets the copy at a later Google sign-in if
-  they still have no photo. Apple sends no picture. Nothing waits on the copy,
+  they still have no photo. An account the verified-actor gate would refuse
+  (suspended, under age, awaiting deletion, unverified, not onboarded or
+  behind on the Terms) gets nothing: signing in does not let it add media. The
+  copy sets the picture only if the member still has none when it saves: every
+  selection takes the owner's content lock and the account row first
+  (`artifacts/api-server/src/lib/profilePhoto.ts`), so a photo the member
+  chooses while the picture is being fetched wins, and the copied upload is
+  discarded for the purger. Apple sends no picture. Nothing waits on the copy,
   and a failure leaves the member photo-less.
 
 ## Age, audience and the NSFW opt-in

@@ -1,5 +1,5 @@
 /**
- * @purpose Makes one of a member's uploads their profile photo, the one setter of their picture (plan docs/plans/PLAN_PHOTO_IS_YOUR_PICTURE.md): every selection locks the account row, so a member's own choice and the Google default never interleave; the object is made public, then the Profile marker moves to it and the account's picture points at it, so the shown photo, the Profile-marked photo and the deletion-protected photo are always the same one.
+ * @purpose Makes one of a member's uploads their profile photo, the one setter of their picture (plan docs/plans/PLAN_PHOTO_IS_YOUR_PICTURE.md): every selection takes the owner's content lock and the account row, so a member's own choice and the Google default never interleave; the object is made public, then the Profile marker moves to it and the account's picture points at it, so the shown photo, the Profile-marked photo and the deletion-protected photo are always the same one.
  * @subsystem accounts-auth
  */
 import { db } from "@workspace/db";
@@ -8,6 +8,7 @@ import { eq, sql } from "drizzle-orm";
 
 import { ObjectStorageService } from "./objectStorage";
 import { profilePictureUrl } from "./profilePicture";
+import { lockOwnerContent } from "./contentVisibility";
 
 /** The picture URL for an upload's object path. */
 export function pictureUrlFor(objectPath: string): string {
@@ -15,7 +16,9 @@ export function pictureUrlFor(objectPath: string): string {
 }
 
 /**
- * The account row is locked first, so two selections for one member run one
+ * The owner's content lock is taken first, the same lock the content purger
+ * and the account purge take before anything else, so the lock order is
+ * theirs; then the account row, so two selections for one member run one
  * after the other and the later one sees the earlier one's result. With
  * `onlyIfNone` (the Google default, plan Q13), a member who has a photo by
  * then keeps it: the default upload is discarded and null is returned.
@@ -33,6 +36,7 @@ export async function makeProfilePhoto(
 ): Promise<string | null> {
   const url = pictureUrlFor(objectPath);
   return db.transaction(async (tx) => {
+    await lockOwnerContent(tx, userId);
     const [current] = await tx
       .select({ profileImageUrl: usersTable.profileImageUrl })
       .from(usersTable)
