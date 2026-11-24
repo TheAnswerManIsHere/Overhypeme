@@ -10,10 +10,10 @@ import { describe, it, before, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import http from "node:http";
 
 process.env.RESEND_API_KEY = process.env.RESEND_API_KEY ?? "re_test_dummy";
 
+import request from "supertest";
 import { Resend } from "resend";
 import { db } from "@workspace/db";
 import { asyncJobsTable, usersTable } from "@workspace/db/schema";
@@ -165,36 +165,23 @@ describe("a suspended member does not receive ordinary emails (Issue #1212)", ()
     const adminId = `email_susp_admin_${randomUUID().slice(0, 8)}`;
     userIds.push(adminId);
     await db.insert(usersTable).values({ id: adminId, membershipTier: "registered", isAdmin: true });
-    const server = http.createServer(buildTestApp({ kind: "authenticated", userId: adminId }, adminRouter));
-    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
-    const port = (server.address() as { port: number }).port;
-    const call = (method: string, path: string) => new Promise<{ status: number; body: string }>((resolve, reject) => {
-      const req = http.request({ hostname: "127.0.0.1", port, path, method, headers: { Accept: "application/json" } }, (res) => {
-        let body = "";
-        res.on("data", (c) => { body += c; });
-        res.on("end", () => resolve({ status: res.statusCode!, body }));
-      });
-      req.on("error", reject);
-      req.end();
-    });
+    const app = buildTestApp({ kind: "authenticated", userId: adminId }, adminRouter);
     try {
       await db.update(asyncJobsTable).set({ queue: "email" }).where(eq(asyncJobsTable.id, id));
-      assert.equal((await call("POST", `/api/admin/email-queue/${id}/retry`)).status, 200);
+      assert.equal((await request(app).post(`/api/admin/email-queue/${id}/retry`)).status, 200);
       await db.update(asyncJobsTable).set({ queue, nextAttemptAt: new Date(Date.now() - 1000) }).where(eq(asyncJobsTable.id, id));
       await tick();
       assert.equal(sent.length, 0, "the retried email is not sent");
       await assertSkipped(id, "admin retry");
 
       await db.update(asyncJobsTable).set({ queue: "email" }).where(eq(asyncJobsTable.id, id));
-      const list = await call("GET", "/api/admin/email-queue?status=done&limit=100");
+      const list = await request(app).get("/api/admin/email-queue?status=done&limit=100");
       assert.equal(list.status, 200);
-      const { rows } = JSON.parse(list.body) as { rows: { id: number; skipReason: string | null }[] };
-      const mine = rows.find((r) => r.id === id);
+      const mine = (list.body.rows as { id: number; skipReason: string | null }[]).find((r) => r.id === id);
       assert.ok(mine, "the skipped job is listed");
       assert.equal(mine.skipReason, "recipient_suspended", "the Email Queue API returns the skip's reason");
     } finally {
       await db.update(asyncJobsTable).set({ queue }).where(eq(asyncJobsTable.id, id));
-      await new Promise<void>((r) => server.close(() => r()));
     }
   });
 
@@ -288,10 +275,14 @@ describe("a suspended member does not receive ordinary emails (Issue #1212)", ()
     await taken;
     let suspendedAt = 0;
     const suspension = suspendAccount(userId, { by: null, reason: "overlap" }).then((r) => { suspendedAt = Date.now(); return r; });
-    await new Promise((r) => setTimeout(r, 300));
-    assert.equal(suspendedAt, 0, "the suspension waits while the send is being authorised");
-    const releasedAt = Date.now();
-    release();
+    let releasedAt = 0;
+    try {
+      await new Promise((r) => setTimeout(r, 300));
+      assert.equal(suspendedAt, 0, "the suspension waits while the send is being authorised");
+    } finally {
+      releasedAt = Date.now();
+      release(); // never leave the lock held, or a failure would hang the run
+    }
     await authorising;
     assert.equal((await suspension).outcome, "suspended");
     assert.ok(suspendedAt >= releasedAt, "it commits only after the authorisation");
@@ -320,11 +311,11 @@ describe("a suspended member does not receive ordinary emails (Issue #1212)", ()
 
   it("the billing producers write their permitted kinds at each send (Stripe events are not driven here)", () => {
     const src = readFileSync(new URL("../lib/webhookHandlers.ts", import.meta.url), "utf8");
-    const sends = [...src.matchAll(/sendEmail\(\{[^}]*\}/g)].map((m) => m[0]);
+    const sends = src.match(/sendEmail\(\{[^}]*\}/g) ?? [];
     assert.equal(sends.length, 3, "the webhook handler sends three billing emails");
-    assert.ok(sends.some((s) => s.includes(`kind: "billing_payment_action"`)));
-    assert.ok(sends.some((s) => s.includes(`kind: "billing_renewal_reminder"`)));
-    assert.match(src, /const kind = "billing_card_updated";\s*try \{\s*await sendEmail\(\{ to: email, kind,/);
+    for (const kind of ["billing_payment_action", "billing_renewal_reminder", "billing_card_updated"]) {
+      assert.equal(sends.filter((s) => s.includes(`kind: "${kind}"`)).length, 1, `one send carries ${kind}`);
+    }
   });
 
   it("the cutover step labels an older billing job without touching its sending record, and leaves unknown jobs ordinary", async () => {

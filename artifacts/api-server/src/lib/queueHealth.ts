@@ -34,6 +34,7 @@ import {
 import { heartbeatTtlMinutes, NOT_A_TASK_ROW } from "./workerHeartbeats";
 import { GAG_FOLD_SKIP_REASONS } from "./gags/foldJob";
 import { RETIRED_SKIP_RESULT } from "./aiMemeBackfillJobs";
+import { RECIPIENT_SUSPENDED_SKIP } from "./email";
 
 /** The five raw statuses `async_jobs.status` can hold (`recovering`: Issue #1000). */
 export const RAW_JOB_STATUSES = ["pending", "recovering", "processing", "done", "failed"] as const;
@@ -73,10 +74,7 @@ export type DisplayStatus = (typeof DISPLAY_STATUSES)[number];
  * becomes `other` — a handler is free to put arbitrary text in `result`, and
  * admin surfaces should not echo it back.
  */
-/** The email queue's one skip (Issue #1212): mail held back from a suspended account (`RECIPIENT_SUSPENDED_SKIP` in lib/email.ts). */
-export const EMAIL_SKIP_REASONS = ["recipient_suspended"] as const;
-
-export const KNOWN_SKIP_REASONS = [...GAG_FOLD_SKIP_REASONS, RETIRED_SKIP_RESULT.reason, ...EMAIL_SKIP_REASONS] as const;
+export const KNOWN_SKIP_REASONS = [...GAG_FOLD_SKIP_REASONS, RETIRED_SKIP_RESULT.reason, RECIPIENT_SUSPENDED_SKIP.reason] as const;
 export type SanitizedSkipReason = (typeof KNOWN_SKIP_REASONS)[number] | "other";
 
 export function sanitizeSkipReason(raw: unknown): SanitizedSkipReason | null {
@@ -87,6 +85,12 @@ export function sanitizeSkipReason(raw: unknown): SanitizedSkipReason | null {
 /** True when a terminal-ok row's `result` says the handler deliberately did nothing. */
 export function isSkipResult(result: unknown): boolean {
   return typeof result === "object" && result !== null && (result as { skipped?: unknown }).skipped === true;
+}
+
+/** A finished row's skip reason, sanitized, or null when it is not a deliberate skip. */
+export function skipReasonOf(row: { status: string; result: unknown }): SanitizedSkipReason | null {
+  if (row.status !== "done" || !isSkipResult(row.result)) return null;
+  return sanitizeSkipReason((row.result as { reason?: unknown }).reason);
 }
 
 /**
@@ -100,8 +104,7 @@ export function deriveDisplayStatus(
   effectiveMax: number,
 ): { displayStatus: DisplayStatus; skipReason: SanitizedSkipReason | null } {
   if (row.status === "done" && isSkipResult(row.result)) {
-    const reason = sanitizeSkipReason((row.result as { reason?: unknown }).reason);
-    return { displayStatus: "skipped", skipReason: reason };
+    return { displayStatus: "skipped", skipReason: skipReasonOf(row) };
   }
   // A `failed` row's terminal-vs-exhausted distinction is only trustworthy
   // when it's checked against the ceiling that ACTUALLY applied at

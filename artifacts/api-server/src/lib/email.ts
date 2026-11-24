@@ -488,12 +488,12 @@ export const SUSPENSION_PERMITTED_KINDS: ReadonlySet<string> = new Set([
  * apart by their fixed subjects (the builders below and `userNotify.ts`).
  * Used once, by `classifyLegacyEmailKinds`, at the cutover (plan item 5).
  */
-const LEGACY_KIND_BY_SUBJECT: readonly { kind: string; exact?: string; prefix?: string }[] = [
-  { kind: "billing_payment_action", exact: "Action required: confirm your renewal — Overhype.me" },
-  { kind: "billing_card_updated", exact: "Your card on file was updated — Overhype.me" },
-  { kind: "billing_renewal_reminder", prefix: "Your Overhype.me renewal — " },
-  { kind: "access_revoked", exact: "Your Overhype.me Legendary access has ended" },
-  { kind: "access_revoked", exact: "Your Overhype.me Legendary access is paused" },
+const LEGACY_KIND_BY_SUBJECT: readonly { kind: string; subjectLike: string }[] = [
+  { kind: "billing_payment_action", subjectLike: "Action required: confirm your renewal — Overhype.me" },
+  { kind: "billing_card_updated", subjectLike: "Your card on file was updated — Overhype.me" },
+  { kind: "billing_renewal_reminder", subjectLike: "Your Overhype.me renewal — %" },
+  { kind: "access_revoked", subjectLike: "Your Overhype.me Legendary access has ended" },
+  { kind: "access_revoked", subjectLike: "Your Overhype.me Legendary access is paused" },
 ];
 
 /**
@@ -505,19 +505,16 @@ const LEGACY_KIND_BY_SUBJECT: readonly { kind: string; exact?: string; prefix?: 
  * and no send is authorised. Whoever the recipient is now. Idempotent: a
  * second run finds nothing. Jobs it does not recognise stay ordinary.
  */
-export async function classifyLegacyEmailKinds(executor: Pick<typeof defaultDb, "update"> = defaultDb): Promise<Record<string, number>> {
+export async function classifyLegacyEmailKinds(executor: Pick<DbExecutor, "update"> = defaultDb): Promise<Record<string, number>> {
   const counts: Record<string, number> = {};
   for (const rule of LEGACY_KIND_BY_SUBJECT) {
-    const subjectMatch = rule.exact !== undefined
-      ? sql`${asyncJobsTable.payload}->>'subject' = ${rule.exact}`
-      : sql`starts_with(${asyncJobsTable.payload}->>'subject', ${rule.prefix!})`;
     const updated = await executor
       .update(asyncJobsTable)
       .set({ payload: sql`jsonb_set(${asyncJobsTable.payload}, '{kind}', to_jsonb(${rule.kind}::text))` })
       .where(sql`${asyncJobsTable.queue} = 'email'
         AND ${asyncJobsTable.status} IN ('pending', 'recovering', 'processing', 'failed')
         AND (${asyncJobsTable.payload}->>'kind') IS NULL
-        AND ${subjectMatch}`)
+        AND ${asyncJobsTable.payload}->>'subject' LIKE ${rule.subjectLike}`)
       .returning({ id: asyncJobsTable.id });
     counts[rule.kind] = (counts[rule.kind] ?? 0) + updated.length;
   }
@@ -539,13 +536,15 @@ function recipientOf(ep: EmailJobPayload): string {
  * Exported for the overlap test.
  */
 export async function recipientSuspended(executor: DbExecutor, address: string, lock = false): Promise<boolean> {
+  // Every account at the address is read, suspended or not: FOR SHARE locks
+  // only the rows returned, so filtering on suspension here would take no lock
+  // on the very account a suspension is about to change.
   const q = executor
-    .select({ id: usersTable.id })
+    .select({ suspendedAt: usersTable.suspendedAt })
     .from(usersTable)
-    .where(sql`lower(${usersTable.email}) = lower(${address}) AND ${usersTable.suspendedAt} IS NOT NULL`)
-    .limit(1);
+    .where(sql`lower(${usersTable.email}) = lower(${address})`);
   const rows = lock ? await q.for("share") : await q;
-  return rows.length > 0;
+  return rows.some((r) => r.suspendedAt !== null);
 }
 
 /**
@@ -580,10 +579,11 @@ async function runEmailJob(ep: EmailJobPayload, row: ClaimedJobRow): Promise<Han
   // the send is authorised.
   const recipient = recipientOf(ep);
   const suppressible = !SUSPENSION_PERMITTED_KINDS.has(ep.kind ?? "");
-  if (suppressible && await recipientSuspended(defaultDb, recipient)) {
+  const heldBack = (): HandlerResult => {
     logger.info({ id: row.id, kind: ep.kind ?? null }, "[email] recipient is suspended — skipped, not sent");
     return { ok: true, result: RECIPIENT_SUSPENDED_SKIP };
-  }
+  };
+  if (suppressible && await recipientSuspended(defaultDb, recipient)) return heldBack();
 
   if (prior?.state === "possibly_sent") {
     // A missing or unreadable time is NaN, which counts as outside the window.
@@ -627,10 +627,7 @@ async function runEmailJob(ep: EmailJobPayload, row: ClaimedJobRow): Promise<Han
     await deliveryUpdate(tx, row.id, record, true);
     return false;
   });
-  if (withheld) {
-    logger.info({ id: row.id, kind: ep.kind ?? null }, "[email] recipient suspended as the send was authorised — skipped, not sent");
-    return { ok: true, result: RECIPIENT_SUSPENDED_SKIP };
-  }
+  if (withheld) return heldBack();
   if (prior?.state === "possibly_sent") {
     logger.info({ id: row.id, firstDispatchAt: prior.firstDispatchAt }, "[email] resending with the same no-duplicate key after an interrupted or failed attempt");
   }

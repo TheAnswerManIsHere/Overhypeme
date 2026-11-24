@@ -3,18 +3,19 @@
  * @subsystem email
  */
 
-/** The reasons the server sends for a skipped email row (`EMAIL_SKIP_REASONS`, api-server lib/queueHealth.ts). */
+/** The reasons the server sends for a skipped email row (`skipReasonOf`, api-server lib/queueHealth.ts). */
 const SKIP_REASON_LABEL: Record<string, string> = {
   recipient_suspended: "Skipped — recipient suspended",
 };
 
-/** What a row's status badge says. */
-export function emailQueueStatusLabel(row: { status: string; skipReason?: string | null }): string {
-  if (row.status === "done" && row.skipReason) return SKIP_REASON_LABEL[row.skipReason] ?? "Skipped";
-  return row.status;
+type Row = { status: string; skipReason?: string | null };
+
+/** Whether a row is a deliberate skip, which gets its own badge colour. The server sets `skipReason` only on finished rows. */
+export function isSkippedRow(row: Row): boolean {
+  return !!row.skipReason;
 }
 
-/** Whether a row is a deliberate skip, which gets its own badge colour. */
-export function isSkippedRow(row: { status: string; skipReason?: string | null }): boolean {
-  return row.status === "done" && !!row.skipReason;
+/** What a row's status badge says. */
+export function emailQueueStatusLabel(row: Row): string {
+  return isSkippedRow(row) ? SKIP_REASON_LABEL[row.skipReason!] ?? "Skipped" : row.status;
 }

@@ -11,7 +11,7 @@ import { backfillEmbeddings } from "../lib/embeddings";
 import { ATTENTION_COUNT_COLUMNS, ATTENTION_PREDICATES, ATTENTION_REASONS, ATTENTION_REASONS_COLUMN, approvedFact, attentionReasonOf } from "../lib/factAttention";
 import { enqueueJob, USE_CONFIGURED_MAX_ATTEMPTS } from "../lib/asyncJobs";
 import { emailRetryReset } from "../lib/email";
-import { isSkipResult, laneHealth, queueHealth, queueHealthJobs, sanitizeSkipReason } from "../lib/queueHealth";
+import { laneHealth, queueHealth, queueHealthJobs, skipReasonOf } from "../lib/queueHealth";
 import { isNcmecReservedConfigKey, NCMEC_RESERVED_KEY_REFUSAL } from "../lib/moderation/ncmecConfig";
 import { READ_ONLY_CONFIG_KEY } from "../lib/readOnlyMode";
 import { CODE_OWNED_AI_SETTING_REFUSAL, isCodeOwnedAiConfigKey, withoutCodeOwnedAiSettings } from "../lib/codeOwnedPrompts";
@@ -2356,7 +2356,7 @@ router.get("/admin/email-queue", requireAdmin, async (req: Request, res: Respons
         createdAt: r.createdAt,
         updatedAt: r.updatedAt,
         // A finished row that sent nothing on purpose (Issue #1212): never "Delivered".
-        skipReason: r.status === "done" && isSkipResult(r.result) ? sanitizeSkipReason((r.result as { reason?: unknown }).reason) : null,
+        skipReason: skipReasonOf(r),
       };
     });
 

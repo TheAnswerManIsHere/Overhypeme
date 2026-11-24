@@ -682,9 +682,8 @@ async function prepareDomainEvent(stripe: StripeApi, event: Stripe.Event): Promi
         const last4 = pm.card?.last4 ?? null;
         afterCommit.push(async () => {
           const { subject, text, html } = buildCardAutomaticallyUpdatedEmail({ brand, last4 });
-          const kind = "billing_card_updated";
           try {
-            await sendEmail({ to: email, kind, subject, text, html });
+            await sendEmail({ to: email, kind: "billing_card_updated", subject, text, html });
           } catch (err) {
             logger.error({ err, userId: user.id, paymentMethodId: pm.id }, "Card-updated email send failed");
           }
