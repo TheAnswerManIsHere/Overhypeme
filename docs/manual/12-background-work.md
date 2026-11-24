@@ -75,7 +75,7 @@ them is **who is waiting, and how much each job costs to run**:
   path. Someone clicked a button and is waiting to see it take effect.
 - **`render`** — single-item renders a moderator is watching a spinner for.
 - **`bulk`** — the catch-all for batch work nobody is watching in real time.
-(A fourth lane, `ai_meme_backfill`, went with the legacy AI-background
+(The `ai_meme_backfill` lane went with the legacy AI-background
 generator in fact lifecycle 3.2d; a lane for stock-image work went with Pexels
 before launch. The record is in [`docs/retired/`](../retired/README.md).)
 
