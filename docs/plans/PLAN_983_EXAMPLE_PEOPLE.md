@@ -157,6 +157,11 @@ matching is never loosened.
 
 Accordingly, the plan's earlier "Kept, under Q26" paragraph no longer applies.
 
+**Refinement (David, 2026-11-24, after the handoff):** *"For tests that require James, keep James."*
+A test that needs a name ending in "s" (the possessive "James's"/"James'")
+keeps James. That is the one carve-out from the rule above; other
+spelling-dependent inputs (accents, other scripts) are not covered by it.
+
 **Still outside the rule:**
 - **real people named as themselves**, such as Chuck Norris where the text means the man or the genre, not a stand-in;
 - **the AI writers' canonical "Alex, they/them"**, which the rule already maps to itself;
