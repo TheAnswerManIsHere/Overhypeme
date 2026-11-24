@@ -97,8 +97,9 @@ async function renderOpen(props: Partial<React.ComponentProps<typeof MemeShareMo
       {...props}
     />,
   );
-  // The Web-Share-support probe runs in a useEffect — flush it before assertions.
-  await act(async () => { await Promise.resolve(); });
+  // The Web-Share-support probe and the open-time share-copy fetch run in
+  // effects — let both settle before assertions.
+  await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
   return { ...utils, onClose };
 }
 
@@ -277,5 +278,62 @@ describe("MemeShareModal — fire-and-forget intent logging", () => {
     // The Web Share invocation must still happen and the modal must still close.
     await waitFor(() => expect(shareSpy).toHaveBeenCalled());
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+// ── #854: the browser API is called inside the tap ────────────────────────
+// Browsers allow share, window.open and the clipboard only during a tap's user
+// activation. These tests model a browser that enforces it strictly: the call
+// must happen synchronously inside the click, before any await, and a copy
+// request still in flight must not delay it.
+describe("MemeShareModal — calls the browser API inside the tap (#854)", () => {
+  function neverResolvingCopy() {
+    mockFetch((url) => (url.includes("/api/share-copy/") ? new Promise(() => {}) : {}));
+  }
+
+  it("Share calls navigator.share synchronously in the tap, with the copy loaded when the sheet opened", async () => {
+    const shareSpy = vi.fn(async () => undefined);
+    withWebShare(shareSpy);
+    mockFetch((url) =>
+      url.includes("/api/share-copy/") && url.endsWith("/web_share")
+        ? { platform: "web_share", url: FALLBACK, title: "Alice on overhype.me", text: "did a thing" }
+        : {},
+    );
+    await renderOpen();
+    const fetchesBefore = fetchSpy.mock.calls.filter(([u]) => String(u).includes("/api/share-copy/")).length;
+    fireEvent.click(screen.getByTestId("share-modal-web-share"));
+    expect(shareSpy).toHaveBeenCalledWith({ title: "Alice on overhype.me", text: "did a thing", url: FALLBACK });
+    const fetchesAfter = fetchSpy.mock.calls.filter(([u]) => String(u).includes("/api/share-copy/")).length;
+    expect(fetchesAfter).toBe(fetchesBefore);
+  });
+
+  it("Share still opens at once with the fallback copy while the copy request is slow", async () => {
+    const shareSpy = vi.fn(async () => undefined);
+    withWebShare(shareSpy);
+    neverResolvingCopy();
+    await renderOpen();
+    fireEvent.click(screen.getByTestId("share-modal-web-share"));
+    expect(shareSpy).toHaveBeenCalledWith({ title: "overhype.me", text: "Where legends are made up.", url: FALLBACK });
+  });
+
+  it("Twitter / X opens its window synchronously in the tap while the copy request is slow", async () => {
+    withWebShare(async () => undefined);
+    const openSpy = vi.fn();
+    vi.stubGlobal("open", openSpy);
+    neverResolvingCopy();
+    await renderOpen();
+    fireEvent.click(screen.getByTestId("share-modal-twitter"));
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    expect(String(openSpy.mock.calls[0]?.[0])).toContain(encodeURIComponent(FALLBACK));
+  });
+
+  it("Copy Link writes to the clipboard synchronously in the tap while the copy request is slow", async () => {
+    withWebShare(async () => undefined);
+    const writeSpy = vi.fn(async () => undefined);
+    withClipboard(writeSpy);
+    neverResolvingCopy();
+    await renderOpen();
+    fireEvent.click(screen.getByTestId("share-modal-copy-link"));
+    expect(writeSpy).toHaveBeenCalledWith(FALLBACK);
   });
 });
