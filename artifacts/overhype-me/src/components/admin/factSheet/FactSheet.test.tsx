@@ -421,7 +421,7 @@ describe("FactSheet", () => {
       history: [
         { id: 3, action: "publish", reviewId: null, actorId: "a1", actorName: "Dee Admin", detail: { published: 1, removed: 0, unchanged: 1 }, createdAt: "2026-11-24T12:00:00Z" },
         { id: 2, action: "hashtags_save", reviewId: null, actorId: null, actorName: null, detail: { added: ["sun"], removed: ["moon"] }, createdAt: "2026-11-23T12:00:00Z" },
-        { id: 1, action: "duplicate_check", reviewId: 9, actorId: "gone", actorName: null, detail: { outcome: "distinct" }, createdAt: "2026-11-01T12:00:00Z" },
+        { id: 1, action: "duplicate_check", reviewId: 9, actorId: null, actorName: null, detail: { outcome: "distinct" }, createdAt: "2026-11-01T12:00:00Z" },
         { id: 0, action: "an_action_from_a_later_build", reviewId: null, actorId: "a1", actorName: "Dee Admin", detail: {}, createdAt: "2026-10-01T12:00:00Z" },
       ],
     });
@@ -433,8 +433,9 @@ describe("FactSheet", () => {
     expect(entries[0]!.textContent).toContain("1 gag published");
     expect(entries[0]!.textContent).toContain("Dee Admin");
     expect(entries[1]!.textContent).toContain("added #sun; removed #moon");
-    expect(entries[1]!.textContent).toContain("The system");
-    expect(entries[2]!.textContent).toContain("A deleted admin");
+    expect(entries[1]!.textContent).toContain("No admin on record");
+    expect(entries[1]!.textContent).not.toContain("system");
+    expect(entries[2]!.textContent).toContain("No admin on record");
     expect(entries[2]!.textContent).toContain("review #9");
     expect(calls.some((c) => c.url.endsWith("/api/admin/facts/42/history"))).toBe(true);
   });

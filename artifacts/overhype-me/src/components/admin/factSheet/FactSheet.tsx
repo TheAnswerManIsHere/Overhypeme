@@ -371,7 +371,8 @@ function HistoryTab({ factId }: { factId: number }) {
               </div>
               {detail && <p className="text-sm text-muted-foreground break-words">{detail}</p>}
               <p className="text-xs text-muted-foreground">
-                {e.actorName ?? (e.actorId ? "A deleted admin" : "The system")}
+                {/* A missing name says only that the admin cannot be named (a deleted account clears actor_id), never who or what acted. */}
+                {e.actorName ?? "No admin on record"}
                 {e.reviewId != null && <span className="font-mono"> · review #{e.reviewId}</span>}
               </p>
             </li>
