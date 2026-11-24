@@ -812,6 +812,36 @@ describe("image_generation — the photoreal fallback: GPT Image refuses, Nano B
     assert.equal(buildRenderStatusPayload(row).status, "failed");
   });
 
+  // PR #1004's other two fail-at-once paths (Issue #1020, housekeeping).
+  it("an engine that cannot draw this kind of render ends it at once, without calling the vendor", async () => {
+    // A text-only engine recorded on a photo-based render: routing refuses it on every retry.
+    const attemptId = await plannedAttempt({ moderation: true, engine: "gpt-image-2-6" });
+    const { out, calls } = await draw(attemptId, () => picture());
+    assert.equal((out as { retryable?: boolean }).retryable, false, "terminal");
+    assert.deepEqual(calls, [], "no vendor call");
+    const row = await attemptRow(attemptId);
+    assert.equal(row.errorCode, "render_input_invalid");
+    assert.match(row.error ?? "", /cannot draw/);
+    assert.equal(buildRenderStatusPayload(row).status, "failed");
+  });
+
+  it("a request that cannot be built from the stored render ends it at once, without calling the vendor", async () => {
+    // A prompt of spaces passes the empty-prompt check but leaves the engine's required prompt empty.
+    const attemptId = await plannedAttempt({ moderation: true });
+    const row0 = await attemptRow(attemptId);
+    await db.update(imagePromptAttemptsTable)
+      .set({ compiledPrompt: { ...(row0.compiledPrompt as Record<string, unknown>), imagePrompt: "   ", prompt: "   " } })
+      .where(eq(imagePromptAttemptsTable.id, attemptId));
+    const { out, calls } = await draw(attemptId, () => picture());
+    assert.equal((out as { retryable?: boolean }).retryable, false, "terminal");
+    assert.deepEqual(calls, [], "no vendor call");
+    const row = await attemptRow(attemptId);
+    assert.equal(row.errorCode, "render_input_invalid");
+    assert.match(row.error ?? "", /could not be built from this render/);
+    assertReadsAsSentence(row.error);
+    assert.equal(buildRenderStatusPayload(row).status, "failed");
+  });
+
   it("when the queue gives up, the last failure is written to the render; a render with a picture is left alone", async () => {
     const attemptId = await plannedAttempt({ moderation: true });
     await imageGenerationHandler.onAbandon!({ payload: { attemptId }, lastError: "fal submit failed: Bad Gateway" } as never);
