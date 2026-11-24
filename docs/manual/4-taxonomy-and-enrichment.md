@@ -20,8 +20,10 @@ Every fact carries **[enrichment](../ai-context/glossary.md#enrichment)** — st
 joke works*, not what picture to draw for it. That includes its primary
 [archetype](../ai-context/glossary.md#archetype) (which joke mechanism it uses, from a fixed list), a [subtype](../ai-context/glossary.md#subtype), a
 broader set of scene/tone/composition modifiers, how strong the "overhype"
-fit is, [adult-suitability](../ai-context/glossary.md#adult-suitability), cultural references, named entities, suggested
-[hashtags](../ai-context/glossary.md#hashtags), and the AI's confidence in its own read. It's produced once at
+fit is, [adult-suitability](../ai-context/glossary.md#adult-suitability), cultural references, named entities, and the AI's
+confidence in its own read. It does not make
+[hashtags](../ai-context/glossary.md#hashtags): those are made once, on the
+submit form, where the submitter reviews them. It's produced once at
 moderation time and can be **refreshed**
 later — deliberately, by a human — as the classification model and prompts
 improve, without disturbing a fact's live content or any manual edit an admin

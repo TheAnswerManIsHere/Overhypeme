@@ -923,7 +923,9 @@ rendered for the current name and pronouns, with its
 
 ### Hashtags
 
-Tags on a fact, AI-suggested at submission and editable by the submitter.
+Tags on a fact, AI-suggested at submission and editable by the submitter —
+the only place they are generated; moderation edits them by hand and
+generates none (David, 2026-11-24).
 Browsing them happens two ways — a [hashtag pill](#hashtag-pill) on a fact card
 runs a search, and the home page's hashtag rail and [Trending
 Topics](#trending-topics) strip filter the feed in place. There is **no

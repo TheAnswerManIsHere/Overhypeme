@@ -8,7 +8,6 @@ import assert from "node:assert/strict";
 
 import {
   sanitizeHashtagsForPersistence,
-  resolveTagsForApproval,
   resolveFinalApprovalTags,
 } from "../lib/hashtags.js";
 
@@ -73,63 +72,30 @@ describe("sanitizeHashtagsForPersistence", () => {
   });
 });
 
-describe("resolveTagsForApproval", () => {
-  it("submitter tags win over enrichment fallback", () => {
-    assert.deepEqual(
-      resolveTagsForApproval(["coffee", "strength"], ["legendary", "pushups"]),
-      ["coffee", "strength"],
-    );
-  });
-
-  it("falls back to enrichment when the submitter gave no tags", () => {
-    assert.deepEqual(resolveTagsForApproval([], ["legendary", "pushups"]), ["legendary", "pushups"]);
-  });
-
-  it("falls back when submitter tags SANITIZE to empty (only denied/invalid) — never untagged", () => {
-    assert.deepEqual(
-      resolveTagsForApproval(["alex", "overhype", "!!!"], ["strength", "legendary", "pushups"]),
-      ["strength", "legendary", "pushups"],
-    );
-  });
-
-  it("normalizes the winning submitter tags", () => {
-    assert.deepEqual(resolveTagsForApproval(["#Strength", "strength!", "Legendary"], ["x"]), ["strength", "legendary"]);
-  });
-
-  it("handles null / undefined sources", () => {
-    assert.deepEqual(resolveTagsForApproval(null, null), []);
-    assert.deepEqual(resolveTagsForApproval(undefined, ["earth"]), ["earth"]);
-  });
-});
-
 describe("resolveFinalApprovalTags (approve-body authoritative)", () => {
-  // Present body wins over review + enrichment, sanitized verbatim.
+  // Present body wins over the submitter's tags, sanitized verbatim.
   it("uses the approve-body list when present, normalized/deduped", () => {
-    assert.deepEqual(
-      resolveFinalApprovalTags(["Coffee", "strength!"], ["ignored"], ["alsoIgnored"]),
-      ["coffee", "strength"],
-    );
+    assert.deepEqual(resolveFinalApprovalTags(["Coffee", "strength!"], ["ignored"]), ["coffee", "strength"]);
   });
 
   // Present-but-empty is a deliberate "no tags" — does NOT fall back (caller then
   // rejects with HASHTAGS_REQUIRED).
   it("present empty array does NOT fall back (stays empty)", () => {
-    assert.deepEqual(resolveFinalApprovalTags([], ["coffee"], ["strength"]), []);
+    assert.deepEqual(resolveFinalApprovalTags([], ["coffee"]), []);
   });
 
   // Present but only denied/invalid → empty (caller rejects).
   it("present denied/invalid-only sanitizes to empty (no fallback)", () => {
-    assert.deepEqual(resolveFinalApprovalTags(["alex", "overhype", "!!!"], ["coffee"], ["strength"]), []);
+    assert.deepEqual(resolveFinalApprovalTags(["alex", "overhype", "!!!"], ["coffee"]), []);
   });
 
-  // Absent body → legacy fallback: submitter tags, else AI suggestions.
-  it("absent body falls back to submitter tags", () => {
-    assert.deepEqual(resolveFinalApprovalTags(undefined, ["coffee"], ["strength"]), ["coffee"]);
+  // Absent body → legacy fallback: the submitter's tags.
+  it("absent body falls back to submitter tags, normalized", () => {
+    assert.deepEqual(resolveFinalApprovalTags(undefined, ["#Strength", "strength!", "Legendary"]), ["strength", "legendary"]);
   });
-  it("absent body with no submitter tags falls back to AI suggestions", () => {
-    assert.deepEqual(resolveFinalApprovalTags(undefined, [], ["strength", "legendary"]), ["strength", "legendary"]);
-  });
-  it("absent body with no valid tags anywhere → empty (caller rejects)", () => {
-    assert.deepEqual(resolveFinalApprovalTags(undefined, ["alex"], []), []);
+  it("absent body with no valid submitter tags → empty (caller rejects); nothing else is generated", () => {
+    assert.deepEqual(resolveFinalApprovalTags(undefined, ["alex"]), []);
+    assert.deepEqual(resolveFinalApprovalTags(undefined, null), []);
+    assert.deepEqual(resolveFinalApprovalTags(undefined, undefined), []);
   });
 });
