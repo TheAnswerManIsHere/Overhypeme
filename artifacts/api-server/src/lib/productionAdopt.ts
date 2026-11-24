@@ -96,7 +96,7 @@ export interface AdoptOptions {
   productionUrl: string;
   /** Dev's database; its server hosts the reference, and dev is read for the diagnosis only. */
   devUrl: string;
-  /** Runs `lib/db/src/migrate.ts` against a database URL: the runner and nothing else. */
+  /** Runs the migration runner (`lib/db/src/migrate-cli.ts`) against a database URL: the runner and nothing else. */
   migrate?: (url: string) => void;
   /** Test seam: runs inside the installation transaction after the sequences are moved. */
   afterSequences?: (client: pg.ClientBase) => Promise<void>;
@@ -113,7 +113,7 @@ const q = (s: string) => `"${s.replaceAll('"', '""')}"`;
 
 function defaultMigrate(url: string): void {
   const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../..");
-  execFileSync("npx", ["tsx", "lib/db/src/migrate.ts"], {
+  execFileSync("npx", ["tsx", "lib/db/src/migrate-cli.ts"], {
     cwd: repoRoot,
     env: { ...process.env, DATABASE_URL: url, PGOPTIONS: "" },
     stdio: "pipe",

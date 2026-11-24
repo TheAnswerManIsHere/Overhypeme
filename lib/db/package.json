@@ -17,7 +17,7 @@
   },
   "scripts": {
     "generate": "drizzle-kit generate --config ./drizzle.config.ts",
-    "migrate": "tsx src/migrate.ts",
+    "migrate": "tsx src/migrate-cli.ts",
     "require-test-db": "tsx src/requireTestDatabase.ts",
     "create-stripe-fake-db": "tsx src/createStripeFakeDatabase.ts",
     "check-snapshots": "node --import tsx/esm scripts/check-migration-snapshots.ts",

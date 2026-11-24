@@ -149,14 +149,16 @@ describe("assertIpSaltConfigured", () => {
  *
  * **Why the wiring is an IMPORT and not a call.** ES module imports are all
  * evaluated before the importing module's first statement runs, so a call at
- * the top of `index.ts` executes *after* every module it imports. That is not
- * theoretical here: in the production bundle `lib/db/src/migrate.ts` is folded
- * into `dist/index.mjs`, where its `process.argv[1] === fileURLToPath(
- * import.meta.url)` CLI guard is TRUE, so it opens a pool during module
+ * the top of `index.ts` executes *after* every module it imports. That was not
+ * theoretical: until #486, `lib/db/src/migrate.ts` was folded into
+ * `dist/index.mjs` with a CLI block whose `process.argv[1] === fileURLToPath(
+ * import.meta.url)` guard was TRUE there, so it opened a pool during module
  * evaluation. Running the built bundle with an unreachable database proved it —
  * the process died on ECONNREFUSED from `migrate.ts` and never reached a
- * statement-form assertion. So the check lives in `lib/bootChecks.ts`, imported
- * for its side effect ahead of the database-backed graph.
+ * statement-form assertion. #486 moved that block out of the bundle, but the
+ * ordering rule still holds for anything the database graph does as it loads,
+ * so the check lives in `lib/bootChecks.ts`, imported for its side effect ahead
+ * of the database-backed graph.
  *
  * These cases pin that arrangement from two directions: the module really does
  * throw at import time (executed), and `index.ts` really does import it early
