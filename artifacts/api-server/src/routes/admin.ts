@@ -3,7 +3,7 @@ import { profilePictureUrl } from "../lib/profilePicture";
 import { z } from "zod";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, featureFlagsTable, userGenerationCostsTable, membershipEntitlementsTable, entitlementSourceDisputesTable, membershipHistoryTable, asyncJobsTable, stripeWebhookAuditTable, factTextEditHistoryTable, factTaxonomyRunsTable } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, featureFlagsTable, userGenerationCostsTable, membershipEntitlementsTable, entitlementSourceDisputesTable, membershipHistoryTable, asyncJobsTable, stripeWebhookAuditTable, factTaxonomyRunsTable } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, getTableColumns } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
@@ -26,7 +26,7 @@ import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { normalizeFactTemplateForStorage } from "../lib/normalizeFactTemplateForStorage";
 import { logActivity } from "../lib/activity";
 import { recordAdminAction } from "../lib/adminActions";
-import { publishFactChanges, discardFactChanges, deactivateFact, reactivateFact, factHasUnpublishedChanges, type FactLifecycleResult } from "../lib/factLifecycle";
+import { publishFactChanges, discardFactChanges, deactivateFact, reactivateFact, deleteFact, factHasUnpublishedChanges, type AttachedContent, type FactLifecycleResult } from "../lib/factLifecycle";
 import { FACT_HASHTAG_LIMIT, FACT_HISTORY_LIMIT, factHistory, factSheet, saveFactHashtags, saveFactHumorNote } from "../lib/factSheet";
 import { factEnrichmentPayload } from "../lib/enrichmentJobs";
 import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConfig";
@@ -886,6 +886,8 @@ function sendLifecycle<T>(res: Response, result: FactLifecycleResult<T>): void {
     case "no_changes": res.status(409).json({ error: "This fact has no unpublished changes.", code: "NO_CHANGES" }); return;
     case "already": res.status(409).json({ error: result.isActive ? "This fact is already live." : "This fact is already deactivated.", code: "ALREADY", isActive: result.isActive }); return;
     case "go_live": res.status(409).json({ error: result.error, code: "GO_LIVE", check: result.check }); return;
+    case "still_live": res.status(409).json({ error: "Deactivate the fact before deleting it.", code: "STILL_LIVE" }); return;
+    case "attached": res.status(409).json({ error: attachedSentence(result.attached), code: "MEMBER_CONTENT_ATTACHED", attached: result.attached }); return;
   }
 }
 
@@ -896,7 +898,7 @@ function lifecycleRoute(name: string, act: (factId: number, adminId: string) => 
     try {
       sendLifecycle(res, await act(id, req.user!.id));
     } catch (e) {
-      logger.error({ err: e, factId: id }, `[POST /admin/facts/:id/${name}] failed`);
+      logger.error({ err: e, factId: id }, `[admin/facts/:id ${name}] failed`);
       res.status(500).json({ error: "Something went wrong. Nothing was changed." });
     }
   };
@@ -907,162 +909,28 @@ router.post("/admin/facts/:id/discard", requireAdmin, lifecycleRoute("discard", 
 router.post("/admin/facts/:id/deactivate", requireAdmin, lifecycleRoute("deactivate", deactivateFact));
 router.post("/admin/facts/:id/reactivate", requireAdmin, lifecycleRoute("reactivate", reactivateFact));
 
-/** Shared success response — strips the raw embedding, adds the has* flags, and
- *  merges any extra fields. */
-function respondFactUpdate(
-  res: Response,
-  updated: typeof factsTable.$inferSelect,
-  extra: Record<string, unknown> = {},
-): void {
-  const { embedding: _emb, ...factRow } = updated;
-  res.json({
-    success: true,
-    ...extra,
-    fact: {
-      ...factRow,
-      hasEmbedding: updated.embedding !== null,
-    },
-  });
+/** The delete refusal in words: "Members have 2 memes and 1 comment on this fact, so it can't be deleted. Deactivating keeps it off the site." */
+function attachedSentence(a: AttachedContent): string {
+  const parts = [
+    a.memes ? `${a.memes} meme${a.memes === 1 ? "" : "s"}` : null,
+    a.aiPictures ? `${a.aiPictures} AI picture${a.aiPictures === 1 ? "" : "s"}` : null,
+    a.comments ? `${a.comments} comment${a.comments === 1 ? "" : "s"}` : null,
+  ].filter((p): p is string => p != null);
+  const list = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
+  return `Members have ${list} on this fact, so it can't be deleted. Deactivating keeps it off the site.`;
 }
 
-router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Response) => {
-  const id = parseInt(String(req.params["id"] ?? ""), 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid fact id" }); return; }
+// DELETE /admin/facts/:id — the guarded permanent delete (plan 3B, oracle
+// item 21): a deactivated fact only, refused while any member's meme, AI
+// picture or comment is attached, the check and the delete one protected
+// operation (lib/factLifecycle.ts, deleteFact).
+router.delete("/admin/facts/:id", requireAdmin, lifecycleRoute("delete", deleteFact));
 
-  const body = req.body as Record<string, unknown>;
-  const { text, upvotes, downvotes, score, wilsonScore, commentCount, shareCount, submittedById, isActive } = body;
-
-  // Coerce the column updates. Text/canonical/split are never set here: a
-  // fact's wording is locked (plan PLAN_THREE_GAGS.md, increment 3).
-  const nonTextUpdates: Record<string, unknown> = {};
-  if (upvotes !== undefined) nonTextUpdates.upvotes = Number(upvotes);
-  if (downvotes !== undefined) nonTextUpdates.downvotes = Number(downvotes);
-  if (score !== undefined) nonTextUpdates.score = Number(score);
-  if (wilsonScore !== undefined) nonTextUpdates.wilsonScore = Number(wilsonScore);
-  if (commentCount !== undefined) nonTextUpdates.commentCount = Number(commentCount);
-  if (shareCount !== undefined) nonTextUpdates.shareCount = Number(shareCount);
-  if (submittedById !== undefined) nonTextUpdates.submittedById = submittedById ? String(submittedById) : null;
-  if (isActive !== undefined) nonTextUpdates.isActive = Boolean(isActive);
-
-  // Fetch current state once if either guard below needs it.
-  let current: { isActive: boolean; text: string } | undefined;
-  if (text !== undefined || nonTextUpdates.isActive === true) {
-    [current] = await db.select({ isActive: factsTable.isActive, text: factsTable.text }).from(factsTable).where(eq(factsTable.id, id)).limit(1);
-    if (!current) { res.status(404).json({ error: "Fact not found" }); return; }
-  }
-
-  // Activation is moderation-only (Phase 2 fact-lifecycle closure). The admin
-  // Active toggle may DEACTIVATE a fact (true→false is always safe) but may NOT
-  // ACTIVATE one: a false→true flip here would bypass the entire production gate
-  // that approveForProduction/activateFact enforce (the approved-gag check,
-  // the pending_reviews transition,
-  // production-approval recording, submitter notification). A deactivated fact
-  // has no way back yet: Reactivate arrives in Phase 3 of
-  // PLAN_FACT_LIFECYCLE_REBUILD.md. So: reject any false→true request;
-  // asserting isActive=true on an already-active fact is a harmless no-op that we
-  // simply drop.
-  if (nonTextUpdates.isActive === true) {
-    if (current!.isActive === false) {
-      res.status(400).json({
-        error: "Only Approve for production makes a fact live, and a deactivated fact can't be reactivated from the admin yet.",
-        code: "ACTIVATION_REQUIRES_MODERATION",
-      });
-      return;
-    }
-    delete nonTextUpdates.isActive;
-  }
-
-  // ── A fact's wording is locked (plan PLAN_THREE_GAGS.md, increment 3) ─────
-  // It is edited only at triage, before the fact exists (POST
-  // /admin/reviews/:id/wording); the database refuses any later change
-  // (facts_text_is_locked). A request carrying the stored wording unchanged is
-  // treated as a non-text PATCH; one that changes it is refused.
-  if (text !== undefined) {
-    const proposed = String(text);
-    const stored = current!.text;
-    // Normalised only when it differs, so an unchanged wording costs nothing.
-    const normalized = proposed === stored ? null : normalizeFactTemplateForStorage(proposed);
-    if (normalized && (!normalized.valid || normalized.text !== stored)) {
-      res.status(409).json({
-        error: "A fact's wording can't be changed once it is accepted. If the wording is wrong, deactivate this fact and submit the corrected wording as a new fact.",
-        code: FACT_TEXT_EDIT_CODES.WORDING_LOCKED,
-      });
-      return;
-    }
-  }
-
-  // ── The update ──────────────────────────────────────────────────────────
-  if (Object.keys(nonTextUpdates).length === 0) {
-    const [current] = await db.select().from(factsTable).where(eq(factsTable.id, id)).limit(1);
-    if (!current) { res.status(404).json({ error: "Fact not found" }); return; }
-    respondFactUpdate(res, current);
-    return;
-  }
-  const row = await db.transaction(async (tx) => {
-    const [updated] = await tx.update(factsTable).set(nonTextUpdates).where(eq(factsTable.id, id)).returning();
-    if (updated) {
-      // Turning Active off here is a deactivation like DELETE's; anything else is an edit.
-      const { isActive: deactivating, ...edited } = nonTextUpdates;
-      if (deactivating === false) await recordAdminAction({ factId: id }, req.user?.id, "deactivate", {}, tx);
-      if (Object.keys(edited).length > 0) await recordAdminAction({ factId: id }, req.user?.id, "fact_edit", { changed: edited }, tx);
-    }
-    return updated;
-  });
-  if (!row) { res.status(404).json({ error: "Fact not found" }); return; }
-  respondFactUpdate(res, row);
-});
-
-// GET /admin/facts/:id/text-edit-history — the edits of this fact's approved
-// text made before a fact's wording locked at triage (plan PLAN_THREE_GAGS.md,
-// increment 3); read-only history, no new entries are written. Admin-only,
-// fact-scoped, newest-first, paginated. The actor is rendered from the joined
-// user row, with a deleted/system fallback when performed_by was set null by a
-// hard user deletion.
-router.get("/admin/facts/:id/text-edit-history", requireAdmin, async (req: Request, res: Response) => {
-  const id = Number(req.params["id"]);
-  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
-  const limit = Math.min(Math.max(Number(req.query["limit"]) || 20, 1), 100);
-  const offset = Math.max(Number(req.query["offset"]) || 0, 0);
-
-  const [fact] = await db.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, id)).limit(1);
-  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
-
-  const [rows, [{ total }]] = await Promise.all([
-    db
-      .select({
-        id: factTextEditHistoryTable.id,
-        oldText: factTextEditHistoryTable.oldText,
-        newText: factTextEditHistoryTable.newText,
-        reason: factTextEditHistoryTable.reason,
-        createdAt: factTextEditHistoryTable.createdAt,
-        performedById: factTextEditHistoryTable.performedBy,
-        performedByName: usersTable.displayName,
-        performedByEmail: usersTable.email,
-      })
-      .from(factTextEditHistoryTable)
-      .leftJoin(usersTable, eq(usersTable.id, factTextEditHistoryTable.performedBy))
-      .where(eq(factTextEditHistoryTable.factId, id))
-      .orderBy(desc(factTextEditHistoryTable.createdAt), desc(factTextEditHistoryTable.id))
-      .limit(limit)
-      .offset(offset),
-    db.select({ total: count() }).from(factTextEditHistoryTable).where(eq(factTextEditHistoryTable.factId, id)),
-  ]);
-
-  res.json({
-    entries: rows.map((r) => ({
-      id: r.id,
-      oldText: r.oldText,
-      newText: r.newText,
-      reason: r.reason,
-      createdAt: r.createdAt.toISOString(),
-      // Deleted-admin fallback: performed_by went null on hard user deletion.
-      actor: r.performedById == null ? null : { id: r.performedById, name: r.performedByName ?? null, email: r.performedByEmail ?? null },
-    })),
-    total,
-    limit,
-    offset,
-  });
-});
+// PATCH /admin/facts/:id (the old side editor's counters, wording, active
+// toggle and submitter) and GET /admin/facts/:id/text-edit-history are
+// removed (plan item 23; increment 3.2c): no screen has called either since
+// 3.1, and with them goes every admin write to a fact's counters or wording,
+// which are read-only (plan 3B).
 
 // GET /admin/facts/:id — admin detail shape for the Facts editor. Intentionally
 // trimmed: includes the editable scalars + the enrichment blob and

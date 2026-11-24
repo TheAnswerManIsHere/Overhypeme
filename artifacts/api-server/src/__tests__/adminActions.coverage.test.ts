@@ -31,6 +31,7 @@ const EXEMPT: Record<string, string> = {
   "POST /admin/facts/:id/discard": "discardFactChanges records in its transaction (lib/factLifecycle.ts)",
   "POST /admin/facts/:id/deactivate": "deactivateFact records in its transaction (lib/factLifecycle.ts)",
   "POST /admin/facts/:id/reactivate": "reactivateFact records in its transaction (lib/factLifecycle.ts)",
+  "DELETE /admin/facts/:id": "deleteFact records in its transaction, before the row goes (lib/factLifecycle.ts)",
 };
 
 interface Handler { key: string; body: string }
