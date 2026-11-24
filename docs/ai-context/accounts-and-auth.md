@@ -318,9 +318,26 @@ dev).
 
 ### Suspension
 
-`POST /admin/users/:id/suspend` (body `{ reason }`, required, under 500
-characters, seen only by admins) and `POST /admin/users/:id/unsuspend`
+`POST /admin/users/:id/suspend` (body `{ reason, memberNote? }`: the
+reason is required, under 500 characters and seen only by admins; the note
+is optional, under 1,000 characters, and goes to the member) and
+`POST /admin/users/:id/unsuspend`
 (`routes/accountSuspension.ts`; engine `artifacts/api-server/src/lib/accountSuspension.ts`).
+
+**Each real transition emails the member once** (Issue #1110, Q7): kind
+`account_suspended` (what suspension means, that content and membership are
+untouched and charges continue unless cancelled, support without signing in,
+and the note to the member when written) or `account_reinstated`. The engine
+returns the recipient only on a real transition, read under the row lock (or
+in the unsuspend `UPDATE … RETURNING`), so a repeated or concurrent request
+queues nothing more. The route queues the notice **after** the change
+commits, opting in to the outbox insert as the support route does, and
+reports `notice`: `queued` (a job exists, not that it was delivered),
+`not_queued` with `why` (`no_address`, `email_unavailable`, `failed`), or
+`not_owed`. When nothing was queued there is no job to retry, and repeating
+the action does not resend. The reason is never an input to either template.
+These two notices are the only mail suspension sends; other mail can still
+reach a suspended account (Issue #1212).
 Suspension has its own columns — `suspended_at`, `suspended_reason`,
 `suspended_by` (0120) — and never writes `is_active`. It runs under the
 admin population lock, then the user row `FOR UPDATE`. An admin can never

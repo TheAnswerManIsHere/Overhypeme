@@ -4,6 +4,8 @@ import { PronounEditor } from "@/components/ui/PronounEditor";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { Textarea } from "@/components/ui/textarea";
+import { suspensionResultMessage, type SuspensionNotice } from "@/lib/suspension-notice";
 import { SpendInline } from "@/components/ui/SpendHistory";
 import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star, Gem, UserPlus, MailCheck, Trash2, UserX, CreditCard, Infinity, Loader2, XCircle, Bell, BellOff, AlertTriangle, Ban } from "lucide-react";
 import { SubscriptionInfo } from "@/components/SubscriptionInfo";
@@ -178,6 +180,8 @@ export default function AdminUsers() {
   const [showInactive, setShowInactive] = useState(false);
   /** The suspend form's reason; null while the form is closed. */
   const [suspendReason, setSuspendReason] = useState<string | null>(null);
+  /** The optional note to the member, which goes in their suspension email (Issue #1110). */
+  const [suspendMemberNote, setSuspendMemberNote] = useState("");
   const [suspending, setSuspending] = useState(false);
   /** The corrected date of birth being entered, `YYYY-MM-DD`. */
   const [dobCorrection, setDobCorrection] = useState("");
@@ -511,6 +515,7 @@ export default function AdminUsers() {
   async function setSuspension(suspend: boolean) {
     if (!selectedUser) return;
     const reason = (suspendReason ?? "").trim();
+    const memberNote = suspendMemberNote.trim();
     setSuspending(true);
     setSaveResult(null);
     try {
@@ -518,9 +523,9 @@ export default function AdminUsers() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(suspend ? { reason } : {}),
+        body: JSON.stringify(suspend ? { reason, memberNote } : {}),
       });
-      const data = (await res.json()) as { error?: string };
+      const data = (await res.json()) as { error?: string; alreadySuspended?: boolean; wasSuspended?: boolean; notice?: SuspensionNotice };
       if (!res.ok) throw new Error(data.error ?? (suspend ? "Suspension failed" : "Unsuspending failed"));
       const updated: User = suspend
         ? { ...selectedUser, suspendedAt: new Date().toISOString(), suspendedReason: reason }
@@ -528,10 +533,8 @@ export default function AdminUsers() {
       setUsers((prev) => prev.map((u) => u.id === updated.id ? updated : u));
       setSelectedUser(updated);
       setSuspendReason(null);
-      setSaveResult({
-        type: "success",
-        message: suspend ? "Suspended. They were signed out everywhere and can't sign in until you unsuspend them." : "Unsuspended. They can sign in again.",
-      });
+      setSuspendMemberNote("");
+      setSaveResult({ type: "success", message: suspensionResultMessage(suspend ? "suspend" : "unsuspend", data) });
     } catch (err) {
       setSaveResult({ type: "error", message: err instanceof Error ? err.message : "Request failed" });
     } finally {
@@ -1366,7 +1369,7 @@ export default function AdminUsers() {
               ) : suspendReason !== null ? (
                 <div className="flex flex-col gap-2">
                   <label htmlFor="suspend-reason" className="text-xs text-muted-foreground">
-                    Why? Only admins see this. They are signed out everywhere and see only that the account is suspended.
+                    Why? Only admins see this. They are signed out everywhere and are told the account is suspended, never this reason.
                   </label>
                   <Input
                     id="suspend-reason"
@@ -1374,6 +1377,16 @@ export default function AdminUsers() {
                     maxLength={500 /* SUSPENSION_REASON_MAX in the API's lib/accountSuspension.ts */}
                     onChange={(e) => setSuspendReason(e.target.value)}
                     placeholder="e.g. spam comments"
+                  />
+                  <label htmlFor="suspend-member-note" className="text-xs text-muted-foreground">
+                    Note to the member (optional) — this goes in the email they receive. Don&apos;t repeat anything you wouldn&apos;t say to them.
+                  </label>
+                  <Textarea
+                    id="suspend-member-note"
+                    value={suspendMemberNote}
+                    maxLength={1000 /* SUSPENSION_MEMBER_NOTE_MAX in the API's lib/email.ts */}
+                    onChange={(e) => setSuspendMemberNote(e.target.value)}
+                    rows={3}
                   />
                   <div className="flex gap-2">
                     <Button
@@ -1384,7 +1397,7 @@ export default function AdminUsers() {
                     >
                       <Ban className="w-4 h-4" /> Suspend
                     </Button>
-                    <Button variant="outline" onClick={() => setSuspendReason(null)} className="flex-1" disabled={suspending}>
+                    <Button variant="outline" onClick={() => { setSuspendReason(null); setSuspendMemberNote(""); }} className="flex-1" disabled={suspending}>
                       Cancel
                     </Button>
                   </div>

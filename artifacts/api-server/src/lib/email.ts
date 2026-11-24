@@ -852,6 +852,86 @@ ${opts.unfinished ? ctaButton(onboardUrl, "Finish Setting Up") : ctaButton(siteU
   return { subject, text, html };
 }
 
+/** "Hi Sam," or "Hi," when the account has no first name. */
+function greetingLine(firstName: string | null | undefined): string {
+  const name = firstName?.trim();
+  return name ? `Hi ${name},` : "Hi,";
+}
+
+/** The longest note an admin can write to a member they suspend (Issue #1110). */
+export const SUSPENSION_MEMBER_NOTE_MAX = 1000;
+
+/**
+ * Sent when an admin suspends an account (Issue #1110, Q7). Carries what
+ * suspension means and, only when the admin wrote one, their note TO THE
+ * MEMBER. The internal reason is deliberately not a parameter: it is
+ * admin-only (Phase 5 plan item 8), so no call can put it in this email.
+ */
+export function buildAccountSuspendedEmail(siteUrl: string, opts: { memberNote?: string | null; firstName?: string | null } = {}): Pick<EmailPayload, "subject" | "text" | "html"> {
+  const subject = "Your Overhype.me account is suspended";
+  const supportUrl = `${siteUrl.replace(/\/$/, "")}/support?category=account`;
+  const note = opts.memberNote?.trim() || null;
+  const greeting = greetingLine(opts.firstName);
+  const what = "An admin has suspended your Overhype.me account. While it is suspended you can't sign in, post, vote, comment or make memes.";
+  const untouched = "Suspension doesn't delete your content or cancel your membership, and recurring charges continue unless you cancel.";
+  const help = `For help with the suspension or with cancelling, email ${SUPPORT_ADDRESS} or use our support form. You don't need to sign in to use it.`;
+  const text = [
+    "YOUR ACCOUNT IS SUSPENDED.",
+    "",
+    greeting,
+    "",
+    what,
+    "",
+    untouched,
+    ...(note ? ["", "A note from the team:", note] : []),
+    "",
+    help,
+    supportUrl,
+    "",
+    "— The Overhype.me Team",
+  ].join("\n");
+  const noteBlock = note
+    ? `<p style="margin:0 0 8px;font-size:13px;color:#888888;letter-spacing:1px;text-transform:uppercase;">A note from the team</p>
+<p style="margin:0 0 24px;padding:12px 16px;border-left:3px solid #ff3b30;font-size:15px;color:#ffffff;line-height:1.75;white-space:pre-wrap;">${escapeHtml(note)}</p>`
+    : "";
+  const body = `
+<h1 style="margin:0 0 16px;font-family:'Oswald','Arial Narrow','Roboto Condensed','sans-serif-condensed','Helvetica Neue',Arial,sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Arial Narrow';">Your Account<br/>Is Suspended</h1>
+<p style="margin:0 0 16px;font-size:15px;color:#aaaaaa;line-height:1.75;">${escapeHtml(greeting)}</p>
+<p style="margin:0 0 16px;font-size:15px;color:#aaaaaa;line-height:1.75;">${what}</p>
+<p style="margin:0 0 16px;font-size:15px;color:#aaaaaa;line-height:1.75;">${untouched}</p>
+${noteBlock}
+<p style="margin:0 0 32px;font-size:15px;color:#aaaaaa;line-height:1.75;">For help with the suspension or with cancelling, email <strong style="color:#ffffff;">${SUPPORT_ADDRESS}</strong> or use our support form. You don&#39;t need to sign in to use&nbsp;it.</p>
+${ctaButton(supportUrl, "Contact Support")}
+${linkFallback(supportUrl)}`;
+  const html = buildEmailShell(body, "You&#39;re receiving this because your Overhype.me account was suspended.");
+  return { subject, text, html };
+}
+
+/** Sent when an admin lifts a suspension (Issue #1110, Q7): the member can sign in again. */
+export function buildAccountReinstatedEmail(siteUrl: string, opts: { firstName?: string | null } = {}): Pick<EmailPayload, "subject" | "text" | "html"> {
+  const subject = "Your Overhype.me account is active again";
+  const loginUrl = `${siteUrl.replace(/\/$/, "")}/login`;
+  const greeting = greetingLine(opts.firstName);
+  const line = "The suspension on your Overhype.me account has been lifted. You can sign in again.";
+  const text = [
+    "YOUR ACCOUNT IS ACTIVE AGAIN.",
+    "",
+    greeting,
+    "",
+    line,
+    loginUrl,
+    "",
+    "— The Overhype.me Team",
+  ].join("\n");
+  const body = `
+<h1 style="margin:0 0 16px;font-family:'Oswald','Arial Narrow','Roboto Condensed','sans-serif-condensed','Helvetica Neue',Arial,sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Arial Narrow';">Your Account Is<br/>Active Again</h1>
+<p style="margin:0 0 16px;font-size:15px;color:#aaaaaa;line-height:1.75;">${escapeHtml(greeting)}</p>
+<p style="margin:0 0 32px;font-size:15px;color:#aaaaaa;line-height:1.75;">The suspension on your Overhype.me account has been lifted. You can sign in&nbsp;again.</p>
+${ctaButton(loginUrl, "Sign In")}`;
+  const html = buildEmailShell(body, "You&#39;re receiving this because the suspension on your Overhype.me account was lifted.");
+  return { subject, text, html };
+}
+
 export function buildPasswordResetEmail(resetUrl: string): Pick<EmailPayload, "subject" | "text" | "html"> {
   const subject = "Reset your password — Overhype.me";
 
