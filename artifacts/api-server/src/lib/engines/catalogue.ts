@@ -14,7 +14,6 @@ import { FLUX_PRO_V1_1 } from "./flux-pro-v1-1";
 import { FLUX_2_PRO } from "./flux-2-pro";
 import { GPT_IMAGE_2 } from "./gpt-image-2";
 import { GPT_IMAGE_2_EDIT } from "./gpt-image-2-edit";
-import { FAL_YOLO_WORLD } from "./fal-yolo-world";
 import { OPENAI_GENERAL } from "./openai-general";
 import { GPT_IMAGE_2_5, GPT_IMAGE_2_5_EDIT } from "./gpt-image-2-5";
 import { GPT_IMAGE_2_6, GPT_IMAGE_2_6_EDIT } from "./gpt-image-2-6";
@@ -53,7 +52,6 @@ export const ALL_ENGINES: EngineDefinition[] = [
   SEEDREAM_5_PRO_EDIT,
   MUSE_IMAGE,
   MUSE_IMAGE_EDIT,
-  FAL_YOLO_WORLD,
   OPENAI_GENERAL,
   OPENAI_ENRICHER,
   OPENAI_GAG_WRITER,

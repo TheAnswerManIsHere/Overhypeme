@@ -588,14 +588,20 @@ still lists three values, because stored attempts carry all three:
 - `human_identity_i2i` — preserve a recognizable human face (reference image).
 - `nonhuman_subject_i2i` — preserve an uploaded pet. A subject is a person or a
   pet: classification treats a photo whose only subject is a vehicle, object or
-  mascot as having no usable subject (`tier2Heuristics.ts`, analyzer v2;
+  mascot as having no usable subject (the AI vision check's prompt,
+  `FACT_SOURCE_CLASSIFIER_SYSTEM_DEFAULT` in `imagePromptConfig.ts`, analyzer v3;
   [the rule](./decisions.md#2026-11-15--a-pictures-subject-is-a-person-or-a-pet-vehicles-objects-and-mascots-are-not-subjects)).
 - `t2i_fallback` — **retired**: no reference. Refused when an attempt is
   queued (`NoPhotoRenderRefusedError`, `no_photo_render_retired`) and again in
   the worker; the compiler's dispatch throws on it. Old attempts keep the
   value and their readers keep its label.
 
-`tier2Heuristics.ts` suggests the mode from image analysis. A photo it cannot
+The AI vision check (`sourceImageAnalysis/`, `tier3AiVisionFallback.ts`)
+suggests the mode from the photo; it is the whole analysis since the fal
+object detector and the heuristics that read it were removed (David, Q9,
+Issue #945: the detector's endpoint no longer existed, so every photo read as
+"no subject" and the check was never reached). A skipped or failed check
+returns the photo unclassified and uncached. A photo it cannot
 use (no clear face or subject) is refused by the render-review path with
 `NoUsablePhotoError` (`no_usable_photo`, the analysis's own reasons), asking
 for a better photo, never drawn as an invented person. The planner's brief

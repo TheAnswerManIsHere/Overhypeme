@@ -6,7 +6,7 @@
  *   fact_source_classifier_system       — system prompt for the Tier-3 OpenAI
  *                                         Vision fallback classifier.
  *   fact_source_classifier_engine_id    — retired (decisions.md 2026-11-14):
- *                                         the Tier-1 detector is set in code.
+ *                                         the fal detector it chose is removed (Q9, Issue #945).
  *
  * Sampling for the AI vision classifier lives in `lib/sourceImageAnalysis/tier3AiVisionFallback.ts`.
  */
@@ -23,8 +23,6 @@ export const IMAGE_PROMPT_CONFIG_KEYS = {
 } as const;
 
 // ─── Defaults ──────────────────────────────────────────────────────────────
-
-export const DEFAULT_IMAGE_CLASSIFIER_ENGINE_ID = "fal-yolo-world";
 
 export const FACT_SOURCE_CLASSIFIER_SYSTEM_DEFAULT = `You are the Overhype.me source-image classifier.
 
@@ -46,11 +44,6 @@ Return ONLY the JSON object. Do not include any explanation outside it.`;
 
 export async function getFactSourceClassifierSystem(): Promise<string> {
   return FACT_SOURCE_CLASSIFIER_SYSTEM_DEFAULT;
-}
-
-/** The Tier-1 source detector: set in code (decisions.md 2026-11-14, AI call settings live in code). */
-export async function getImageClassifierEngineId(): Promise<string> {
-  return DEFAULT_IMAGE_CLASSIFIER_ENGINE_ID;
 }
 
 /** The system prompt keys set in code, which codeOwnedPrompts.ts refuses to save or show. */

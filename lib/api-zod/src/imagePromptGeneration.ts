@@ -80,7 +80,7 @@ import { detectMediumClaim } from "./promptContentDetectors";
 export const IMAGE_PROMPT_GENERATION_VERSION = "v11";
 // v2: a vehicle, object or mascot is no longer a subject kind; a photo whose
 // only subject is one has no usable subject (people and pets only).
-export const SOURCE_IMAGE_ANALYZER_VERSION = "v2";
+export const SOURCE_IMAGE_ANALYZER_VERSION = "v3"; // v3: the AI vision check alone (Q9, Issue #945); v2 results came from a dead detector
 
 // ─── Enums ────────────────────────────────────────────────────────────────
 

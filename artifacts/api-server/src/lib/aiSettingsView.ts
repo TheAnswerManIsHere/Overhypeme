@@ -16,7 +16,6 @@ import { chatModelTuningParams } from "./openaiChatParams";
 import { DEFAULT_FACT_ENRICHMENT_ENGINE_ID, FACT_ENRICHMENT_CONFIG_KEYS, getFactEnrichmentSystem } from "./factEnrichmentConfig";
 import { DEFAULT_VISUAL_CONCEPTS_ENGINE_ID, VISUAL_CONCEPTS_CONFIG_KEYS, getVisualConceptsSystem } from "./visualConceptsConfig";
 import {
-  DEFAULT_IMAGE_CLASSIFIER_ENGINE_ID,
   IMAGE_PROMPT_CONFIG_KEYS,
   getFactSourceClassifierSystem,
 } from "./imagePromptConfig";
@@ -124,7 +123,6 @@ function webSearchStep(step: string, request: unknown, promptKey: string): AiSet
 
 export async function aiSettingsView(): Promise<AiSettingsView> {
   const utility = requireEngine(UTILITY_LLM_ENGINE_ID);
-  const detector = requireEngine(DEFAULT_IMAGE_CLASSIFIER_ENGINE_ID);
   const steps: AiSettingRow[] = [
     llmStep("Fact classification (enrichment)", DEFAULT_FACT_ENRICHMENT_ENGINE_ID, FACT_ENRICHMENT_CONFIG_KEYS.system),
     llmStep("Gag writer (visual gags and joke read)", DEFAULT_VISUAL_CONCEPTS_ENGINE_ID, VISUAL_CONCEPTS_CONFIG_KEYS.system),
@@ -133,16 +131,9 @@ export async function aiSettingsView(): Promise<AiSettingsView> {
     imageStep("Picture engine: a chosen look, from a reference photo", IMAGE_ENGINE_IDS.styled.i2i),
     imageStep("Picture engine: a chosen look, text to image", IMAGE_ENGINE_IDS.styled.t2i),
     {
-      step: "Source-photo detector",
-      engine: detector.label,
-      model: detector.endpointId,
-      parameters: [],
-      promptKey: null,
-    },
-    {
-      // The second look when the detector is unsure: the helper model with the
+      // The one source-photo check (Q9, Issue #945): the helper model with the
       // classifier prompt, at the call's own budget (tier3AiVisionFallback.ts).
-      step: "Source-photo second look (vision fallback)",
+      step: "Source-photo check (AI vision)",
       engine: utility.label,
       model: utility.endpointId,
       parameters: chatParameters(utility.endpointId, TIER3_MAX_TOKENS, TIER3_TEMPERATURE, JUDGEMENT_REASONING_EFFORT),

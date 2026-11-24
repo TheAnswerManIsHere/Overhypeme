@@ -50,10 +50,8 @@ describe("aiSettingsView", () => {
 
   it("names each prompt against the step that sends it, with that call's own settings (codex-4574712258)", async () => {
     const { steps, prompts } = await aiSettingsView();
-    const detector = steps.find((s) => s.step === "Source-photo detector")!;
-    assert.equal(detector.promptKey, null, "the fal detector is sent no prompt");
-
-    const fallback = steps.find((s) => s.step.startsWith("Source-photo second look"))!;
+    assert.equal(steps.find((s) => s.step === "Source-photo detector"), undefined, "the fal detector is gone (Q9, Issue #945)");
+    const fallback = steps.find((s) => s.step === "Source-photo check (AI vision)")!;
     assert.equal(fallback.promptKey, "fact_source_classifier_system");
     assert.equal(fallback.model, "gpt-6-luna");
     assert.equal(param(fallback, "Reasoning effort"), "low");
