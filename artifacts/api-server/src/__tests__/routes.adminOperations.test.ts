@@ -197,7 +197,13 @@ describe("readRecentIncidents", () => {
   });
 
   it("reports unavailable, never an empty list, when Sentry refuses or cannot be reached", async () => {
-    __setOperationsFetchForTest(async () => new Response("no", { status: 401 }));
+    // #1055: production's key was rejected ({"detail":"Invalid token"}, 401) and
+    // the page said Sentry "could not be reached". A rejected key is its own reason.
+    __setOperationsFetchForTest(async () => new Response(JSON.stringify({ detail: "Invalid token" }), { status: 401 }));
+    assert.deepEqual(await readRecentIncidents("token"), { status: "unavailable", reason: "refused" });
+    __setOperationsFetchForTest(async () => new Response("no", { status: 403 }));
+    assert.deepEqual(await readRecentIncidents("token"), { status: "unavailable", reason: "refused" });
+    __setOperationsFetchForTest(async () => new Response("no", { status: 503 }));
     assert.deepEqual(await readRecentIncidents("token"), { status: "unavailable", reason: "unreachable" });
     __setOperationsFetchForTest(async () => { throw new Error("network down"); });
     assert.deepEqual(await readRecentIncidents("token"), { status: "unavailable", reason: "unreachable" });

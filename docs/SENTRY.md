@@ -29,6 +29,27 @@ Both projects belong to `SENTRY_ORG`. Source-map upload uses
 `SENTRY_AUTH_TOKEN` and is enabled automatically when all three secrets are
 present (see `vite.config.ts` and `artifacts/api-server/build.mjs`).
 
+## The read key behind the Operations page
+
+The admin Operations page lists the last 7 days of incidents by **reading**
+Sentry's issue list (`artifacts/api-server/src/routes/adminOperations.ts`).
+That read uses its own secret, `SENTRY_API_TOKEN`, separate from the DSNs
+(which only send events) and from `SENTRY_AUTH_TOKEN` (source maps). The org
+slug defaults to `overhypeme` (`SENTRY_ORG_SLUG` overrides it).
+
+- **Scope:** `event:read` (Issue & Event: Read) on the org. A source-map
+  upload token (`org:ci`) cannot read issues.
+- **Best kind of key:** an internal ("custom") integration token, which
+  belongs to the org rather than a person, so it is not lost when a personal
+  token is revoked. Set it as `SENTRY_API_TOKEN` in the Repl's secrets,
+  which the published app shares.
+- **What the page says when it fails:** no key set → "the server has no
+  Sentry token"; Sentry answers 401/403 → "Sentry rejected the server's
+  access key … the key needs replacing"; anything else → "could not be
+  reached just now". On 2026-11-24 production's key was answered with
+  401 `{"detail":"Invalid token"}`, which the page then misreported as
+  unreachable (Issue #1055).
+
 ## Environment tagging (dev vs prod)
 
 Every event is tagged with an `environment` value so you can filter dev

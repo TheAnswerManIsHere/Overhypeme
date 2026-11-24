@@ -41,7 +41,7 @@ export interface Incident {
 
 export type IncidentList =
   | { status: "ok"; incidents: Incident[] }
-  | { status: "unavailable"; reason: "not_configured" | "unreachable" };
+  | { status: "unavailable"; reason: "not_configured" | "refused" | "unreachable" };
 
 const SENTRY_ORG = process.env["SENTRY_ORG_SLUG"] ?? "overhypeme";
 const SENTRY_API_BASE = process.env["SENTRY_API_BASE"] ?? "https://sentry.io";
@@ -120,7 +120,11 @@ export async function readRecentIncidents(token = process.env["SENTRY_API_TOKEN"
     });
     if (!res.ok) {
       logger.warn({ status: res.status }, "[operations] Sentry issue list refused");
-      return { status: "unavailable", reason: "unreachable" };
+      // 401/403: Sentry answered and rejected the key (revoked, expired, or
+      // missing the event:read scope). Saying "could not be reached" then sent
+      // the diagnosis the wrong way (#1055); the fix is a new key, not a retry.
+      const refused = res.status === 401 || res.status === 403;
+      return { status: "unavailable", reason: refused ? "refused" : "unreachable" };
     }
     const body = (await res.json()) as unknown;
     if (!Array.isArray(body)) return { status: "unavailable", reason: "unreachable" };
