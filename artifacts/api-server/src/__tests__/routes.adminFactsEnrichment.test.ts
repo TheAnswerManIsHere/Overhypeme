@@ -348,7 +348,8 @@ describe("taxonomy run history (plan item 16; Issue #1018, increment 2.1b)", () 
   });
 
   it("the Facts list reads the archetype from the stored taxonomy (the projection column is gone, 0160)", async () => {
-    const id = await insertFact({ enrichment: OTHER, enrichmentStatus: "ok" });
+    // An approved fact: the list holds approved facts only (Issue #1018, increment 3.1).
+    const id = await insertFact({ enrichment: OTHER, enrichmentStatus: "ok", isActive: true });
     const [row] = await db.select({ text: factsTable.text }).from(factsTable).where(eq(factsTable.id, id));
     const res = await request(adminApp).get(`/api/admin/facts`).query({ search: row!.text, visibility: "both" });
     assert.equal(res.status, 200);

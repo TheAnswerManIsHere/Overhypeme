@@ -71,7 +71,7 @@ export function FinalHashtagsEditor({
                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border bg-primary/15 border-primary/40 text-primary"
               >
                 {tag}
-                <button type="button" onClick={() => removeHashtag(tag)} className="hover:opacity-70">
+                <button type="button" onClick={() => removeHashtag(tag)} className="hover:opacity-70" aria-label={`Remove ${tag}`}>
                   <X className="w-3 h-3" />
                 </button>
               </span>

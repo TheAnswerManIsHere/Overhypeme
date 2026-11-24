@@ -15,23 +15,11 @@
  */
 import { sql, type SQL } from "drizzle-orm";
 import { factsTable } from "@workspace/db";
-import { GAG_EXAMPLE_KINDS, IMAGE_PROMPT_GENERATION_VERSION, PROMPT_GENERATION_VERSION_KEY } from "@workspace/api-zod";
+import { ATTENTION_REASONS, GAG_EXAMPLE_KINDS, IMAGE_PROMPT_GENERATION_VERSION, PROMPT_GENERATION_VERSION_KEY, attentionReasonOf, type AttentionReason } from "@workspace/api-zod";
 import { IMAGE_ENGINE_IDS, PRE_ROUTING_IMAGE_ENGINE_IDS, fallbackEngineIdFor } from "./imageEngineRouting";
 import { fingerprintMissingSql } from "./embeddings";
 
-export const ATTENTION_REASONS = [
-  "taxonomy_missing",
-  "example_stale",
-  "example_missing",
-  "fingerprint_missing",
-  "pictures_failing",
-] as const;
-export type AttentionReason = (typeof ATTENTION_REASONS)[number];
-
-/** The reason a query value names, or undefined when it names none. */
-export function attentionReasonOf(value: unknown): AttentionReason | undefined {
-  return ATTENTION_REASONS.find((r) => r === value);
-}
+export { ATTENTION_REASONS, attentionReasonOf, type AttentionReason };
 
 /**
  * "Pictures often failing": at least `ATTENTION_FAIL_MIN` of a live fact's
@@ -53,7 +41,9 @@ export const UNRECORDED_PLANLESS_GENERATION = "v11";
 /** What a planned unrecorded render reads as: any version before v11, never equal to a current one. */
 const UNRECORDED_PLANNED_GENERATION = "pre-v11";
 
-const approved = sql`${factsTable.approvedAt} IS NOT NULL`;
+/** An approved fact, live or deactivated: the Facts page's facts (plan item 18). Every approved-only read uses this. */
+export const approvedFact = sql`${factsTable.approvedAt} IS NOT NULL`;
+const approved = approvedFact;
 const live = sql`${factsTable.isActive}`;
 
 /** Taxonomy missing: an approved fact with no stored taxonomy. A failed run never clears the column, so runs are not read. */
