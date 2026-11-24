@@ -230,7 +230,7 @@ gate's exception table is unchanged.
 
 **The page a sign-up came from** (Issue #1203, Q6; 0166). `POST /auth/register`
 takes an optional `returnTo` (the login page's safe `from`). `getSafeSignupReturnTo`
-(`lib/safeReturnTo.ts`) keeps it only if it is a safe same-site path that is not
+(`artifacts/api-server/src/lib/safeReturnTo.ts`) keeps it only if it is a safe same-site path that is not
 `/` or a sign-in-flow page (`SIGN_IN_FLOW_ROOTS`, mirrored from the client), and
 it is stored on `users.signup_return_to` (nullable `text`, so no length the
 validators accept can fail registration). A registration verification — never
