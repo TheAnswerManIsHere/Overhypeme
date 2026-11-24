@@ -8,7 +8,7 @@
         "role": "system"
       },
       {
-        "content": "Classify this submitted Overhype.me fact.\n\nInspect the EXACT spelling and capitalization of factTextExact. Do NOT lowercase, title-case, or otherwise normalize the case before semantic interpretation — capitalization is meaningful (e.g. \"Earth\" vs \"earth\").\n\nfactTextExact:\nAlex once counted to infinity. Twice. The second time They do it backwards to check their work.\n\nNotes:\n- The fact text has been rendered to canonical plain English (identity tokens resolved).\n- Classify the joke mechanism of the fact itself.\n- If the fact includes hashtags or brand/company names, detect them as context, but do not let them override the core archetype.\n- Identify capitalization-sensitive or ambiguity-sensitive terms whose visual interpretation matters and list them in semanticEntities. Do not list every noun — only terms where interpretation materially affects the visual prompt or is genuinely ambiguous.",
+        "content": "Classify this submitted Overhype.me fact.\n\nInspect the EXACT spelling and capitalization of factTextExact. Do NOT lowercase, title-case, or otherwise normalize the case before semantic interpretation — capitalization is meaningful (e.g. \"Earth\" vs \"earth\").\n\nfactTextExact:\nAlex once counted to infinity. Twice. The second time they did it backwards to check their work.\n\nNotes:\n- The fact text has been rendered to canonical plain English (identity tokens resolved).\n- Classify the joke mechanism of the fact itself.\n- If the fact includes hashtags or brand/company names, detect them as context, but do not let them override the core archetype.\n- Identify capitalization-sensitive or ambiguity-sensitive terms whose visual interpretation matters and list them in semanticEntities. Do not list every noun — only terms where interpretation materially affects the visual prompt or is genuinely ambiguous.",
         "role": "user"
       }
     ],
@@ -298,24 +298,24 @@
       "type": "json_schema"
     }
   },
-  "fingerprint": "811a66fbfd10c1f02596c4e8218293e521e6f3160dc681dece790b6cfe4e1b3e",
-  "recordedAt": "2026-10-12T23:28:42.210Z",
+  "fingerprint": "199caa15cd3353d003629076b6a6d206b4a3ab53789d1fc860f1842dbaeee5b1",
+  "recordedAt": "2026-11-24T00:14:48.777Z",
   "clients": {
     "@fal-ai/client": "1.9.5",
     "openai": "6.33.0"
   },
   "target": "gpt-5.5",
   "response": {
-    "id": "recorded-2",
+    "id": "recorded-5",
     "object": "chat.completion",
-    "created": 1791847708,
+    "created": 1795479281,
     "model": "gpt-5.5-2026-04-23",
     "choices": [
       {
         "index": 0,
         "message": {
           "role": "assistant",
-          "content": "{\"primaryArchetype\":\"logic_formal_impossibility\",\"subtype\":\"infinity_impossibility\",\"modifiers\":[\"single_subject_focus\",\"symbolic_abstraction_required\",\"mock_heroic\"],\"visualLiteralness\":\"symbolic_abstraction\",\"visualComplexity\":\"medium\",\"overhypeFit\":\"strong\",\"adultSuitability\":\"safe\",\"adultSuitabilityNotes\":\"\",\"suggestedHashtags\":[\"infinity\",\"math\",\"counting\",\"numbers\",\"logic\",\"backwards\"],\"taxonomyConfidence\":0.98,\"adminReviewNotes\":\"\",\"culturalReferences\":[],\"semanticEntities\":[{\"surfaceText\":\"infinity\",\"normalizedText\":\"infinity\",\"entityKind\":\"abstract_concept\",\"visualReferent\":\"an endless mathematical sequence or infinity symbol represented with limitless numbers\",\"capitalizationSignal\":\"lowercase_common_noun\",\"materiallyAffectsVisualPrompt\":true,\"requiresAdminReview\":false,\"confidence\":0.97,\"notes\":\"The joke depends on infinity as an unfinishable mathematical concept, so it should be visualized symbolically rather than as a physical object.\"}]}",
+          "content": "{\"primaryArchetype\":\"logic_formal_impossibility\",\"subtype\":\"infinity_impossibility\",\"modifiers\":[\"symbolic_abstraction_required\",\"mock_heroic\",\"single_subject_focus\"],\"visualLiteralness\":\"symbolic_abstraction\",\"visualComplexity\":\"medium\",\"overhypeFit\":\"strong\",\"adultSuitability\":\"safe\",\"adultSuitabilityNotes\":\"\",\"suggestedHashtags\":[\"infinity\",\"counting\",\"math\",\"numbers\",\"backwards\"],\"taxonomyConfidence\":0.98,\"adminReviewNotes\":\"\",\"culturalReferences\":[],\"semanticEntities\":[]}",
           "refusal": null,
           "annotations": []
         },
@@ -324,14 +324,14 @@
     ],
     "usage": {
       "prompt_tokens": 4981,
-      "completion_tokens": 1257,
-      "total_tokens": 6238,
+      "completion_tokens": 639,
+      "total_tokens": 5620,
       "prompt_tokens_details": {
         "cached_tokens": 0,
         "audio_tokens": 0
       },
       "completion_tokens_details": {
-        "reasoning_tokens": 1025,
+        "reasoning_tokens": 512,
         "audio_tokens": 0,
         "accepted_prediction_tokens": 0,
         "rejected_prediction_tokens": 0
