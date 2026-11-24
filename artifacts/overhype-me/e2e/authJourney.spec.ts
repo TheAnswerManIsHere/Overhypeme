@@ -180,3 +180,43 @@ test("a production-mode account: register, verify, act, sign out, recover the pa
   await expect.poll(async () => (await currentUser(page))?.["eligibility"]).toBe("eligible");
   expect(await pageFetch(page, "PATCH", "/api/users/me", { pronouns: "they/them" }), "the account can act again").toBe(200);
 });
+
+// Issue #1203 (Q6): an email-and-password sign-up returns to the page it
+// started from, even when the confirmation link is opened in another browser.
+test("an email sign-up from a page returns there after confirming in a fresh browser and finishing set-up", async ({ page, browser }) => {
+  mailSinkDir();
+  const email = `journey-return+${Date.now()}@example.test`;
+  const startPage = "/pricing?ref=e2e-1203";
+
+  const registeredAt = new Date();
+  await page.goto(`/login?from=${encodeURIComponent(startPage)}`);
+  await page.getByRole("button", { name: "Sign up" }).click();
+  await page.getByPlaceholder("your@email.com").fill(email);
+  await page.getByPlaceholder(/How facts will address you/).fill("Return Tester");
+  await page.getByPlaceholder("First").fill("Return");
+  await page.getByPlaceholder("Last").fill("Tester");
+  await page.getByPlaceholder("Min 8 characters").fill(FIRST_PASSWORD);
+  await page.getByRole("button", { name: /create account/i }).click();
+  await expect(page.getByRole("heading", { name: "CHECK YOUR EMAIL" })).toBeVisible();
+
+  // The link is opened in a different browser: no cookie, no history.
+  const verifyLink = await waitForEmailLink({ to: email, linkPath: "/verify-email", since: registeredAt });
+  const phone = await browser.newContext();
+  try {
+    const other = await phone.newPage();
+    await other.goto(verifyLink);
+    await expect(other.getByRole("heading", { name: /one quick set-up/i })).toBeVisible({ timeout: 30_000 });
+    await other.getByRole("button", { name: "they/them" }).click();
+    await other.getByLabel("Month").fill("6");
+    await other.getByLabel("Day").fill("15");
+    await other.getByLabel("Year").fill("1990");
+    await other.getByTestId("onboard-legal-agree").check();
+    const finish = other.getByRole("button", { name: "Finish set-up" });
+    await expect(finish).toBeEnabled({ timeout: 30_000 });
+    await finish.click();
+    await other.getByRole("button", { name: "Skip for now" }).click();
+    await other.waitForURL((url) => url.pathname + url.search === startPage, { timeout: 30_000 });
+  } finally {
+    await phone.close();
+  }
+});

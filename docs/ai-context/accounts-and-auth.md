@@ -228,6 +228,20 @@ never registered locally (Google-made, or from before Phase 5) reached the
 screen with nothing sent (#868). It is the same route, so the verified-actor
 gate's exception table is unchanged.
 
+**The page a sign-up came from** (Issue #1203, Q6; 0166). `POST /auth/register`
+takes an optional `returnTo` (the login page's safe `from`). `getSafeSignupReturnTo`
+(`lib/safeReturnTo.ts`) keeps it only if it is a safe same-site path that is not
+`/` or a sign-in-flow page (`SIGN_IN_FLOW_ROOTS`, mirrored from the client), and
+it is stored on `users.signup_return_to` (nullable `text`, so no length the
+validators accept can fail registration). A registration verification — never
+an email change — reads and clears it in one transaction and returns it as
+`returnTo`; `VerifyEmail.tsx` re-checks it (`onboardAfterVerify`) and sends the
+account to `/onboard?returnTo=<page>&verified=1`, or to the profile default as
+before. Because the page lives on the account, not the link, any registration
+link — first, resent, after an expired one, or the "Check your email" screen's
+`ifNoneOut` send — returns there, in any browser. Roll back by restoring the
+code and keeping the column.
+
 Token: raw 32-byte random value, only its SHA-256 hash stored
 (`emailVerificationTokensTable`, `lib/db/src/schema/auth.ts:72-84`), a fixed
 expiry, single-use via `usedAt` (`localAuth.ts:463-466,487-490`). Verifying
