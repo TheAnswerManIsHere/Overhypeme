@@ -18,7 +18,7 @@ import { Sentry } from "@/lib/sentry";
 import { trackUpgradeOnce } from "@/lib/analytics";
 import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
 import { uploadUserImage } from "@/lib/image-upload";
-import { shouldAskForRealPhoto } from "@/lib/profile-photo";
+import { hasUploadedProfilePhoto } from "@/lib/profile-photo";
 import { STRIPE_UNVERIFIED_CODE, STRIPE_UNVERIFIED_CONFIRM_MESSAGE } from "@workspace/api-zod";
 import { confirmNotReadOnly, isReadOnlyNow, isReadOnlyRefusal, noteReadOnlyRefusal, READ_ONLY_REFUSED_FULL } from "@/lib/readOnlyNotice";
 
@@ -196,24 +196,6 @@ export default function Profile() {
   const editFormRef = useRef<HTMLDivElement>(null);
   const [forgetMeConfirm, setForgetMeConfirm] = useState(false);
   const [forgetMeLoading, setForgetMeLoading] = useState(false);
-
-  // Photo nudge: dismissible per session for users who haven't uploaded a real
-  // photo (shouldAskForRealPhoto, #848). A provider picture from Google or
-  // Apple alone still asks.
-  const [photoNudgeDismissed, setPhotoNudgeDismissed] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    try {
-      return sessionStorage.getItem("profile_photo_nudge_dismissed") === "1";
-    } catch {
-      return false;
-    }
-  });
-  function dismissPhotoNudge() {
-    setPhotoNudgeDismissed(true);
-    try {
-      sessionStorage.setItem("profile_photo_nudge_dismissed", "1");
-    } catch { /* ignore */ }
-  }
 
   const [showPasswordSection, setShowPasswordSection] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
@@ -773,56 +755,21 @@ export default function Profile() {
     );
   }
 
-  const hasCustomPhoto = Boolean(profile.profileImageUrl);
+  // An uploaded photo is the only picture (#848); anything else still asks.
+  const hasCustomPhoto = hasUploadedProfilePhoto(profile.profileImageUrl);
   const hasDisplayName = Boolean(profile.displayName && profile.displayName.trim().length > 0);
   const identityIncomplete = !hasCustomPhoto || !hasDisplayName;
-  const showPhotoNudge = shouldAskForRealPhoto(profile) && !photoNudgeDismissed;
 
   return (
     <Layout>
       <div className="max-w-5xl mx-auto px-4 py-12 md:py-20">
 
-        {/* ── Real-photo nudge ────────────────────────────────────────
-            Persistent banner for users who haven't uploaded a real photo
-            (shouldAskForRealPhoto, #848). Their uploaded photo is their
-            picture, for every member. Dismissible per session. */}
-        {showPhotoNudge && (
-          <div className="flex items-start justify-between gap-3 bg-primary/10 border-2 border-primary/40 rounded-sm p-4 mb-6">
-            <div className="flex items-start gap-3 min-w-0">
-              <Camera className="w-5 h-5 text-primary shrink-0 mt-0.5" />
-              <div className="min-w-0">
-                <p className="font-bold text-foreground leading-tight">
-                  Add a real photo of you
-                </p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  It becomes your picture and stars in your memes. Free for everyone.
-                </p>
-                <div className="mt-3">
-                  <Button
-                    size="sm"
-                    onClick={openEditor}
-                    className="gap-2"
-                  >
-                    <Camera className="w-4 h-4" /> Add a real photo
-                  </Button>
-                </div>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={dismissPhotoNudge}
-              aria-label="Dismiss"
-              className="text-muted-foreground hover:text-foreground shrink-0"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        )}
-
         {/* ── Identity-first card ─────────────────────────────────────
             The profile photo + display name are the user's reusable
             identity asset. Every photo meme reuses them, so prompt the user to set them up the moment
-            they land here. Free for everyone — no upgrade gate. */}
+            they land here. Free for everyone — no upgrade gate. This card is
+            Profile's only ask for a photo: a separate "Add a real photo of
+            you" banner above it asked the same thing twice (David, 2026-11-24). */}
         {identityIncomplete && (
           <div className="bg-card border-2 border-primary/40 rounded-sm p-5 md:p-6 mb-6 shadow-[0_0_24px_rgba(249,115,22,0.12)]">
             <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-6">

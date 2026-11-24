@@ -82,6 +82,14 @@ test("a user's uploaded photo is stored, readable by its owner, and by nobody el
 test("a free account's profile photo stops Profile asking for one and is shown as its picture", async ({ page }) => {
   await signInThroughForm(page, FREE_ACCOUNT.email, TEST_ACCOUNT_PASSWORD);
 
+  // Before the photo, Profile asks for one exactly once: the identity card's
+  // "Add Photo", with no second "Add a real photo of you" banner above it
+  // (David, 2026-11-24: the two asked the same thing twice).
+  await page.goto("/profile");
+  await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("button", { name: "Add Photo" })).toHaveCount(1);
+  await expect(page.getByText("Add a real photo of you")).toHaveCount(0);
+
   const upload = await uploadFixturePhoto(page);
   expect(upload.status, JSON.stringify(upload.body)).toBe(200);
   const objectPath = upload.body["objectPath"] as string;
@@ -108,7 +116,7 @@ test("a free account's profile photo stops Profile asking for one and is shown a
   await page.goto("/profile");
   // The banner renders in the same pass as the loaded profile's heading.
   await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText("Add a real photo of you")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Add Photo" })).toHaveCount(0);
 
   // The photo is displayed and actually loads, not only named in the JSON.
   const picture = `/api/storage${objectPath}`;
