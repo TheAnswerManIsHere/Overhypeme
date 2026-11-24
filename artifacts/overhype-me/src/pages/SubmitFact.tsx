@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@workspace/replit-auth-web";
-import { validateTemplate } from "@workspace/api-zod";
+import { applyHouseStyle, validateTemplate } from "@workspace/api-zod";
 
 import { Layout } from "@/components/layout/Layout";
 import { AccessGate } from "@/components/AccessGate";
@@ -126,6 +126,11 @@ export default function SubmitFact() {
       });
     },
   });
+
+  // The preview shows the wording as it will be saved, in the house style
+  // (plan PLAN_FACT_HOUSE_STYLE.md, I3), whatever the advanced editor or a
+  // restored draft holds; the editor's own text is never rewritten as it is typed.
+  const previewTemplate = useMemo(() => applyHouseStyle(template), [template]);
 
   useEffect(() => {
     if (!template) { setTemplateGrammarError(null); return; }
@@ -573,7 +578,7 @@ export default function SubmitFact() {
                       <span className="text-sm text-muted-foreground">{p.name}</span>
                     </div>
                     <p className="text-xl font-medium text-foreground leading-snug">
-                      "<HighlightedFactText template={template} name={p.name} pronouns={p.label} />"
+                      "<HighlightedFactText template={previewTemplate} name={p.name} pronouns={p.label} />"
                     </p>
                   </div>
                 ))}
