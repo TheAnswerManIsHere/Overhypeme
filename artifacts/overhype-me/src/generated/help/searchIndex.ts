@@ -242,7 +242,7 @@ export const HELP_SEARCH_INDEX: HelpSearchEntry[] = [
     "doc": "4-taxonomy-and-enrichment",
     "section": "for-the-reader--user",
     "sectionTitle": "For the reader / user",
-    "text": "For the reader / user Nothing about enrichment is directly visible to a reader — it's the metadata that lets Overhype.me filter, tag, and reason about facts (suggested hashtags, content-safety gating, archetype-based curation). A user only feels its effects indirectly: an accurately classified fact renders the right kind of joke."
+    "text": "For the reader / user Nothing about enrichment is directly visible to a reader — it's the metadata that lets Overhype.me filter and reason about facts (content-safety gating, archetype-based curation). It does not suggest hashtags: those are made once, on the submit form. A user only feels its effects indirectly: an accurately classified fact renders the right kind of joke."
   },
   {
     "doc": "4-taxonomy-and-enrichment",
