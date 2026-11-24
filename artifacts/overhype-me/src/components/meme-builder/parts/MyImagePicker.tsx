@@ -79,6 +79,17 @@ export function MyImagePicker({ selected, onSelect, hideTabs }: Props) {
           emptyText="You haven't uploaded any photos yet."
         />
       )}
+      {tab === "library" && library.hasMore && (
+        <button
+          type="button"
+          data-testid="my-images-load-more"
+          onClick={library.loadMore}
+          disabled={library.loadingMore}
+          className="mt-2 w-full rounded-md border border-border py-2 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:border-primary/60 disabled:opacity-50"
+        >
+          {library.loadingMore ? "Loading…" : "Show more photos"}
+        </button>
+      )}
 
       {tab === "upload" && (
         <SelfUploadZone

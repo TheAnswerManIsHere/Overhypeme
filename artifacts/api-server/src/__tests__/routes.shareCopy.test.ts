@@ -262,7 +262,7 @@ describe("GET /api/share-copy/:memeId/email", () => {
 });
 
 describe("GET /api/share-copy/:memeId/:platform — 410 soft-deleted", () => {
-  it("returns 410 when the meme has been removed by its creator", async () => {
+  it("returns 410 when the meme has been removed", async () => {
     const creatorId = await createUser("Erin");
     const factId = await insertFact("a fact");
     const slug = `${PREFIX}gone01`;

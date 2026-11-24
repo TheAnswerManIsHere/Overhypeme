@@ -173,3 +173,40 @@ describe("AdminTrace", () => {
     expect(screen.getByText(/after cutting away bars/)).toBeTruthy();
   });
 });
+
+describe("AdminTrace — take down a member's meme or photo (#875 R9)", () => {
+  const memeTrace = {
+    ...TRACED,
+    matches: [{ ...TRACED.matches[0]!, record: record({ kind: "meme_bake", memeSlug: "abc123", generationRequestId: null }), generationRequest: null, stillExists: { account: true, meme: true } }],
+  };
+
+  it("asks for a reason, sends the takedown, and says what happened", async () => {
+    const calls: Array<{ url: string; body?: string }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), body: init?.body as string | undefined });
+      if (String(url).includes("/takedown")) return { ok: true, json: async () => ({ success: true, wasProfile: false }) } as unknown as Response;
+      return { ok: true, json: async () => memeTrace } as unknown as Response;
+    }));
+    render(<AdminTrace />);
+    trace("abc123");
+    fireEvent.click(await screen.findByTestId("takedown-open"));
+    const confirm = screen.getByTestId("takedown-confirm") as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Reason for the takedown"), { target: { value: "harassment report" } });
+    fireEvent.click(confirm);
+    expect(await screen.findByTestId("takedown-done")).toBeTruthy();
+    const sent = calls.find((c) => c.url.includes("/takedown"))!;
+    expect(sent.url).toBe("/api/admin/content/takedown");
+    expect(JSON.parse(sent.body!)).toEqual({ kind: "meme", key: "abc123", reason: "harassment report" });
+  });
+
+  it("offers no takedown for a meme already gone, or for a picture that is not a member's", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({
+      ...memeTrace, matches: [{ ...memeTrace.matches[0]!, stillExists: { account: true, meme: false } }],
+    }) }) as unknown as Response));
+    render(<AdminTrace />);
+    trace("abc123");
+    await screen.findByText(/meme since deleted/);
+    expect(screen.queryByTestId("takedown")).toBeNull();
+  });
+});

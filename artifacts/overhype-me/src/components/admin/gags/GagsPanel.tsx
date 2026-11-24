@@ -630,7 +630,9 @@ function GagCard({
         <div className="flex gap-3 flex-wrap" data-testid="gag-approved-examples">
           {GAG_EXAMPLE_KINDS.map((k) => gag.approvedExamples[k]?.imageUrl ? (
             <figure key={k} className="space-y-1">
-              <img src={gag.approvedExamples[k]!.imageUrl!} alt={`Visual gag ${gag.slot} ${k} example`} className="w-28 rounded-sm border border-border" data-testid="gag-example" data-kind={k} />
+              <a href={gag.approvedExamples[k]!.imageUrl!} target="_blank" rel="noopener noreferrer" title="Open full size">
+                <img src={gag.approvedExamples[k]!.imageUrl!} alt={`Visual gag ${gag.slot} ${k} example`} className="w-28 rounded-sm border border-border" data-testid="gag-example" data-kind={k} />
+              </a>
               <figcaption className="text-[11px] text-muted-foreground">{KIND_LABEL[k]} example{building ? " (users see this now)" : ""}</figcaption>
             </figure>
           ) : null)}
@@ -780,7 +782,9 @@ function RenderTile({ kind, card, picked, canAct, readOnly, onApprove, onDraw }:
       </p>
       {card?.imageUrl ? (
         <>
-          <img src={card.imageUrl} alt={`${KIND_LABEL[kind]} render`} className="w-full rounded-sm border border-border" />
+          <a href={card.imageUrl} target="_blank" rel="noopener noreferrer" title="Open full size" data-testid="gag-render-open">
+            <img src={card.imageUrl} alt={`${KIND_LABEL[kind]} render`} className="w-full rounded-sm border border-border" />
+          </a>
           {card.engineFallback && (
             <p className="text-[11px] text-amber-700 dark:text-amber-400" data-testid="gag-render-fallback">
               GPT Image refused this picture; Nano Banana drew it.

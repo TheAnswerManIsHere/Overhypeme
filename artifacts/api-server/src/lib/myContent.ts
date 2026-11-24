@@ -278,6 +278,54 @@ export type DeletedItem =
   | { kind: "generated"; key: string; id: number; storagePath: string; deletedAt: string; purgeAfter: string }
   | { kind: "meme"; key: string; slug: string; deletedAt: string; purgeAfter: string };
 
+/**
+ * "Delete now" from Recently deleted: ends a deleted item's restore window at
+ * once, so it leaves the list and the content purger removes it on its next
+ * hourly run. Only the owner's own still-restorable item is touched; a photo's
+ * derivatives, deleted with it, go with it.
+ */
+export async function purgeNow(
+  userId: string,
+  item: { kind: "photo" | "generated" | "meme"; key: string },
+  now = new Date(),
+): Promise<ContentChangeResult> {
+  const ended = { purgeAfter: now };
+  if (item.kind === "photo") {
+    const t = uploadImageMetadataTable;
+    return db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(t)
+        .set(ended)
+        .where(and(eq(t.objectPath, item.key), eq(t.userId, userId), restorable(t, now)))
+        .returning({ objectPath: t.objectPath });
+      if (!row) return "not_found";
+      await tx
+        .update(t)
+        .set(ended)
+        .where(and(eq(t.userId, userId), eq(t.sourceObjectPath, item.key), restorable(t, now)));
+      return "ok";
+    });
+  }
+  if (item.kind === "generated") {
+    const id = Number.parseInt(item.key, 10);
+    if (!Number.isSafeInteger(id) || String(id) !== item.key) return "not_found";
+    const t = userAiImagesTable;
+    const [row] = await db
+      .update(t)
+      .set(ended)
+      .where(and(eq(t.id, id), eq(t.userId, userId), restorable(t, now), aiImageIsOwnersOwn(t)))
+      .returning({ id: t.id });
+    return row ? "ok" : "not_found";
+  }
+  const m = memesTable;
+  const [row] = await db
+    .update(m)
+    .set(ended)
+    .where(and(eq(m.permalinkSlug, item.key), eq(m.createdById, userId), restorable(m, now)))
+    .returning({ id: m.id });
+  return row ? "ok" : "not_found";
+}
+
 /** The most items Recently deleted shows; older ones are still restorable by their key. */
 const RECENTLY_DELETED_LIMIT = 200;
 

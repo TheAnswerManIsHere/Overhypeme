@@ -207,13 +207,18 @@ describe("migration 0142: variants are retired", () => {
       const [table] = key.split(":");
       if (table === "fact_gags" && variantIds.includes(Number(r.fact_id))) deleted.add(key);
       if (table === "share_intents" && r.meme_id === meme.id) deleted.add(key);
-      if (table === "reactions" && r.user_id === userId && (
-        (r.target_type === "fact" && r.target_id === vActive) ||
+      // The migration deletes by reference, whoever owns the row: a row another
+      // test in the same shard left behind that names one of these ids (an
+      // activity entry with a literal factId, say) goes too, so the expectation
+      // follows the migration's rule rather than this test's own user.
+      if (table === "reactions" && (
+        (r.target_type === "fact" && variantIds.includes(Number(r.target_id))) ||
         (r.target_type === "meme" && r.target_id === meme.id) ||
         (r.target_type === "comment" && r.target_id === ids.comment))) deleted.add(key);
-      if (table === "activity_feed" && r.user_id === userId) {
-        const m = r.metadata as Row;
-        if (m.factId === vActive || m.reviewId === rApproved) deleted.add(key);
+      if (table === "activity_feed") {
+        const m = (r.metadata ?? {}) as Row;
+        if ((typeof m.factId === "number" && variantIds.includes(m.factId)) ||
+          (typeof m.reviewId === "number" && [rApproved, rRemove, rExample].includes(m.reviewId))) deleted.add(key);
       }
     }
   });

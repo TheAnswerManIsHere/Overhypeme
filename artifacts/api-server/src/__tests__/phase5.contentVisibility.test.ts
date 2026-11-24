@@ -257,6 +257,37 @@ describe("content visibility (T4)", () => {
     assert.ok(row, "the tombstone's row stays");
   });
 
+  it("Delete now ends the window at once: only the owner's own deleted item, gone from the list, past restoring, and purged on the next run", async () => {
+    const photo = await photos.seed(owner);
+    const live = await photos.seed(owner);
+    assert.equal((await request(app(owner)).delete(`/api/users/me/uploads?path=${encodeURIComponent(photo)}`)).status, 200);
+    const purge = (who: string | null, body: unknown) => request(app(who)).post("/api/users/me/recently-deleted/purge").send(body as object);
+
+    assert.equal((await purge(null, { kind: "photo", key: photo })).status, 401, "signed out");
+    assert.equal((await purge(owner, { kind: "photo" })).status, 400, "no key");
+    assert.equal((await purge(owner, { kind: "nope", key: photo })).status, 400, "unknown kind");
+    assert.equal((await purge(other, { kind: "photo", key: photo })).status, 404, "not someone else's");
+    assert.equal((await purge(owner, { kind: "photo", key: live })).status, 404, "never a live photo");
+    assert.equal((await purge(owner, { kind: "generated", key: "1x" })).status, 404, "a malformed id matches nothing");
+
+    assert.equal((await purge(owner, { kind: "photo", key: photo })).status, 200);
+    const keys = ((await request(app(owner)).get("/api/users/me/recently-deleted")).body.items as Array<{ key: string }>).map((i) => i.key);
+    assert.ok(!keys.includes(photo), "gone from Recently deleted at once");
+    assert.equal((await request(app(owner)).post("/api/users/me/uploads/restore").send({ path: photo })).status, 404, "no longer restorable");
+    assert.equal((await purge(owner, { kind: "photo", key: photo })).status, 404, "a second Delete now finds nothing");
+
+    const result = await runContentPurger({ photoPaths: [photo, live] });
+    assert.deepEqual(result.photos, { selected: 1, purged: 1, skipped: 0, failed: 0 }, "the purger takes it, and never the live one");
+    assert.equal(await objectExists(photo), false);
+    assert.equal(await objectExists(live), true);
+
+    const saved = await createMemeRecord({ userId: owner, factId, imageSource: { type: "upload", uploadKey: live }, textOptions: { topText: "{NAME}" }, aspectRatio: "square", decisions: ALLOW_ALL });
+    assert.equal((await request(app(owner)).delete(`/api/memes/${saved.permalinkSlug}`)).status, 200);
+    assert.equal((await purge(other, { kind: "meme", key: saved.permalinkSlug })).status, 404, "not someone else's meme");
+    assert.equal((await purge(owner, { kind: "meme", key: saved.permalinkSlug })).status, 200);
+    assert.equal((await request(app(owner)).post(`/api/memes/${saved.permalinkSlug}/restore`)).status, 404, "the meme is past restoring too");
+  });
+
   it("the purger removes a photo past its window, its object and row; a meme made from it still serves byte-identical; a re-run is a no-op", async () => {
     const uploadKey = await photos.seed(owner);
     const saved = await createMemeRecord({ userId: owner, factId, imageSource: { type: "upload", uploadKey }, textOptions: { topText: "{NAME}" }, aspectRatio: "square", decisions: ALLOW_ALL });
