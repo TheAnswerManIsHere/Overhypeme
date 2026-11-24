@@ -15,7 +15,7 @@
 import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 
 /** Every lane `runAsyncJobsWorker` registers (asyncJobs.ts ALL_LANES). */
-const LANES = ["fast", "render", "bulk", "ai_meme_backfill"] as const;
+const LANES = ["fast", "render", "bulk"] as const;
 
 /**
  * EVERY queue the worker registers, not a sample. PR288 step 5 is that the
@@ -32,7 +32,6 @@ const REGISTERED_QUEUES = [
   "comparison_render",
   "email",
   "enrichment",
-  "fact_ai_meme_backfill",
   "fact_reading",
   "fact_visual_concepts",
   "gag_fold",

@@ -49,15 +49,6 @@ const ALLOWED = [
       "single 'SENTRY_DSN_BACKEND not set' notice must use console.log so " +
       "we never get into a circular init dependency with the logger.",
   },
-  {
-    file: "src/lib/cliJobPoller.ts",
-    line: 78,
-    reason:
-      "Default `log` fallback for the shared CLI poll-to-terminal helper — " +
-      "only fires when a caller omits `log`, and every real caller is a CLI " +
-      "script (backfill-ai-memes.ts), which already uses console.* for human-readable " +
-      "stdout per stdioGuard.ts's convention, not the pino logger.",
-  },
 ];
 
 const CALL_RE = /\bconsole\.(log|info|warn|error|debug|trace)\s*\(/g;

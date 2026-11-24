@@ -10,7 +10,7 @@
  *                    reproduction of the 503 path is impossible in this
  *                    topology (stopping the API workflow also stops the HTTP
  *                    server that owns this route, and another live instance
- *                    would also be scheduling all four lanes), so this is the
+ *                    would also be scheduling all three lanes), so this is the
  *                    only place that actually exercises it end to end.
  */
 
@@ -32,7 +32,7 @@ import { WORKER_PROTOCOL_VERSION } from "../lib/workerHeartbeats.js";
  * see queueHealth.test.ts's identical convention and its rationale (a bare
  * table delete would also wipe workerHeartbeats.test.ts's synthetic rows).
  */
-const REAL_LANES = ["fast", "render", "bulk", "ai_meme_backfill"];
+const REAL_LANES = ["fast", "render", "bulk"];
 
 async function clearRealLaneHeartbeats(): Promise<void> {
   await db.delete(workerLaneHeartbeatsTable).where(inArray(workerLaneHeartbeatsTable.lane, REAL_LANES));

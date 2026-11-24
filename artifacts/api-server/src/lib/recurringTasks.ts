@@ -292,7 +292,6 @@ export const TIMER_SITES: readonly TimerSite[] = [
   },
   { file: "lib/operationsDrill.ts", calls: 1, kind: "not-recurring", note: "The drill job's wait, inside one run." },
   { file: "lib/bookkeepingTimeout.ts", calls: 1, kind: "not-recurring", note: "A per-call timeout." },
-  { file: "lib/cliJobPoller.ts", calls: 1, kind: "not-recurring", note: "A sleep between polls of one job." },
   { file: "lib/comparison/transport.ts", calls: 1, kind: "not-recurring", note: "A retry backoff." },
   { file: "lib/falPricing.ts", calls: 1, kind: "not-recurring", note: "Pacing between price requests." },
   { file: "lib/membershipLease.ts", calls: 2, kind: "not-recurring", note: "Retry backoffs." },

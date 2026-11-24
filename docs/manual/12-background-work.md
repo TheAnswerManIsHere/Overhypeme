@@ -75,10 +75,9 @@ them is **who is waiting, and how much each job costs to run**:
   path. Someone clicked a button and is waiting to see it take effect.
 - **`render`** — single-item renders a moderator is watching a spinner for.
 - **`bulk`** — the catch-all for batch work nobody is watching in real time.
-- **`ai_meme_backfill`** — retired with the legacy AI-background generator
-  (every picture now starts from a photo). Its handler stays only so a job
-  left in the queue ends without spending anything. (A lane for stock-image work went with Pexels before
-  launch; the record is in [`docs/retired/`](../retired/README.md).)
+(The `ai_meme_backfill` lane went with the legacy AI-background
+generator in fact lifecycle 3.2d; a lane for stock-image work went with Pexels
+before launch. The record is in [`docs/retired/`](../retired/README.md).)
 
 That is what each lane is *for*. Everything quantitative about them — how many
 there are, how often each polls, how much runs at once, which queue is
@@ -237,8 +236,7 @@ elsewhere.
 - Code entry points: `lib/db/src/schema/asyncJobs.ts` (the table),
   `artifacts/api-server/src/lib/asyncJobs.ts` (the worker + lanes),
   `artifacts/overhype-me/src/components/admin/GagFoldPanel.tsx` (the
-  reference UI polling pattern), `artifacts/api-server/src/lib/aiMemeBackfillJobs.ts`
-  (the retired `ai_meme_backfill` queue handler),
+  reference UI polling pattern),
   `lib/db/src/schema/workerLaneHeartbeats.ts` and
   `artifacts/api-server/src/lib/workerHeartbeats.ts` (the heartbeat table +
   writer), `artifacts/api-server/src/lib/queueHealth.ts` and

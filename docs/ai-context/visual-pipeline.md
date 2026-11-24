@@ -613,9 +613,11 @@ third kind a gag's examples are drawn from, and there is no object scenario
 (a subject is a person or a pet, [the rule](./decisions.md#2026-11-15--a-pictures-subject-is-a-person-or-a-pet-vehicles-objects-and-mascots-are-not-subjects)). `generic_t2i` is retired: never offered, run or
 required, and a render it already made stays on the grid outside the tally.
 The comparison's round 1 draws photo panels only (9 panels, 54 cells). The
-legacy AI-background generator (`fact_ai_meme_backfill`) is retired: its
-route answers 410, its button and script are gone, and its queue's handler
-ends a leftover job without generating.
+legacy AI-background generator (`fact_ai_meme_backfill`) is removed: its
+route, its queue, its handler and its scheduling lane are gone (fact lifecycle
+3.2d), and the jobs left on its queue are deleted by 3.2e's migration. The
+pictures it stored stay readable on the fact (`facts.ai_meme_images`, which
+the image worker still appends to).
 
 ## Which engine draws a render
 
