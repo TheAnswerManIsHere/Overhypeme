@@ -312,7 +312,7 @@ router.post("/auth/local-login", async (req: Request, res: Response) => {
   // password too, so it is refunded as well. The refund is bookkeeping: if it
   // cannot be saved, the sign-in still goes ahead and the hit simply counts.
   try {
-    await refundSharedRateLimit(loginIpScope);
+    await refundSharedRateLimit(loginIpScope, loginIpLimit.resetAt);
   } catch (err) {
     logger.warn({ err }, "[localAuth] per-address sign-in refund could not be saved; continuing");
   }

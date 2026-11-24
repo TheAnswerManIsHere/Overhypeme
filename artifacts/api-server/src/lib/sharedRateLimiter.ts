@@ -88,16 +88,21 @@ export async function checkSharedRateLimit(scope: RateLimitScope, config: RateLi
  * Give back one hit that `checkSharedRateLimit` counted, for a limit that
  * should count only some outcomes: the caller counts every attempt as it
  * arrives (so concurrent attempts cannot slip past the limit together), then
- * refunds the ones that turn out not to count. Never below zero, and never on
- * a counter whose window has ended (that hit already expired with it).
+ * refunds the ones that turn out not to count. Never below zero, and only to
+ * the window that counted the hit: `resetAt` is that window's end, as the
+ * count returned it. A window that has ended or been replaced by a later one
+ * is left alone, so a refund arriving after a rollover cannot erase a hit the
+ * new window counted (PR #1198 round 1).
  */
-export async function refundSharedRateLimit(scope: RateLimitScope): Promise<void> {
+export async function refundSharedRateLimit(scope: RateLimitScope, resetAt: number): Promise<void> {
   const keyHash = hashKey(normalizeRateLimitKey(scope));
   const now = new Date();
   await db.execute(sql`
     UPDATE rate_limit_counters
        SET count = GREATEST(count - 1, 0), updated_at = ${now}
-     WHERE key_hash = ${keyHash} AND expires_at > ${now}
+     WHERE key_hash = ${keyHash}
+       AND expires_at = ${new Date(resetAt)}
+       AND expires_at > ${now}
   `);
 }
 
