@@ -21,6 +21,7 @@ import { captionFontOf } from "../../captionFont";
 import { CaptionFontStatus } from "../../parts/CaptionFontPicker";
 import { useCaptionFont } from "@/lib/captionFontLoader";
 import { track } from "@/lib/analytics";
+import { useWideBuilderLayout } from "../../hooks/useWideBuilderLayout";
 
 interface Props {
   factId: string;
@@ -66,6 +67,7 @@ export function Step2Image({
 }: Props) {
   const [, navigate] = useLocation();
   const tier = viewerContext.tier;
+  const wide = useWideBuilderLayout();
   // Told, not derived — the same answer createMemeRecord will apply.
   const canSetPrivate = viewerContext.entitlements?.["meme_private_visibility"]?.allowed === true;
 
@@ -232,97 +234,138 @@ export function Step2Image({
     await save();
   };
 
-  return (
-    <div className="flex h-full flex-col">
-      <h1 className="sr-only">Build your meme</h1>
+  // The controls and the commit action are the same in both layouts; only
+  // where they sit changes (Issue #850). Step2Image stays mounted across a
+  // layout switch, so every choice held here carries over.
+  const preview = (
+    <LockedPreview
+      factText={factText}
+      name={name}
+      pronouns={pronouns}
+      backgroundUrl={backgroundUrl}
+      textOptions={memeTextOptions}
+      aspectRatio={aspectRatio}
+      framingOffset={framingOffset}
+      onFramingChange={setFramingOffset}
+      fill={wide}
+    />
+  );
 
-      {/* Preview is locked outside the scroll container — it never scrolls. */}
-      <LockedPreview
+  const controls = (
+    <>
+      <AspectRatioToggle value={aspectRatio} onChange={setAspectRatio} />
+
+      {tier === "unregistered" ? (
+        <GuestPhotoSignupPanel />
+      ) : (
+        <SelfUploadSourcePanel
+          selected={selfUploadImage}
+          onSelect={handleSelfUploadImageSelect}
+        />
+      )}
+
+      <AdjustTextSheet
         factText={factText}
-        name={name}
-        pronouns={pronouns}
-        backgroundUrl={backgroundUrl}
-        textOptions={memeTextOptions}
-        aspectRatio={aspectRatio}
-        framingOffset={framingOffset}
-        onFramingChange={setFramingOffset}
+        defaultSplitIndex={defaultSplitIndex}
+        splitIndex={splitIndex}
+        onSplitChange={setSplitIndex}
+        textOptions={textOptions}
+        onTextOptionsChange={setTextOptions}
       />
 
-      {/* Controls scroll under the preview; flex-1 fills whatever height remains. */}
-      <div className="flex-1 overflow-y-auto overscroll-y-none">
-        {/* Bottom padding must clear the fixed action bar, which grows by a
-            row when the visibility control is present — otherwise the last
-            control sits under it and can't be reached. Sized for the bar's
-            TALLEST state (Private selected, whose helper line can wrap to
-            two lines) rather than tracking each state separately — a control
-            switching between Public/Private must never change whether the
-            scroll area's last item is reachable. */}
-        <div
-          className={`mx-auto max-w-md space-y-4 px-4 pt-4 ${
-            tier === "unregistered" ? "pb-24" : "pb-56"
-          }`}
+      <AdvancedOptionsSheet value={textOptions} onChange={setTextOptions} />
+
+      {/* Saving waits for the caption face; when it is slow or fails, say
+          so here, outside the collapsed Advanced options (Codex, PR #844). */}
+      <CaptionFontStatus id={captionFontId} otherStylesHint="under Advanced options" />
+
+      {saveError && (
+        <p
+          role="alert"
+          className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
         >
-          <AspectRatioToggle value={aspectRatio} onChange={setAspectRatio} />
+          {saveError}
+        </p>
+      )}
+    </>
+  );
 
-          {tier === "unregistered" ? (
-            <GuestPhotoSignupPanel />
-          ) : (
-            <SelfUploadSourcePanel
-              selected={selfUploadImage}
-              onSelect={handleSelfUploadImageSelect}
-            />
-          )}
-
-          <AdjustTextSheet
-            factText={factText}
-            defaultSplitIndex={defaultSplitIndex}
-            splitIndex={splitIndex}
-            onSplitChange={setSplitIndex}
-            textOptions={textOptions}
-            onTextOptionsChange={setTextOptions}
+  const action = (
+    <WizardPrimaryAction
+      writes
+      label="Make my meme"
+      onClick={handleMakeMyMeme}
+      disabled={!sourceSelected || !captionFontReady}
+      loading={saving}
+      placement={wide ? "inline" : "fixed"}
+      aboveAction={
+        // Unregistered viewers can't save at all (the CTA routes them to
+        // signup), so the visibility choice would be premature noise.
+        tier === "unregistered" ? undefined : (
+          <VisibilityToggle
+            isPublic={isPublic}
+            onChange={setIsPublic}
+            canSetPrivate={canSetPrivate}
+            onRequestUpgrade={() => {
+              setUpgradeContext("private-meme");
+              setUpgradeOpen(true);
+            }}
           />
+        )
+      }
+    />
+  );
 
-          <AdvancedOptionsSheet value={textOptions} onChange={setTextOptions} />
+  return (
+    <div className={wide ? "flex h-full flex-row" : "flex h-full flex-col"} data-layout={wide ? "wide" : "stacked"}>
+      <h1 className="sr-only">Build your meme</h1>
 
-          {/* Saving waits for the caption face; when it is slow or fails, say
-              so here, outside the collapsed Advanced options (Codex, PR #844). */}
-          <CaptionFontStatus id={captionFontId} otherStylesHint="under Advanced options" />
+      {wide ? (
+        <>
+          {/* The preview fills everything left of the controls column. */}
+          <div className="min-w-0 flex-1" data-testid="builder-preview-column">
+            {preview}
+          </div>
 
-          {saveError && (
-            <p
-              role="alert"
-              className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          {/* The controls scroll in their own column; the action sits at its
+              foot, in flow, so it never covers the preview or the last control. */}
+          <aside
+            className="flex w-[420px] shrink-0 flex-col border-l border-white/10"
+            aria-label="Meme options"
+            data-testid="builder-controls-column"
+          >
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-none" data-testid="builder-controls-scroll">
+              <div className="space-y-4 px-4 pt-4 pb-6">{controls}</div>
+            </div>
+            {action}
+          </aside>
+        </>
+      ) : (
+        <>
+          {/* Preview is locked outside the scroll container — it never scrolls. */}
+          {preview}
+
+          {/* Controls scroll under the preview; flex-1 fills whatever height remains. */}
+          <div className="flex-1 overflow-y-auto overscroll-y-none" data-testid="builder-controls-scroll">
+            {/* Bottom padding must clear the fixed action bar, which grows by a
+                row when the visibility control is present — otherwise the last
+                control sits under it and can't be reached. Sized for the bar's
+                TALLEST state (Private selected, whose helper line can wrap to
+                two lines) rather than tracking each state separately — a control
+                switching between Public/Private must never change whether the
+                scroll area's last item is reachable. */}
+            <div
+              className={`mx-auto max-w-md space-y-4 px-4 pt-4 ${
+                tier === "unregistered" ? "pb-24" : "pb-56"
+              }`}
             >
-              {saveError}
-            </p>
-          )}
-        </div>
-      </div>
+              {controls}
+            </div>
+          </div>
 
-      <div>
-        <WizardPrimaryAction
-          writes
-          label="Make my meme"
-          onClick={handleMakeMyMeme}
-          disabled={!sourceSelected || !captionFontReady}
-          loading={saving}
-          aboveAction={
-            // Unregistered viewers can't save at all (the CTA routes them to
-            // signup), so the visibility choice would be premature noise.
-            tier === "unregistered" ? undefined : (
-              <VisibilityToggle
-                isPublic={isPublic}
-                onChange={setIsPublic}
-                canSetPrivate={canSetPrivate}
-                onRequestUpgrade={() => {
-                  setUpgradeContext("private-meme");
-                  setUpgradeOpen(true);
-                }}
-              />
-            )
-          }
-        />
-      </div>
+          <div>{action}</div>
+        </>
+      )}
 
       <UnifiedUpgradeModal
         open={upgradeOpen}

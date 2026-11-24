@@ -20,9 +20,12 @@ Two `main`s, two meanings. A commit on **GitHub's** `main` with no PR behind
 it is not a lane to sweep: it means a ruleset has been loosened, and that is
 one line to David. A commit on the **Repl's** `main` that GitHub lacks is the
 ordinary case — the Repl tracks `main`, so a tweak lands there unless David
-branches first — and it is moved to a pushed branch through the connector, the
-Repl's `main` realigned to GitHub's, and the branch opened as a PR, never
-dropped unless David says to. The close-out sync's `git status
+branches first — and it is moved to a pushed branch through the connector
+(named after the commit, `replit/commit-<short sha>`, so two in one day never
+collide), the push read back with `git ls-remote` before anything else, the
+Repl's `main` then realigned to GitHub's, and the branch opened as a PR, never
+dropped unless David says to. A realign whose push was not read back is the
+one way such a commit is lost (2026-11-24, `replit-environment.md`). The close-out sync's `git status
 -sb` is where it shows up (David, 2026-10-03).
 
 ## What it replaced

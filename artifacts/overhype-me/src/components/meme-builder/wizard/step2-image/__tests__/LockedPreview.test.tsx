@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { LockedPreview } from "../LockedPreview";
+import { LockedPreview, fitCanvas } from "../LockedPreview";
 
 const baseProps = {
   factText: "FIREARMS CARRY {NAME} FOR PROTECTION.",
@@ -89,5 +89,34 @@ describe("LockedPreview", () => {
     render(<LockedPreview {...baseProps} />);
     fireEvent.doubleClick(screen.getByTestId("locked-preview-resize-handle"));
     expect(window.localStorage.getItem("mbfo_locked_preview_max_h")).toBeNull();
+  });
+});
+
+describe("fitCanvas (Issue #850: the wide layout's preview fills its area)", () => {
+  // Every aspect ratio, in a wide area and a tall one: the fitted canvas keeps
+  // its ratio, never exceeds the area, and reaches the area's full width or
+  // its full height (less the 1px border each side), so no usable space is left.
+  const ratios = { landscape: 1280 / 720, square: 1, portrait: 720 / 1280 };
+  const areas = [
+    { w: 980, h: 760 },
+    { w: 828, h: 1480 },
+    { w: 300, h: 300 },
+  ];
+  for (const [name, ratio] of Object.entries(ratios)) {
+    for (const a of areas) {
+      it(`${name} in ${a.w}x${a.h}`, () => {
+        const f = fitCanvas(a, ratio);
+        expect(f.w).toBeLessThanOrEqual(a.w - 2);
+        expect(f.h).toBeLessThanOrEqual(a.h - 2);
+        expect(Math.abs(f.w / f.h - ratio)).toBeLessThan(0.02);
+        const fillsWidth = a.w - 2 - f.w <= 1;
+        const fillsHeight = a.h - 2 - f.h <= 1;
+        expect(fillsWidth || fillsHeight).toBe(true);
+      });
+    }
+  }
+
+  it("never goes negative in an area smaller than the border", () => {
+    expect(fitCanvas({ w: 1, h: 1 }, 1)).toEqual({ w: 0, h: 0 });
   });
 });
