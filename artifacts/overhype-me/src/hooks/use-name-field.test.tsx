@@ -58,6 +58,7 @@ describe("a name field", () => {
 
   it("keeps accented English-script letters, and refuses another script", () => {
     render(<Field />);
+    // Kept under David's Q27 (Issue #983): accented and Cyrillic letters are what the field accepts or refuses.
     fireEvent.change(input(), { target: { value: "Zoë Łukasz" } });
     expect(input().value).toBe("Zoë Łukasz");
     fireEvent.change(input(), { target: { value: "Zoë Ольга" } });

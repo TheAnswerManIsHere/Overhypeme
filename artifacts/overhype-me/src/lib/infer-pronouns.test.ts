@@ -38,6 +38,7 @@ describe("inferPronounsFromName", () => {
     expect(inferPronounsFromName("")).toBe(null);
   });
 
+  // Kept under David's Q27 (Issue #983): Taylor is a name in both pronoun lists, which none of the four is.
   it("returns null for a name that maps to a unisex/ambiguous token (e.g. 'Taylor')", () => {
     // "taylor" is in BOTH sets — male is checked first, so this returns "he/him".
     // Test pins the existing behaviour so future reordering is a deliberate choice.

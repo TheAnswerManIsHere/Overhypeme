@@ -41,6 +41,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 const preview = (fontFamily?: string) => (
+  // Kept under David's Q27 (Issue #983): the accented letter is what the caption font must draw.
   <LivePreview factText="{NAME} counted to infinity." name="Zoë" pronouns="she/her" backgroundUrl={null}
     textOptions={fontFamily === undefined ? {} : { fontFamily }} aspectRatio="square" />
 );

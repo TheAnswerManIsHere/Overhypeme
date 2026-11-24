@@ -179,6 +179,7 @@ describe("GET /api/share-copy/:memeId/twitter", () => {
   });
 
   it("URL-encodes names with apostrophes and accented characters", async () => {
+    // Kept under David's Q27 (Issue #983): the é is what must survive URL encoding.
     const creatorId = await createUser("José O'Hara");
     const factId = await insertFact("a fact");
     const slug = `${PREFIX}tw02`;

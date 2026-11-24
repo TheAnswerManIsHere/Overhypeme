@@ -26,6 +26,7 @@ describe("a provider-supplied name", () => {
   it("is kept whole when the rule admits it", () => assert.equal(acceptProvidedPersonalName("Nguyễn"), "Nguyễn"));
   it("is normalized like a typed one", () => assert.equal(acceptProvidedPersonalName("  O\u2019Brien "), "O'Brien"));
   it("is not stored at all when any character is outside the rule", () => {
+    // Kept under David's Q27 (Issue #983): a Cyrillic name is what the rule refuses.
     for (const raw of ["Иван", "David 王", "Raena 😀 (Countess)"]) assert.equal(acceptProvidedPersonalName(raw), null, raw);
   });
   it("is not stored, rather than cut, when it is over 50 characters", () => assert.equal(acceptProvidedPersonalName("b".repeat(60)), null));
