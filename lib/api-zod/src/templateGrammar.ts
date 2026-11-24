@@ -592,9 +592,7 @@ function houseStyleEnd(text: string): string {
  * ending changes. Pure and idempotent.
  */
 export function applyHouseStyle(template: string): string {
-  const spaced = template.replace(/\s+/gu, " ").trim();
-  if (!spaced) return spaced;
-  return houseStyleEnd(houseStyleStart(spaced));
+  return houseStyleEnd(houseStyleStart(template.replace(/\s+/gu, " ").trim()));
 }
 
 // ─── Plain subject references ──────────────────────────────────────────────

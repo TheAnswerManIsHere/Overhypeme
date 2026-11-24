@@ -467,11 +467,10 @@ router.post("/ai/tokenize-fact", requireRateLimit, async (req: Request, res: Res
     // other utility calls are unaffected. The deterministic net inside the
     // core is the real correctness guarantee; the model just improves
     // first-pass quality.
-    const tokenized = await tokenizePlainTextToTemplate(text);
-    const { rawTemplate, passes, grammarError } = tokenized;
+    const { rawTemplate, template: tokenizedTemplate, passes, grammarError } = await tokenizePlainTextToTemplate(text);
     // A fact's wording is shown in the house style before it is saved (plan
     // PLAN_FACT_HOUSE_STYLE.md, I3); the save path applies it again (I4).
-    const template = applyHouseStyle(tokenized.template);
+    const template = applyHouseStyle(tokenizedTemplate);
 
     // Post-process logging: the deterministic net is the real guarantee —
     // even with the hardened prompt the model intermittently leaves a

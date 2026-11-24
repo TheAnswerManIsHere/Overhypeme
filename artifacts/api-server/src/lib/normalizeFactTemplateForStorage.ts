@@ -36,6 +36,12 @@ export function hasFactPronounMarkersForStorage(template: string): boolean {
   return HAS_PRONOUN_RE.test(template);
 }
 
+/** The grammar cleanup, then the fact wording house style: the one text
+ *  transform both variants share, so the two cannot drift. */
+function normalizeWordingText(rawText: string): string {
+  return applyHouseStyle(applyDeterministicGrammar(rawText));
+}
+
 export type NormalizeFactTemplateForStorageResult =
   | {
       valid: true;
@@ -59,7 +65,7 @@ export type NormalizeFactTemplateForStorageResult =
  * access to the `valid: false` branch.
  */
 export function normalizeFactTemplateForStorage(rawText: string): NormalizeFactTemplateForStorageResult {
-  const text = applyHouseStyle(applyDeterministicGrammar(rawText));
+  const text = normalizeWordingText(rawText);
   const grammarResult = validateTemplate(text);
   if (!grammarResult.valid) {
     return { valid: false, text, grammarResult };
@@ -86,7 +92,7 @@ export type NormalizeFactTemplateForPendingReviewResult =
 export function normalizeFactTemplateForPendingReview(
   rawText: string,
 ): NormalizeFactTemplateForPendingReviewResult {
-  const text = applyHouseStyle(applyDeterministicGrammar(rawText));
+  const text = normalizeWordingText(rawText);
   const grammarResult = validateTemplate(text);
   if (!grammarResult.valid) {
     return { valid: false, text, grammarResult };
