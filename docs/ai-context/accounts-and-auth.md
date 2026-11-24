@@ -489,7 +489,7 @@ photo, for every member, free or Legendary, or none, when the browser shows
 their initial (plan `docs/plans/PLAN_PHOTO_IS_YOUR_PICTURE.md`; David, Q1
 2026-11-21 and Q11 2026-11-23, Issue #849). The generated-avatar system (DiceBear
 icons, the style picker, the Avatar/Photo switch, the `custom_avatar` feature)
-was removed by migration 0162; recovery is the `pre-cut/avatar-system` tag plus
+was removed by migration 0163; recovery is the `pre-cut/avatar-system` tag plus
 a forward migration ([`docs/retired/README.md`](../retired/README.md)).
 
 - **One reader.** `profilePictureUrl` in
