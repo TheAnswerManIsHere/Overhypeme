@@ -316,56 +316,51 @@ export function Step2Image({
     />
   );
 
+  // One tree for both layouts: every element keeps its type and position, and
+  // only classes change, so turning the screen rebuilds nothing — not the
+  // photo panel mid-upload, not an open options panel (PR #1252's build report).
   return (
     <div className={wide ? "flex h-full flex-row" : "flex h-full flex-col"} data-layout={wide ? "wide" : "stacked"}>
       <h1 className="sr-only">Build your meme</h1>
 
-      {wide ? (
-        <>
-          {/* The preview fills everything left of the controls column. */}
-          <div className="min-w-0 flex-1" data-testid="builder-preview-column">
-            {preview}
-          </div>
+      {/* Wide: the preview fills everything left of the controls column.
+          Stacked: the preview is locked above the controls and never scrolls. */}
+      <div
+        className={wide ? "min-w-0 flex-1" : "shrink-0"}
+        data-testid={wide ? "builder-preview-column" : undefined}
+      >
+        {preview}
+      </div>
 
-          {/* The controls scroll in their own column; the action sits at its
-              foot, in flow, so it never covers the preview or the last control. */}
-          <aside
-            className="flex w-[420px] shrink-0 flex-col border-l border-white/10"
-            aria-label="Meme options"
-            data-testid="builder-controls-column"
+      {/* Wide: the controls scroll in their own column with the action in flow
+          at its foot. Stacked: the controls scroll under the preview and the
+          action bar is fixed to the bottom of the screen. */}
+      <div
+        className={wide ? "flex w-[420px] shrink-0 flex-col border-l border-white/10" : "flex min-h-0 flex-1 flex-col"}
+        role={wide ? "complementary" : undefined}
+        aria-label={wide ? "Meme options" : undefined}
+        data-testid={wide ? "builder-controls-column" : undefined}
+      >
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-none" data-testid="builder-controls-scroll">
+          {/* Stacked: bottom padding must clear the fixed action bar, which grows by a
+              row when the visibility control is present — otherwise the last
+              control sits under it and can't be reached. Sized for the bar's
+              TALLEST state (Private selected, whose helper line can wrap to
+              two lines) rather than tracking each state separately — a control
+              switching between Public/Private must never change whether the
+              scroll area's last item is reachable. */}
+          <div
+            className={
+              wide
+                ? "space-y-4 px-4 pt-4 pb-6"
+                : `mx-auto max-w-md space-y-4 px-4 pt-4 ${tier === "unregistered" ? "pb-24" : "pb-56"}`
+            }
           >
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-none" data-testid="builder-controls-scroll">
-              <div className="space-y-4 px-4 pt-4 pb-6">{controls}</div>
-            </div>
-            {action}
-          </aside>
-        </>
-      ) : (
-        <>
-          {/* Preview is locked outside the scroll container — it never scrolls. */}
-          {preview}
-
-          {/* Controls scroll under the preview; flex-1 fills whatever height remains. */}
-          <div className="flex-1 overflow-y-auto overscroll-y-none" data-testid="builder-controls-scroll">
-            {/* Bottom padding must clear the fixed action bar, which grows by a
-                row when the visibility control is present — otherwise the last
-                control sits under it and can't be reached. Sized for the bar's
-                TALLEST state (Private selected, whose helper line can wrap to
-                two lines) rather than tracking each state separately — a control
-                switching between Public/Private must never change whether the
-                scroll area's last item is reachable. */}
-            <div
-              className={`mx-auto max-w-md space-y-4 px-4 pt-4 ${
-                tier === "unregistered" ? "pb-24" : "pb-56"
-              }`}
-            >
-              {controls}
-            </div>
+            {controls}
           </div>
-
-          <div>{action}</div>
-        </>
-      )}
+        </div>
+        {action}
+      </div>
 
       <UnifiedUpgradeModal
         open={upgradeOpen}
