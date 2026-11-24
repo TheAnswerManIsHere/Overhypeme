@@ -389,7 +389,7 @@ export function FactSheet({
 }: {
   factId: number;
   onClose: () => void;
-  /** The fact changed in a way the list shows (live or not, unpublished changes): the list should reload. */
+  /** The fact changed in a way the list shows (live or not, unpublished changes): the list should reload. Called once per change, never on a plain close. */
   onChanged: () => void;
   initialTab?: FactSheetTab;
 }) {
@@ -447,6 +447,21 @@ export function FactSheet({
   const onNoteDirty = useCallback((dirty: boolean) => setUnsavedNote(dirty), []);
 
   const unpublished = gagView ? viewHasDraftChanges(gagView) : fact?.hasUnpublishedChanges ?? false;
+
+  // The list shows "Unpublished changes" too (plan 3B): it is told whenever the
+  // sheet's one derived value stops matching what the list last showed, so a
+  // gag saved, added, removed or re-pictured reaches it without a refetch on
+  // every close (PR #1227 round 1, Codex 4685554377). The baseline is the
+  // sheet's first load, which is what the list row was drawn from.
+  const reportedUnpublished = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (!fact) return;
+    if (reportedUnpublished.current == null) { reportedUnpublished.current = fact.hasUnpublishedChanges; }
+    if (unpublished !== reportedUnpublished.current) {
+      reportedUnpublished.current = unpublished;
+      onChanged();
+    }
+  }, [fact, unpublished, onChanged]);
   const draftReady = gagView?.draftReady ?? null;
   const publishBlocked = unsavedGags.length > 0
     ? `Save or undo ${joinWithAnd(unsavedGags)} first.`
@@ -460,6 +475,13 @@ export function FactSheet({
       await runFactAction(factId, action);
       setConfirming(null);
       setActionDone(ACTION_DONE[action]);
+      // Publish and Discard leave no unpublished changes: say so at once, and
+      // as what the list was told, so the reload that follows is not reported
+      // to it a second time.
+      if (action === "publish" || action === "discard") {
+        reportedUnpublished.current = false;
+        setFact((f) => (f ? { ...f, hasUnpublishedChanges: false } : f));
+      }
       setGagView(null);
       setGagsReload((k) => k + 1);
       onChanged();

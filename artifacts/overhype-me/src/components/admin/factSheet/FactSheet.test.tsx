@@ -62,7 +62,8 @@ function gagsView(extra: Record<string, unknown> = {}) {
   return { factId: 42, isActive: true, review: null, gags: [], maxGags: 3, draftReady: { ok: true, reason: null }, filling: false, fillFailed: false, ...extra };
 }
 
-function stub(sheet: FactSheetView = SHEET, opts: { gags?: unknown; refuse?: Record<string, string> } = {}) {
+function stub(sheet: FactSheetView = SHEET, opts: { gags?: unknown; refuse?: Record<string, string>; sheetAfterAction?: FactSheetView } = {}) {
+  let acted = false;
   const calls: Call[] = [];
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
@@ -72,7 +73,8 @@ function stub(sheet: FactSheetView = SHEET, opts: { gags?: unknown; refuse?: Rec
     let json: unknown = {};
     const action = u.match(/\/api\/admin\/facts\/42\/(publish|discard|deactivate|reactivate)$/)?.[1];
     if (action && opts.refuse?.[action]) return new Response(JSON.stringify({ error: opts.refuse[action] }), { status: 409 });
-    if (u.endsWith("/sheet")) json = sheet;
+    if (action) acted = true;
+    if (u.endsWith("/sheet")) json = acted && opts.sheetAfterAction ? opts.sheetAfterAction : sheet;
     else if (u.endsWith("/hashtags")) json = { hashtags: [...(body as { hashtags: string[] }).hashtags].sort() };
     else if (u.endsWith("/humor-note")) json = { humorNote: { text: (body as { text: string }).text, approvedAt: "2026-11-24T10:00:00Z" } };
     else if (u.endsWith("/taxonomy-runs")) json = { runs: [] };
@@ -312,6 +314,46 @@ describe("FactSheet", () => {
     expect(calls.some((c) => c.url.endsWith("/discard"))).toBe(false);
     fireEvent.click(screen.getByTestId("discard-changes-confirm"));
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/api/admin/facts/42/discard"))).toBe(true));
+  });
+
+  it("tells the list once when a gag change makes the draft differ, and never on a plain open and close", async () => {
+    const changed = {
+      id: 7, slot: 1, state: "pending", availableToUsers: true, isDefault: true,
+      approvedContent: null, approvedExamples: { male: null, female: null, pet: null }, grandfathered: false, approvedAt: null,
+      pendingContent: null, pendingExamples: { male: null, female: null, pet: null }, draftRemoved: true, prefilledUntouched: false,
+      renders: { male: null, female: null, pet: null },
+    };
+    stub(SHEET, { gags: gagsView({ gags: [changed], draftReady: { ok: false, reason: "Visual gag 1 needs male, female and pet renders approved." } }) });
+    const { onChanged, onClose } = open();
+    await screen.findByTestId("sheet-wording");
+    expect(onChanged).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("sheet-tab-gags"));
+    await screen.findByTestId("sheet-unpublished");
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByTestId("sheet-tab-overview"));
+    fireEvent.click(screen.getByRole("button", { name: "Close the fact sheet" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it("a plain open and close does not tell the list anything", async () => {
+    stub();
+    const { onChanged, onClose } = open();
+    await screen.findByTestId("sheet-wording");
+    fireEvent.click(screen.getByTestId("sheet-tab-gags"));
+    await screen.findByTestId("sheet-gags-note");
+    fireEvent.click(screen.getByRole("button", { name: "Close the fact sheet" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+
+  it("Publish tells the list once, not again when the sheet reloads", async () => {
+    stub({ ...SHEET, hasUnpublishedChanges: true }, { sheetAfterAction: SHEET });
+    const { onChanged } = open();
+    fireEvent.click(await screen.findByTestId("publish-changes-button"));
+    await waitFor(() => expect(screen.getByTestId("sheet-action-done").textContent).toContain("Published"));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(onChanged).toHaveBeenCalledTimes(1);
   });
 
   it("a draft that isn't ready: Publish is held and the reason shown", async () => {
