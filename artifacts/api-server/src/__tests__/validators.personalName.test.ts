@@ -27,12 +27,12 @@ describe("validators/personalName", () => {
   // the 50-grapheme limit, and the sync variant.
   describe("sanitizeAndValidatePersonalName", () => {
     it("accepts a clean name and normalizes whitespace", async () => {
-      const r = await sanitizeAndValidatePersonalName("   Pat  O'Brien Jr   ");
-      assert.deepEqual(r, { ok: true, value: "Pat O'Brien Jr" });
+      const r = await sanitizeAndValidatePersonalName("   Alex  O'Brien Jr   ");
+      assert.deepEqual(r, { ok: true, value: "Alex O'Brien Jr" });
     });
 
     it("refuses an emoji or punctuation instead of stripping it", async () => {
-      for (const v of ["Pat🦊 Doe", "Pat!@# Doe", "Pa\u200Bt"]) {
+      for (const v of ["Alex🦊 Franklin", "Alex!@# Franklin", "Al\u200Bex"]) {
         const r = await sanitizeAndValidatePersonalName(v);
         assert.equal(r.ok, false, `expected refusal for ${JSON.stringify(v)}`);
       }
@@ -64,8 +64,8 @@ describe("validators/personalName", () => {
 
   describe("sanitizePersonalNameSync", () => {
     it("applies the same rule without the denylist", () => {
-      assert.deepEqual(sanitizePersonalNameSync("Pat Doe"), { ok: true, value: "Pat Doe" });
-      assert.equal(sanitizePersonalNameSync("Pat 🦊").ok, false);
+      assert.deepEqual(sanitizePersonalNameSync("Alex Franklin"), { ok: true, value: "Alex Franklin" });
+      assert.equal(sanitizePersonalNameSync("Alex 🦊").ok, false);
     });
     it("keeps the pronoun per-word default", () => {
       assert.equal(NAME_VALIDATION_DEFAULT_MAX_CHARS_PER_WORD, 20);

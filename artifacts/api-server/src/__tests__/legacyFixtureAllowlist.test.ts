@@ -193,6 +193,7 @@ describe("the scrub primitives", () => {
     const typed = rc({ promptIdentity: { version: 1, name: "Zqx Typed", pronouns: null, source: "workbench" } }).promptIdentity!;
     assert.deepEqual([typed.name, typed.source], ["Avery", "workbench"], "a typed sample name goes; its source, and so its precedence, stays");
     assert.equal(rc({ reviewRenderSubject: { name: "David Franklin", pronouns: "he/him" } }).reviewRenderSubject!.name, "David Franklin");
+    assert.equal(rc({ reviewRenderSubject: { name: "Mango", pronouns: "he/him" } }).reviewRenderSubject!.name, "Mango", "the pet photo's Mango is a preset, never a member's name (Issue #983)");
     assert.deepEqual(rc({ reviewRenderSubject: { name: "Zqx Moderator Typed", pronouns: "she/her" } }).reviewRenderSubject, { name: "Avery", pronouns: "she/her" });
   });
 

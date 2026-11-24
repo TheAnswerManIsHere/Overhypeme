@@ -5,7 +5,7 @@ import { renderFact, renderFactSegments, tokenizeFact, hasPronouns } from "@/lib
 
 describe("renderFact — {NAME} token", () => {
   it("replaces {NAME} with the provided name", () => {
-    expect(renderFact("{NAME} is great", "Alice")).toBe("Alice is great");
+    expect(renderFact("{NAME} is great", "Raena")).toBe("Raena is great");
   });
 
   it("falls back to '___' placeholder when name is empty string", () => {
@@ -13,13 +13,13 @@ describe("renderFact — {NAME} token", () => {
   });
 
   it("replaces all occurrences of {NAME}", () => {
-    expect(renderFact("{NAME} met {NAME}", "Dave")).toBe("Dave met Dave");
+    expect(renderFact("{NAME} met {NAME}", "David")).toBe("David met David");
   });
 });
 
 describe("renderFact — {NAME_POSSESSIVE} token", () => {
   it("renders the possessive of a normal name", () => {
-    expect(renderFact("{NAME_POSSESSIVE} legend grows", "Alice")).toBe("Alice's legend grows");
+    expect(renderFact("{NAME_POSSESSIVE} legend grows", "Raena")).toBe("Raena's legend grows");
   });
 
   it("always appends 's, even for a name already ending in s", () => {
@@ -31,14 +31,14 @@ describe("renderFact — {NAME_POSSESSIVE} token", () => {
   });
 
   it("replaces all occurrences", () => {
-    expect(renderFact("{NAME_POSSESSIVE} and {NAME_POSSESSIVE}", "Sam")).toBe("Sam's and Sam's");
+    expect(renderFact("{NAME_POSSESSIVE} and {NAME_POSSESSIVE}", "Alex")).toBe("Alex's and Alex's");
   });
 });
 
 describe("renderFactSegments — {NAME} vs {NAME_POSSESSIVE}", () => {
   it("renders {NAME} as a single isName segment", () => {
-    expect(renderFactSegments("{NAME} once punched a shark", "Sam", "she/her")).toEqual([
-      { text: "Sam", isName: true },
+    expect(renderFactSegments("{NAME} once punched a shark", "Alex", "she/her")).toEqual([
+      { text: "Alex", isName: true },
       { text: " once punched a shark", isName: false },
     ]);
   });
@@ -78,15 +78,15 @@ describe("renderFact — indefinite article agreement around {NAME}", () => {
   });
 
   it("preserves capitalization at sentence start (A → An)", () => {
-    expect(renderFact("A {NAME} legend", "Owen")).toBe("An Owen legend");
+    expect(renderFact("A {NAME} legend", "Alex")).toBe("An Alex legend");
   });
 
   it("preserves capitalization at sentence start (An → A)", () => {
-    expect(renderFact("An {NAME} legend", "Sam")).toBe("A Sam legend");
+    expect(renderFact("An {NAME} legend", "David")).toBe("A David legend");
   });
 
   it("is case-insensitive about the name's first letter", () => {
-    expect(renderFact("a {NAME}", "emma")).toBe("an emma");
+    expect(renderFact("a {NAME}", "alex")).toBe("an alex");
   });
 
   it("uses 'a' for the empty-name placeholder", () => {
@@ -103,7 +103,7 @@ describe("renderFact — indefinite article agreement around {NAME}", () => {
 });
 
 describe("renderFact — pronoun tokens (he/him)", () => {
-  const name = "Dave";
+  const name = "David";
   const pronouns = "he/him";
 
   it("renders {SUBJ} → he", () => expect(renderFact("{SUBJ}", name, pronouns)).toBe("he"));
@@ -119,7 +119,7 @@ describe("renderFact — pronoun tokens (he/him)", () => {
 });
 
 describe("renderFact — pronoun tokens (she/her)", () => {
-  const name = "Alice";
+  const name = "Raena";
   const pronouns = "she/her";
 
   it("renders {SUBJ} → she", () => expect(renderFact("{SUBJ}", name, pronouns)).toBe("she"));
@@ -130,7 +130,7 @@ describe("renderFact — pronoun tokens (she/her)", () => {
 });
 
 describe("renderFact — pronoun tokens (they/them)", () => {
-  const name = "Sam";
+  const name = "Alex";
   const pronouns = "they/them";
 
   it("renders {SUBJ} → they", () => expect(renderFact("{SUBJ}", name, pronouns)).toBe("they"));
@@ -142,47 +142,47 @@ describe("renderFact — pronoun tokens (they/them)", () => {
 
 describe("renderFact — verb conjugation {singular|plural}", () => {
   it("uses singular form for he/him", () => {
-    expect(renderFact("{has|have}", "Dave", "he/him")).toBe("has");
-    expect(renderFact("{doesn't|don't}", "Dave", "he/him")).toBe("doesn't");
-    expect(renderFact("{was|were}", "Dave", "he/him")).toBe("was");
+    expect(renderFact("{has|have}", "David", "he/him")).toBe("has");
+    expect(renderFact("{doesn't|don't}", "David", "he/him")).toBe("doesn't");
+    expect(renderFact("{was|were}", "David", "he/him")).toBe("was");
   });
 
   it("uses singular form for she/her", () => {
-    expect(renderFact("{has|have}", "Alice", "she/her")).toBe("has");
+    expect(renderFact("{has|have}", "Raena", "she/her")).toBe("has");
   });
 
   it("uses plural form for they/them", () => {
-    expect(renderFact("{has|have}", "Sam", "they/them")).toBe("have");
-    expect(renderFact("{doesn't|don't}", "Sam", "they/them")).toBe("don't");
-    expect(renderFact("{was|were}", "Sam", "they/them")).toBe("were");
+    expect(renderFact("{has|have}", "Alex", "they/them")).toBe("have");
+    expect(renderFact("{doesn't|don't}", "Alex", "they/them")).toBe("don't");
+    expect(renderFact("{was|were}", "Alex", "they/them")).toBe("were");
   });
 
   it("defaults to he/him when no pronouns argument given", () => {
-    expect(renderFact("{has|have}", "Dave")).toBe("has");
+    expect(renderFact("{has|have}", "David")).toBe("has");
   });
 
   // Regression: the reported "They keeps" bug. Once the tokenizer wraps the verb
   // as {keeps|keep}, the renderer must agree the verb with the pronoun's number.
   it("renders the conjugated 'keeps' template correctly for both numbers", () => {
     const template = "{NAME} caught the Corona virus. {Subj} {keeps|keep} it locked up in {POSS} back yard.";
-    expect(renderFact(template, "Alex Jordan", "they/them")).toBe(
-      "Alex Jordan caught the Corona virus. They keep it locked up in their back yard.",
+    expect(renderFact(template, "Alex Franklin", "they/them")).toBe(
+      "Alex Franklin caught the Corona virus. They keep it locked up in their back yard.",
     );
-    expect(renderFact(template, "Alex Jordan", "he/him")).toBe(
-      "Alex Jordan caught the Corona virus. He keeps it locked up in his back yard.",
+    expect(renderFact(template, "Alex Franklin", "he/him")).toBe(
+      "Alex Franklin caught the Corona virus. He keeps it locked up in his back yard.",
     );
   });
 });
 
 describe("renderFact — neopronouns (ze/zir)", () => {
   it("renders ze/zir pronoun set", () => {
-    expect(renderFact("{SUBJ}", "Zey", "ze/zir")).toBe("ze");
-    expect(renderFact("{OBJ}", "Zey", "ze/zir")).toBe("zir");
-    expect(renderFact("{REFL}", "Zey", "ze/zir")).toBe("zirself");
+    expect(renderFact("{SUBJ}", "Alex", "ze/zir")).toBe("ze");
+    expect(renderFact("{OBJ}", "Alex", "ze/zir")).toBe("zir");
+    expect(renderFact("{REFL}", "Alex", "ze/zir")).toBe("zirself");
   });
 
   it("uses singular verb form for ze pronouns", () => {
-    expect(renderFact("{has|have}", "Zey", "ze/zir")).toBe("has");
+    expect(renderFact("{has|have}", "Alex", "ze/zir")).toBe("has");
   });
 });
 
@@ -195,33 +195,33 @@ describe("renderFact — subject-pronoun contraction ({Subj}'s / {SUBJ}'s / lega
 
   for (const [pronouns, expectedSubj] of cases) {
     it(`renders {Subj}'s unstoppable → "${expectedSubj} unstoppable" for ${pronouns}`, () => {
-      expect(renderFact("{Subj}'s unstoppable", "Dave", pronouns)).toBe(`${expectedSubj} unstoppable`);
+      expect(renderFact("{Subj}'s unstoppable", "David", pronouns)).toBe(`${expectedSubj} unstoppable`);
     });
   }
 
   it("renders {SUBJ}'s (lowercase, mid-sentence) correctly for he/him and they/them", () => {
-    expect(renderFact("everyone knows {SUBJ}'s unstoppable", "Dave", "he/him")).toBe(
+    expect(renderFact("everyone knows {SUBJ}'s unstoppable", "David", "he/him")).toBe(
       "everyone knows he's unstoppable",
     );
-    expect(renderFact("everyone knows {SUBJ}'s unstoppable", "Sam", "they/them")).toBe(
+    expect(renderFact("everyone knows {SUBJ}'s unstoppable", "Alex", "they/them")).toBe(
       "everyone knows they are unstoppable",
     );
   });
 
   it("handles a curly apostrophe the same as a straight one", () => {
-    expect(renderFact("{Subj}’s unstoppable", "Sam", "they/them")).toBe("They are unstoppable");
+    expect(renderFact("{Subj}’s unstoppable", "Alex", "they/them")).toBe("They are unstoppable");
   });
 
   it("renders legacy {He's}/{he's} without ever producing 'they's'", () => {
-    expect(renderFact("{He's} unstoppable", "Dave", "he/him")).toBe("He's unstoppable");
-    expect(renderFact("{he's} unstoppable", "Dave", "he/him")).toBe("he's unstoppable");
-    expect(renderFact("{He's} unstoppable", "Sam", "they/them")).toBe("They are unstoppable");
-    expect(renderFact("{he's} unstoppable", "Sam", "they/them")).toBe("they are unstoppable");
+    expect(renderFact("{He's} unstoppable", "David", "he/him")).toBe("He's unstoppable");
+    expect(renderFact("{he's} unstoppable", "David", "he/him")).toBe("he's unstoppable");
+    expect(renderFact("{He's} unstoppable", "Alex", "they/them")).toBe("They are unstoppable");
+    expect(renderFact("{he's} unstoppable", "Alex", "they/them")).toBe("they are unstoppable");
   });
 
   it("renders {Subj}'s correctly for a custom plural pronoun set", () => {
     const customPlural = "they|them|their|theirs|themselves|p";
-    expect(renderFact("{Subj}'s unstoppable", "Sam", customPlural)).toBe("They are unstoppable");
+    expect(renderFact("{Subj}'s unstoppable", "Alex", customPlural)).toBe("They are unstoppable");
   });
 
   it("renders {Subj}'s correctly for a custom singular pronoun set", () => {
@@ -231,10 +231,10 @@ describe("renderFact — subject-pronoun contraction ({Subj}'s / {SUBJ}'s / lega
 
   it("never produces the literal string 'they's' across any of the above paths", () => {
     const outputs = [
-      renderFact("{Subj}'s unstoppable", "Sam", "they/them"),
-      renderFact("{SUBJ}'s unstoppable", "Sam", "they/them"),
-      renderFact("{He's} unstoppable", "Sam", "they/them"),
-      renderFact("{he's} unstoppable", "Sam", "they/them"),
+      renderFact("{Subj}'s unstoppable", "Alex", "they/them"),
+      renderFact("{SUBJ}'s unstoppable", "Alex", "they/them"),
+      renderFact("{He's} unstoppable", "Alex", "they/them"),
+      renderFact("{he's} unstoppable", "Alex", "they/them"),
     ];
     for (const output of outputs) {
       expect(output.toLowerCase()).not.toContain("they's");
@@ -246,44 +246,44 @@ describe("renderFact — subject-pronoun contraction ({Subj}'s / {SUBJ}'s / lega
   // (For a SINGULAR viewer the bare contraction is always fine either way.)
   describe("has-only-following-word disambiguation", () => {
     it("renders 'have' (not 'are') for they/them when the contraction means has", () => {
-      expect(renderFact("{Subj}'s got the keys", "Sam", "they/them")).toBe("They have got the keys");
-      expect(renderFact("{SUBJ}'s been there before", "Sam", "they/them")).toBe("they have been there before");
-      expect(renderFact("{Subj}'s had enough", "Sam", "they/them")).toBe("They have had enough");
-      expect(renderFact("{Subj}'s gotten away with it", "Sam", "they/them")).toBe("They have gotten away with it");
+      expect(renderFact("{Subj}'s got the keys", "Alex", "they/them")).toBe("They have got the keys");
+      expect(renderFact("{SUBJ}'s been there before", "Alex", "they/them")).toBe("they have been there before");
+      expect(renderFact("{Subj}'s had enough", "Alex", "they/them")).toBe("They have had enough");
+      expect(renderFact("{Subj}'s gotten away with it", "Alex", "they/them")).toBe("They have gotten away with it");
     });
 
     it("renders the legacy {He's}/{he's} token as 'have' for they/them when it means has", () => {
-      expect(renderFact("{He's} got the keys", "Sam", "they/them")).toBe("They have got the keys");
-      expect(renderFact("{he's} been there before", "Sam", "they/them")).toBe("they have been there before");
+      expect(renderFact("{He's} got the keys", "Alex", "they/them")).toBe("They have got the keys");
+      expect(renderFact("{he's} been there before", "Alex", "they/them")).toBe("they have been there before");
     });
 
     it("still renders the copula 'are' for they/them on ambiguous/unrelated words", () => {
-      expect(renderFact("{Subj}'s unstoppable", "Sam", "they/them")).toBe("They are unstoppable");
+      expect(renderFact("{Subj}'s unstoppable", "Alex", "they/them")).toBe("They are unstoppable");
       // "done" is genuinely ambiguous — deliberately left on the "are" default.
-      expect(renderFact("{Subj}'s done", "Sam", "they/them")).toBe("They are done");
+      expect(renderFact("{Subj}'s done", "Alex", "they/them")).toBe("They are done");
     });
 
     it("leaves singular sets unaffected (the bare contraction is valid either way)", () => {
-      expect(renderFact("{Subj}'s got the keys", "Dave", "he/him")).toBe("He's got the keys");
+      expect(renderFact("{Subj}'s got the keys", "David", "he/him")).toBe("He's got the keys");
     });
 
     it("is case-insensitive for the following word", () => {
-      expect(renderFact("{Subj}'s GOT the keys", "Sam", "they/them")).toBe("They have GOT the keys");
+      expect(renderFact("{Subj}'s GOT the keys", "Alex", "they/them")).toBe("They have GOT the keys");
     });
   });
 });
 
 describe("renderFactSegments — subject-pronoun contraction never renders 'they's'", () => {
   it("expands {Subj}'s for they/them within segments", () => {
-    expect(renderFactSegments("{NAME} says {Subj}'s unstoppable", "Sam", "they/them")).toEqual([
-      { text: "Sam", isName: true },
+    expect(renderFactSegments("{NAME} says {Subj}'s unstoppable", "Alex", "they/them")).toEqual([
+      { text: "Alex", isName: true },
       { text: " says They are unstoppable", isName: false },
     ]);
   });
 
   it("renders 'have' (not 'are') within segments when the contraction means has", () => {
-    expect(renderFactSegments("{NAME} says {Subj}'s got the keys", "Sam", "they/them")).toEqual([
-      { text: "Sam", isName: true },
+    expect(renderFactSegments("{NAME} says {Subj}'s got the keys", "Alex", "they/them")).toEqual([
+      { text: "Alex", isName: true },
       { text: " says They have got the keys", isName: false },
     ]);
   });
@@ -291,23 +291,23 @@ describe("renderFactSegments — subject-pronoun contraction never renders 'they
 
 describe("renderFact — legacy tokens", () => {
   it("replaces {He}/{he} with subject pronoun", () => {
-    expect(renderFact("{He} laughed", "Dave", "he/him")).toBe("He laughed");
-    expect(renderFact("{he} laughed", "Dave", "he/him")).toBe("he laughed");
+    expect(renderFact("{He} laughed", "David", "he/him")).toBe("He laughed");
+    expect(renderFact("{he} laughed", "David", "he/him")).toBe("he laughed");
   });
 
   it("replaces {Him}/{him} with object pronoun", () => {
-    expect(renderFact("told {Him}", "Dave", "he/him")).toBe("told Him");
-    expect(renderFact("told {him}", "Dave", "he/him")).toBe("told him");
+    expect(renderFact("told {Him}", "David", "he/him")).toBe("told Him");
+    expect(renderFact("told {him}", "David", "he/him")).toBe("told him");
   });
 
   it("replaces {His}/{his} with possessive pronoun", () => {
-    expect(renderFact("{His} car", "Dave", "he/him")).toBe("His car");
-    expect(renderFact("{his} car", "Dave", "he/him")).toBe("his car");
+    expect(renderFact("{His} car", "David", "he/him")).toBe("His car");
+    expect(renderFact("{his} car", "David", "he/him")).toBe("his car");
   });
 
   it("replaces {Himself}/{himself} with reflexive", () => {
-    expect(renderFact("{Himself} said", "Dave", "he/him")).toBe("Himself said");
-    expect(renderFact("{himself} said", "Dave", "he/him")).toBe("himself said");
+    expect(renderFact("{Himself} said", "David", "he/him")).toBe("Himself said");
+    expect(renderFact("{himself} said", "David", "he/him")).toBe("himself said");
   });
 });
 
@@ -329,29 +329,29 @@ describe("renderFact — custom pipe-delimited pronouns", () => {
 
   it("uses plural verb form for custom plural set", () => {
     const custom = "they|them|their|theirs|themselves|p";
-    expect(renderFact("{has|have}", "Sam", custom)).toBe("have");
+    expect(renderFact("{has|have}", "Alex", custom)).toBe("have");
   });
 });
 
 describe("renderFact — full sentence", () => {
   it("renders a complete tokenized template with he/him", () => {
     const template = "{NAME} {has|have} always been proud of {POSS} work. {Subj} {does|do} {REFL} justice.";
-    expect(renderFact(template, "Dave", "he/him")).toBe(
-      "Dave has always been proud of his work. He does himself justice.",
+    expect(renderFact(template, "David", "he/him")).toBe(
+      "David has always been proud of his work. He does himself justice.",
     );
   });
 
   it("renders a complete tokenized template with she/her", () => {
     const template = "{NAME} {has|have} always been proud of {POSS} work. {Subj} {does|do} {REFL} justice.";
-    expect(renderFact(template, "Alice", "she/her")).toBe(
-      "Alice has always been proud of her work. She does herself justice.",
+    expect(renderFact(template, "Raena", "she/her")).toBe(
+      "Raena has always been proud of her work. She does herself justice.",
     );
   });
 
   it("renders a complete tokenized template with they/them", () => {
     const template = "{NAME} {has|have} always been proud of {POSS} work. {Subj} {do|do} {REFL} justice.";
-    expect(renderFact(template, "Sam", "they/them")).toBe(
-      "Sam have always been proud of their work. They do themselves justice.",
+    expect(renderFact(template, "Alex", "they/them")).toBe(
+      "Alex have always been proud of their work. They do themselves justice.",
     );
   });
 });

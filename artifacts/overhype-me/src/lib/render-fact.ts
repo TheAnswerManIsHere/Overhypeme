@@ -304,8 +304,8 @@ export function hasPronouns(template: string): boolean {
  * while rendering all other tokens normally.
  *
  * @example
- *   renderFactSegments("{NAME} once punched a shark", "Sam", "she/her")
- *   // → [{ text: "Sam", isName: true }, { text: " once punched a shark", isName: false }]
+ *   renderFactSegments("{NAME} once punched a shark", "Raena", "she/her")
+ *   // → [{ text: "Raena", isName: true }, { text: " once punched a shark", isName: false }]
  */
 export function renderFactSegments(
   text: string,

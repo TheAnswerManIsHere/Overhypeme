@@ -503,8 +503,8 @@ describe("GET /api/callback/google — the provider's verified-email claim", () 
       const first = await signIn("Иван", "Nguyễn");
       assert.equal(first.firstName, null, "a name outside the rule is not stored, not garbled");
       assert.equal(first.lastName, "Nguyễn", "a name the rule admits is kept whole");
-      const again = await signIn("Ada", "Lovelace");
-      assert.equal(again.firstName, "Ada", "a missing name can be filled by a later sign-in");
+      const again = await signIn("Raena", "Franklin");
+      assert.equal(again.firstName, "Raena", "a missing name can be filled by a later sign-in");
       assert.equal(again.lastName, "Nguyễn", "a stored name is never overwritten");
     } finally {
       restoreEnv();
@@ -527,14 +527,14 @@ describe("GET /api/callback/google — the provider's verified-email claim", () 
     bustConfigCache();
     _resetPersonalNameValidatorCache();
     try {
-      _setAuthCodeGrantForTest(async () => makeFakeTokens(email, true, { given: "Forbiddenname", family: "Lovelace" }));
+      _setAuthCodeGrantForTest(async () => makeFakeTokens(email, true, { given: "Forbiddenname", family: "Franklin" }));
       const state = randomUUID();
       await _storePendingStateForTest(state, { codeVerifier: "v", nonce: "n", returnTo: "/", isPopup: false });
       const res = await request(makeApp()).get("/api/callback/google").query({ code: "c", state });
       assert.equal(res.status, 302, `sign-in proceeds (${res.status})`);
       const [row] = await db.select().from(usersTable).where(eq(usersTable.email, email));
       assert.equal(row!.firstName, null, "a denylisted provider name is not stored");
-      assert.equal(row!.lastName, "Lovelace", "a name the denylist admits is kept");
+      assert.equal(row!.lastName, "Franklin", "a name the denylist admits is kept");
     } finally {
       if (prior) await db.update(adminConfigTable).set({ value: prior.value }).where(eq(adminConfigTable.key, "name_denylist_patterns"));
       else await db.delete(adminConfigTable).where(eq(adminConfigTable.key, "name_denylist_patterns"));

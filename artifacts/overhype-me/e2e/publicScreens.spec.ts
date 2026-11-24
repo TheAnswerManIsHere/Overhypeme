@@ -100,12 +100,12 @@ test.describe("Public described screens", () => {
     await expect(teaser.getByText(/the universe doesn't expand/i)).not.toHaveCSS("color", orange);
 
     // A feed card, once the visitor has given a name of their own.
-    await seedIdentity(page, "Nick Baron");
+    await seedIdentity(page, "David Franklin");
     await stubPublicFacts(page, { facts: [factDetail({ id: 511, text: "{NAME} makes onions cry." })] });
     await page.goto("/");
     const card = page.getByRole("heading", { name: /makes onions cry/i }).first();
     await expect(card).toBeVisible();
-    await expect(card.getByText("Nick Baron", { exact: true })).toHaveCSS("color", orange);
+    await expect(card.getByText("David Franklin", { exact: true })).toHaveCSS("color", orange);
     await expect(card.getByText(/makes onions cry/i)).not.toHaveCSS("color", orange);
   });
 
@@ -161,8 +161,8 @@ test.describe("Public described screens", () => {
         id: 5411,
         factId: 541,
         permalinkSlug: "e2e-onions",
-        factText: "Nick Baron makes onions cry.",
-        createdByName: "Nick Baron",
+        factText: "David Franklin makes onions cry.",
+        createdByName: "David Franklin",
       })],
       images: ["/api/memes/e2e-onions/image"],
     });
@@ -171,7 +171,7 @@ test.describe("Public described screens", () => {
     await expect(picture).toBeVisible();
     const heading = page.getByRole("heading", { level: 1, name: /what's next\?/i });
     await expect(heading).toBeVisible();
-    const caption = page.getByText("Nick Baron makes onions cry.", { exact: true });
+    const caption = page.getByText("David Franklin makes onions cry.", { exact: true });
     await expect(caption).toBeVisible();
     // Beside the picture, under the heading.
     const [img, h, c] = await Promise.all([picture, heading, caption].map(async (l) => (await l.boundingBox())!));

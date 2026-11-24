@@ -15,8 +15,8 @@ const STORED: FactEnrichment = {
 };
 
 const RUNS: TaxonomyRun[] = [
-  { id: 3, outcome: "ok", origin: "rerun", output: STORED, error: null, requestedByName: "Dee Admin", createdAt: "2026-11-21T10:00:00Z" },
-  { id: 2, outcome: "failed", origin: "rerun", output: null, error: "the classifier timed out", requestedByName: "Dee Admin", createdAt: "2026-11-21T09:00:00Z" },
+  { id: 3, outcome: "ok", origin: "rerun", output: STORED, error: null, requestedByName: "Raena Admin", createdAt: "2026-11-21T10:00:00Z" },
+  { id: 2, outcome: "failed", origin: "rerun", output: null, error: "the classifier timed out", requestedByName: "Raena Admin", createdAt: "2026-11-21T09:00:00Z" },
   { id: 1, outcome: "ok", origin: "legacy_superseded", output: { ...STORED, primaryArchetype: "object_logic_impossibility" }, error: null, requestedByName: null, createdAt: "2026-01-01T00:00:00Z" },
 ];
 
@@ -53,7 +53,7 @@ describe("FactTaxonomyPanel", () => {
     await waitFor(() => expect(screen.getAllByTestId("taxonomy-run")).toHaveLength(3));
     const rows = screen.getAllByTestId("taxonomy-run");
     expect(rows.map((r) => r.getAttribute("data-outcome"))).toEqual(["ok", "failed", "ok"]);
-    expect(rows[0]!.textContent).toContain("Re-run, by Dee Admin");
+    expect(rows[0]!.textContent).toContain("Re-run, by Raena Admin");
     expect(rows[1]!.textContent).toContain("Failed");
     expect(rows[1]!.textContent).toContain("the classifier timed out");
     expect(rows[2]!.textContent).toContain("an earlier version, replaced");

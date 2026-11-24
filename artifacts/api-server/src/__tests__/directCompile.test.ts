@@ -64,7 +64,7 @@ describe("compileDirect", () => {
 
   it("adds the pet line for a pet's photo only", () => {
     assert.ok(!compileDirect(base()).prompt.includes(DIRECT_PET_INSTRUCTION));
-    const pet = compileDirect(base({ subjectRenderMode: "nonhuman_subject_i2i", renderedSubject: { name: "Whiskers", pronouns: "they/them" } }));
+    const pet = compileDirect(base({ subjectRenderMode: "nonhuman_subject_i2i", renderedSubject: { name: "Mango", pronouns: "he/him" } }));
     assert.ok(pet.prompt.includes(DIRECT_PET_INSTRUCTION));
     assert.ok(pet.prompt.includes(fillPiece(BASELINE_RECIPE, "identity.pet")));
   });

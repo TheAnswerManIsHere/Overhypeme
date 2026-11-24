@@ -11,15 +11,15 @@ describe("SENSITIVE_KEY_PATTERNS", () => {
 
 describe("personal text in a page address", () => {
   it("filters a share link's name and pronouns and a search's words, keeping the rest", () => {
-    const out = new URL(scrubUrl("https://overhype.me/facts/12?displayName=Alice&pronouns=she%2Fher&ref=x"));
+    const out = new URL(scrubUrl("https://overhype.me/facts/12?displayName=Raena&pronouns=she%2Fher&ref=x"));
     assert.equal(out.searchParams.get("displayName"), "[Filtered]");
     assert.equal(out.searchParams.get("pronouns"), "[Filtered]");
     assert.equal(out.searchParams.get("ref"), "x");
-    assert.equal(scrubUrl("/search?q=Alice", "https://overhype.me"), "/search?q=%5BFiltered%5D");
+    assert.equal(scrubUrl("/search?q=Raena", "https://overhype.me"), "/search?q=%5BFiltered%5D");
   });
 
   it("filters the same keys in a logged object", () => {
-    const result = scrubObject({ displayName: "Alice", pronouns: "she/her", q: "Alice", name: "kept" }) as Record<string, unknown>;
+    const result = scrubObject({ displayName: "Raena", pronouns: "she/her", q: "Raena", name: "kept" }) as Record<string, unknown>;
     assert.equal(result.displayName, "[Filtered]");
     assert.equal(result.pronouns, "[Filtered]");
     assert.equal(result.q, "[Filtered]");
@@ -29,9 +29,9 @@ describe("personal text in a page address", () => {
 
 describe("scrubObject", () => {
   it("redacts password fields", () => {
-    const result = scrubObject({ password: "s3cr3t", name: "alice" }) as Record<string, unknown>;
+    const result = scrubObject({ password: "s3cr3t", name: "raena" }) as Record<string, unknown>;
     assert.equal(result.password, "[Filtered]");
-    assert.equal(result.name, "alice");
+    assert.equal(result.name, "raena");
   });
 
   it("redacts token fields", () => {
@@ -47,7 +47,7 @@ describe("scrubObject", () => {
   });
 
   it("redacts email fields", () => {
-    const result = scrubObject({ userEmail: "alice@example.com" }) as Record<string, unknown>;
+    const result = scrubObject({ userEmail: "raena@example.com" }) as Record<string, unknown>;
     assert.equal(result.userEmail, "[Filtered]");
   });
 
@@ -60,8 +60,8 @@ describe("scrubObject", () => {
   });
 
   it("passes through non-sensitive keys unchanged", () => {
-    const result = scrubObject({ username: "bob", score: 42 }) as Record<string, unknown>;
-    assert.equal(result.username, "bob");
+    const result = scrubObject({ username: "david", score: 42 }) as Record<string, unknown>;
+    assert.equal(result.username, "david");
     assert.equal(result.score, 42);
   });
 
@@ -86,9 +86,9 @@ describe("scrubObject", () => {
 
 describe("scrubUrl", () => {
   it("redacts sensitive query params in absolute URLs", () => {
-    const result = scrubUrl("https://example.com/path?token=abc&name=bob");
+    const result = scrubUrl("https://example.com/path?token=abc&name=david");
     assert.ok(result.includes("token=%5BFiltered%5D"));
-    assert.ok(result.includes("name=bob"));
+    assert.ok(result.includes("name=david"));
   });
 
   it("redacts sensitive query params in relative URLs", () => {

@@ -26,7 +26,7 @@ describe("a provider-supplied name", () => {
   it("is kept whole when the rule admits it", () => assert.equal(acceptProvidedPersonalName("Nguyễn"), "Nguyễn"));
   it("is normalized like a typed one", () => assert.equal(acceptProvidedPersonalName("  O\u2019Brien "), "O'Brien"));
   it("is not stored at all when any character is outside the rule", () => {
-    for (const raw of ["Иван", "John 王", "Ada 😀 (Countess)"]) assert.equal(acceptProvidedPersonalName(raw), null, raw);
+    for (const raw of ["Иван", "David 王", "Raena 😀 (Countess)"]) assert.equal(acceptProvidedPersonalName(raw), null, raw);
   });
   it("is not stored, rather than cut, when it is over 50 characters", () => assert.equal(acceptProvidedPersonalName("b".repeat(60)), null));
   it("stays absent when the provider sent none", () => {
@@ -36,13 +36,13 @@ describe("a provider-supplied name", () => {
 });
 
 describe("typed input", () => {
-  it("drops a disallowed character and says so", () => assert.deepEqual(filterNameInput("Ada😀"), { value: "Ada", refused: true }));
+  it("drops a disallowed character and says so", () => assert.deepEqual(filterNameInput("Raena😀"), { value: "Raena", refused: true }));
   it("converts the curly apostrophe", () => assert.deepEqual(filterNameInput("O’B"), { value: "O'B", refused: false }));
   it("keeps a pasted name's word breaks: other whitespace becomes a space, not a refusal", () => {
     for (const sep of ["\u00A0", "\u202F", "\u2009", "\u3000", "\t"]) {
-      assert.deepEqual(filterNameInput(`Mary${sep}Jane`), { value: "Mary Jane", refused: false }, JSON.stringify(sep));
+      assert.deepEqual(filterNameInput(`Raena${sep}Franklin`), { value: "Raena Franklin", refused: false }, JSON.stringify(sep));
     }
-    assert.deepEqual(filterNameInput("Mary "), { value: "Mary ", refused: false });
+    assert.deepEqual(filterNameInput("Raena "), { value: "Raena ", refused: false });
   });
   it("does not cut a long paste", () => assert.equal(filterNameInput("c".repeat(70)).value.length, 70));
 });

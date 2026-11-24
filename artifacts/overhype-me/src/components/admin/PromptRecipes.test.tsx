@@ -23,11 +23,11 @@ const FAMILIES = [
 
 let posts: Array<{ url: string; body: Record<string, unknown> }> = [];
 const PREVIEW = { status: 200, body: { attemptId: 1, prompt: "x", length: 60, overflowBy: 0, problems: [], sections: [
-  { id: "identity", label: "IDENTITY", status: "required", text: "IDENTITY: Keep the face exactly. Ana stands tall.", segments: [
-    { text: "IDENTITY: ", piece: null }, { text: "Keep the face exactly.", piece: "identity.person" }, { text: " Ana stands tall.", piece: null },
+  { id: "identity", label: "IDENTITY", status: "required", text: "IDENTITY: Keep the face exactly. Raena stands tall.", segments: [
+    { text: "IDENTITY: ", piece: null }, { text: "Keep the face exactly.", piece: "identity.person" }, { text: " Raena stands tall.", piece: null },
   ] },
-  { id: "constraints", label: "STRICT", status: "required", text: "Do not clone Ana.", segments: [
-    { text: "Do not clone ", piece: "constraints.duplicate" }, { text: "Ana", piece: null }, { text: ".", piece: "constraints.duplicate" },
+  { id: "constraints", label: "STRICT", status: "required", text: "Do not clone Raena.", segments: [
+    { text: "Do not clone ", piece: "constraints.duplicate" }, { text: "Raena", piece: null }, { text: ".", piece: "constraints.duplicate" },
   ] },
 ] } };
 let saveResponse: { status: number; body: unknown } = { status: 201, body: { version: { id: 12, number: 2 } } };
@@ -149,7 +149,7 @@ describe("PromptRecipes", () => {
     expect([...mine].map((m) => m.textContent)).toEqual(["Keep the face exactly."]);
     const shared = [...result.querySelectorAll("[data-piece]")].filter((e) => !e.hasAttribute("data-changed")).map((e) => e.textContent);
     expect(shared).toEqual(["Do not clone ", "."]);
-    expect(result.textContent).toMatch(/Ana stands tall/);
+    expect(result.textContent).toMatch(/Raena stands tall/);
     expect(screen.getByTestId("recipes-preview-legend").textContent).toMatch(/Your changes.*Shared wording/);
   });
 });

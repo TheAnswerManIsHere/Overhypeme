@@ -172,7 +172,7 @@ describe("POST /auth/register — validation", () => {
   it("rejects an empty displayName", async () => {
     const res = await request(makeApp())
       .post("/auth/register")
-      .send({ email: uniqueEmail(), password: "longenough", displayName: "  ", firstName: "Pat", lastName: "Doe" });
+      .send({ email: uniqueEmail(), password: "longenough", displayName: "  ", firstName: "Alex", lastName: "Franklin" });
     assert.equal(res.status, 400);
     assert.equal(res.body.error, "Name cannot be empty");
   });
@@ -190,7 +190,7 @@ describe("POST /auth/register — validation", () => {
   it("rejects a displayName with an emoji instead of stripping it", async () => {
     const res = await request(makeApp())
       .post("/auth/register")
-      .send({ email: uniqueEmail(), password: "longenough", displayName: "Pat 🦊", firstName: "Pat", lastName: "Doe" });
+      .send({ email: uniqueEmail(), password: "longenough", displayName: "Alex 🦊", firstName: "Alex", lastName: "Franklin" });
     assert.equal(res.status, 400);
   });
 
@@ -198,7 +198,7 @@ describe("POST /auth/register — validation", () => {
     const { email } = await createUserWithPassword();
     const res = await request(makeApp())
       .post("/auth/register")
-      .send({ email, password: "longenough", displayName: "Pat", firstName: "f", lastName: "l" });
+      .send({ email, password: "longenough", displayName: "Alex", firstName: "f", lastName: "l" });
     assert.equal(res.status, 409);
     assert.deepEqual(res.body, { error: "Email is already in use" });
   });
@@ -206,7 +206,7 @@ describe("POST /auth/register — validation", () => {
   it("requires firstName", async () => {
     const res = await request(makeApp())
       .post("/auth/register")
-      .send({ email: uniqueEmail(), password: "longenough", displayName: "Pat", lastName: "l" });
+      .send({ email: uniqueEmail(), password: "longenough", displayName: "Alex", lastName: "l" });
     assert.equal(res.status, 400);
     assert.deepEqual(res.body, { error: "First Name is required." });
   });
@@ -214,7 +214,7 @@ describe("POST /auth/register — validation", () => {
   it("requires lastName", async () => {
     const res = await request(makeApp())
       .post("/auth/register")
-      .send({ email: uniqueEmail(), password: "longenough", displayName: "Pat", firstName: "f" });
+      .send({ email: uniqueEmail(), password: "longenough", displayName: "Alex", firstName: "f" });
     assert.equal(res.status, 400);
     assert.deepEqual(res.body, { error: "Last Name is required." });
   });
@@ -229,9 +229,9 @@ describe("POST /auth/register — success", () => {
       .send({
         email,
         password: "supersecret",
-        displayName: "Pat",
-        firstName: "Pat",
-        lastName: "Doe",
+        displayName: "Alex",
+        firstName: "Alex",
+        lastName: "Franklin",
         pronouns: "they/them",
       });
     assert.equal(res.status, 201);
@@ -243,9 +243,9 @@ describe("POST /auth/register — success", () => {
 
     const [row] = await db.select().from(usersTable).where(eq(usersTable.email, email));
     assert.ok(row);
-    assert.equal(row.displayName, "Pat");
-    assert.equal(row.firstName, "Pat");
-    assert.equal(row.lastName, "Doe");
+    assert.equal(row.displayName, "Alex");
+    assert.equal(row.firstName, "Alex");
+    assert.equal(row.lastName, "Franklin");
     assert.equal(row.pronouns, "they/them");
     assert.ok(row.passwordHash, "passwordHash should be set");
   });
@@ -259,7 +259,7 @@ describe("sign-up return destination (Issue #1203)", () => {
   async function register(returnTo: unknown): Promise<string> {
     const email = uniqueEmail();
     const res = await request(makeApp()).post("/auth/register")
-      .send({ email, password: "supersecret", displayName: "Pat", firstName: "Pat", lastName: "Doe", returnTo });
+      .send({ email, password: "supersecret", displayName: "Alex", firstName: "Alex", lastName: "Franklin", returnTo });
     assert.equal(res.status, 201, res.text);
     const [row] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.email, email));
     return row!.id;
@@ -281,12 +281,12 @@ describe("sign-up return destination (Issue #1203)", () => {
   const verify = (raw: string) => request(makeApp()).get("/auth/verify-email").query({ token: raw });
 
   it("stores the page at registration, hands it back once on verification, then clears it", async () => {
-    const id = await register("/fact/42?name=Sam#top");
-    assert.equal(await stored(id), "/fact/42?name=Sam#top");
+    const id = await register("/fact/42?name=Alex#top");
+    assert.equal(await stored(id), "/fact/42?name=Alex#top");
     const raw = await token(id);
     const res = await verify(raw);
     assert.equal(res.status, 200, res.text);
-    assert.equal(res.body.returnTo, "/fact/42?name=Sam#top");
+    assert.equal(res.body.returnTo, "/fact/42?name=Alex#top");
     assert.equal(await stored(id), null, "cleared once handed back");
     const again = await verify(raw);
     assert.equal(again.body.message, "Email already verified.");

@@ -27,7 +27,7 @@ async function member(isAdmin = false): Promise<string> {
   const id = `${PREFIX}${randomUUID()}`;
   const now = new Date();
   await db.insert(usersTable).values({
-    id, email: `${id}@test.local`, displayName: "Pat", pronouns: "they/them", isAdmin,
+    id, email: `${id}@test.local`, displayName: "Alex", pronouns: "they/them", isAdmin,
     emailVerifiedAt: now, onboardingCompletedAt: now, dateOfBirth: "1990-05-05",
   });
   await acceptCurrentLegal(id);

@@ -1,6 +1,6 @@
 // The moderation test render's sample subject matches the reference photo it
-// is drawn from: the wife's photo renders as Raena Franklin, she/her; every
-// other photo as David Franklin, he/him. With no photo there is no render
+// is drawn from: the wife's photo renders as Raena Franklin, she/her; the
+// cat's as Mango, he/him (Issue #983); David's as David Franklin, he/him. With no photo there is no render
 // (compiler review, Phase 2: every picture starts from a photo).
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
@@ -34,14 +34,26 @@ describe("resolveRenderReviewInput — the sample subject follows the reference 
     assert.equal(out.renderedSubject.pronouns, "he/him");
   });
 
-  it("the cat's photo → David Franklin / he-him", async () => {
-    const out = await resolveRenderReviewInput("{NAME} takes the stage.", ENRICHMENT, fromReference("nonhuman_animal"));
-    assert.equal(out.renderedSubject.name, "David Franklin");
+  it("the cat's photo → Mango / he-him, and the fact text names him", async () => {
+    const out = await resolveRenderReviewInput("{NAME} takes the stage with {POSS} tail.", ENRICHMENT, fromReference("nonhuman_animal"));
+    assert.equal(out.renderedSubject.name, "Mango");
+    assert.equal(out.renderedSubject.pronouns, "he/him");
+    assert.equal(out.renderedFactText, "Mango takes the stage with his tail.");
   });
 
   it("an explicit previewName still overrides the reference's default", async () => {
-    const out = await resolveRenderReviewInput("{NAME} takes the stage.", ENRICHMENT, { ...fromReference("female"), previewName: "M.C. Hammer" });
-    assert.equal(out.renderedSubject.name, "M.C. Hammer");
+    const out = await resolveRenderReviewInput("{NAME} takes the stage.", ENRICHMENT, { ...fromReference("female"), previewName: "Alex" });
+    assert.equal(out.renderedSubject.name, "Alex");
+  });
+
+  it("on the cat's photo, an explicit name and pronouns still win over Mango", async () => {
+    const out = await resolveRenderReviewInput("{NAME} takes the stage.", ENRICHMENT, {
+      ...fromReference("nonhuman_animal"),
+      previewName: "David Franklin",
+      previewPronouns: "they/them",
+    });
+    assert.equal(out.renderedSubject.name, "David Franklin");
+    assert.equal(out.renderedSubject.pronouns, "they/them");
   });
 
   it("refuses a render with no photo, and the retired no-photo mode, naming why", async () => {

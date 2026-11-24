@@ -33,19 +33,19 @@ describe("NameTag, signed out", () => {
   });
 
   it("with a name and no pronouns shows the name alone", () => {
-    person = { name: "Sarah", pronouns: "he/him", pronounsSupplied: false };
+    person = { name: "Raena", pronouns: "he/him", pronounsSupplied: false };
     const el = tag();
-    expect(el.textContent).toContain("Sarah");
+    expect(el.textContent).toContain("Raena");
     expect(el.textContent).not.toMatch(/\(/);
   });
 
   it("shows a supplied he/him, and a custom set in its display form", () => {
-    person = { name: "Bob", pronouns: "he/him", pronounsSupplied: true };
+    person = { name: "David", pronouns: "he/him", pronounsSupplied: true };
     expect(tag().textContent).toContain("(he/him)");
   });
 
   it("shows a custom set in its display form", () => {
-    person = { name: "Kai", pronouns: "xe|xem|xyr|xyrs|xemself|s", pronounsSupplied: true };
+    person = { name: "Alex", pronouns: "xe|xem|xyr|xyrs|xemself|s", pronounsSupplied: true };
     expect(tag().textContent).toContain("(xe/xem)");
   });
 });
@@ -56,14 +56,14 @@ describe("NameTag, signed in: the account's pronouns, or none", () => {
   }
 
   it("shows the account's pronouns", () => {
-    signedIn({ displayName: "Ada", pronouns: "she/her" });
-    person = { name: "Ada", pronouns: "she/her", pronounsSupplied: true };
+    signedIn({ displayName: "Raena", pronouns: "she/her" });
+    person = { name: "Raena", pronouns: "she/her", pronounsSupplied: true };
     expect(tag().textContent).toContain("(she/her)");
   });
 
   it("shows none for an account without pronouns, even when the browser holds supplied ones", () => {
-    signedIn({ displayName: "Ada", pronouns: null });
-    person = { name: "Ada", pronouns: "she/her", pronounsSupplied: true };
+    signedIn({ displayName: "Raena", pronouns: null });
+    person = { name: "Raena", pronouns: "she/her", pronounsSupplied: true };
     expect(tag().textContent).not.toMatch(/\(/);
   });
 
@@ -76,8 +76,8 @@ describe("NameTag, signed in: the account's pronouns, or none", () => {
   });
 
   it("shows the account's pronouns when the browser copy disagrees", () => {
-    signedIn({ displayName: "Ada", pronouns: "they/them" });
-    person = { name: "Ada", pronouns: "she/her", pronounsSupplied: true };
+    signedIn({ displayName: "Raena", pronouns: "they/them" });
+    person = { name: "Raena", pronouns: "she/her", pronounsSupplied: true };
     const el = tag();
     expect(el.textContent).toContain("(they/them)");
     expect(el.textContent).not.toContain("she/her");

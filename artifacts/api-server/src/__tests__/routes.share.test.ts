@@ -74,10 +74,10 @@ async function cleanup(): Promise<void> {
 
 const validBody = () => ({
   recipientEmail: `${RECIPIENT_PREFIX}${randomUUID()}@test.local`,
-  recipientName: "Pat",
+  recipientName: "Alex",
   // The shape ShareModal really sends (#374): the visitor's own origin, a fact
   // page, and the two personalisation fields.
-  shareUrl: "https://whatever.replit.dev/facts/12?displayName=Pat&pronouns=they%2Fthem",
+  shareUrl: "https://whatever.replit.dev/facts/12?displayName=Alex&pronouns=they%2Fthem",
   formStartedAt: Date.now() - 5000,
   captchaToken: "captcha-token",
 });
@@ -176,16 +176,16 @@ describe("POST /share/invite", () => {
     assert.equal(res.status, 200);
     const [row] = await db.select().from(asyncJobsTable).where(whereEmailTo(body.recipientEmail));
     const text = emailPayload(row!).text ?? "";
-    assert.match(text, /https:\/\/overhype\.me\/facts\/7\?displayName=Pat&pronouns=she%2Fher/);
+    assert.match(text, /https:\/\/overhype\.me\/facts\/7\?displayName=Alex&pronouns=she%2Fher/);
     assert.doesNotMatch(text, /evil\.example\.net|Mallory|next=/);
   });
 
   it("accepts the home page as a share target", async () => {
-    const body = { ...validBody(), shareUrl: "https://overhype.me/?displayName=Pat&pronouns=he%2Fhim" };
+    const body = { ...validBody(), shareUrl: "https://overhype.me/?displayName=Alex&pronouns=he%2Fhim" };
     const res = await request(makeApp()).post("/share/invite").send(body);
     assert.equal(res.status, 200);
     const [row] = await db.select().from(asyncJobsTable).where(whereEmailTo(body.recipientEmail));
-    assert.match(emailPayload(row!).text ?? "", /https:\/\/overhype\.me\/\?displayName=Pat&pronouns=he%2Fhim/);
+    assert.match(emailPayload(row!).text ?? "", /https:\/\/overhype\.me\/\?displayName=Alex&pronouns=he%2Fhim/);
   });
 
   it("returns 429 when route-level rate limit is exceeded", async () => {
@@ -209,7 +209,7 @@ describe("POST /share/invite", () => {
       const response = await request(app).post("/share/invite").send({
         ...validBody(),
         recipientEmail: `${RECIPIENT_PREFIX}${randomUUID()}@test.local`,
-        recipientName: `Pat${String.fromCharCode(97 + i)}`,
+        recipientName: `Alex${String.fromCharCode(97 + i)}`,
         shareUrl: `https://overhype.me/facts/77?displayName=x&pronouns=p${i}`,
       });
       statuses.push(response.status);
@@ -232,7 +232,7 @@ describe("POST /share/invite", () => {
     assert.match(p.subject, /Someone thinks/);
     assert.match(p.text ?? "", /SOMEONE THINKS/);
     // Rebuilt on the site's own address, whatever host the client sent.
-    assert.match(p.text ?? "", /https:\/\/overhype\.me\/facts\/12\?displayName=Pat&pronouns=they%2Fthem/);
+    assert.match(p.text ?? "", /https:\/\/overhype\.me\/facts\/12\?displayName=Alex&pronouns=they%2Fthem/);
     assert.doesNotMatch(p.text ?? "", /replit\.dev/);
   });
 
@@ -273,8 +273,8 @@ describe("POST /share/invite", () => {
     const res = await request(makeApp()).post("/share/invite").send({
       ...validBody(),
       recipientEmail: `   ${recipient}   `,
-      recipientName: "  Casey  ",
-      shareUrl: "https://overhype.me/facts/12?displayName=Pat",
+      recipientName: "  Alex  ",
+      shareUrl: "https://overhype.me/facts/12?displayName=Alex",
     });
     assert.equal(res.status, 200);
 

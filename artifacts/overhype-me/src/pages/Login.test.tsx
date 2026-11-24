@@ -38,7 +38,7 @@ function supportLink(): HTMLAnchorElement | null {
 }
 
 async function signInWithPassword() {
-  fireEvent.change(screen.getByPlaceholderText("your@email.com"), { target: { value: "sam@example.com" } });
+  fireEvent.change(screen.getByPlaceholderText("your@email.com"), { target: { value: "alex@example.com" } });
   const password = document.querySelector('input[type="password"]') as HTMLInputElement;
   fireEvent.change(password, { target: { value: "hunter22" } });
   fireEvent.click(screen.getByRole("button", { name: /^SIGN IN$/ }));
@@ -72,11 +72,11 @@ describe("Login — a suspended account can reach support (#1099)", () => {
 describe("Login — an email sign-up carries the page it started from (Issue #1203)", () => {
   async function registerFrom(search: string) {
     window.history.replaceState(null, "", `/login${search}`);
-    fetchMock.mockReturnValue(answer(201, { user: { id: "u1", email: "sam@example.com" } }));
+    fetchMock.mockReturnValue(answer(201, { user: { id: "u1", email: "alex@example.com" } }));
     render(<Login />);
     fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
-    fireEvent.change(screen.getByPlaceholderText("your@email.com"), { target: { value: "sam@example.com" } });
-    fireEvent.change(screen.getByPlaceholderText("First"), { target: { value: "Sam" } });
+    fireEvent.change(screen.getByPlaceholderText("your@email.com"), { target: { value: "alex@example.com" } });
+    fireEvent.change(screen.getByPlaceholderText("First"), { target: { value: "Alex" } });
     fireEvent.change(screen.getByPlaceholderText("Last"), { target: { value: "Lee" } });
     fireEvent.change(screen.getByPlaceholderText("Min 8 characters"), { target: { value: "hunter2222" } });
     fireEvent.submit(document.querySelector("form")!);
@@ -87,7 +87,7 @@ describe("Login — an email sign-up carries the page it started from (Issue #12
   }
 
   it("sends the safe `from` page with the registration", async () => {
-    expect((await registerFrom("?from=%2Ffact%2F42%3Fname%3DSam")).returnTo).toBe("/fact/42?name=Sam");
+    expect((await registerFrom("?from=%2Ffact%2F42%3Fname%3DAlex")).returnTo).toBe("/fact/42?name=Alex");
   });
 
   it("sends no page when there is none", async () => {

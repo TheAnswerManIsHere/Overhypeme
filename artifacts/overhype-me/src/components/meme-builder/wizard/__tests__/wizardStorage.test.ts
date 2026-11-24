@@ -17,7 +17,7 @@ function fixture(overrides: Partial<PendingWizardState> = {}): PendingWizardStat
     mode: "self-upload",
     source: { kind: "self-upload", image: { kind: "library", objectPath: "/objects/uploads/lib.jpg" } },
     aspectRatio: "landscape",
-    name: "Quinn",
+    name: "Alex",
     pronouns: "they/them",
     textOptions: {},
     ...overrides,
@@ -76,9 +76,9 @@ describe("wizardStorage", () => {
 
   it("isolates factIds", () => {
     captureWizardState(fixture({ factId: "fact-1" }));
-    captureWizardState(fixture({ factId: "fact-2", name: "Rowan" }));
-    expect(restoreWizardState("fact-1")?.name).toBe("Quinn");
-    expect(restoreWizardState("fact-2")?.name).toBe("Rowan");
+    captureWizardState(fixture({ factId: "fact-2", name: "Alex" }));
+    expect(restoreWizardState("fact-1")?.name).toBe("Alex");
+    expect(restoreWizardState("fact-2")?.name).toBe("Alex");
   });
 
   it("does not collide with the v1 pendingBuilderState key prefix", () => {
@@ -130,7 +130,7 @@ describe("wizardStorage", () => {
       factId: FACT_ID,
       entryFlow: "fact-detail",
       aspectRatio: "landscape",
-      name: "Quinn",
+      name: "Alex",
       pronouns: "they/them",
       framingOffset: { x: 3, y: 4 },
       isPublic: false,

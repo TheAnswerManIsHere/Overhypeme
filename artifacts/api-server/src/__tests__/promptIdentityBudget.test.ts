@@ -28,7 +28,7 @@ const LONG_PRONOUNS = `${"s".repeat(20)}/${"o".repeat(20)}`; // subj/obj each 20
 const IDENTITIES: Array<{ name: string; pronouns: string | null }> = [
   { name: "Alex", pronouns: "they/them" },
   { name: "David", pronouns: "he/him" },
-  { name: "Sam", pronouns: "she/her" },
+  { name: "Alex", pronouns: "she/her" },
   { name: MAX_NAME, pronouns: "they/them" },
   { name: MAX_NAME, pronouns: LONG_PRONOUNS },
 ];

@@ -17,7 +17,7 @@ import type { DirectCompileArgs } from "../../lib/imagePrompt/compilers/nanoBana
 type Case = { name: string; args: Omit<DirectCompileArgs, "recipe"> };
 
 const person = { name: "David Franklin", pronouns: "he/him" } as const;
-const pet = { name: "Whiskers", pronouns: "they/them" } as const;
+const pet = { name: "Mango", pronouns: "he/him" } as const;
 const ref = "https://example.test/reference.jpg";
 
 export const DIRECT_COMPILE_CASES: readonly Case[] = [

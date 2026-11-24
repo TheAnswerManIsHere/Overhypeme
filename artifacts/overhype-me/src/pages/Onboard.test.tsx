@@ -26,7 +26,7 @@ vi.mock("@workspace/replit-auth-web", () => ({
   }) }),
 }));
 vi.mock("@/hooks/use-person-name", () => ({
-  usePersonName: () => ({ name: "Sarah", pronouns: "they/them", pronounsSupplied: false, syncFromProfile }),
+  usePersonName: () => ({ name: "Raena", pronouns: "they/them", pronounsSupplied: false, syncFromProfile }),
 }));
 const { trackSpy, personaliseSpy } = vi.hoisted(() => ({ trackSpy: vi.fn(), personaliseSpy: vi.fn() }));
 vi.mock("@/lib/analytics", () => ({ track: trackSpy, trackPersonaliseOnce: personaliseSpy }));
@@ -42,10 +42,10 @@ vi.mock("@/components/ui/Turnstile", async () => {
 describe("initialDisplayName — identity-flow Phase 2's precedence", () => {
   const blank = { draft: null, displayName: null };
   it("the saved draft first, so a reload resumes an edit", () => {
-    expect(initialDisplayName({ draft: { displayName: "Sarah C" }, displayName: "Sarah" }, { name: "Sal" })).toBe("Sarah C");
+    expect(initialDisplayName({ draft: { displayName: "Raena C" }, displayName: "Raena" }, { name: "Alex" })).toBe("Raena C");
   });
   it("then the account's own display name", () => {
-    expect(initialDisplayName({ ...blank, displayName: "Sarah" }, { name: "Sal" })).toBe("Sarah");
+    expect(initialDisplayName({ ...blank, displayName: "Raena" }, { name: "Alex" })).toBe("Raena");
   });
   it("then the browser's name — a provider first name never displaces it", () => {
     // providerFirstName is not an input at all: the account's displayName is null.
@@ -59,19 +59,19 @@ describe("initialDisplayName — identity-flow Phase 2's precedence", () => {
 describe("initialPronouns — plan S22's precedence", () => {
   const blank = { draft: null, accountPronouns: null, name: null };
   it("the draft wins over everything", () => {
-    expect(initialPronouns({ ...blank, draft: { pronouns: "xe/xem" }, accountPronouns: "he/him", name: "Sarah" }, { pronouns: "she/her", supplied: true })).toBe("xe/xem");
+    expect(initialPronouns({ ...blank, draft: { pronouns: "xe/xem" }, accountPronouns: "he/him", name: "Raena" }, { pronouns: "she/her", supplied: true })).toBe("xe/xem");
   });
   it("then the account's stored choice, shown for confirmation", () => {
-    expect(initialPronouns({ ...blank, accountPronouns: "he/him", name: "Sarah" }, { pronouns: "she/her", supplied: true })).toBe("he/him");
+    expect(initialPronouns({ ...blank, accountPronouns: "he/him", name: "Raena" }, { pronouns: "she/her", supplied: true })).toBe("he/him");
   });
   it("then the device's own choice, for an account with none", () => {
-    expect(initialPronouns({ ...blank, name: "Sarah" }, { pronouns: "they/them", supplied: true })).toBe("they/them");
+    expect(initialPronouns({ ...blank, name: "Raena" }, { pronouns: "they/them", supplied: true })).toBe("they/them");
   });
   it("a device value the visitor never supplied is not a choice", () => {
-    expect(initialPronouns({ ...blank, name: "Sarah" }, { pronouns: "he/him", supplied: false })).toBe("she/her");
+    expect(initialPronouns({ ...blank, name: "Raena" }, { pronouns: "he/him", supplied: false })).toBe("she/her");
   });
   it("then the name suggestion, else blank and required", () => {
-    expect(initialPronouns({ ...blank, name: "Sarah" }, { pronouns: "", supplied: false })).toBe("she/her");
+    expect(initialPronouns({ ...blank, name: "Raena" }, { pronouns: "", supplied: false })).toBe("she/her");
     expect(initialPronouns({ ...blank, name: "Zxq" }, { pronouns: "", supplied: false })).toBe("");
     expect(initialPronouns(blank, { pronouns: "", supplied: false })).toBe("");
   });
@@ -100,7 +100,7 @@ describe("Onboard screen", () => {
       if (url.endsWith("api/auth/onboarding")) {
         return new Response(JSON.stringify({
           completed: false, emailVerified: true, marketingDefault: true, marketingWordingVersion: "v",
-          accountPronouns: null, displayName: null, providerFirstName: "Google-Sarah",
+          accountPronouns: null, displayName: null, providerFirstName: "Google-Raena",
           draft: { pronouns: "they/them", dobYear: "1990", dobMonth: "6", dobDay: "15" },
         }), { status: 200 });
       }
@@ -125,7 +125,7 @@ describe("Onboard screen", () => {
 
   it("an address without a marker counts nothing; an unknown provider is ignored", async () => {
     trackSpy.mockReset();
-    window.history.replaceState(null, "", "/onboard?returnTo=%2Fprofile&signup=Alice");
+    window.history.replaceState(null, "", "/onboard?returnTo=%2Fprofile&signup=Raena");
     render(<Onboard />);
     expect(trackSpy).not.toHaveBeenCalled();
     window.history.replaceState(null, "", "/");
@@ -177,7 +177,7 @@ describe("Onboard screen", () => {
     await waitFor(() => expect(calls.some((c) => c.url.endsWith("api/users/me/onboarding") && c.init?.method === "POST")).toBe(true));
     const post = calls.find((c) => c.url.endsWith("api/users/me/onboarding") && c.init?.method === "POST")!;
     expect(JSON.parse(String(post.init!.body))).toEqual({
-      displayName: "Sarah", pronouns: "they/them", dobYear: "1990", dobMonth: "6", dobDay: "15", marketingOptIn: true, captchaToken: "tok-1",
+      displayName: "Raena", pronouns: "they/them", dobYear: "1990", dobMonth: "6", dobDay: "15", marketingOptIn: true, captchaToken: "tok-1",
       legalAcceptance: { terms: LEGAL_VERSIONS.terms, privacy: LEGAL_VERSIONS.privacy },
     });
   });
@@ -188,7 +188,7 @@ describe("Onboard screen", () => {
       if (url.endsWith("api/auth/onboarding")) {
         return new Response(JSON.stringify({
           completed: false, emailVerified: true, marketingDefault: false, marketingWordingVersion: "v",
-          accountPronouns: null, displayName: "Sam", providerFirstName: null,
+          accountPronouns: null, displayName: "Alex", providerFirstName: null,
           draft: { pronouns: "they/them", dobYear: "2012", dobMonth: "6", dobDay: "15" },
         }), { status: 200 });
       }
@@ -237,7 +237,7 @@ describe("Onboard screen", () => {
       if (url.endsWith("api/auth/onboarding")) {
         return new Response(JSON.stringify({
           completed: false, emailVerified: true, marketingDefault: false, marketingWordingVersion: "v",
-          accountPronouns: "they/them", displayName: "Sam", providerFirstName: null, draft: null, dateOfBirth: "1990-06-15",
+          accountPronouns: "they/them", displayName: "Alex", providerFirstName: null, draft: null, dateOfBirth: "1990-06-15",
         }), { status: 200 });
       }
       return new Response(JSON.stringify({ saved: true, completed: true }), { status: 200 });
@@ -293,7 +293,7 @@ describe("Onboard screen", () => {
   it("starts the name from the browser, not the provider's first name, and requires one", async () => {
     render(<Onboard />);
     const name = (await screen.findByRole("textbox", { name: "Your name" })) as HTMLInputElement;
-    expect(name.value).toBe("Sarah");
+    expect(name.value).toBe("Raena");
     fireEvent.click(screen.getByTestId("turnstile-pass"));
     fireEvent.change(name, { target: { value: "" } });
     expect((screen.getByRole("button", { name: "Finish set-up" }) as HTMLButtonElement).disabled).toBe(true);

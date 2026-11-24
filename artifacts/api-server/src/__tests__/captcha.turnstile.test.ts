@@ -207,8 +207,8 @@ describe("Turnstile at every challenged route (a secret configured)", () => {
 
   const inviteBody = (captchaToken?: string) => ({
     recipientEmail: `${RECIPIENT_PREFIX}${randomUUID()}@test.local`,
-    recipientName: "Pat",
-    shareUrl: "https://overhype.me/facts/12?displayName=Pat&pronouns=they%2Fthem",
+    recipientName: "Alex",
+    shareUrl: "https://overhype.me/facts/12?displayName=Alex&pronouns=they%2Fthem",
     formStartedAt: Date.now() - 5000,
     ...(captchaToken === undefined ? {} : { captchaToken }),
   });
@@ -231,7 +231,7 @@ describe("Turnstile at every challenged route (a secret configured)", () => {
     const sid = await bearerFor(userId);
     const app = makeApp();
     const body = {
-      displayName: "Pat", pronouns: "they/them", dobYear: "1990", dobMonth: "6", dobDay: "15", marketingOptIn: false,
+      displayName: "Alex", pronouns: "they/them", dobYear: "1990", dobMonth: "6", dobDay: "15", marketingOptIn: false,
       legalAcceptance: requiredLegalVersions(),
     };
     answer = "spent";

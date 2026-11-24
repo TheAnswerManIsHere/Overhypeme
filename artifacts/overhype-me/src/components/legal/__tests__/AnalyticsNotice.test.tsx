@@ -35,7 +35,7 @@ describe("AnalyticsNotice", () => {
 
 describe("what leaves the browser", () => {
   it("monitoring receives the account id and nothing else", () => {
-    const user = { id: "u1", email: "sam@example.com", firstName: "Sam", displayName: "Sammy" };
+    const user = { id: "u1", email: "alex@example.com", firstName: "Alex", displayName: "Alex Franklin" };
     expect(sentryUserFor(user)).toEqual({ id: "u1" });
     expect(sentryUserFor(null)).toBeNull();
     expect(sentryUserFor({ id: null })).toBeNull();

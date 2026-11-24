@@ -206,20 +206,20 @@ describe("resolveRenderReviewInput", () => {
   it("resolves tokens to the sample subject and assembles a photo-backed input", async () => {
     const r = await resolveRenderReviewInput("{NAME} bench-presses the Earth.", VALID_ENRICHMENT, {
       ...fromWife,
-      previewName: "Casey Park",
+      previewName: "Alex Franklin",
       previewPronouns: "she/her",
       renderControls: { aspectRatio: "landscape" },
     });
-    assert.match(r.renderedFactText, /Casey Park/);
+    assert.match(r.renderedFactText, /Alex Franklin/);
     assert.doesNotMatch(r.renderedFactText, /\{NAME\}/);
     assert.equal(r.subjectRenderMode, "human_identity_i2i");
     assert.equal(r.generationMode, "i2i");
     assert.equal(r.renderControls.aspectRatio, "landscape");
-    assert.equal(r.renderedSubject.name, "Casey Park");
+    assert.equal(r.renderedSubject.name, "Alex Franklin");
   });
 
   it("is deterministic for identical inputs (no cross-route drift)", async () => {
-    const controls = { ...fromWife, previewName: "Sam Vale" };
+    const controls = { ...fromWife, previewName: "David" };
     const a = await resolveRenderReviewInput("{NAME} flies.", VALID_ENRICHMENT, controls);
     const b = await resolveRenderReviewInput("{NAME} flies.", VALID_ENRICHMENT, controls);
     assert.equal(a.renderedFactText, b.renderedFactText);
@@ -275,7 +275,7 @@ describe("POST /admin/reviews/:id/render", () => {
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/render`)
       .set("authorization", `Bearer ${adminSid}`)
-      .send({ previewName: "Casey Park", previewPronouns: "she/her", renderControls: { aspectRatio: "landscape" } });
+      .send({ previewName: "Alex Franklin", previewPronouns: "she/her", renderControls: { aspectRatio: "landscape" } });
 
     assert.equal(res.status, 202, JSON.stringify(res.body));
     assert.ok(res.body.renderJobId);
@@ -287,13 +287,13 @@ describe("POST /admin/reviews/:id/render", () => {
     assert.equal(attempt!.userId, null);
     assert.equal(attempt!.subjectRenderMode, "human_identity_i2i");
     assert.equal(attempt!.generationMode, "i2i");
-    assert.match(String(attempt!.renderedFactText), /Casey Park/);
+    assert.match(String(attempt!.renderedFactText), /Alex Franklin/);
     assert.doesNotMatch(String(attempt!.renderedFactText), /\{NAME\}/);
     assert.match(String(attempt!.requestId), new RegExp(`^admin-review:${reviewId}:${adminId}:`));
 
     const rc = attempt!.renderControls as Record<string, unknown>;
     assert.equal(rc["mirrorToLegacyStorage"], false);
-    assert.equal((rc["reviewRenderSubject"] as { name: string }).name, "Casey Park");
+    assert.equal((rc["reviewRenderSubject"] as { name: string }).name, "Alex Franklin");
     assert.deepEqual(rc["reviewAudit"], { reviewId, adminUserId: adminId });
     assert.equal(rc["aspectRatio"], "landscape");
   });
@@ -315,7 +315,7 @@ describe("GET /admin/reviews/:id/renders/:renderJobId", () => {
       identityPolicy: {} as never,
       renderControls: { aspectRatio: "portrait", reviewAudit: { reviewId, adminUserId: adminId } } as never,
       factEnrichmentSnapshot: VALID_ENRICHMENT as never,
-      renderedFactText: "Casey bench-presses the Earth.",
+      renderedFactText: "Alex bench-presses the Earth.",
       archetypeStrategyVersion: "v2",
       compiledPrompt: { a: 1 } as never,
     });

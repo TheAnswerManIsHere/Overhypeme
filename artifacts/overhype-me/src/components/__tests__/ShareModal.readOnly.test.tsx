@@ -16,10 +16,10 @@ const invites = () => fetchMock.mock.calls.filter(([u]) => u === "/api/share/inv
 
 async function typeAddress() {
   render(<ShareModal open onClose={() => {}} path="/" />);
-  fireEvent.change(screen.getByPlaceholderText(/e\.g\. David/), { target: { value: "Sam" } });
+  fireEvent.change(screen.getByPlaceholderText(/e\.g\. David/), { target: { value: "Alex" } });
   fireEvent.click(await screen.findByRole("button", { name: /next/i }));
   const email = await screen.findByPlaceholderText(/@example\.com/);
-  fireEvent.change(email, { target: { value: "sam@example.com" } });
+  fireEvent.change(email, { target: { value: "alex@example.com" } });
   return email as HTMLInputElement;
 }
 
@@ -37,7 +37,7 @@ describe("ShareModal — Enter while the site is read-only", () => {
     fireEvent.keyDown(email, { key: "Enter" });
     await new Promise((r) => setTimeout(r, 20));
     expect(invites()).toHaveLength(0);
-    expect(email.value).toBe("sam@example.com");
+    expect(email.value).toBe("alex@example.com");
   });
 
   it("open: Enter sends the invitation", async () => {

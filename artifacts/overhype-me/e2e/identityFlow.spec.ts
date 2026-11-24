@@ -44,8 +44,8 @@ test.describe("Identity flow, Phase 1", () => {
     await page.goto("/");
     await expect(sheet(page)).toBeVisible();
     await expect(sheet(page).getByRole("heading", { name: /what's your name\?/i })).toBeVisible();
-    await saveIdentity(page, "Grace");
-    expect(await stored(page)).toEqual({ name: "Grace", pronouns: expect.any(String) });
+    await saveIdentity(page, "Raena");
+    expect(await stored(page)).toEqual({ name: "Raena", pronouns: expect.any(String) });
     await page.reload();
     await expectNoSheet(page);
   });
@@ -64,7 +64,7 @@ test.describe("Identity flow, Phase 1", () => {
     page.on("request", (r) => { if (r.url().includes("/api/ai/suggest-pronouns")) suggestCalls.push(r.url()); });
     await stubPublicFacts(page, { facts: [] });
     await page.goto("/");
-    await sheet(page).getByTestId("identity-name-input").fill("Maria");
+    await sheet(page).getByTestId("identity-name-input").fill("Raena");
     await page.waitForTimeout(800);
     await sheet(page).getByTestId("identity-save").click();
     expect(suggestCalls).toEqual([]);
@@ -73,9 +73,9 @@ test.describe("Identity flow, Phase 1", () => {
 
   test("a full share link sets both halves, never asks, and leaves the address bar clean", async ({ page }) => {
     await stubPublicFacts(page, { facts: [] });
-    await page.goto("/?displayName=Grace&pronouns=they%2Fthem");
+    await page.goto("/?displayName=Raena&pronouns=they%2Fthem");
     await expectNoSheet(page);
-    expect(await stored(page)).toEqual({ name: "Grace", pronouns: "they/them" });
+    expect(await stored(page)).toEqual({ name: "Raena", pronouns: "they/them" });
     expect(new URL(page.url()).search).toBe("");
     await page.reload();
     await expectNoSheet(page);
@@ -83,18 +83,18 @@ test.describe("Identity flow, Phase 1", () => {
 
   test("a half share link sets its half and asks only for the other", async ({ page }) => {
     await stubPublicFacts(page, { facts: [] });
-    await page.goto("/?displayName=Grace");
+    await page.goto("/?displayName=Raena");
     await expect(sheet(page)).toBeVisible();
     await expect(sheet(page).getByRole("heading", { name: /pick your pronouns/i })).toBeVisible();
-    await expect(sheet(page).getByTestId("identity-name-input")).toHaveValue("Grace");
+    await expect(sheet(page).getByTestId("identity-name-input")).toHaveValue("Raena");
   });
 
   test("a share link never overwrites the visitor's own identity", async ({ page }) => {
-    await seedIdentity(page, "Ada", "she/her");
+    await seedIdentity(page, "Alex", "she/her");
     await stubPublicFacts(page, { facts: [] });
-    await page.goto("/?displayName=Grace&pronouns=he%2Fhim");
+    await page.goto("/?displayName=Raena&pronouns=he%2Fhim");
     await expectNoSheet(page);
-    expect(await stored(page)).toEqual({ name: "Ada", pronouns: "she/her" });
+    expect(await stored(page)).toEqual({ name: "Alex", pronouns: "she/her" });
   });
 
   test("another tab's save closes an open sheet", async ({ context, page }) => {
@@ -105,14 +105,14 @@ test.describe("Identity flow, Phase 1", () => {
     await other.setViewportSize(DESKTOP);
     await stubPublicFacts(other, { facts: [] });
     await other.goto("/top-facts");
-    await saveIdentity(other, "Grace");
+    await saveIdentity(other, "Raena");
     await expect(sheet(page)).toHaveCount(0);
   });
 
   test("a shared meme shows its content first; leaving it by link or by search asks on the next page", async ({ page }) => {
     await stubPublicFacts(page, {
       facts: [factDetail({ id: 551, text: "{NAME} makes onions cry." })],
-      memeDetails: [memeDetail({ id: 5511, factId: 551, permalinkSlug: "e2e-landing", factText: "Nick Baron makes onions cry." })],
+      memeDetails: [memeDetail({ id: 5511, factId: 551, permalinkSlug: "e2e-landing", factText: "David Franklin makes onions cry." })],
       images: ["/api/memes/e2e-landing/image"],
     });
     await page.goto("/m/e2e-landing");
@@ -155,7 +155,7 @@ test.describe("Identity flow, Phase 1", () => {
     const phone = await context.newPage();
     await stubPublicFacts(phone, {
       facts: [factDetail({ id: 552, text: "{NAME} makes onions cry." })],
-      memeDetails: [memeDetail({ id: 5521, factId: 552, permalinkSlug: "e2e-landing-phone", factText: "Nick Baron makes onions cry." })],
+      memeDetails: [memeDetail({ id: 5521, factId: 552, permalinkSlug: "e2e-landing-phone", factText: "David Franklin makes onions cry." })],
       images: ["/api/memes/e2e-landing-phone/image"],
     });
     await phone.goto("/m/e2e-landing-phone");
@@ -171,7 +171,7 @@ test.describe("Identity flow, Phase 1", () => {
     const context = await browser.newContext({ viewport: { width: 375, height: 667 }, hasTouch: true, isMobile: true });
     const phone = await context.newPage();
     await stubPublicFacts(phone, { facts: [] });
-    await phone.goto("/?displayName=Grace");
+    await phone.goto("/?displayName=Raena");
     const s = sheet(phone);
     await expect(s).toBeVisible();
     await s.getByRole("button", { name: /^custom(\.\.\.|…)$/i }).click();
@@ -183,7 +183,7 @@ test.describe("Identity flow, Phase 1", () => {
     await s.getByRole("button", { name: "they/them" }).click();
     await s.getByTestId("identity-save").click();
     await expect(sheet(phone)).toHaveCount(0);
-    expect(await stored(phone)).toEqual({ name: "Grace", pronouns: "they/them" });
+    expect(await stored(phone)).toEqual({ name: "Raena", pronouns: "they/them" });
     await context.close();
   });
 
@@ -203,11 +203,11 @@ test.describe("Identity flow, Phase 1", () => {
     await page.route("**/api/users/me", (route) => route.fulfill({ json: { displayName: null, pronouns: null } }));
     await stubPublicFacts(page, { facts: [] });
 
-    await page.goto("/?displayName=Grace&pronouns=she%2Fher");
+    await page.goto("/?displayName=Raena&pronouns=she%2Fher");
     await page.waitForTimeout(800);
     // Nothing from the link is written while sign-in is unresolved, and the link stays in the address bar.
     expect(await stored(page)).toEqual({ name: null, pronouns: null });
-    expect(new URL(page.url()).searchParams.get("displayName")).toBe("Grace");
+    expect(new URL(page.url()).searchParams.get("displayName")).toBe("Raena");
 
     // Reload in that window, then let sign-in resolve.
     gate = Promise.resolve();
@@ -224,7 +224,7 @@ test.describe("Identity flow, Phase 1", () => {
     test(`keyboard focus moves into the sheet and stays there (${viewport.width}px, name already known)`, async ({ page }) => {
       await page.setViewportSize(viewport);
       await stubPublicFacts(page, { facts: [] });
-      await page.goto("/?displayName=Grace");
+      await page.goto("/?displayName=Raena");
       const s = sheet(page);
       await expect(s).toBeVisible();
       const insideSheet = () => s.evaluate((el) => el.contains(document.activeElement));
@@ -246,8 +246,8 @@ test.describe("Identity flow, Phase 1", () => {
     await page.goto("/facts/561/meme");
     await expect(sheet(page)).toBeVisible();
     await expect(page.getByRole("button", { name: "Make my meme" })).toHaveCount(0);
-    await saveIdentity(page, "Grace");
-    await expect(page.getByText(/Grace out-ran the weekend/i).filter({ visible: true }).first()).toBeVisible();
+    await saveIdentity(page, "Raena");
+    await expect(page.getByText(/Raena out-ran the weekend/i).filter({ visible: true }).first()).toBeVisible();
   });
 
   test("a name with no pronoun suggestion cannot be saved until the visitor picks pronouns", async ({ page }) => {
@@ -268,14 +268,14 @@ test.describe("Identity flow, Phase 1", () => {
     await expect(sheet(page)).toBeVisible();
     const other = await context.newPage();
     await stubPublicFacts(other, { facts: [] });
-    await other.goto("/?displayName=Ada");
-    await expect.poll(() => stored(other).then((v) => v.name)).toBe("Ada");
+    await other.goto("/?displayName=Alex");
+    await expect.poll(() => stored(other).then((v) => v.name)).toBe("Alex");
     const s = sheet(page);
     await expect(s.getByRole("heading", { name: /pick your pronouns/i })).toBeVisible();
-    await expect(s.getByTestId("identity-name-input")).toHaveValue("Ada");
+    await expect(s.getByTestId("identity-name-input")).toHaveValue("Alex");
     await s.getByRole("button", { name: "they/them" }).click();
     await s.getByTestId("identity-save").click();
-    expect(await stored(page)).toEqual({ name: "Ada", pronouns: "they/them" });
+    expect(await stored(page)).toEqual({ name: "Alex", pronouns: "they/them" });
   });
 
   test("signing out clears the browser copy, so the next page asks", async ({ page }) => {
@@ -283,7 +283,7 @@ test.describe("Identity flow, Phase 1", () => {
     await page.goto("/profile");
     // Stored once (not by an init script, which would re-seed after the sign-out redirect).
     await page.evaluate(() => {
-      localStorage.setItem("fact_db_name", "Ada");
+      localStorage.setItem("fact_db_name", "Alex");
       localStorage.setItem("fact_db_pronouns", "she/her");
     });
     await page.getByRole("button", { name: /sign out/i }).first().click();
@@ -304,7 +304,7 @@ test.describe("Identity flow, Phase 3: in-page actions ask first, then run", () 
     const phone = await context.newPage();
     await stubPublicFacts(phone, {
       facts: [factDetail({ id: 571, text: "{NAME} out-paced the rain." })],
-      memeDetails: [memeDetail({ id: 5711, factId: 571, permalinkSlug: "e2e-search-opener", factText: "Kai out-paced the rain." })],
+      memeDetails: [memeDetail({ id: 5711, factId: 571, permalinkSlug: "e2e-search-opener", factText: "Alex out-paced the rain." })],
       images: ["/api/memes/e2e-search-opener/image"],
     });
     await phone.goto("/m/e2e-search-opener");
@@ -314,7 +314,7 @@ test.describe("Identity flow, Phase 3: in-page actions ask first, then run", () 
     await expect(search).toHaveCount(0);
     await phone.getByRole("button", { name: "Search" }).filter({ visible: true }).first().tap();
     await expect(sheet(phone)).toBeVisible();
-    await saveIdentity(phone, "Sarah");
+    await saveIdentity(phone, "Raena");
     await expect(search.first()).toBeVisible();
     await context.close();
   });
@@ -323,8 +323,8 @@ test.describe("Identity flow, Phase 3: in-page actions ask first, then run", () 
     await stubPublicFacts(page, { facts: [factDetail({ id: 571, text: "{NAME} out-paced the rain." })] });
     await page.goto("/facts/571");
     await expect(sheet(page)).toBeVisible();
-    await saveIdentity(page, "Sarah");
-    await expect(page.getByText(/Sarah out-paced the rain/i).filter({ visible: true }).first()).toBeVisible();
+    await saveIdentity(page, "Raena");
+    await expect(page.getByText(/Raena out-paced the rain/i).filter({ visible: true }).first()).toBeVisible();
     await page.getByTitle("Share").filter({ visible: true }).first().click();
     await expect(page.getByRole("dialog").filter({ hasText: /share/i }).first()).toBeVisible();
     await expect(sheet(page)).toHaveCount(0);
@@ -334,7 +334,7 @@ test.describe("Identity flow, Phase 3: in-page actions ask first, then run", () 
     await stubPublicFacts(page, { facts: [factDetail({ id: 573, text: "{NAME} folds fitted sheets." })] });
     await page.goto("/facts/573");
     await expect(sheet(page)).toBeVisible();
-    await saveIdentity(page, "Emily");
+    await saveIdentity(page, "Raena");
     // The below-fold sections mount after the hold releases (Phase 4, Astra round 2).
     const sort = page.getByLabel("Sort memes");
     await expect(sort).toBeVisible();
@@ -346,7 +346,7 @@ test.describe("Identity flow, Phase 3: in-page actions ask first, then run", () 
   test("on a shared meme, a signed-out heart goes straight to sign-in without asking (P3-1)", async ({ page }) => {
     await stubPublicFacts(page, {
       facts: [factDetail({ id: 591, text: "{NAME} out-stared the sun." })],
-      memeDetails: [memeDetail({ id: 5911, factId: 591, permalinkSlug: "e2e-heart", factText: "Kai out-stared the sun." })],
+      memeDetails: [memeDetail({ id: 5911, factId: 591, permalinkSlug: "e2e-heart", factText: "Alex out-stared the sun." })],
       images: ["/api/memes/e2e-heart/image"],
     });
     await page.goto("/m/e2e-heart");
@@ -386,23 +386,23 @@ test.describe("Identity flow, Phase 4: a fact page asks first; the name tag show
     releaseAuth();
     await expect(sheet(page)).toBeVisible();
     expect(await factSeen()).toBe(false);
-    await saveIdentity(page, "Sarah");
-    await expect(page.getByText(/Sarah raced the dawn/i).filter({ visible: true }).first()).toBeVisible();
+    await saveIdentity(page, "Raena");
+    await expect(page.getByText(/Raena raced the dawn/i).filter({ visible: true }).first()).toBeVisible();
     await expect(page.getByRole("heading", { name: "Memes from this fact" })).toBeVisible();
   });
 
   test("a fact page with a saved name shows the fact with no sheet", async ({ page }) => {
-    await seedIdentity(page, "Grace", "she/her");
+    await seedIdentity(page, "Raena", "she/her");
     await stubPublicFacts(page, { facts: [factDetail({ id: 602, text: "{NAME} raced the dawn." })] });
     await page.goto("/facts/602");
-    await expect(page.getByText(/Grace raced the dawn/i).filter({ visible: true }).first()).toBeVisible();
+    await expect(page.getByText(/Raena raced the dawn/i).filter({ visible: true }).first()).toBeVisible();
     await expectNoSheet(page);
   });
 
   test("a cold shared meme still shows first, and its name tag shows no pronouns nobody chose", async ({ page }) => {
     await stubPublicFacts(page, {
       facts: [factDetail({ id: 603, text: "{NAME} raced the dawn." })],
-      memeDetails: [memeDetail({ id: 6031, factId: 603, permalinkSlug: "e2e-tag", factText: "Kai raced the dawn." })],
+      memeDetails: [memeDetail({ id: 6031, factId: 603, permalinkSlug: "e2e-tag", factText: "Alex raced the dawn." })],
       images: ["/api/memes/e2e-tag/image"],
     });
     await page.goto("/m/e2e-tag");

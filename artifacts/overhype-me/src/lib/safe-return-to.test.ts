@@ -148,7 +148,7 @@ describe("every sign-in entry point carries the page you were on", () => {
 
 describe("onboardAfterVerify (Issue #1203)", () => {
   it("ends set-up on the page the sign-up came from", () => {
-    expect(onboardAfterVerify("/fact/42?name=Sam")).toBe("/onboard?returnTo=%2Ffact%2F42%3Fname%3DSam&verified=1");
+    expect(onboardAfterVerify("/fact/42?name=Alex")).toBe("/onboard?returnTo=%2Ffact%2F42%3Fname%3DAlex&verified=1");
   });
   it("falls back to the profile exactly as before when there is no page, or an unsafe one", () => {
     const before = "/onboard?returnTo=%2Fprofile%3FemailVerified%3D1&verified=1";

@@ -27,7 +27,7 @@ describe("graphemeSafeTruncate", () => {
   });
 
   it("truncates to the exact grapheme count for plain ASCII", () => {
-    assert.equal(graphemeSafeTruncate("Alexandratown", 5), "Alexa");
+    assert.equal(graphemeSafeTruncate("Davidsonville", 5), "David");
   });
 
   it("never splits a surrogate-pair emoji mid-codepoint", () => {
@@ -50,7 +50,7 @@ describe("reducePromptName", () => {
   // #709: the display name is the one the member chose (and the one onboarding
   // checked); firstName may be whatever their Google or Apple account holds.
   it("prefers the first token of displayName, the name the member chose, over a provider's firstName", () => {
-    assert.equal(reducePromptName({ firstName: "Robert", displayName: "Bob Franklin" }), "Bob");
+    assert.equal(reducePromptName({ firstName: "Alex", displayName: "David Franklin" }), "David");
   });
 
   it("uses the first token of displayName when firstName is absent", () => {
@@ -74,7 +74,7 @@ describe("reducePromptName", () => {
   });
 
   it("reduces a multi-word displayName to only its first token, not a truncated fragment of the whole string", () => {
-    assert.equal(reducePromptName({ displayName: "Alexandra Smith-Jones" }), "Alexandra");
+    assert.equal(reducePromptName({ displayName: "Raena Franklin-Jones" }), "Raena");
   });
 
   it("trims surrounding whitespace", () => {
@@ -133,9 +133,9 @@ describe("snapshot builders", () => {
   });
 
   it("resolvePromptIdentityFromSample supports eval_sample too", () => {
-    const snap = resolvePromptIdentityFromSample({ name: "Sam Rivera", pronouns: "she/her" }, "eval_sample");
+    const snap = resolvePromptIdentityFromSample({ name: "Raena Franklin", pronouns: "she/her" }, "eval_sample");
     assert.equal(snap.source, "eval_sample");
-    assert.equal(snap.name, "Sam");
+    assert.equal(snap.name, "Raena");
   });
 
   it("resolvePromptIdentityForWorkbench reduces the test name and tags workbench (distinct from canonical_fallback)", () => {

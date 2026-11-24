@@ -103,7 +103,7 @@ describe("POST /api/admin/users/:id/correct-date-of-birth", () => {
 
     // Set-up keeps the corrected date whatever the form sends.
     const done = await request(app).post("/api/users/me/onboarding").set("authorization", `Bearer ${sid}`).send({
-      displayName: "Sam Rivera", pronouns: "they/them", ...parts(yearsAgo(40)), marketingOptIn: false,
+      displayName: "Alex Franklin", pronouns: "they/them", ...parts(yearsAgo(40)), marketingOptIn: false,
       captchaToken: "dev-bypass", legalAcceptance: requiredLegalVersions(),
     });
     assert.equal(done.status, 200, JSON.stringify(done.body));
@@ -121,7 +121,7 @@ describe("POST /api/admin/users/:id/correct-date-of-birth", () => {
     assert.equal((await correct(admin, id, corrected)).status, 200);
     const sid = await bearer(id);
     const res = await request(createApp()).post("/api/users/me/onboarding").set("authorization", `Bearer ${sid}`).send({
-      displayName: "Sam Rivera", pronouns: "they/them", ...parts(yearsAgo(15)), marketingOptIn: false,
+      displayName: "Alex Franklin", pronouns: "they/them", ...parts(yearsAgo(15)), marketingOptIn: false,
       captchaToken: "dev-bypass", legalAcceptance: requiredLegalVersions(),
     });
     assert.equal(res.status, 200, JSON.stringify(res.body));

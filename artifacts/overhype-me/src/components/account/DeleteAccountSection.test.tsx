@@ -14,7 +14,7 @@ const WIZARD_KEY = "pending_meme_wizard_v2::42";
 
 /** The member's identity and a meme draft in this browser, as a signed-in member leaves them. */
 function seedBrowser() {
-  window.localStorage.setItem("fact_db_name", "Leaver");
+  window.localStorage.setItem("fact_db_name", "David");
   window.localStorage.setItem("fact_db_pronouns", "they/them");
   window.sessionStorage.setItem(WIZARD_KEY, JSON.stringify({ factId: 42 }));
 }
@@ -76,7 +76,7 @@ describe("DeleteAccountSection", () => {
     expect((await screen.findByRole("alert")).textContent).toBe("That password is not right.");
     expect(go).not.toHaveBeenCalled();
     expect(window.sessionStorage.getItem(WIZARD_KEY), "a failed attempt forgets nothing").not.toBeNull();
-    expect(window.localStorage.getItem("fact_db_name")).toBe("Leaver");
+    expect(window.localStorage.getItem("fact_db_name")).toBe("David");
   });
 
   it("a provider-only account is offered a fresh sign-in that comes back here", async () => {

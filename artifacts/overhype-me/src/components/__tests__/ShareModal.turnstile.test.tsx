@@ -34,9 +34,9 @@ const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
 
 async function reachEmailStep() {
   render(<ShareModal open onClose={() => {}} path="/" />);
-  fireEvent.change(screen.getByPlaceholderText(/e\.g\. David/), { target: { value: "Sam" } });
+  fireEvent.change(screen.getByPlaceholderText(/e\.g\. David/), { target: { value: "Alex" } });
   fireEvent.click(await screen.findByRole("button", { name: /next/i }));
-  fireEvent.change(await screen.findByPlaceholderText(/@example\.com/), { target: { value: "sam@example.com" } });
+  fireEvent.change(await screen.findByPlaceholderText(/@example\.com/), { target: { value: "alex@example.com" } });
 }
 
 describe("ShareModal — share by email", () => {

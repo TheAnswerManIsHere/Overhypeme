@@ -167,12 +167,12 @@ describe("with the switch on", () => {
 
   it("a member may save a name and pronouns, and nothing else on the profile (Q11)", async () => {
     const app = createApp();
-    const ok = await request(app).patch("/api/users/me").set("authorization", `Bearer ${sid}`).send({ displayName: "Ada", pronouns: "she/her" });
+    const ok = await request(app).patch("/api/users/me").set("authorization", `Bearer ${sid}`).send({ displayName: "Raena", pronouns: "she/her" });
     assert.notEqual(ok.body?.code, READ_ONLY_CODE);
     assert.equal(ok.status, 200, JSON.stringify(ok.body));
     const [row] = await db.select({ displayName: usersTable.displayName }).from(usersTable).where(eq(usersTable.id, memberId));
-    assert.equal(row?.displayName, "Ada");
-    for (const body of [{ displayName: "Ada", firstName: "Ada" }, { email: "x@test.local" }, {}]) {
+    assert.equal(row?.displayName, "Raena");
+    for (const body of [{ displayName: "Raena", firstName: "Raena" }, { email: "x@test.local" }, {}]) {
       const res = await request(app).patch("/api/users/me").set("authorization", `Bearer ${sid}`).send(body);
       assert.equal(res.body?.code, READ_ONLY_CODE, JSON.stringify(body));
     }

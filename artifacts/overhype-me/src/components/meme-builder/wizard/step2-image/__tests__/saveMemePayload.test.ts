@@ -8,7 +8,7 @@ function baseState(): WizardRuntimeState {
     generation: { status: "idle" },
     aspectRatio: "landscape",
     framingOffset: { x: 0, y: 0 },
-    name: "Quinn",
+    name: "Alex",
     pronouns: "they/them",
     textOptions: { topText: "TOP", bottomText: "BOTTOM" },
   };

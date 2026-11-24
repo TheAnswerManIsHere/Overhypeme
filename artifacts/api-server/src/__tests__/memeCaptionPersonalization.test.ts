@@ -43,10 +43,10 @@ describe("personalizeMemeTextOptions", () => {
   it("substitutes {NAME} in both split halves", () => {
     const out = personalizeMemeTextOptions(
       { topText: "{NAME} makes", bottomText: "onions cry." },
-      "Nick Baron",
+      "David Franklin",
       "he/him",
     );
-    assert.equal(out?.topText, "Nick Baron makes");
+    assert.equal(out?.topText, "David Franklin makes");
     assert.equal(out?.bottomText, "onions cry.");
   });
 
@@ -55,10 +55,10 @@ describe("personalizeMemeTextOptions", () => {
     // that only personalized topText would still ship the bug.
     const out = personalizeMemeTextOptions(
       { topText: "Onions cry", bottomText: "because of {NAME}." },
-      "Nick Baron",
+      "David Franklin",
       "he/him",
     );
-    assert.equal(out?.bottomText, "because of Nick Baron.");
+    assert.equal(out?.bottomText, "because of David Franklin.");
   });
 
   it("conjugates plural for they/them and singular for he/him inside a half", () => {
@@ -67,14 +67,14 @@ describe("personalizeMemeTextOptions", () => {
     // treatment the whole sentence gets.
     const they = personalizeMemeTextOptions(
       { topText: "{Subj} {keeps|keep}", bottomText: "going." },
-      "Sam",
+      "Alex",
       "they/them",
     );
     assert.equal(they?.topText, "They keep");
 
     const he = personalizeMemeTextOptions(
       { topText: "{Subj} {keeps|keep}", bottomText: "going." },
-      "Sam",
+      "Alex",
       "he/him",
     );
     assert.equal(he?.topText, "He keeps");
@@ -83,7 +83,7 @@ describe("personalizeMemeTextOptions", () => {
   it("resolves the full pronoun token set, not just {NAME}", () => {
     const out = personalizeMemeTextOptions(
       { topText: "{Poss} dog knows {OBJ}", bottomText: "better than {REFL}." },
-      "Sam",
+      "Alex",
       "they/them",
     );
     assert.equal(out?.topText, "Their dog knows them");
@@ -102,7 +102,7 @@ describe("personalizeMemeTextOptions", () => {
   it("leaves a half with no tokens byte-identical", () => {
     const out = personalizeMemeTextOptions(
       { topText: "Onions cry", bottomText: "on sight." },
-      "Nick Baron",
+      "David Franklin",
       "he/him",
     );
     assert.equal(out?.topText, "Onions cry");
@@ -119,7 +119,7 @@ describe("personalizeMemeTextOptions", () => {
       textEffect: "shadow",
       outlineColor: "#123456",
     };
-    const out = personalizeMemeTextOptions(input, "Nick", "he/him");
+    const out = personalizeMemeTextOptions(input, "David", "he/him");
     assert.equal(out?.fontSize, 42);
     assert.equal(out?.fontFamily, "Impact");
     assert.equal(out?.allCaps, false);
@@ -130,9 +130,9 @@ describe("personalizeMemeTextOptions", () => {
   });
 
   it("passes through undefined options and undefined halves", () => {
-    assert.equal(personalizeMemeTextOptions(undefined, "Nick", "he/him"), undefined);
-    const onlyTop = personalizeMemeTextOptions<TextOptions>({ topText: "{NAME} wins" }, "Nick", "he/him");
-    assert.equal(onlyTop?.topText, "Nick wins");
+    assert.equal(personalizeMemeTextOptions(undefined, "David", "he/him"), undefined);
+    const onlyTop = personalizeMemeTextOptions<TextOptions>({ topText: "{NAME} wins" }, "David", "he/him");
+    assert.equal(onlyTop?.topText, "David wins");
     assert.equal(onlyTop?.bottomText, undefined);
   });
 
@@ -146,26 +146,26 @@ describe("personalizeMemeTextOptions", () => {
 
 describe("resolveTextBlocks — the generator's last line of defence", () => {
   it("uses the fact sentence when no split pair was sent", () => {
-    assert.deepEqual(resolveTextBlocks("Nick makes onions cry.", undefined), {
+    assert.deepEqual(resolveTextBlocks("David makes onions cry.", undefined), {
       mode: "single",
-      text: "Nick makes onions cry.",
+      text: "David makes onions cry.",
     });
   });
 
   it("uses the split pair when both halves are already resolved", () => {
     assert.deepEqual(
-      resolveTextBlocks("Nick makes onions cry.", {
-        topText: "Nick makes",
+      resolveTextBlocks("David makes onions cry.", {
+        topText: "David makes",
         bottomText: "onions cry.",
       }),
-      { mode: "split", topText: "Nick makes", bottomText: "onions cry." },
+      { mode: "split", topText: "David makes", bottomText: "onions cry." },
     );
   });
 
   it("treats a single defined half as a split (the other half is empty)", () => {
-    assert.deepEqual(resolveTextBlocks("Nick wins.", { topText: "Nick wins." }), {
+    assert.deepEqual(resolveTextBlocks("David wins.", { topText: "David wins." }), {
       mode: "split",
-      topText: "Nick wins.",
+      topText: "David wins.",
       bottomText: "",
     });
   });
@@ -174,21 +174,21 @@ describe("resolveTextBlocks — the generator's last line of defence", () => {
     // This is the guard: a caller that forgets personalizeMemeTextOptions gets
     // a mispositioned caption, never a visible "{NAME}".
     assert.deepEqual(
-      resolveTextBlocks("Nick makes onions cry.", {
+      resolveTextBlocks("David makes onions cry.", {
         topText: "{NAME} makes",
         bottomText: "onions cry.",
       }),
-      { mode: "single", text: "Nick makes onions cry." },
+      { mode: "single", text: "David makes onions cry." },
     );
   });
 
   it("fires the fallback for a tokenized BOTTOM half too", () => {
     assert.deepEqual(
-      resolveTextBlocks("Onions cry because of Nick.", {
+      resolveTextBlocks("Onions cry because of David.", {
         topText: "Onions cry",
         bottomText: "because of {NAME}.",
       }),
-      { mode: "single", text: "Onions cry because of Nick." },
+      { mode: "single", text: "Onions cry because of David." },
     );
   });
 
@@ -231,11 +231,11 @@ describe("resolveStoredMemeCaption — what a saved meme re-renders with", () =>
   it("personalizes the sentence AND both halves with the creator's identity", () => {
     const out = resolveStoredMemeCaption(
       fact,
-      { displayName: "Nick Baron", pronouns: "he/him" },
+      { displayName: "David Franklin", pronouns: "he/him" },
       storedOptions,
     );
-    assert.equal(out.factText, "Nick Baron makes onions cry.");
-    assert.equal(out.textOptions?.topText, "Nick Baron makes");
+    assert.equal(out.factText, "David Franklin makes onions cry.");
+    assert.equal(out.textOptions?.topText, "David Franklin makes");
     assert.equal(out.textOptions?.bottomText, "onions cry.");
     assert.equal(out.textOptions?.fontSize, 30);
   });
@@ -248,7 +248,7 @@ describe("resolveStoredMemeCaption — what a saved meme re-renders with", () =>
     for (const pronouns of ["he/him", "she/her", "they/them", "xe/xem", "ze/zir"]) {
       const out = resolveStoredMemeCaption(
         { text: "{Subj} {keeps|keep} {POSS} cool.", canonicalText: "They keep their cool." },
-        { displayName: "Sam", pronouns },
+        { displayName: "Alex", pronouns },
         { topText: "{Subj} {keeps|keep}", bottomText: "{POSS} cool." },
       );
       const blocks = resolveTextBlocks(out.factText, out.textOptions);
@@ -271,7 +271,7 @@ describe("resolveStoredMemeCaption — what a saved meme re-renders with", () =>
     ] as const) {
       const out = resolveStoredMemeCaption(
         { text: template, canonicalText: "They keep their cool." },
-        { displayName: "Sam", pronouns },
+        { displayName: "Alex", pronouns },
         { topText: template, bottomText: "" },
       );
       assert.equal(out.textOptions?.topText, expected, pronouns);
@@ -288,7 +288,7 @@ describe("resolveStoredMemeCaption — what a saved meme re-renders with", () =>
     // "no braces left".
     const zir = resolveStoredMemeCaption(
       { text: "{Subj} keeps {POSS} cool.", canonicalText: "They keep their cool." },
-      { displayName: "Sam", pronouns: "ze/zir" },
+      { displayName: "Alex", pronouns: "ze/zir" },
       { topText: "{Subj} keeps", bottomText: "{POSS} cool." },
     );
     assert.equal(zir.textOptions?.topText, "Ze keeps");
@@ -296,7 +296,7 @@ describe("resolveStoredMemeCaption — what a saved meme re-renders with", () =>
 
     const xyr = resolveStoredMemeCaption(
       { text: "{Subj} keeps {POSS} cool.", canonicalText: "They keep their cool." },
-      { displayName: "Sam", pronouns: "xe/xem" },
+      { displayName: "Alex", pronouns: "xe/xem" },
       { topText: "{Subj} keeps", bottomText: "{POSS} cool." },
     );
     assert.equal(xyr.textOptions?.topText, "Xe keeps");
@@ -318,13 +318,13 @@ describe("resolveStoredMemeCaption — what a saved meme re-renders with", () =>
   });
 
   it("tolerates a meme row with no stored text options", () => {
-    const out = resolveStoredMemeCaption(fact, { displayName: "Nick", pronouns: "he/him" }, null);
-    assert.equal(out.factText, "Nick makes onions cry.");
+    const out = resolveStoredMemeCaption(fact, { displayName: "David", pronouns: "he/him" }, null);
+    assert.equal(out.factText, "David makes onions cry.");
     assert.equal(out.textOptions, undefined);
   });
 
   it("tolerates a missing fact row", () => {
-    const out = resolveStoredMemeCaption(undefined, { displayName: "Nick", pronouns: "he/him" }, null);
+    const out = resolveStoredMemeCaption(undefined, { displayName: "David", pronouns: "he/him" }, null);
     assert.equal(out.factText, "");
   });
 });
@@ -349,7 +349,7 @@ describe("composeMeme — split captions render personalized (end to end)", () =
     // byte-identical. This assertion fails on the unfixed code.
     const tokenized = await composeMeme({
       factTextTemplate: "{NAME} makes onions cry.",
-      name: "Nick Baron",
+      name: "David Franklin",
       pronouns: "he/him",
       imageSource,
       textOptions: { topText: "{NAME} makes", bottomText: "onions cry." },
@@ -358,8 +358,8 @@ describe("composeMeme — split captions render personalized (end to end)", () =
     // The same words typed out by hand, the name marked as the name (it is
     // drawn in its own colour, #870).
     const literal = await renderLiteral(
-      { mode: "split", top: [{ text: "Nick Baron", isName: true }, { text: " makes", isName: false }], bottom: [{ text: "onions cry.", isName: false }] },
-      { topText: "Nick Baron makes", bottomText: "onions cry." },
+      { mode: "split", top: [{ text: "David Franklin", isName: true }, { text: " makes", isName: false }], bottom: [{ text: "onions cry.", isName: false }] },
+      { topText: "David Franklin makes", bottomText: "onions cry." },
     );
     assert.equal(sha256(tokenized.buffer), sha256(literal));
   });
@@ -374,15 +374,15 @@ describe("composeMeme — split captions render personalized (end to end)", () =
       textOptions: { topText: "{NAME} makes", bottomText: "onions cry." },
       aspectRatio: "landscape" as const,
     };
-    const nick = await composeMeme({ ...base, name: "Nick Baron" });
-    const jordan = await composeMeme({ ...base, name: "Jordan" });
-    assert.notEqual(sha256(nick.buffer), sha256(jordan.buffer));
+    const david = await composeMeme({ ...base, name: "David Franklin" });
+    const alex = await composeMeme({ ...base, name: "Alex" });
+    assert.notEqual(sha256(david.buffer), sha256(alex.buffer));
   });
 
   it("conjugates the split caption by pronoun plurality", async () => {
     const base = {
       factTextTemplate: "{Subj} {keeps|keep} the receipts.",
-      name: "Sam",
+      name: "Alex",
       imageSource,
       textOptions: { topText: "{Subj} {keeps|keep}", bottomText: "the receipts." },
       aspectRatio: "landscape" as const,
@@ -403,13 +403,13 @@ describe("composeMeme — split captions render personalized (end to end)", () =
   it("leaves the single-block (no split) path unchanged", async () => {
     const withSplit = await composeMeme({
       factTextTemplate: "{NAME} makes onions cry.",
-      name: "Nick",
+      name: "David",
       pronouns: "he/him",
       imageSource,
       aspectRatio: "landscape",
     });
     const again = await renderLiteral(
-      { mode: "single", text: [{ text: "Nick", isName: true }, { text: " makes onions cry.", isName: false }] },
+      { mode: "single", text: [{ text: "David", isName: true }, { text: " makes onions cry.", isName: false }] },
       undefined,
     );
     assert.equal(sha256(withSplit.buffer), sha256(again));

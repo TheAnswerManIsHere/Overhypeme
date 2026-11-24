@@ -22,10 +22,10 @@ const SHEET: FactSheetView = {
   updatedAt: "2026-11-02T10:00:00Z",
   splitTokenIndex: null,
   submittedById: "u1",
-  submittedByName: "Sam Submitter",
+  submittedByName: "Alex Submitter",
   approvedAt: "2026-11-03T10:00:00Z",
   approvalSource: "moderator",
-  approvedByName: "Dee Admin",
+  approvedByName: "Raena Admin",
   upvotes: 12,
   downvotes: 2,
   score: 10,
@@ -51,7 +51,7 @@ const SHEET: FactSheetView = {
       error: null, createdAt: "2026-11-01T10:00:00Z", completedAt: "2026-11-01T10:01:00Z",
     },
     approved: { text: "The joke is who blinks first.", readingId: 5, approvedBy: "a1", approvedAt: "2026-11-02T10:00:00Z" },
-    approvedByName: "Dee Admin",
+    approvedByName: "Raena Admin",
   },
 } as FactSheetView;
 
@@ -112,8 +112,8 @@ describe("FactSheet", () => {
     await screen.findByTestId("sheet-group-identity");
     for (const g of ["identity", "scoring", "usage", "pictures", "hashtags"]) expect(screen.getByTestId(`sheet-group-${g}`)).toBeTruthy();
     const identity = screen.getByTestId("sheet-group-identity");
-    expect((identity).textContent).toContain("Sam Submitter");
-    expect((identity).textContent).toContain("Dee Admin");
+    expect((identity).textContent).toContain("Alex Submitter");
+    expect((identity).textContent).toContain("Raena Admin");
     expect((identity).textContent).toContain("#9");
     expect((screen.getByTestId("sheet-group-usage")).textContent).toContain("5");
     expect((screen.getByTestId("sheet-pictures-gag-1")).textContent).toContain("no female and pet example published");
@@ -419,10 +419,10 @@ describe("FactSheet", () => {
   it("History: every recorded action, newest first, in words, with who and the review", async () => {
     const calls = stub(SHEET, {
       history: [
-        { id: 3, action: "publish", reviewId: null, actorId: "a1", actorName: "Dee Admin", detail: { published: 1, removed: 0, unchanged: 1 }, createdAt: "2026-11-24T12:00:00Z" },
+        { id: 3, action: "publish", reviewId: null, actorId: "a1", actorName: "Raena Admin", detail: { published: 1, removed: 0, unchanged: 1 }, createdAt: "2026-11-24T12:00:00Z" },
         { id: 2, action: "hashtags_save", reviewId: null, actorId: null, actorName: null, detail: { added: ["sun"], removed: ["moon"] }, createdAt: "2026-11-23T12:00:00Z" },
         { id: 1, action: "duplicate_check", reviewId: 9, actorId: null, actorName: null, detail: { outcome: "distinct" }, createdAt: "2026-11-01T12:00:00Z" },
-        { id: 0, action: "an_action_from_a_later_build", reviewId: null, actorId: "a1", actorName: "Dee Admin", detail: {}, createdAt: "2026-10-01T12:00:00Z" },
+        { id: 0, action: "an_action_from_a_later_build", reviewId: null, actorId: "a1", actorName: "Raena Admin", detail: {}, createdAt: "2026-10-01T12:00:00Z" },
       ],
     });
     open();
@@ -431,7 +431,7 @@ describe("FactSheet", () => {
     const entries = await screen.findAllByTestId("sheet-history-entry");
     expect(entries.map((e) => e.querySelector("span")!.textContent)).toEqual(["Changes published", "Hashtags changed", "Duplicate check", "an_action_from_a_later_build"]);
     expect(entries[0]!.textContent).toContain("1 gag published");
-    expect(entries[0]!.textContent).toContain("Dee Admin");
+    expect(entries[0]!.textContent).toContain("Raena Admin");
     expect(entries[1]!.textContent).toContain("added #sun; removed #moon");
     expect(entries[1]!.textContent).toContain("No admin on record");
     expect(entries[1]!.textContent).not.toContain("system");

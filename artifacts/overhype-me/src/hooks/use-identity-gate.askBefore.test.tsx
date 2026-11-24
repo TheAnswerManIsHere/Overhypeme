@@ -62,7 +62,7 @@ beforeEach(() => {
 
 describe("askBefore — signed out", () => {
   it("runs at once when the identity is complete", () => {
-    localStorage.setItem("fact_db_name", "Sarah");
+    localStorage.setItem("fact_db_name", "Raena");
     localStorage.setItem("fact_db_pronouns", "she/her");
     localStorage.setItem("fact_db_name_explicit", "1");
     const { result } = setup();
@@ -78,7 +78,7 @@ describe("askBefore — signed out", () => {
     expect(action).not.toHaveBeenCalled();
     expect(result.current.gate.shouldAsk).toBe(true);
     act(() => {
-      result.current.person.setName("Sarah");
+      result.current.person.setName("Raena");
       result.current.person.setPronouns("she/her");
     });
     rerender();
@@ -95,7 +95,7 @@ describe("askBefore — signed out", () => {
     act(() => result.current.askBefore(first));
     act(() => result.current.askBefore(second));
     act(() => {
-      result.current.person.setName("Sarah");
+      result.current.person.setName("Raena");
       result.current.person.setPronouns("she/her");
     });
     expect(first).not.toHaveBeenCalled();
@@ -108,14 +108,14 @@ describe("askBefore — signed out", () => {
     act(() => result.current.askBefore(action));
     go("/facts/9");
     act(() => {
-      result.current.person.setName("Sarah");
+      result.current.person.setName("Raena");
       result.current.person.setPronouns("she/her");
     });
     expect(action).not.toHaveBeenCalled();
   });
 
   it("waits while auth is unknown, then runs once it resolves with a complete identity", () => {
-    localStorage.setItem("fact_db_name", "Sarah");
+    localStorage.setItem("fact_db_name", "Raena");
     localStorage.setItem("fact_db_pronouns", "she/her");
     localStorage.setItem("fact_db_name_explicit", "1");
     auth.isLoading = true;
@@ -144,7 +144,7 @@ describe("askBefore — signed in", () => {
 
   it("waits for the ACCOUNT to complete, not the browser copy, then runs once", () => {
     auth.user = { displayName: null, pronouns: "she/her", eligibility: "eligible" };
-    localStorage.setItem("fact_db_name", "Sarah");
+    localStorage.setItem("fact_db_name", "Raena");
     localStorage.setItem("fact_db_pronouns", "she/her");
     localStorage.setItem("fact_db_name_explicit", "1");
     const { result, rerender } = setup();
@@ -153,7 +153,7 @@ describe("askBefore — signed in", () => {
     expect(action).not.toHaveBeenCalled();
     expect(result.current.gate.shouldAsk).toBe(true);
     // The account save's canonical re-read lands.
-    auth.user = { displayName: "Sarah", pronouns: "she/her", eligibility: "eligible" };
+    auth.user = { displayName: "Raena", pronouns: "she/her", eligibility: "eligible" };
     rerender();
     expect(action).toHaveBeenCalledTimes(1);
   });

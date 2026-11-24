@@ -63,10 +63,10 @@ afterEach(() => {
 
 describe("addresses leave as route patterns", () => {
   it("drops the query, the fragment and every dynamic segment", () => {
-    expect(routePattern("/facts/7?displayName=Alice&pronouns=she%2Fher#x")).toBe("/facts/:id");
+    expect(routePattern("/facts/7?displayName=Raena&pronouns=she%2Fher#x")).toBe("/facts/:id");
     expect(routePattern("/facts/7/comments")).toBe("/facts/:id/:sub");
     expect(routePattern("/m/alice-is-great")).toBe("/m/:slug");
-    expect(routePattern("/search?q=Alice")).toBe("/search");
+    expect(routePattern("/search?q=Raena")).toBe("/search");
     expect(routePattern("/reset-password?token=secret")).toBe("/reset-password");
     expect(routePattern("/privacy")).toBe("/privacy");
     expect(routePattern("/")).toBe("/");
@@ -88,7 +88,7 @@ describe("addresses leave as route patterns", () => {
   });
 
   it("a referrer is this site's pattern or another site's origin only", () => {
-    expect(cleanReferrer(`${window.location.origin}/facts/9?displayName=Bob`)).toBe(`${window.location.origin}/facts/:id`);
+    expect(cleanReferrer(`${window.location.origin}/facts/9?displayName=David`)).toBe(`${window.location.origin}/facts/:id`);
     expect(cleanReferrer("https://mail.example.com/inbox/Alice?thread=1")).toBe("https://mail.example.com");
     expect(cleanReferrer("")).toBe("");
   });
@@ -96,7 +96,7 @@ describe("addresses leave as route patterns", () => {
 
 describe("events carry only listed properties", () => {
   it("drops unknown keys and any plan that is not a code", () => {
-    const sneaky = { method: "password", name: "Alice", plan: "Alice's plan" } as unknown as Parameters<typeof cleanProperties>[0];
+    const sneaky = { method: "password", name: "Raena", plan: "Raena's plan" } as unknown as Parameters<typeof cleanProperties>[0];
     expect(cleanProperties(sneaky)).toEqual({ method: "password" });
     expect(cleanProperties({ plan: "legendary" })).toEqual({ plan: "legendary" });
   });
@@ -122,13 +122,13 @@ describe("with one vendor set", () => {
     vi.stubEnv("VITE_GA_MEASUREMENT_ID", "G-TEST123");
     vi.stubEnv("VITE_POSTHOG_KEY", "");
     startAnalytics();
-    page("/search?q=Alice");
+    page("/search?q=Raena");
     track("submit");
     await flush();
     expect(gaCalls().filter((c) => c[0] === "event" && c[1] === "page_view")).toHaveLength(1);
     expect(gaCalls()).toContainEqual(["event", "submit", {}]);
     expect(phInit).not.toHaveBeenCalled();
-    expect(JSON.stringify(gaCalls())).not.toContain("Alice");
+    expect(JSON.stringify(gaCalls())).not.toContain("Raena");
   });
 
   it("PostHog alone: PostHog receives the page view; no Google script is added", async () => {
@@ -136,7 +136,7 @@ describe("with one vendor set", () => {
     vi.stubEnv("VITE_POSTHOG_KEY", "phc_test123");
     startAnalytics();
     resetIdentity(); // the sign-in check answered: not signed in
-    page("/search?q=Alice");
+    page("/search?q=Raena");
     track("submit");
     await flush();
     expect(window.gtag).toBeUndefined();
@@ -153,13 +153,13 @@ describe("with both vendors set", () => {
   });
 
   it("starts both with their automatic collection off", async () => {
-    window.history.replaceState(null, "", "/facts/7?displayName=Alice");
+    window.history.replaceState(null, "", "/facts/7?displayName=Raena");
     startAnalytics();
     await flush();
     const config = gaCalls().find((c) => c[0] === "config")!;
     expect(config[1]).toBe("G-TEST123");
     expect(config[2]).toMatchObject({ send_page_view: false, allow_google_signals: false, allow_ad_personalization_signals: false });
-    expect(JSON.stringify(config)).not.toContain("Alice");
+    expect(JSON.stringify(config)).not.toContain("Raena");
     expect(phInit).toHaveBeenCalledOnce();
     expect(phInit.mock.calls[0][1]).toMatchObject({
       autocapture: false,
@@ -176,13 +176,13 @@ describe("with both vendors set", () => {
     startAnalytics();
     resetIdentity(); // the sign-in check answered: not signed in
     await flush();
-    page("/facts/7?displayName=Alice&q=Bob");
+    page("/facts/7?displayName=Raena&q=David");
     const views = gaCalls().filter((c) => c[0] === "event" && c[1] === "page_view");
     expect(views).toHaveLength(1);
     expect(phCapture).toHaveBeenCalledWith("$pageview", { __page_pattern: "/facts/:id" });
     const everything = JSON.stringify([gaCalls(), phCapture.mock.calls]);
-    expect(everything).not.toContain("Alice");
-    expect(everything).not.toContain("Bob");
+    expect(everything).not.toContain("Raena");
+    expect(everything).not.toContain("David");
   });
 
   it("a funnel event reaches both, under GA4's recommended name where there is one", async () => {
@@ -209,7 +209,7 @@ describe("with both vendors set", () => {
   it("a call queued before PostHog loads is filed under the page it was made on", async () => {
     startAnalytics();
     resetIdentity(); // the sign-in check answered: not signed in
-    page("/search?q=Alice");
+    page("/search?q=Raena");
     page("/pricing");
     await flush();
     const searchView = phCapture.mock.calls.find((c) => c[0] === "$pageview" && c[1].__page_pattern === "/search")!;
@@ -339,7 +339,7 @@ describe("PostHog sends nothing until it knows who is browsing", () => {
 describe("Google Analytics page fields live at one scope", () => {
   it("are set globally before config, and config carries none, so later events take the current page", () => {
     vi.stubEnv("VITE_GA_MEASUREMENT_ID", "G-TEST123");
-    window.history.replaceState(null, "", "/facts/7?displayName=Alice");
+    window.history.replaceState(null, "", "/facts/7?displayName=Raena");
     startAnalytics();
     const calls = gaCalls();
     const firstSet = calls.findIndex((c) => c[0] === "set");
@@ -354,7 +354,7 @@ describe("Google Analytics page fields live at one scope", () => {
     track("share", { platform: "copy_link" });
     const lastSet = [...gaCalls()].reverse().find((c) => c[0] === "set" && "page_title" in (c[1] as object));
     expect(lastSet?.[1]).toMatchObject({ page_title: "/pricing" });
-    expect(JSON.stringify(gaCalls())).not.toContain("Alice");
+    expect(JSON.stringify(gaCalls())).not.toContain("Raena");
   });
 });
 
@@ -403,20 +403,20 @@ describe("what PostHog adds by itself is scrubbed before sending", () => {
       uuid: "u",
       event: "submit",
       properties: {
-        $current_url: "https://overhype.me/m/alice-is-great?displayName=Alice",
+        $current_url: "https://overhype.me/m/alice-is-great?displayName=Raena",
         $pathname: "/m/alice-is-great",
-        $referrer: "https://overhype.me/search?q=Alice",
-        $title: "Alice is great",
-        $elements_chain: "a:text=\"Alice\"",
+        $referrer: "https://overhype.me/search?q=Raena",
+        $title: "Raena is great",
+        $elements_chain: "a:text=\"Raena\"",
         $browser: "Chrome",
-        $session_entry_url: "https://overhype.me/facts/1?displayName=Alice",
+        $session_entry_url: "https://overhype.me/facts/1?displayName=Raena",
         $session_entry_pathname: "/facts/1",
         some_future_url: "https://elsewhere.example/Alice?x=1",
       },
-      $set_once: { $initial_current_url: "https://overhype.me/facts/1?displayName=Alice", $initial_referrer: "https://x.example/Alice" },
+      $set_once: { $initial_current_url: "https://overhype.me/facts/1?displayName=Raena", $initial_referrer: "https://x.example/Alice" },
     } as never)!;
     const text = JSON.stringify(out);
-    expect(text).not.toContain("Alice");
+    expect(text).not.toContain("Raena");
     expect(out.properties.$current_url).toBe(`${window.location.origin}/m/:slug`);
     expect(out.properties.$browser).toBe("Chrome");
     expect(out.properties.$session_entry_pathname).toBe("/facts/:id");
@@ -426,18 +426,18 @@ describe("what PostHog adds by itself is scrubbed before sending", () => {
 
 describe("a landing address's campaign tags reach GA4 (fix after PR #1059)", () => {
   it("keeps only the listed tags, and only code-shaped values", () => {
-    expect(campaignQuery("?utm_source=newsletter&utm_medium=email&utm_campaign=launch-week&displayName=Alice&gclid=abc"))
+    expect(campaignQuery("?utm_source=newsletter&utm_medium=email&utm_campaign=launch-week&displayName=Raena&gclid=abc"))
       .toBe("?utm_source=newsletter&utm_medium=email&utm_campaign=launch-week");
-    expect(campaignQuery("?utm_term=Alice%20Smith&utm_content=alice%40example.com&utm_id=spring_2027")).toBe("?utm_id=spring_2027");
+    expect(campaignQuery("?utm_term=Raena%20Smith&utm_content=alice%40example.com&utm_id=spring_2027")).toBe("?utm_id=spring_2027");
     expect(campaignQuery("?utm_source=" + "a".repeat(101))).toBe("");
-    expect(campaignQuery("?q=Alice")).toBe("");
+    expect(campaignQuery("?q=Raena")).toBe("");
     expect(campaignQuery("")).toBe("");
   });
 
   it("the landing page view carries them, and the page after it does not", () => {
     vi.stubEnv("VITE_GA_MEASUREMENT_ID", "G-TEST123");
     vi.stubEnv("VITE_POSTHOG_KEY", "");
-    window.history.replaceState(null, "", "/facts/7?displayName=Alice&utm_source=newsletter&utm_campaign=launch-week&utm_term=Alice%20Smith");
+    window.history.replaceState(null, "", "/facts/7?displayName=Raena&utm_source=newsletter&utm_campaign=launch-week&utm_term=Raena%20Smith");
     startAnalytics();
     const landing = `${window.location.origin}/facts/:id?utm_source=newsletter&utm_campaign=launch-week`;
     // Before config, so even a hit sent before the first page view is attributed.
@@ -447,7 +447,7 @@ describe("a landing address's campaign tags reach GA4 (fix after PR #1059)", () 
     page("/pricing");
     expect(gaCalls()).toContainEqual(["event", "page_view", { page_location: `${window.location.origin}/pricing`, page_title: "/pricing" }]);
     expect(gaCalls().at(-2)).toEqual(["set", expect.objectContaining({ page_location: `${window.location.origin}/pricing` })]);
-    expect(JSON.stringify(gaCalls())).not.toContain("Alice");
+    expect(JSON.stringify(gaCalls())).not.toContain("Raena");
   });
 
   it("the tags are those of the address the page loaded with, not of a later one", async () => {
@@ -468,7 +468,7 @@ describe("a landing address's campaign tags reach GA4 (fix after PR #1059)", () 
   it("PostHog gets the landing tags for the session even after the visitor has moved on (owed after PR #1069)", async () => {
     vi.stubEnv("VITE_GA_MEASUREMENT_ID", "");
     vi.stubEnv("VITE_POSTHOG_KEY", "phc_test123");
-    window.history.replaceState(null, "", "/facts/7?utm_source=newsletter&utm_campaign=launch-week&utm_term=Alice%20Smith&displayName=Alice");
+    window.history.replaceState(null, "", "/facts/7?utm_source=newsletter&utm_campaign=launch-week&utm_term=Raena%20Smith&displayName=Raena");
     vi.resetModules();
     const fresh = await import("./analytics");
     // The app moves on before analytics starts, and PostHog reads the address at each event.
@@ -508,7 +508,7 @@ describe("a landing address's campaign tags reach GA4 (fix after PR #1059)", () 
     async function landThenMoveOn() {
       vi.stubEnv("VITE_GA_MEASUREMENT_ID", "");
       vi.stubEnv("VITE_POSTHOG_KEY", "phc_test123");
-      window.history.replaceState(null, "", "/?utm_source=newsletter&utm_campaign=launch-week&utm_term=Alice%20Smith");
+      window.history.replaceState(null, "", "/?utm_source=newsletter&utm_campaign=launch-week&utm_term=Raena%20Smith");
       vi.resetModules();
       const fresh = await import("./analytics");
       window.history.replaceState(null, "", "/pricing");
@@ -567,7 +567,7 @@ describe("a landing address's campaign tags reach GA4 (fix after PR #1059)", () 
   it("PostHog registers nothing when the landing address had no clean tags", async () => {
     vi.stubEnv("VITE_GA_MEASUREMENT_ID", "");
     vi.stubEnv("VITE_POSTHOG_KEY", "phc_test123");
-    window.history.replaceState(null, "", "/?utm_term=Alice%20Smith");
+    window.history.replaceState(null, "", "/?utm_term=Raena%20Smith");
     startAnalytics();
     resetIdentity();
     await flush();
@@ -578,16 +578,16 @@ describe("a landing address's campaign tags reach GA4 (fix after PR #1059)", () 
   it("an address with no campaign tags sends the bare pattern", () => {
     vi.stubEnv("VITE_GA_MEASUREMENT_ID", "G-TEST123");
     vi.stubEnv("VITE_POSTHOG_KEY", "");
-    window.history.replaceState(null, "", "/search?q=Alice");
+    window.history.replaceState(null, "", "/search?q=Raena");
     startAnalytics();
-    page("/search?q=Alice");
+    page("/search?q=Raena");
     expect(gaCalls()).toContainEqual(["event", "page_view", { page_location: `${window.location.origin}/search`, page_title: "/search" }]);
   });
 
   it("PostHog keeps the campaign tags it reads only when their value passes the same check", () => {
     const event = {
       uuid: "1", event: "$pageview",
-      properties: { utm_source: "newsletter", utm_term: "Alice Smith", __page_pattern: "/" },
+      properties: { utm_source: "newsletter", utm_term: "Raena Smith", __page_pattern: "/" },
       $set_once: { $initial_utm_source: "newsletter", $initial_utm_content: "alice@example.com" },
     } as unknown as Parameters<typeof scrubPosthogEvent>[0];
     const out = scrubPosthogEvent(event)!;
