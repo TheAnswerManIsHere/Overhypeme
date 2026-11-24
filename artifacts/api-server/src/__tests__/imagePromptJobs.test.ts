@@ -832,7 +832,23 @@ describe("image_generation — the photoreal fallback: GPT Image refuses, Nano B
     assert.deepEqual(calls, [], "no vendor call");
     const row = await attemptRow(attemptId);
     assert.equal(row.errorCode, "render_input_invalid");
-    assert.match(row.error ?? "", /cannot draw/);
+    assert.match(row.error ?? "", /cannot draw a picture from a reference photo: it draws pictures from a written description instead/);
+    assert.doesNotMatch(row.error ?? "", /\b[it]2i\b/, "the reason a moderator reads uses words, never i2i or t2i (Issue #1020)");
+    assert.equal(buildRenderStatusPayload(row).status, "failed");
+  });
+
+  it("a stored picture shape the engine offers no size for ends the render at once, in words (Issue #1020)", async () => {
+    const attemptId = await plannedAttempt({ moderation: true, engine: "nano-banana-2-1-edit" });
+    const row0 = await attemptRow(attemptId);
+    await db.update(imagePromptAttemptsTable)
+      .set({ renderControls: { ...(row0.renderControls as Record<string, unknown>), aspectRatio: "panorama" } as never })
+      .where(eq(imagePromptAttemptsTable.id, attemptId));
+    const { out, calls } = await draw(attemptId, () => picture());
+    assert.equal((out as { retryable?: boolean }).retryable, false, "terminal, not retried for hours");
+    assert.deepEqual(calls, [], "no vendor call");
+    const row = await attemptRow(attemptId);
+    assert.equal(row.errorCode, "render_input_invalid");
+    assert.match(row.error ?? "", /the picture cannot be requested from the image engine "nano-banana-2-1-edit": its shape "panorama" is not landscape, square or portrait/);
     assert.equal(buildRenderStatusPayload(row).status, "failed");
   });
 

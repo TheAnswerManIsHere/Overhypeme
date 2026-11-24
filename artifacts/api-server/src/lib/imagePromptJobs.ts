@@ -52,7 +52,7 @@ import { vendorContext } from "./provenance/vendorContext";
 import { attemptProvenanceContext } from "./provenance/attemptActor";
 import { attemptImageEngineId, ImageEngineRoutingError, resolveImageEngine } from "./imageEngineRouting";
 import { ENGINE_REFUSED_ERROR_CODE, NoPhotoRenderRefusedError } from "./imagePromptAttempts";
-import { buildImageRequestSettings, type ImageRequestPurpose, type ImageRequestSettings } from "./imageRequestBuilder";
+import { buildImageRequestSettings, ImageRequestBuildError, type ImageRequestPurpose, type ImageRequestSettings } from "./imageRequestBuilder";
 import { compileDirect, type DirectCompileArgs } from "./imagePrompt/compilers/nanoBanana2";
 import { directGagInput, DirectGagInputError } from "./imagePrompt/directInput";
 import { engineFamilyOf, recipeById } from "./imagePrompt/recipeStore";
@@ -338,9 +338,11 @@ export const imageGenerationHandler: JobHandler = {
         renderControls.aspectRatio,
       );
     } catch (err) {
-      // An engine that cannot draw this mode stays unable to on every retry;
-      // anything else here (a configuration read) may be transient.
-      if (err instanceof ImageEngineRoutingError) {
+      // An engine that cannot draw this mode, or a stored shape it offers no
+      // size for, stays that way on every retry, so the render ends now
+      // (Issue #1020) rather than reading "Drawing…" until the retries run out.
+      // Engines and their sizes are set in code, so anything else is unexpected.
+      if (err instanceof ImageEngineRoutingError || err instanceof ImageRequestBuildError) {
         return recordTerminalAttemptFailure(p.attemptId, RENDER_INPUT_INVALID, err.message);
       }
       return retryRender(p.attemptId, err instanceof Error ? err.message : String(err));
