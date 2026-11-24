@@ -144,11 +144,33 @@ test.describe("Meme builder on wide screens (Issue #850)", () => {
     await page.setViewportSize({ width: 1180, height: 820 });
     await expect(page.locator('[data-layout="wide"]')).toBeVisible();
     await expect(page.getByTestId("aspect-portrait")).toHaveAttribute("aria-checked", "true");
-    // The Advanced options sheet may have closed with the layout change; the colour is still the one chosen.
-    if ((await page.getByTestId("advanced-options-trigger").getAttribute("aria-expanded")) !== "true") {
-      await page.getByTestId("advanced-options-trigger").click();
-    }
+    // The Advanced options panel stayed open through both turns, and the colour is still the one chosen.
+    await expect(page.getByTestId("advanced-options-trigger")).toHaveAttribute("aria-expanded", "true");
     await expect(page.getByRole("button", { name: chosenLabel! })).toHaveClass(/border-\[#ff6b35\]/);
+  });
+
+  // PR #1252's build report: turning the screen must not rebuild the builder's
+  // parts, or a photo still uploading would be lost with its panel.
+  test("turning the screen rebuilds nothing: the photo panel and an open options panel are the same elements", async ({ page }) => {
+    await page.setViewportSize({ width: 1180, height: 820 });
+    await seedIdentity(page);
+    await openBuilder(page, 855);
+    await page.getByTestId("advanced-options-trigger").click();
+
+    const photoPanel = await page.getByText("Sign up or sign in to make a meme with your photo").elementHandle();
+    const optionsTrigger = await page.getByTestId("advanced-options-trigger").elementHandle();
+    const controlsScroll = await page.getByTestId("builder-controls-scroll").elementHandle();
+    expect(photoPanel && optionsTrigger && controlsScroll).toBeTruthy();
+
+    await page.setViewportSize({ width: 820, height: 1180 });
+    await expect(page.locator('[data-layout="stacked"]')).toBeVisible();
+    await page.setViewportSize({ width: 1180, height: 820 });
+    await expect(page.locator('[data-layout="wide"]')).toBeVisible();
+
+    for (const el of [photoPanel!, optionsTrigger!, controlsScroll!]) {
+      expect(await el.evaluate((node) => node.isConnected)).toBe(true);
+    }
+    await expect(page.getByTestId("advanced-options-trigger")).toHaveAttribute("aria-expanded", "true");
   });
 
   test("the wide layout ignores the remembered preview height without erasing it", async ({ page }) => {
