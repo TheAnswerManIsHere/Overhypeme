@@ -28,7 +28,7 @@ export const LEGAL_DOCS: LegalDocMeta[] = [
   {
     "slug": "guidelines",
     "title": "Community Guidelines",
-    "version": "2026-11-17",
+    "version": "2026-11-24",
     "summary": "What belongs on Overhype.me, what does not, and how to report a problem."
   }
 ];
@@ -38,5 +38,5 @@ export const LEGAL_VERSIONS: Record<string, string> = {
   "terms": "2026-11-18",
   "privacy": "2026-11-20.3",
   "copyright": "2026-11-18",
-  "guidelines": "2026-11-17"
+  "guidelines": "2026-11-24"
 };

@@ -564,7 +564,7 @@ test.describe("7b — Admin permissions on the features the steps name (PR425, P
       await page.route("**/api/ai/check-duplicate", (route) => route.fulfill({ json: { isDuplicate: false, confidence: 0 } }));
       await page.route("**/api/ai/suggest-hashtags", (route) => route.fulfill({ json: { hashtags: [] } }));
       await page.goto("/submit", { waitUntil: "domcontentloaded" });
-      await page.getByPlaceholder(/When John does pushups/).fill("Free Tester out-lifted a crane with one hand.");
+      await page.getByPlaceholder(/When David does pushups/).fill("Free Tester out-lifted a crane with one hand.");
       await page.getByRole("button", { name: /Preview/ }).click();
       const submitted = page.waitForResponse((r) => r.url().endsWith("/api/facts/submit-review") && r.request().method() === "POST");
       await page.getByRole("button", { name: /Looks Great — Submit/ }).click();

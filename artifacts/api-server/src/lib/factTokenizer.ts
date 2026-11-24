@@ -94,13 +94,13 @@ EXAMPLES (correct output):
 Input: "When David laughs, the earth cries."
 Output: {"template": "When {NAME} laughs, the earth cries."}
 
-Input: "Sarah doesn't age because time fears her."
+Input: "Raena doesn't age because time fears her."
 Output: {"template": "{NAME} doesn't age because time fears {Obj}."}
 
 Input: "Sharks have a David Week."
 Output: {"template": "Sharks have a {NAME} Week."}
 
-Input: "Alex keeps the virus in his back yard."
+Input: "David keeps the virus in his back yard."
 Output: {"template": "{NAME} keeps the virus in {POSS} back yard."}
 
 Input: "David's pin is the last four digits of pi."

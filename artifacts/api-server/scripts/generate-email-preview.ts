@@ -59,7 +59,7 @@ const sections: Section[] = [
     "noreply@overhype.me → submitter",
     buildReviewApprovedEmail({
       username: "Alex",
-      submittedText: "Chuck Norris once deleted the Recycle Bin. It now lives in fear.",
+      submittedText: "David once deleted the Recycle Bin. It now lives in fear.",
       factId: 1234,
       adminNote: "Punchy and specific — exactly what we look for.",
     }),
@@ -70,7 +70,7 @@ const sections: Section[] = [
     "noreply@overhype.me → submitter",
     buildReviewRejectedEmail({
       username: "Alex",
-      submittedText: "Chuck Norris is cool.",
+      submittedText: "David is cool.",
       adminNote: "Too generic — give us a specific, vivid scenario.",
       rejectionReason: "lame",
     }),
@@ -80,16 +80,16 @@ const sections: Section[] = [
     "⚡ Your Daily Overhype.me Fact",
     "noreply@overhype.me → legendary member",
     buildFactOfTheDayEmail(
-      "Chuck Norris doesn't read books. He stares them down until he gets the information he wants.",
+      "David doesn't read books. He stares them down until he gets the information he wants.",
       1234,
       sampleManageUrl,
     ),
   ),
   section(
     "07",
-    "Alex sent you an Overhype.me fact",
+    "David sent you an Overhype.me fact",
     "noreply@overhype.me → recipient",
-    buildShareInviteEmail("Sam", sampleShareUrl, "Alex"),
+    buildShareInviteEmail("Alex", sampleShareUrl, "David"),
   ),
   section(
     "08",

@@ -1,6 +1,6 @@
 ---
 title: Community Guidelines
-version: 2026-11-17
+version: 2026-11-24
 summary: What belongs on Overhype.me, what does not, and how to report a problem.
 ---
 
@@ -8,7 +8,7 @@ Overhype.me is for over-the-top praise: facts so exaggerated that nobody could b
 
 ## The spirit of it
 
-- **Hyperbole, not claims.** A good fact is impossible on its face. "Sam once out-stared the sun" is a fact. "Sam stole from his employer" is an accusation, and it does not belong here, even as a joke.
+- **Hyperbole, not claims.** A good fact is impossible on its face. "David once out-stared the sun" is a fact. "David stole from his employer" is an accusation, and it does not belong here, even as a joke.
 - **Praise, not put-downs.** Facts make their subject look legendary. Content meant to mock, shame or hurt a real person does not fit, however funny it seems.
 - **Everyone is a grown-up here.** Overhype.me is for adults, but it is not an adult site.
 

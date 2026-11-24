@@ -20,7 +20,7 @@ test.describe("Submit · the house style in the preview", () => {
     await page.route("**/api/ai/check-duplicate", (route) => route.fulfill({ json: { outcome: "distinct", isDuplicate: false, confidence: 10, llmChecked: true } }));
     await page.route("**/api/ai/suggest-hashtags", (route) => route.fulfill({ json: { hashtags: [] } }));
     await page.goto("/submit", { waitUntil: "domcontentloaded" });
-    await page.getByPlaceholder(/When John does pushups/).fill("Alex out-stared a lighthouse");
+    await page.getByPlaceholder(/When David does pushups/).fill("Alex out-stared a lighthouse");
     await page.getByRole("button", { name: /Preview/ }).click();
 
     const theyPreview = page.getByText("Alex Jordan out-stared a lighthouse", { exact: false }).first();

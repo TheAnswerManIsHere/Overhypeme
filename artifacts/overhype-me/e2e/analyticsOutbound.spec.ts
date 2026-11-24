@@ -312,7 +312,7 @@ test("a submitted fact, a made meme and an upgrade each reach both vendors, file
     test.info().annotations.push({ type: "skipped: Google's hits on the wire", description: message });
     console.warn(`[analyticsOutbound] ${message}`);
   }
-  await page.getByPlaceholder(/When John does pushups/).fill(TYPED);
+  await page.getByPlaceholder(/When David does pushups/).fill(TYPED);
   await page.getByRole("button", { name: /Preview/ }).click();
   await expect(page.getByRole("heading", { name: "Does this look right?" })).toBeVisible();
   await page.getByRole("button", { name: /submit/i }).filter({ visible: true }).last().click();

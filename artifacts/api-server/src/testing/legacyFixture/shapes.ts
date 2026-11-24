@@ -39,7 +39,7 @@ const StoredImageSourceSchema = z.discriminatedUnion("type", [
     templateId: z.string().min(1).max(50),
   }),
 ]);
-import { defaultPreviewSubjectForGender } from "../../lib/imagePrompt/resolveRenderReviewInput";
+import { PET_PREVIEW_SUBJECT, defaultPreviewSubjectForGender } from "../../lib/imagePrompt/resolveRenderReviewInput";
 import { CANONICAL_NAME } from "../../lib/renderCanonical";
 import { ShapeStop, placeholderHashtagsFor, rerootRules, structuralDeep, walk, type PathRules, type WalkContext } from "./walker";
 
@@ -348,7 +348,7 @@ export const SHAPES: Record<ShapeName, ShapeDef> = {
  */
 /**
  * The subject names the product itself supplies today: the review-render defaults (`defaultPreviewSubjectForGender`,
- * preview.ts) and the canonical fallback (renderCanonical.ts). Any other name was typed by someone — a
+ * preview.ts), the pet reference photo's Mango (`PET_PREVIEW_SUBJECT`) and the canonical fallback (renderCanonical.ts). Any other name was typed by someone — a
  * moderator's preview name, a workbench name — and becomes the row's synthetic first name. A name the product
  * no longer supplies is treated like a typed one.
  */
@@ -356,6 +356,7 @@ const PRESET_SUBJECT_NAMES: ReadonlySet<string> = new Set([
   defaultPreviewSubjectForGender("male").name,
   defaultPreviewSubjectForGender("female").name,
   defaultPreviewSubjectForGender("neutral").name,
+  PET_PREVIEW_SUBJECT.name,
   CANONICAL_NAME,
 ]);
 

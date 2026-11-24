@@ -43,8 +43,8 @@ interface SubmitDraft {
 
 const PRONOUN_PREVIEWS: { label: string; subject: string; object: string; name: string }[] = [
   { label: "he/him",    subject: "he",   object: "him",  name: "David Franklin" },
-  { label: "she/her",   subject: "she",  object: "her",  name: "Sarah Mitchell" },
-  { label: "they/them", subject: "they", object: "them", name: "Alex Jordan"    },
+  { label: "she/her",   subject: "she",  object: "her",  name: "Raena Franklin" },
+  { label: "they/them", subject: "they", object: "them", name: "Alex Franklin"  },
 ];
 
 export default function SubmitFact() {
@@ -497,7 +497,7 @@ export default function SubmitFact() {
                   placeholder={
                     !captchaToken && !isCaptchaVerified
                       ? "Complete verification above to start writing…"
-                      : 'e.g. "When John does pushups, he doesn\'t push himself up — he pushes the Earth down."'
+                      : 'e.g. "When David does pushups, he doesn\'t push himself up — he pushes the Earth down."'
                   }
                   className={`text-lg min-h-[180px] leading-relaxed transition-opacity ${
                     !captchaToken && !isCaptchaVerified ? "opacity-40 cursor-not-allowed" : ""
