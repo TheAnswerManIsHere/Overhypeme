@@ -6,10 +6,10 @@
  *   2. Cache lookup: unless the caller sets bypassCache, if
  *      upload_image_metadata.source_image_analysis is set AND version matches
  *      SOURCE_IMAGE_ANALYZER_VERSION, return it.
- *   3. Tier-1: call the configured fal detector engine.
- *   4. Tier-2: deterministic heuristics → SourceImageAnalysis.
- *   5. Tier-3 (optional): OpenAI vision fallback when Tier-2 escalates.
- *   6. Cache write-through: persist the result back to upload_image_metadata,
+ *   3. The AI vision check classifies the photo (David, Q9, Issue #945: the
+ *      fal detector and the heuristics that read it are gone). Skipped, it
+ *      returns "not analysed"; failing, it returns "not analysed" uncached.
+ *   4. Cache write-through: persist the result back to upload_image_metadata,
  *      when the upload has a metadata row.
  *
  * Inputs are ALWAYS internal storage references (uploadedObjectPath). The
@@ -18,7 +18,7 @@
  * this module — keep the analyzer URL-agnostic so internal admin tooling
  * can also call it on object storage paths.
  *
- * @purpose Source-image analyzer entrypoint: returns the stored analysis when one exists, its version matches and the caller has not set bypassCache, else runs the Tier-1 detector, the Tier-2 heuristics and, when Tier-2 asks to escalate and the caller allows it, the Tier-3 AI-vision fallback, caching the result on the upload's metadata row when one exists; also resolves the subject render mode.
+ * @purpose Source-image analyzer entrypoint: returns the stored analysis when one exists, its version matches and the caller has not set bypassCache, else classifies the photo with the AI vision check (unless the caller skips it), caching a successful result on the upload's metadata row when one exists; also resolves the subject render mode.
  * @subsystem visual-pipeline
  */
 
@@ -31,24 +31,42 @@ import {
   SOURCE_IMAGE_ANALYZER_VERSION,
 } from "@workspace/api-zod";
 import { logger } from "../logger";
-import { runTier1Detector, Tier1DetectorError } from "./tier1FalDetector";
-import { classifyTier2 } from "./tier2Heuristics";
 import { runTier3AiVisionFallback, Tier3VisionError } from "./tier3AiVisionFallback";
 
+let tier3: typeof runTier3AiVisionFallback = runTier3AiVisionFallback;
+/** Test seam: replace the AI vision check (null restores it). */
+export function __setTier3ForTest(fn: typeof runTier3AiVisionFallback | null): void {
+  tier3 = fn ?? runTier3AiVisionFallback;
+}
+
+/** An unclassified photo: no subject is claimed, so no picture is drawn from it. */
+function notAnalyzed(sha256: string | undefined, warning: string): SourceImageAnalysis {
+  return {
+    subjectKind: "detection_failed",
+    confidence: "low",
+    hasUsableHumanFace: false,
+    hasUsableSubject: false,
+    subjectCount: 0,
+    detections: [],
+    suggestedRenderMode: "t2i_fallback",
+    warnings: [warning],
+    classificationMethod: "not_analyzed",
+    analyzerVersion: SOURCE_IMAGE_ANALYZER_VERSION,
+    sourceImageSha256: sha256,
+  };
+}
+
 export interface AnalyzeSourceImageOptions {
-  /** Skip the Tier-3 escalation. Tests + admin debug surface use this. */
+  /** Skip the AI vision check (the admin debug surface): the photo is returned unclassified, uncached. */
   skipAiFallback?: boolean;
   /** Force a fresh analysis even when a cached one exists. */
   bypassCache?: boolean;
-  /** Image dimensions (for area-fraction math in Tier 2). */
-  imageWidth?: number;
-  imageHeight?: number;
 }
 
 export interface AnalyzeSourceImageRef {
   /** Object storage path on the upload_image_metadata table. */
   uploadedObjectPath: string;
-  /** Resolvable URL the detector can fetch. */
+  /** Resolvable URL the AI vision check can fetch. */
   imageUrl: string;
 }
 
@@ -68,54 +86,29 @@ export async function analyzeSourceImage(
     return meta.sourceImageAnalysis as SourceImageAnalysis;
   }
 
-  const width = opts.imageWidth ?? meta?.width ?? undefined;
-  const height = opts.imageHeight ?? meta?.height ?? undefined;
-
-  // 2. Tier-1: fal detector.
-  let tier1Detections: import("@workspace/api-zod").SourceImageDetection[] = [];
-  let tier1Failed = false;
-  try {
-    const r = await runTier1Detector(ref.imageUrl);
-    tier1Detections = r.detections;
-  } catch (err) {
-    if (err instanceof Tier1DetectorError) {
-      logger.warn({ err }, "[analyzeSourceImage] Tier-1 detector failed; falling back");
-      tier1Failed = true;
-    } else {
-      throw err;
-    }
+  // The AI vision check is the analysis (David, Q9, Issue #945). The fal
+  // object detector that ran first is gone: its endpoint no longer exists, so
+  // every photo read as "no detectable subject" and was refused, and the
+  // check below was never reached. Its prompt carries the people-or-pets rule
+  // (FACT_SOURCE_CLASSIFIER_SYSTEM_DEFAULT).
+  // Neither a skip nor a failure is cached: a later analysis of the same
+  // photo asks the check again rather than inherit "not classified".
+  if (opts.skipAiFallback) {
+    return notAnalyzed(sha256, "The AI vision check was skipped, so this photo was not classified.");
   }
-
-  // 3. Tier-2: heuristics.
-  const t2 = classifyTier2(tier1Detections, {
-    ...(width != null ? { imageWidth: width } : {}),
-    ...(height != null ? { imageHeight: height } : {}),
-  });
-  let analysis: SourceImageAnalysis = {
-    ...t2.analysis,
-    classificationMethod: tier1Failed ? "not_analyzed" : "fal_detector",
-    analyzerVersion: SOURCE_IMAGE_ANALYZER_VERSION,
-    sourceImageSha256: sha256,
-  };
-
-  // 4. Tier-3 escalation (only if Tier-2 says so + AI fallback isn't suppressed).
-  if (t2.shouldEscalate && !opts.skipAiFallback) {
-    try {
-      const t3 = await runTier3AiVisionFallback(ref.imageUrl);
-      analysis = {
-        ...t3,
-        detections: tier1Detections, // keep Tier-1 detections for debug visibility
-        classificationMethod: "ai_vision_fallback",
-        analyzerVersion: SOURCE_IMAGE_ANALYZER_VERSION,
-        sourceImageSha256: sha256,
-      };
-    } catch (err) {
-      logger.warn({ err }, "[analyzeSourceImage] Tier-3 AI vision fallback failed; keeping Tier-2 result");
-      analysis = {
-        ...analysis,
-        warnings: [...analysis.warnings, "AI vision fallback unavailable; classification may be uncertain."],
-      };
-    }
+  let analysis: SourceImageAnalysis;
+  try {
+    const verdict = await tier3(ref.imageUrl);
+    analysis = {
+      ...verdict,
+      detections: [],
+      classificationMethod: "ai_vision_fallback",
+      analyzerVersion: SOURCE_IMAGE_ANALYZER_VERSION,
+      sourceImageSha256: sha256,
+    };
+  } catch (err) {
+    logger.warn({ err, expected: err instanceof Tier3VisionError }, "[analyzeSourceImage] AI vision check failed; the photo is not classified");
+    return notAnalyzed(sha256, "The AI vision check is unavailable right now, so this photo could not be classified. Try again shortly.");
   }
 
   // 5. Cache write-through.
@@ -138,16 +131,12 @@ export async function analyzeSourceImage(
 
 async function loadUploadMeta(objectPath: string): Promise<{
   arachnidSha256Hex: string | null;
-  width: number | null;
-  height: number | null;
   sourceImageAnalysis: unknown;
   sourceImageAnalysisVersion: string | null;
 } | null> {
   const [row] = await db
     .select({
       arachnidSha256Hex: uploadImageMetadataTable.arachnidSha256Hex,
-      width: uploadImageMetadataTable.width,
-      height: uploadImageMetadataTable.height,
       sourceImageAnalysis: uploadImageMetadataTable.sourceImageAnalysis,
       sourceImageAnalysisVersion: uploadImageMetadataTable.sourceImageAnalysisVersion,
     })
