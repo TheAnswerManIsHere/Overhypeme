@@ -421,7 +421,6 @@ export default function Onboard() {
               onDecodeError={handlePhotoUndecodable}
               busy={photoUploading}
               error={photoError}
-              wrapConfirm={(button) => <PausedWhenReadOnly className="w-full">{button}</PausedWhenReadOnly>}
             />
           ) : (
             <>

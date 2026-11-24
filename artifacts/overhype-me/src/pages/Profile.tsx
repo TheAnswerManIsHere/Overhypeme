@@ -660,13 +660,8 @@ export default function Profile() {
     setCropFile(file);
   }
 
-  /** The framed square from the crop editor: checked against a pause that began while framing, then saved. */
+  /** The framed square from the crop editor (which has already refused it if a pause began while framing), saved. */
   async function handleCropConfirm(cropped: File) {
-    if (isReadOnlyNow()) {
-      noteReadOnlyRefusal();
-      setCropFile(null);
-      return;
-    }
     setCropError("");
     try {
       await uploadAndSetPhoto(cropped);
@@ -1099,7 +1094,6 @@ export default function Profile() {
                     busy={photoUploading}
                     error={cropError}
                     cancelLabel="Cancel"
-                    wrapConfirm={(button) => <PausedWhenReadOnly className="w-full">{button}</PausedWhenReadOnly>}
                   />
                 )}
               </DialogContent>

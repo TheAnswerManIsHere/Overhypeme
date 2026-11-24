@@ -1,11 +1,13 @@
 /**
- * @purpose The profile-photo zoom-and-crop editor shared by onboarding's photo step and Profile's "Change photo": shows the picked photo in a square stage under a round frame, lets the member drag (mouse, one finger, arrow keys) and zoom (pinch, wheel, slider, +/-) it, and on "Use this photo" hands the parent exactly the framed square as a JPEG of at most 1024 px; the preview and the saved file are drawn from the same still snapshot by the same crop calculation, and uploading stays the parent's.
+ * @purpose The profile-photo zoom-and-crop editor shared by onboarding's photo step and Profile's "Change photo": shows the picked photo in a square stage under a round frame, lets the member drag (mouse, one finger, arrow keys) and zoom (pinch, wheel, slider, +/-) it, and on "Use this photo" hands the parent exactly the framed square as a JPEG of at most 1024 px; the preview and the saved file are drawn from the same still snapshot by the same crop calculation; while the site is paused the confirm is grayed out, and a pause that began while framing refuses it; uploading stays the parent's.
  * @subsystem studio
  */
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Minus, Plus, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Slider } from "@/components/ui/slider";
+import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
+import { isReadOnlyNow, noteReadOnlyRefusal } from "@/lib/readOnlyNotice";
 import {
   MAX_ZOOM,
   MIN_ZOOM,
@@ -23,14 +25,19 @@ import {
 /** The stage's size on screen, in CSS pixels. */
 const STAGE_PX = 256;
 const KEY_PAN_PX = 8;
-const KEY_ZOOM_STEP = 0.1;
+/** One press of +/− (key or button). */
+const ZOOM_STEP = 0.25;
 
 export interface PhotoCropEditorProps {
   /** The photo the member picked; a new file restarts the editor. */
   file: File;
-  /** Called with the framed square as a JPEG when the member confirms. */
+  /**
+   * Called with the framed square as a JPEG when the member confirms. Never called while
+   * the site is read-only — a pause that began while framing refuses the confirm and
+   * cancels instead, checked after the JPEG is encoded, immediately before handing it over.
+   */
   onConfirm: (cropped: File) => void;
-  /** "Pick a different one" / cancel — nothing is uploaded. */
+  /** "Pick a different one" / cancel, and a confirm refused by a pause — nothing is uploaded. */
   onCancel: () => void;
   /** Called when the picked file cannot be decoded; the parent shows its message. */
   onDecodeError: () => void;
@@ -39,8 +46,6 @@ export interface PhotoCropEditorProps {
   /** The parent's upload or save error, shown under the editor. */
   error?: string;
   cancelLabel?: string;
-  /** Wraps the confirm button, e.g. in the read-only pause treatment. */
-  wrapConfirm?: (button: ReactNode) => ReactNode;
 }
 
 export function PhotoCropEditor({
@@ -51,7 +56,6 @@ export function PhotoCropEditor({
   busy = false,
   error,
   cancelLabel = "Pick a different one",
-  wrapConfirm,
 }: PhotoCropEditorProps) {
   const [snapshot, setSnapshot] = useState<HTMLCanvasElement | null>(null);
   const [view, setView] = useState<CropView | null>(null);
@@ -85,7 +89,7 @@ export function PhotoCropEditor({
     };
   }, [file]);
 
-  const size = snapshot ? { width: snapshot.width, height: snapshot.height } : null;
+  const size = useMemo(() => (snapshot ? { width: snapshot.width, height: snapshot.height } : null), [snapshot]);
 
   // The preview: the same snapshot and the same square the export draws.
   useEffect(() => {
@@ -97,7 +101,7 @@ export function PhotoCropEditor({
     if (canvas.height !== px) canvas.height = px;
     const ctx = canvas.getContext("2d");
     if (ctx) drawSquare(ctx, snapshot, sourceSquare(size, view));
-  }, [snapshot, view, size?.width, size?.height]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [snapshot, view, size]);
 
   const stageScale = useCallback(() => stageRef.current?.getBoundingClientRect().width || STAGE_PX, []);
 
@@ -106,8 +110,10 @@ export function PhotoCropEditor({
       if (!size) return;
       setView((v) => (v ? clampView(size, fn(v)) : v));
     },
-    [size?.width, size?.height], // eslint-disable-line react-hooks/exhaustive-deps
+    [size],
   );
+
+  const zoomBy = (delta: number) => size && update((v) => zoomView(size, v, v.zoom + delta, stageScale()));
 
   const locked = busy || encoding || !view;
 
@@ -158,7 +164,7 @@ export function PhotoCropEditor({
     }
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [size?.width, size?.height, locked, update]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [size, locked, update]);
 
   function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     if (!size || locked) return;
@@ -175,10 +181,10 @@ export function PhotoCropEditor({
       update((v) => panView(size, v, dx, dy, stage));
     } else if (e.key === "+" || e.key === "=") {
       e.preventDefault();
-      update((v) => zoomView(size, v, v.zoom + KEY_ZOOM_STEP, stage));
+      zoomBy(ZOOM_STEP);
     } else if (e.key === "-" || e.key === "_") {
       e.preventDefault();
-      update((v) => zoomView(size, v, v.zoom - KEY_ZOOM_STEP, stage));
+      zoomBy(-ZOOM_STEP);
     }
   }
 
@@ -189,6 +195,11 @@ export function PhotoCropEditor({
     try {
       const cropped = await exportSquareJpeg(snapshot, view, file.name);
       if (liveFile.current !== forFile) return;
+      if (isReadOnlyNow()) {
+        noteReadOnlyRefusal();
+        onCancel();
+        return;
+      }
       onConfirm(cropped);
     } catch {
       if (liveFile.current === forFile) decodeErrorRef.current();
@@ -248,7 +259,7 @@ export function PhotoCropEditor({
           type="button"
           aria-label="Zoom out"
           disabled={locked}
-          onClick={() => size && update((v) => zoomView(size, v, v.zoom - 0.25, stageScale()))}
+          onClick={() => zoomBy(-ZOOM_STEP)}
           className="text-muted-foreground hover:text-foreground disabled:opacity-50"
         >
           <Minus className="w-4 h-4" />
@@ -267,7 +278,7 @@ export function PhotoCropEditor({
           type="button"
           aria-label="Zoom in"
           disabled={locked}
-          onClick={() => size && update((v) => zoomView(size, v, v.zoom + 0.25, stageScale()))}
+          onClick={() => zoomBy(ZOOM_STEP)}
           className="text-muted-foreground hover:text-foreground disabled:opacity-50"
         >
           <Plus className="w-4 h-4" />
@@ -280,7 +291,7 @@ export function PhotoCropEditor({
 
       {error && <p className="text-destructive text-sm font-medium text-center">{error}</p>}
 
-      {wrapConfirm ? wrapConfirm(confirmButton) : confirmButton}
+      <PausedWhenReadOnly className="w-full">{confirmButton}</PausedWhenReadOnly>
 
       <div className="flex justify-center">
         <button

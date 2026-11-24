@@ -3,6 +3,8 @@
  * @subsystem studio
  */
 
+import { CLIENT_JPEG_QUALITY } from "@/lib/image-upload";
+
 /** Largest zoom: the framed square is a quarter of the image's short side. */
 export const MAX_ZOOM = 4;
 export const MIN_ZOOM = 1;
@@ -102,6 +104,13 @@ export function outputSize(square: SourceSquare, maxSize = 1024): number {
 export const MAX_SNAPSHOT_PIXELS = 16_777_216;
 
 /**
+ * The snapshot's short side never needs to exceed this: at the largest zoom the framed
+ * square is a quarter of it, which is still the 1024-px output. More pixels only cost memory
+ * and slow every preview redraw.
+ */
+export const MAX_SNAPSHOT_SHORT_SIDE = 1024 * MAX_ZOOM;
+
+/**
  * Decode a picked file once into a still, opaque canvas — the first frame of an animated
  * image, transparency flattened onto black as JPEG encoding would — so the preview and
  * the export draw from exactly the same pixels. Orientation is applied by the browser's
@@ -119,7 +128,7 @@ export async function decodeToSnapshot(file: Blob): Promise<HTMLCanvasElement> {
     const w = img.naturalWidth;
     const h = img.naturalHeight;
     if (w <= 0 || h <= 0) throw new Error("Image has no pixels");
-    const scale = Math.min(1, Math.sqrt(MAX_SNAPSHOT_PIXELS / (w * h)));
+    const scale = Math.min(1, Math.sqrt(MAX_SNAPSHOT_PIXELS / (w * h)), MAX_SNAPSHOT_SHORT_SIDE / Math.min(w, h));
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.floor(w * scale));
     canvas.height = Math.max(1, Math.floor(h * scale));
@@ -158,7 +167,7 @@ export async function exportSquareJpeg(
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas not supported");
   drawSquare(ctx, snapshot, square);
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), "image/jpeg", 0.9));
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), "image/jpeg", CLIENT_JPEG_QUALITY));
   if (!blob) throw new Error("Could not encode image");
   const baseName = fileName.replace(/\.[^.]+$/, "") || "photo";
   return new File([blob], `${baseName}.jpg`, { type: "image/jpeg" });

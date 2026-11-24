@@ -2,7 +2,7 @@
  * @purpose Real-browser checks of profile-photo zoom and crop (#1215, PLAN_PHOTO_CROP.md) on onboarding's photo step and Profile's "Change photo": what the round frame shows after dragging, slider and pinch zoom is exactly what is uploaded (read off the screen and off the outgoing JPEG, independently of the crop code), for a plain photo, an EXIF-rotated phone JPEG, a transparent PNG and an animated GIF; confirming untouched saves today's centre crop; cancel and a replaced selection upload nothing; a GIF on Profile skips the editor and uploads its original bytes; a pause during framing refuses the upload; a failed upload or profile-image save leaves the editor open with its error.
  * @subsystem studio
  */
-import { expect, test, type Page, type Request } from "@playwright/test";
+import { expect, test, type BrowserContext, type Page, type Request } from "@playwright/test";
 import { FREE_ACCOUNT, TEST_ACCOUNT_PASSWORD, signInThroughForm } from "./helpers/testAccounts";
 
 type RGB = [number, number, number];
@@ -204,7 +204,6 @@ async function openOnboardingPhotoStep(page: Page): Promise<void> {
       remove: () => {},
     };
   });
-  await signInThroughForm(page, FREE_ACCOUNT.email, TEST_ACCOUNT_PASSWORD);
   await page.route("**/api/auth/onboarding", (route) =>
     route.fulfill({
       json: {
@@ -238,7 +237,6 @@ async function pickOnboarding(page: Page, name: string, mimeType: string, buffer
 }
 
 async function openProfile(page: Page): Promise<void> {
-  await signInThroughForm(page, FREE_ACCOUNT.email, TEST_ACCOUNT_PASSWORD);
   await page.goto("/profile");
   await expect(page.locator('input[type="file"][accept="image/jpeg,image/png,image/webp,image/gif"]')).toBeAttached();
 }
@@ -272,8 +270,28 @@ async function confirmAndCapture(page: Page, captured: Captured): Promise<Buffer
 
 // ---------------------------------------------------------------- the tests
 
+/**
+ * One real sign-in for the whole file, its session cookies reused by every test: the
+ * per-account sign-in throttle (30 in 15 minutes) is shared with every other spec that
+ * signs in as the free account in the same run.
+ */
+let session: Awaited<ReturnType<BrowserContext["cookies"]>> = [];
+
+async function useSession(context: BrowserContext): Promise<void> {
+  await context.addCookies(session);
+}
+
 test.describe("Profile photo zoom and crop (#1215)", () => {
+  test.beforeAll(async ({ browser }) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await signInThroughForm(page, FREE_ACCOUNT.email, TEST_ACCOUNT_PASSWORD);
+    session = await context.cookies();
+    await context.close();
+  });
+
   test.beforeEach(async ({ page }) => {
+    await useSession(page.context());
     await page.setViewportSize({ width: 1280, height: 900 });
   });
 
@@ -366,6 +384,7 @@ test.describe("Profile photo zoom and crop (#1215)", () => {
 
   test("Profile: pick, pinch to zoom, drag — the saved photo is the framed square", async ({ browser }) => {
     const context = await browser.newContext({ hasTouch: true, viewport: { width: 1280, height: 900 } });
+    await useSession(context);
     const page = await context.newPage();
     await openProfile(page);
     const captured = await stubPhotoSave(page);
