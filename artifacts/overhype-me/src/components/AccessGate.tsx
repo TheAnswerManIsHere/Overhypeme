@@ -4,6 +4,7 @@
  */
 import { Lock, ShieldAlert } from "lucide-react";
 import { Link, useLocation } from "wouter";
+import { loginHrefFrom, loginHrefHere } from "@/lib/safe-return-to";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 
@@ -31,10 +32,7 @@ export interface AccessGateProps {
 }
 
 function loginHref(returnTo?: string) {
-  const path =
-    returnTo ??
-    (typeof window !== "undefined" ? window.location.pathname : "/");
-  return `/login?from=${encodeURIComponent(path)}`;
+  return returnTo ? loginHrefFrom(returnTo) : loginHrefHere();
 }
 
 /**

@@ -45,6 +45,34 @@ export function getSafeReturnTo(value: unknown): string | null {
   }
 }
 
+/**
+ * Pages that are themselves part of signing in: coming back to one after
+ * signing in would be a dead end, so a sign-in link from them carries no
+ * destination and lands on the home page as before.
+ */
+const SIGN_IN_FLOW_ROOTS = ["/login", "/forgot-password", "/reset-password", "/check-email", "/verify-email", "/onboard"];
+
+/**
+ * The sign-in link that brings you back to `location` afterwards (David, Q6,
+ * Issue #1132: every sign-in returns to the page you were on). `location` is
+ * a same-site path with its query; anything `getSafeReturnTo` refuses, the
+ * home page, and a sign-in-flow page all give plain `/login`. Login reads the
+ * destination from `from`.
+ */
+export function loginHrefFrom(location: string): string {
+  const safe = getSafeReturnTo(location);
+  if (!safe || safe === "/") return "/login";
+  const path = safe.split(/[?#]/)[0] ?? safe;
+  if (SIGN_IN_FLOW_ROOTS.some((root) => path === root || path.startsWith(`${root}/`))) return "/login";
+  return `/login?from=${encodeURIComponent(safe)}`;
+}
+
+/** The sign-in link that brings you back to the page you are on now. */
+export function loginHrefHere(): string {
+  if (typeof window === "undefined") return "/login";
+  return loginHrefFrom(window.location.pathname + window.location.search);
+}
+
 /** The safe `returnTo` from a query string, or `/`. */
 export function returnToFromSearch(search: string): string {
   return getSafeReturnTo(new URLSearchParams(search).get("returnTo")) ?? "/";
