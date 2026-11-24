@@ -278,7 +278,7 @@ test.describe("Admin described screens", () => {
     await expect(sheet.getByRole("textbox", { name: "Humor note" })).toBeVisible();
     await expect(sheet.getByTestId("fact-taxonomy-panel")).toBeVisible();
     await sheet.getByTestId("sheet-tab-renders").click();
-    await expect(sheet.getByTestId("sheet-renders-read-only")).toBeVisible();
+    await expect(sheet.getByTestId("sheet-renders-note")).toBeVisible();
     await expect(page.getByText("Something broke")).toHaveCount(0);
   });
 
@@ -358,24 +358,40 @@ test.describe("Admin described screens", () => {
     await expect(card.getByTestId("visual-concept-textarea")).toHaveValue(OVER_BUDGET_CONCEPT);
   });
 
-  // Plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1F (increment 1.3a): a live fact's
-  // gags are not edited until Publish changes (3.2), so the fact sheet's Gags
-  // tab shows them read-only and says where editing comes back; "Draft more
-  // gags" is gone. The save refusal's wording and wrapping are the moderation
-  // test's above.
-  test("the fact sheet shows a live fact's gags read-only, with no save and no Draft more gags", async ({ page }) => {
+  // Plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1F and 3B (increment 3.2a): a live
+  // fact's gags are edited on the fact sheet as a draft members never see,
+  // and "Draft more gags" stays gone. The save refusal's wording and
+  // wrapping are the moderation test's above.
+  test("the fact sheet edits a live fact's gags as a draft, with no Draft more gags", async ({ page }) => {
     await stubAdminFacts(page, [{
       row: adminFactRow({ id: 97201, text: "{NAME} leaps canyons." }),
       enrichment: enrichmentWithConcept("{NAME} leaps a canyon in one stride."),
     }]);
     const panel = await openFactEnrichment(page, 97201, "{NAME} leaps canyons.");
-    await expect(panel.getByTestId("sheet-gags-read-only")).toContainText("Publish changes");
+    await expect(panel.getByTestId("sheet-gags-note")).toContainText("Members keep seeing the published gags");
     const gag = panel.getByTestId("gag-card").first();
     await expect(gag).toBeVisible();
-    await expect(gag.getByTestId("gag-save")).toHaveCount(0);
-    await expect(gag.getByTestId("gag-remove")).toHaveCount(0);
-    await expect(gag.getByTestId("visual-concept-textarea")).toBeDisabled();
+    await expect(gag.getByTestId("visual-concept-textarea")).toBeEnabled();
+    await expect(gag.getByTestId("gag-save")).toBeVisible();
     await expect(panel.getByText("Draft more gags")).toHaveCount(0);
+  });
+
+  // Plan 3B (increment 3.2a): a fact with unpublished changes says so on its
+  // row and in the sheet, which offers Publish changes and Discard changes.
+  test("unpublished changes show on the row and the sheet, with Publish and Discard", async ({ page }) => {
+    await stubAdminFacts(page, [{
+      row: adminFactRow({ id: 97202, text: "{NAME} taught gravity to sit.", hasUnpublishedChanges: true }),
+      enrichment: enrichmentWithConcept("{NAME} points at an apple hovering mid-air."),
+    }]);
+    await page.goto("/admin/facts");
+    const row = page.getByTestId("fact-row-97202");
+    await expect(row.getByTestId("fact-row-97202-unpublished")).toHaveText("Unpublished changes");
+    await row.click();
+    const sheet = page.getByTestId("fact-sheet");
+    await expect(sheet.getByTestId("sheet-unpublished")).toBeVisible();
+    await expect(sheet.getByTestId("publish-changes-button")).toBeVisible();
+    await expect(sheet.getByTestId("discard-changes-button")).toBeVisible();
+    await expect(sheet.getByTestId("deactivate-fact-button")).toBeVisible();
   });
 
   // Launch Phase 4, removal 7: the orphaned comments page file is deleted;

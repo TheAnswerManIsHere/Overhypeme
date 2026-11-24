@@ -12,16 +12,20 @@
  *                         written from (the Reading step's `ReadingResearch`),
  *                         and the stored taxonomy with its history and Re-run
  *                         (`FactTaxonomyPanel`).
- *   Gags                — the Gags step's `GagsPanel`, read-only until Publish
- *                         changes arrives (3.2).
- *   Renders             — the Test Renders step's `GagsPanel`, read-only.
+ *   Gags                — the Gags step's `GagsPanel`, editing the fact's draft
+ *                         (its working copy, which members never see).
+ *   Renders             — the Test Renders step's `GagsPanel`, drawing and
+ *                         approving the draft's pictures.
  *
- * History, Publish, Discard, Reactivate and delete are 3.2's. Deactivate stays
- * here, as the old editor had it, so nothing that worked is lost meanwhile.
+ * Increment 3.2 (plan 3B): the footer carries Publish changes and Discard
+ * changes whenever the draft differs from the published set, and Deactivate
+ * or Reactivate. Leaving the sheet or a tab with an unsaved Humor Note or gag
+ * asks first, and the hashtags' save state lives here, so it survives a tab
+ * switch (both owed from 3.1).
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, EyeOff, Loader2, Save, X } from "lucide-react";
-import { HUMOR_NOTE_MAX_CHARS, KIND_LABEL, joinWithAnd } from "@workspace/api-zod";
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Eye, EyeOff, Loader2, Save, Send, Undo2, X } from "lucide-react";
+import { HUMOR_NOTE_MAX_CHARS, KIND_LABEL, joinWithAnd, type FactGagsView } from "@workspace/api-zod";
 import { Button } from "@/components/ui/Button";
 import { ReadingResearch } from "@/components/admin/ReadingStep";
 import { FactTaxonomyPanel } from "@/components/admin/FactTaxonomyPanel";
@@ -32,8 +36,10 @@ import {
   ATTENTION_WORDS,
   knownReasons,
   loadFactSheet,
+  runFactAction,
   saveHashtags,
   saveHumorNote,
+  type FactLifecycleAction,
   type FactSheetView,
 } from "./factSheetView";
 
@@ -47,11 +53,16 @@ export type FactSheetTab = (typeof FACT_SHEET_TABS)[number]["id"];
 
 const SUBJECT_NAMES = [...DEFAULT_SUBJECT_EXAMPLE_NAMES];
 
-/** What the Gags and Renders tabs say about being read-only (both are the moderation steps' `GagsPanel`). */
+/** What the Gags and Renders tabs say about the draft (both are the moderation steps' `GagsPanel`). */
 const GAG_TAB_NOTES = {
-  gags: 'The gags members are offered. Changing them arrives with "Publish changes".',
-  renders: "Each gag's male, female and pet pictures. Drawing new ones arrives with \"Publish changes\".",
+  gags: "Changes here go into a draft. Members keep seeing the published gags until you publish the changes.",
+  renders: "Draw and approve each gag's male, female and pet pictures. Approvals are part of the draft until you publish the changes.",
 } as const;
+
+/** The draft differs from the published set, as a gags view reads it. */
+export function viewHasDraftChanges(view: FactGagsView): boolean {
+  return view.gags.some((g) => g.pendingContent != null || g.draftRemoved);
+}
 
 function when(iso: string | null | undefined): string {
   return iso ? new Date(iso).toLocaleString() : "—";
@@ -100,17 +111,26 @@ function SaveStatus({ state }: { state: SaveState }) {
 
 type SaveState = { kind: "idle" } | { kind: "saving" } | { kind: "saved" } | { kind: "error"; message: string };
 
-function OverviewTab({ fact, onHashtags }: { fact: FactSheetView; onHashtags: (tags: string[]) => void }) {
-  const [tags, setTags] = useState(fact.hashtags);
+/**
+ * The hashtags' at-once save, held by the sheet rather than the Overview tab,
+ * so a save in flight and the list it answers survive a tab round-trip
+ * (Issue #1018, the 3.2 inputs from 3.1). One save is in flight at a time: a
+ * change made meanwhile waits in `queued`, and only the latest is sent when
+ * that save returns. `chosen` is the list the admin last made; a response is
+ * shown, and "Saved" said, only when it answers that list (PR #1217 round 1:
+ * a response must never replace what the admin entered after it was sent).
+ */
+function useHashtagSaver(factId: number, initial: string[] | undefined, onSaved: (tags: string[]) => void) {
+  const [tags, setTags] = useState<string[] | null>(null);
   const [state, setState] = useState<SaveState>({ kind: "idle" });
-  // One save in flight for the sheet: a change made meanwhile waits in
-  // `queued` and only the latest is sent when that save returns. `chosen` is
-  // the list the admin last made; a response is shown, and "Saved" said, only
-  // when it is the answer to that list (PR #1217 round 1: a response must
-  // never replace what the admin entered after it was sent).
   const inFlight = useRef(false);
   const queued = useRef<string[] | null>(null);
-  const chosen = useRef<string[]>(fact.hashtags);
+  const chosen = useRef<string[] | null>(null);
+
+  // The first load seeds the list; later reloads never replace the admin's.
+  useEffect(() => {
+    if (initial && chosen.current == null) { chosen.current = initial; setTags(initial); }
+  }, [initial]);
 
   const send = useCallback(async (list: string[]): Promise<void> => {
     inFlight.current = true;
@@ -118,7 +138,7 @@ function OverviewTab({ fact, onHashtags }: { fact: FactSheetView; onHashtags: (t
     let saved: string[] | null = null;
     let failure: string | null = null;
     try {
-      saved = await saveHashtags(fact.id, list);
+      saved = await saveHashtags(factId, list);
     } catch (err) {
       failure = err instanceof Error ? err.message : "Could not save the hashtags.";
     }
@@ -130,9 +150,9 @@ function OverviewTab({ fact, onHashtags }: { fact: FactSheetView; onHashtags: (t
     if (failure != null || saved == null) { setState({ kind: "error", message: failure ?? "Could not save the hashtags." }); return; }
     chosen.current = saved;
     setTags(saved);
-    onHashtags(saved);
+    onSaved(saved);
     setState({ kind: "saved" });
-  }, [fact.id, onHashtags]);
+  }, [factId, onSaved]);
 
   // Each add or remove saves at once (plan item 20). An empty list is never
   // sent: the editor warns, and the server would refuse it.
@@ -148,6 +168,12 @@ function OverviewTab({ fact, onHashtags }: { fact: FactSheetView; onHashtags: (t
     void send(next);
   }, [send]);
 
+  return { tags: tags ?? initial ?? [], state, change };
+}
+
+type HashtagSaver = ReturnType<typeof useHashtagSaver>;
+
+function OverviewTab({ fact, hashtags }: { fact: FactSheetView; hashtags: HashtagSaver }) {
   const reasons = knownReasons(fact.attention);
   const approval = fact.approvalSource === "legacy"
     ? "Legacy (approved before approvals were recorded)"
@@ -229,20 +255,27 @@ function OverviewTab({ fact, onHashtags }: { fact: FactSheetView; onHashtags: (t
 
       <Group title="Hashtags" testId="sheet-group-hashtags">
         <div className="space-y-2">
-          <FinalHashtagsEditor finalHashtags={tags} onFinalHashtagsChange={change} aiSuggestions={fact.suggestedHashtags} />
-          <div className="min-h-4" data-testid="sheet-hashtags-status"><SaveStatus state={state} /></div>
+          <FinalHashtagsEditor finalHashtags={hashtags.tags} onFinalHashtagsChange={hashtags.change} aiSuggestions={fact.suggestedHashtags} context="live" />
+          <div className="min-h-4" data-testid="sheet-hashtags-status"><SaveStatus state={hashtags.state} /></div>
         </div>
       </Group>
     </div>
   );
 }
 
-function ReadingTab({ fact, onSaved }: { fact: FactSheetView; onSaved: () => void }) {
+function ReadingTab({ fact, onSaved, onDirtyChange }: { fact: FactSheetView; onSaved: () => void; onDirtyChange: (dirty: boolean) => void }) {
   const approved = fact.reading.approved;
   const [text, setText] = useState(approved?.text ?? "");
   const [state, setState] = useState<SaveState>({ kind: "idle" });
   const trimmed = text.trim();
   const changed = trimmed !== (approved?.text ?? "").trim();
+
+  // The sheet asks before a tab switch, Escape or a click outside would lose
+  // an unsaved note (Issue #1018, the 3.2 inputs from 3.1). A save in flight
+  // is not lost by leaving, so it does not count.
+  const dirty = changed && state.kind !== "saving";
+  useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
+  useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
 
   // What is in the box now, so a save's answer never replaces text typed
   // while it was in flight (PR #1217 round 1).
@@ -305,6 +338,16 @@ function ReadingTab({ fact, onSaved }: { fact: FactSheetView; onSaved: () => voi
   );
 }
 
+/** What the footer is asking the admin to confirm. */
+type Confirming = "deactivate" | "discard" | null;
+
+const ACTION_DONE: Record<FactLifecycleAction, string> = {
+  publish: "Published. Members now see the new gags.",
+  discard: "Changes discarded. The gags are back to what members see.",
+  deactivate: "Deactivated. The fact is off the site.",
+  reactivate: "Reactivated. The fact is live again.",
+};
+
 export function FactSheet({
   factId,
   onClose,
@@ -313,16 +356,24 @@ export function FactSheet({
 }: {
   factId: number;
   onClose: () => void;
-  /** The fact changed in a way the list shows (deactivated): the list should reload. */
+  /** The fact changed in a way the list shows (live or not, unpublished changes): the list should reload. */
   onChanged: () => void;
   initialTab?: FactSheetTab;
 }) {
   const [fact, setFact] = useState<FactSheetView | null>(null);
   const [error, setError] = useState("");
   const [tab, setTab] = useState<FactSheetTab>(initialTab);
-  const [confirmDeactivate, setConfirmDeactivate] = useState(false);
-  const [deactivating, setDeactivating] = useState(false);
-  const [deactivateError, setDeactivateError] = useState("");
+  const [confirming, setConfirming] = useState<Confirming>(null);
+  const [acting, setActing] = useState<FactLifecycleAction | null>(null);
+  const [actionError, setActionError] = useState("");
+  const [actionDone, setActionDone] = useState("");
+  // The Gags and Renders tabs' latest view of the draft, and its reload key.
+  const [gagView, setGagView] = useState<FactGagsView | null>(null);
+  const [gagsReload, setGagsReload] = useState(0);
+  // Unsaved work a tab switch or closing would lose, and the leave it holds.
+  const [unsavedNote, setUnsavedNote] = useState(false);
+  const [unsavedGags, setUnsavedGags] = useState<string[]>([]);
+  const [pendingLeave, setPendingLeave] = useState<(() => void) | null>(null);
 
   const load = useCallback(() => {
     setError("");
@@ -330,43 +381,71 @@ export function FactSheet({
   }, [factId]);
   useEffect(() => { setFact(null); load(); }, [load]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   // Hashtags are not on the list, so a save there leaves it alone.
   const onHashtags = useCallback((tags: string[]) => {
     setFact((f) => (f ? { ...f, hashtags: tags } : f));
   }, []);
+  const hashtags = useHashtagSaver(factId, fact?.hashtags, onHashtags);
 
-  // Deactivate: the only removal until 3.2's (plan 1F). Members' memes,
-  // pictures and comments stay.
-  const deactivate = async () => {
-    setDeactivating(true);
-    setDeactivateError("");
+  const unsavedWhat = [
+    ...(unsavedNote ? ["the Humor Note"] : []),
+    ...unsavedGags,
+  ];
+  const hasUnsaved = unsavedWhat.length > 0;
+  // Leaving a tab or the sheet with unsaved work asks first.
+  const guard = useCallback((leave: () => void) => {
+    if (hasUnsaved) setPendingLeave(() => leave);
+    else leave();
+  }, [hasUnsaved]);
+
+  const close = useCallback(() => guard(onClose), [guard, onClose]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (pendingLeave) setPendingLeave(null); // Escape on the question keeps editing
+      else close();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [close, pendingLeave]);
+
+  const onUnsavedGags = useCallback((names: string[]) => setUnsavedGags(names), []);
+  const onNoteDirty = useCallback((dirty: boolean) => setUnsavedNote(dirty), []);
+
+  const unpublished = gagView ? viewHasDraftChanges(gagView) : fact?.hasUnpublishedChanges ?? false;
+  const draftReady = gagView?.draftReady ?? null;
+  const publishBlocked = unsavedGags.length > 0
+    ? `Save or undo ${joinWithAnd(unsavedGags)} first.`
+    : draftReady && !draftReady.ok ? draftReady.reason ?? "The draft isn't ready to publish." : null;
+
+  const act = async (action: FactLifecycleAction) => {
+    setActing(action);
+    setActionError("");
+    setActionDone("");
     try {
-      const r = await fetch(`/api/admin/facts/${factId}`, { method: "DELETE", credentials: "include" });
-      const body = (await r.json().catch(() => ({}))) as { error?: string };
-      if (!r.ok) throw new Error(body.error ?? "Could not deactivate the fact.");
-      setConfirmDeactivate(false);
+      await runFactAction(factId, action);
+      setConfirming(null);
+      setActionDone(ACTION_DONE[action]);
+      setGagView(null);
+      setGagsReload((k) => k + 1);
       onChanged();
       load();
     } catch (err) {
-      setDeactivateError(err instanceof Error ? err.message : "Could not deactivate the fact.");
+      setActionError(err instanceof Error ? err.message : "That didn't work. Nothing was changed.");
     } finally {
-      setDeactivating(false);
+      setActing(null);
     }
   };
 
   const reasons = knownReasons(fact?.attention);
+  const busy = acting != null;
 
   return (
     <div
       data-modal-overlay
       className="fixed inset-0 z-50 bg-black/60 flex items-stretch sm:items-center justify-center sm:p-4"
-      onClick={onClose}
+      onClick={close}
     >
       <div
         role="dialog"
@@ -389,11 +468,16 @@ export function FactSheet({
                   {fact.isActive ? "Live" : "Deactivated"}
                 </span>
               )}
+              {fact && unpublished && (
+                <span data-testid="sheet-unpublished" className="px-2 py-0.5 text-xs font-bold rounded-sm border border-primary/50 bg-primary/10 text-primary">
+                  Unpublished changes
+                </span>
+              )}
               {reasons.map((r) => (
                 <span key={r} className="px-2 py-0.5 text-xs font-semibold rounded-sm border border-amber-500/40 bg-amber-500/10 text-amber-600">{ATTENTION_WORDS[r].label}</span>
               ))}
             </div>
-            <button onClick={onClose} className="flex items-center justify-center w-11 h-11 -mr-2 -mt-2 text-muted-foreground hover:text-foreground rounded-sm shrink-0" aria-label="Close the fact sheet">
+            <button onClick={close} className="flex items-center justify-center w-11 h-11 -mr-2 -mt-2 text-muted-foreground hover:text-foreground rounded-sm shrink-0" aria-label="Close the fact sheet">
               <X className="w-5 h-5" />
             </button>
           </div>
@@ -409,7 +493,7 @@ export function FactSheet({
                 role="tab"
                 aria-selected={tab === t.id}
                 data-testid={`sheet-tab-${t.id}`}
-                onClick={() => setTab(t.id)}
+                onClick={() => { if (t.id !== tab) guard(() => setTab(t.id)); }}
                 className={`px-3 py-2 text-xs font-bold uppercase tracking-wide whitespace-nowrap border-b-2 transition-colors ${tab === t.id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
               >
                 {t.label}
@@ -418,48 +502,116 @@ export function FactSheet({
           </div>
         </header>
 
+        {pendingLeave && (
+          <div className="border-b border-amber-500/40 bg-amber-500/10 px-4 sm:px-6 py-3 shrink-0 space-y-2" role="alertdialog" aria-label="Unsaved changes" data-testid="sheet-leave-confirm">
+            <p className="text-sm text-foreground">
+              <AlertTriangle className="w-4 h-4 inline -mt-0.5 mr-1 text-amber-600" />
+              {joinWithAnd(unsavedWhat).replace(/^./, (c) => c.toUpperCase())} {unsavedWhat.length > 1 ? "have" : "has"} changes that aren't saved. Leave without saving them?
+            </p>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => setPendingLeave(null)} data-testid="sheet-leave-cancel">Keep editing</Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-destructive border-destructive/30 hover:bg-destructive/10"
+                onClick={() => { const leave = pendingLeave; setPendingLeave(null); setUnsavedNote(false); setUnsavedGags([]); leave(); }}
+                data-testid="sheet-leave-confirm-button"
+              >
+                Leave without saving
+              </Button>
+            </div>
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4" role="tabpanel" data-testid={`sheet-panel-${tab}`}>
           {error ? (
             <p className="text-sm text-destructive flex items-center gap-2" role="alert"><AlertTriangle className="w-4 h-4" /> {error}</p>
           ) : !fact ? (
             <p className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading the fact…</p>
           ) : tab === "overview" ? (
-            <OverviewTab fact={fact} onHashtags={onHashtags} />
+            <OverviewTab fact={fact} hashtags={hashtags} />
           ) : tab === "reading" ? (
-            <ReadingTab key={fact.id} fact={fact} onSaved={load} />
+            <ReadingTab key={fact.id} fact={fact} onSaved={load} onDirtyChange={onNoteDirty} />
           ) : (
             <div className="space-y-3">
-              <p className="text-xs text-muted-foreground" data-testid={`sheet-${tab}-read-only`}>{GAG_TAB_NOTES[tab]}</p>
-              <GagsPanel key={tab} factId={fact.id} reviewId={null} rendersEnabled={tab === "renders"} subjectNames={SUBJECT_NAMES} disabled />
+              <p className="text-xs text-muted-foreground" data-testid={`sheet-${tab}-note`}>{GAG_TAB_NOTES[tab]}</p>
+              <GagsPanel
+                key={tab}
+                factId={fact.id}
+                reviewId={null}
+                rendersEnabled={tab === "renders"}
+                subjectNames={SUBJECT_NAMES}
+                reloadKey={gagsReload}
+                onView={setGagView}
+                onUnsavedChange={onUnsavedGags}
+                disabled={busy}
+              />
             </div>
           )}
         </div>
 
-        {fact?.isActive && (
-          <footer className="border-t border-border px-4 sm:px-6 py-3 shrink-0">
-            {confirmDeactivate ? (
+        {fact && (
+          <footer className="border-t border-border px-4 sm:px-6 py-3 shrink-0 space-y-2" data-testid="sheet-footer">
+            {actionError && <p className="text-sm text-destructive flex items-start gap-1.5" role="alert" data-testid="sheet-action-error"><AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" /> {actionError}</p>}
+            {actionDone && !actionError && <p className="text-sm text-green-600 dark:text-green-400 flex items-center gap-1.5" data-testid="sheet-action-done"><CheckCircle2 className="w-4 h-4" /> {actionDone}</p>}
+
+            {confirming === "deactivate" ? (
               <div className="space-y-2" data-testid="sheet-deactivate-confirm">
                 <p className="text-sm text-muted-foreground">
-                  Takes the fact off the site. Members' memes, pictures and comments are kept. It can't be reactivated from the admin yet.
+                  Takes the fact off the site. Members' memes, pictures and comments are kept, and so are any unpublished changes. It can be reactivated later.
                 </p>
-                {deactivateError && <p className="text-sm text-destructive" role="alert">{deactivateError}</p>}
                 <div className="flex gap-2">
-                  <Button size="sm" onClick={() => void deactivate()} isLoading={deactivating} data-testid="deactivate-fact-confirm">
+                  <Button size="sm" onClick={() => void act("deactivate")} isLoading={acting === "deactivate"} data-testid="deactivate-fact-confirm">
                     <EyeOff className="w-4 h-4" /> Deactivate
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => setConfirmDeactivate(false)} disabled={deactivating}>Cancel</Button>
+                  <Button size="sm" variant="outline" onClick={() => setConfirming(null)} disabled={busy}>Cancel</Button>
+                </div>
+              </div>
+            ) : confirming === "discard" ? (
+              <div className="space-y-2" data-testid="sheet-discard-confirm">
+                <p className="text-sm text-muted-foreground">
+                  Throws away every unpublished change to the gags and their pictures. Gags that were never published are removed. Members' view doesn't change.
+                </p>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={() => void act("discard")} isLoading={acting === "discard"} data-testid="discard-changes-confirm">
+                    <Undo2 className="w-4 h-4" /> Discard changes
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setConfirming(null)} disabled={busy}>Cancel</Button>
                 </div>
               </div>
             ) : (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setConfirmDeactivate(true)}
-                className="text-destructive border-destructive/30 hover:bg-destructive/10 hover:border-destructive/60"
-                data-testid="deactivate-fact-button"
-              >
-                <EyeOff className="w-4 h-4" /> Deactivate fact
-              </Button>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                {fact.isActive ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => { setActionDone(""); setConfirming("deactivate"); }}
+                    disabled={busy}
+                    className="text-destructive border-destructive/30 hover:bg-destructive/10 hover:border-destructive/60"
+                    data-testid="deactivate-fact-button"
+                  >
+                    <EyeOff className="w-4 h-4" /> Deactivate fact
+                  </Button>
+                ) : (
+                  <Button size="sm" variant="outline" onClick={() => void act("reactivate")} isLoading={acting === "reactivate"} disabled={busy} data-testid="reactivate-fact-button">
+                    <Eye className="w-4 h-4" /> Reactivate
+                  </Button>
+                )}
+                {unpublished && (
+                  <div className="flex flex-wrap items-center gap-2" data-testid="sheet-publish-bar">
+                    <span className="text-xs text-muted-foreground">Members still see the published gags.</span>
+                    <Button size="sm" variant="outline" onClick={() => { setActionDone(""); setConfirming("discard"); }} disabled={busy} data-testid="discard-changes-button">
+                      <Undo2 className="w-4 h-4" /> Discard changes
+                    </Button>
+                    <Button size="sm" onClick={() => void act("publish")} isLoading={acting === "publish"} disabled={busy || publishBlocked != null} data-testid="publish-changes-button">
+                      <Send className="w-4 h-4" /> Publish changes
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+            {unpublished && publishBlocked && !confirming && (
+              <p className="text-xs text-muted-foreground text-right" data-testid="sheet-publish-blocked">{publishBlocked}</p>
             )}
           </footer>
         )}

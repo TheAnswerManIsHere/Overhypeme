@@ -54,6 +54,8 @@ export interface FactSheetView {
   suggestedHashtags: string[];
   hasEmbedding: boolean;
   attention: string[];
+  /** The draft differs from the published set: "Publish changes" or "Discard changes" (plan 3B). */
+  hasUnpublishedChanges: boolean;
   reviewId: number | null;
   hashtags: string[];
   usage: { memes: number; aiPictures: number };
@@ -86,4 +88,13 @@ export async function saveHashtags(factId: number, hashtags: string[]): Promise<
 export async function saveHumorNote(factId: number, text: string): Promise<{ text: string; approvedAt: string | null }> {
   const res = await put<{ humorNote: { text: string; approvedAt: string | null } }>(`/api/admin/facts/${factId}/humor-note`, { text }, "Could not save the humor note.");
   return res.humorNote;
+}
+
+/** An approved fact's lifecycle actions (api-server lib/factLifecycle.ts). */
+export type FactLifecycleAction = "publish" | "discard" | "deactivate" | "reactivate";
+
+/** Run one; throws the server's refusal in words (a go-live gap names the gag and the renders it needs). */
+export async function runFactAction(factId: number, action: FactLifecycleAction): Promise<void> {
+  const r = await fetch(`/api/admin/facts/${factId}/${action}`, { method: "POST", credentials: "include" });
+  if (!r.ok) throw new Error((await readError(r)) || "That didn't work. Nothing was changed.");
 }

@@ -18,12 +18,20 @@ export function FinalHashtagsEditor({
   finalHashtags,
   onFinalHashtagsChange,
   aiSuggestions,
+  context = "moderation",
 }: {
   finalHashtags: string[];
   onFinalHashtagsChange: (tags: string[]) => void;
   /** The AI's suggested tags — offered as a source to add from, not shipped. */
   aiSuggestions: string[];
+  /**
+   * Where the editor sits: a review being moderated (the default), or an
+   * approved fact's sheet, where each change saves at once and nothing is
+   * "approved" any more (Issue #1018, the 3.2 inputs from 3.1).
+   */
+  context?: "moderation" | "live";
 }) {
+  const live = context === "live";
   const [input, setInput] = useState("");
   const [rejected, setRejected] = useState<string | null>(null);
   const finalTags = finalHashtags;
@@ -54,11 +62,15 @@ export function FinalHashtagsEditor({
         {finalTags.length === 0 ? (
           <p className="text-xs text-destructive flex items-center gap-1.5 mb-2" data-testid="final-hashtags-empty-warning">
             <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-            Add at least one hashtag — a fact can't be approved without tags. Clearing them all is usually a mistake.
+            {live
+              ? "Add at least one hashtag — a fact always keeps at least one, so this change isn't saved."
+              : "Add at least one hashtag — a fact can't be approved without tags. Clearing them all is usually a mistake."}
           </p>
         ) : (
           <p className="text-xs text-muted-foreground mb-2">
-            The submitter's edited tags, ready for review. Remove or add as you see fit.
+            {live
+              ? "The hashtags members find this fact by. Each add or remove saves at once."
+              : "The submitter's edited tags, ready for review. Remove or add as you see fit."}
           </p>
         )}
         {finalTags.length === 0 ? (
@@ -95,7 +107,9 @@ export function FinalHashtagsEditor({
           </p>
         )}
         <p className="text-[11px] text-muted-foreground/70 mt-1.5">
-          Subject names, the app's own tag, and generic-humor tags are rejected here and stripped on approval. At least one tag is required.
+          {live
+            ? "Subject names, the app's own tag, and generic-humor tags are refused. At least one tag is required."
+            : "Subject names, the app's own tag, and generic-humor tags are rejected here and stripped on approval. At least one tag is required."}
         </p>
       </div>
 

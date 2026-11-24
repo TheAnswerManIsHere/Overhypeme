@@ -84,6 +84,8 @@ export interface AdminFactRow {
   hasEnrichment?: boolean;
   /** The needs-attention reasons GET /admin/facts gives the row (lib/factAttention.ts). */
   attention?: string[];
+  /** The draft differs from the published set (plan 3B; lib/factLifecycle.ts). */
+  hasUnpublishedChanges?: boolean;
 }
 
 export function adminFactRow(overrides: Partial<AdminFactRow> & Pick<AdminFactRow, "id" | "text">): AdminFactRow {
@@ -174,6 +176,7 @@ export function factSheetOf(row: AdminFactRow, enrichment: FactEnrichment | null
     suggestedHashtags: enrichment?.suggestedHashtags ?? [],
     hasEmbedding: row.hasEmbedding,
     attention: row.attention ?? [],
+    hasUnpublishedChanges: row.hasUnpublishedChanges ?? false,
     reviewId: null,
     hashtags: ["legend"],
     usage: { memes: 0, aiPictures: 0 },

@@ -2,7 +2,10 @@
  * The fact sheet (plan docs/plans/PLAN_FACT_LIFECYCLE_REBUILD.md, items 19–20;
  * Issue #1018, increment 3.1): its four tabs, the Overview's groups with the
  * hashtags as the only edit there, the Humor Note's at-once save, the
- * read-only gags, and Deactivate kept from the old editor.
+ * read-only gags, and Deactivate kept from the old editor; and increment 3.2:
+ * the gag tabs editing the draft, Publish changes and Discard changes,
+ * Deactivate and Reactivate, the unsaved-changes guard, and the hashtags'
+ * save surviving a tab round-trip.
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
@@ -33,6 +36,7 @@ const SHEET: FactSheetView = {
   suggestedHashtags: ["sun"],
   hasEmbedding: true,
   attention: ["example_missing", "not_a_reason_this_build_knows"],
+  hasUnpublishedChanges: false,
   reviewId: 9,
   hashtags: ["staring", "sun"],
   usage: { memes: 5, aiPictures: 1 },
@@ -53,7 +57,12 @@ const SHEET: FactSheetView = {
 
 interface Call { url: string; method: string; body: unknown }
 
-function stub(sheet: FactSheetView = SHEET) {
+/** A gags view for the stub: no gags, a draft that is ready unless said otherwise. */
+function gagsView(extra: Record<string, unknown> = {}) {
+  return { factId: 42, isActive: true, review: null, gags: [], maxGags: 3, draftReady: { ok: true, reason: null }, filling: false, fillFailed: false, ...extra };
+}
+
+function stub(sheet: FactSheetView = SHEET, opts: { gags?: unknown; refuse?: Record<string, string> } = {}) {
   const calls: Call[] = [];
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
@@ -61,13 +70,14 @@ function stub(sheet: FactSheetView = SHEET) {
     calls.push({ url: String(url), method, body });
     const u = String(url);
     let json: unknown = {};
+    const action = u.match(/\/api\/admin\/facts\/42\/(publish|discard|deactivate|reactivate)$/)?.[1];
+    if (action && opts.refuse?.[action]) return new Response(JSON.stringify({ error: opts.refuse[action] }), { status: 409 });
     if (u.endsWith("/sheet")) json = sheet;
     else if (u.endsWith("/hashtags")) json = { hashtags: [...(body as { hashtags: string[] }).hashtags].sort() };
     else if (u.endsWith("/humor-note")) json = { humorNote: { text: (body as { text: string }).text, approvedAt: "2026-11-24T10:00:00Z" } };
     else if (u.endsWith("/taxonomy-runs")) json = { runs: [] };
-    else if (u.endsWith("/gags")) json = { factId: 42, gags: [], maxGags: 3 };
+    else if (u.endsWith("/gags")) json = opts.gags ?? gagsView();
     else if (u.match(/\/api\/admin\/facts\/42$/) && method === "GET") json = { id: 42, enrichment: buildPlaceholderFactEnrichment(), enrichmentStatus: "ok" };
-    else if (method === "DELETE") json = { success: true };
     return new Response(JSON.stringify(json), { status: 200, headers: { "Content-Type": "application/json" } });
   }));
   return calls;
@@ -238,30 +248,129 @@ describe("FactSheet", () => {
     expect(calls.find((c) => c.url.endsWith("/humor-note"))?.body).toEqual({ text: "The joke is the sun blinks." });
   });
 
-  it("Gags and Renders are read-only and say why", async () => {
+  it("Gags and Renders edit the draft and say so", async () => {
     stub();
     open();
     await screen.findByTestId("sheet-wording");
     fireEvent.click(screen.getByTestId("sheet-tab-gags"));
-    expect((screen.getByTestId("sheet-gags-read-only")).textContent).toContain("Publish changes");
+    expect((screen.getByTestId("sheet-gags-note")).textContent).toContain("Members keep seeing the published gags");
     fireEvent.click(screen.getByTestId("sheet-tab-renders"));
-    expect((screen.getByTestId("sheet-renders-read-only")).textContent).toContain("Publish changes");
+    expect((screen.getByTestId("sheet-renders-note")).textContent).toContain("part of the draft");
   });
 
   it("Deactivate asks first, then deactivates and reloads", async () => {
     const calls = stub();
     const { onChanged } = open();
     fireEvent.click(await screen.findByTestId("deactivate-fact-button"));
+    expect(screen.getByTestId("sheet-deactivate-confirm").textContent).toContain("unpublished changes");
     fireEvent.click(screen.getByTestId("deactivate-fact-confirm"));
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
-    expect(calls.some((c) => c.method === "DELETE" && c.url.endsWith("/api/admin/facts/42"))).toBe(true);
+    expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/api/admin/facts/42/deactivate"))).toBe(true);
   });
 
-  it("a deactivated fact offers no Deactivate", async () => {
-    stub({ ...SHEET, isActive: false });
-    open();
+  it("a deactivated fact offers Reactivate, not Deactivate", async () => {
+    const calls = stub({ ...SHEET, isActive: false });
+    const { onChanged } = open();
     expect((await screen.findByTestId("sheet-status")).textContent).toContain("Deactivated");
     expect(screen.queryByTestId("deactivate-fact-button")).toBeNull();
+    fireEvent.click(screen.getByTestId("reactivate-fact-button"));
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/api/admin/facts/42/reactivate"))).toBe(true);
+    expect(screen.getByTestId("sheet-action-done").textContent).toContain("live again");
+  });
+
+  it("a refused Reactivate says why and changes nothing on screen", async () => {
+    stub({ ...SHEET, isActive: false }, { refuse: { reactivate: "Visual gag 1 needs pet render approved." } });
+    const { onChanged } = open();
+    fireEvent.click(await screen.findByTestId("reactivate-fact-button"));
+    expect((await screen.findByTestId("sheet-action-error")).textContent).toContain("Visual gag 1 needs pet render approved.");
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+
+  it("no unpublished changes: no chip, no Publish or Discard", async () => {
+    stub();
+    open();
+    await screen.findByTestId("sheet-footer");
+    expect(screen.queryByTestId("sheet-unpublished")).toBeNull();
+    expect(screen.queryByTestId("publish-changes-button")).toBeNull();
+  });
+
+  it("unpublished changes: the chip, then Publish changes publishes and reloads", async () => {
+    const calls = stub({ ...SHEET, hasUnpublishedChanges: true });
+    const { onChanged } = open();
+    expect((await screen.findByTestId("sheet-unpublished")).textContent).toContain("Unpublished changes");
+    fireEvent.click(screen.getByTestId("publish-changes-button"));
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/api/admin/facts/42/publish"))).toBe(true);
+    expect(screen.getByTestId("sheet-action-done").textContent).toContain("Published");
+  });
+
+  it("Discard changes asks first, then discards", async () => {
+    const calls = stub({ ...SHEET, hasUnpublishedChanges: true });
+    open();
+    fireEvent.click(await screen.findByTestId("discard-changes-button"));
+    expect(calls.some((c) => c.url.endsWith("/discard"))).toBe(false);
+    fireEvent.click(screen.getByTestId("discard-changes-confirm"));
+    await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/api/admin/facts/42/discard"))).toBe(true));
+  });
+
+  it("a draft that isn't ready: Publish is held and the reason shown", async () => {
+    const pending = {
+      id: 7, slot: 1, state: "pending", availableToUsers: true, isDefault: true,
+      approvedContent: null, approvedExamples: { male: null, female: null, pet: null }, grandfathered: false, approvedAt: null,
+      pendingContent: null, pendingExamples: { male: null, female: null, pet: null }, draftRemoved: true, prefilledUntouched: false,
+      renders: { male: null, female: null, pet: null },
+    };
+    stub(SHEET, { gags: gagsView({ gags: [pending], draftReady: { ok: false, reason: "A fact needs at least one visual gag before it can go live." } }) });
+    open();
+    await screen.findByTestId("sheet-wording");
+    fireEvent.click(screen.getByTestId("sheet-tab-gags"));
+    expect((await screen.findByTestId("sheet-publish-blocked")).textContent).toContain("at least one visual gag");
+    expect((screen.getByTestId("publish-changes-button") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("sheet-unpublished")).toBeTruthy();
+  });
+
+  it("an unsaved Humor Note asks before a tab switch, Escape or a click outside", async () => {
+    stub();
+    const { onClose } = open();
+    await screen.findByTestId("sheet-wording");
+    fireEvent.click(screen.getByTestId("sheet-tab-reading"));
+    fireEvent.change(screen.getByRole("textbox", { name: "Humor note" }), { target: { value: "A new reading." } });
+
+    fireEvent.click(screen.getByTestId("sheet-tab-overview"));
+    expect(screen.getByTestId("sheet-leave-confirm").textContent).toContain("The Humor Note has changes that aren't saved");
+    expect(screen.getByTestId("sheet-tab-reading").getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(screen.getByTestId("sheet-leave-cancel"));
+    expect((screen.getByRole("textbox", { name: "Humor note" }) as HTMLTextAreaElement).value).toBe("A new reading.");
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.getByTestId("sheet-leave-confirm")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" }); // Escape on the question keeps editing
+    expect(screen.queryByTestId("sheet-leave-confirm")).toBeNull();
+
+    fireEvent.click(document.querySelector("[data-modal-overlay]")!);
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("sheet-leave-confirm-button"));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("a hashtag save in flight survives a tab round-trip", async () => {
+    const held = holdPuts();
+    open();
+    let group = await screen.findByTestId("sheet-group-hashtags");
+    addTag(group, "one");
+    await waitFor(() => expect(held).toHaveLength(1));
+    fireEvent.click(screen.getByTestId("sheet-tab-reading"));
+    fireEvent.click(screen.getByTestId("sheet-tab-overview"));
+    group = await screen.findByTestId("sheet-group-hashtags");
+    expect(shown(group)).toEqual(["staring", "sun", "one"]);
+    expect(screen.getByTestId("sheet-hashtags-status").textContent).toContain("Saving");
+    addTag(group, "two");
+    held[0]!.release();
+    await waitFor(() => expect(held).toHaveLength(2));
+    expect(held[1]!.body.hashtags).toEqual(["staring", "sun", "one", "two"]);
+    held[1]!.release();
+    await waitFor(() => expect(screen.getByTestId("sheet-hashtags-status").textContent).toContain("Saved"));
   });
 
   it("a fact that is not approved says it isn't on the Facts page", async () => {
