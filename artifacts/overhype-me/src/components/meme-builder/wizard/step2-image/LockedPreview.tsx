@@ -43,6 +43,27 @@ const MAX_PX = 1200;
  *  so the controls below are always partially reachable on first scroll. */
 const MAX_SAVED_VIEWPORT_FRACTION = 0.52;
 
+/**
+ * The stacked preview's height cap at this moment: the remembered handle
+ * height, or the default share of the screen. The layout choice (Issue #850,
+ * amendment 1) compares against it.
+ */
+export function stackedPreviewMaxHeight(viewportHeight: number): number {
+  const saved = readSavedMaxH();
+  return saved != null
+    ? effectiveMaxH(saved, viewportHeight)
+    : Math.floor((viewportHeight * DEFAULT_MAX_VH) / 100);
+}
+
+/**
+ * A remembered height as the stacked preview actually draws it at this
+ * viewport height. The layout choice and the preview both use it, so they
+ * never disagree after a resize (Astra C7 on amendment 1).
+ */
+function effectiveMaxH(maxH: number, viewportHeight: number): number {
+  return Math.max(MIN_PX, Math.min(MAX_PX, maxH, Math.floor(viewportHeight * MAX_SAVED_VIEWPORT_FRACTION)));
+}
+
 function readSavedMaxH(): number | null {
   if (typeof window === "undefined") return null;
   const saved = window.localStorage.getItem(CANVAS_HEIGHT_KEY);
@@ -160,7 +181,18 @@ export function LockedPreview({
     setGrabbing(false);
   }, []);
 
-  const canvasMaxHeightStyle = maxH != null ? `${maxH}px` : `${DEFAULT_MAX_VH}vh`;
+  // Track the viewport height so a remembered height is re-clamped on resize,
+  // exactly as the layout choice clamps it.
+  const [viewportH, setViewportH] = useState<number>(() =>
+    typeof window === "undefined" ? 0 : window.innerHeight,
+  );
+  useEffect(() => {
+    const onResize = () => setViewportH(window.innerHeight);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const canvasMaxHeightStyle =
+    maxH != null ? `${effectiveMaxH(maxH, viewportH)}px` : `${DEFAULT_MAX_VH}vh`;
 
   // Wide layout: measure the area beside the controls and fit the canvas to it.
   const areaRef = useRef<HTMLDivElement>(null);
@@ -246,7 +278,7 @@ export function LockedPreview({
   return (
     <div className="bg-[#111] px-4 pb-1">
       <div
-        className="relative mx-auto max-w-md select-none"
+        className="relative mx-auto max-w-md select-none lg:max-w-none"
         style={dragStyle}
         {...dragHandlers}
         data-testid="locked-preview"

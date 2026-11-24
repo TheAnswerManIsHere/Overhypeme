@@ -132,3 +132,43 @@ when the controls were underneath.
   2. Keep a handle on wide screens too. This adds a second sizing rule for
      the wide layout and some work, for a preview that already fills the
      space.
+
+## Amendment 1 — the biggest picture wins (David, 2026-11-24, approved as Q31: 1)
+
+**Why:** in UAT T1, on a 12.9-inch iPad held upright (1024 px wide), the
+fixed 1024 px rule chose side by side, and a landscape-shaped meme showed
+small in a narrow column above empty space. David: *"I'm sure there's some type of algorithm we can define where you check to see what would make the image appear larger to a viewer. If it appears larger when side by side, it should use that layout, if it appears larger on top, use that."*
+
+**The rule, replacing "at least 1024 px wide":**
+- Whenever the viewport size or the picture shape changes, the builder
+  computes the displayed picture size in each arrangement, for the current
+  shape:
+  - **side by side:** fitted to the area left of the 420 px controls column,
+    below the top bar;
+  - **stacked:** fitted to the screen's width, with its height capped at the
+    stacked preview's height (the remembered handle height, or 38% of the
+    screen by default).
+- **The arrangement with the larger picture is used.**
+- It switches away from the current arrangement only when the other is at
+  least 10% larger, so near-ties do not flicker.
+- **Q31: 1:** this includes a change of picture shape, so on an upright big
+  iPad, tapping a different shape can move the controls between the side
+  and the bottom.
+- **Below 1024 px wide the rule does not run:** today's stacked layout and
+  sizing stay, so a phone held either way never changes (Astra C6). At 1024 px
+  and above, the stacked preview is no longer capped at about 450 px wide.
+- The layout choice and the stacked preview use one effective height (the
+  remembered height clamped to the current screen), so they never disagree
+  after a resize (Astra C7).
+
+**Completion, added:**
+- **ci:** the decision is a pure function, unit-tested on a table of screens
+  and shapes, phone to desktop, near-tie behaviour included.
+- **ci:** a browser test at 1024×1366 shows a landscape-shaped picture stacked
+  and wider than 900 px, and a portrait-shaped one side by side.
+- **ci:** the existing wide-layout tests run at sizes and shapes where side by
+  side still wins.
+- **ci:** a phone held either way (390×844, 844×390) stays stacked for every
+  shape; a large remembered height behaves the same in the choice and the
+  preview across a resize.
+- **judgement (David):** T1 on his upright iPad.
