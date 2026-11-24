@@ -45,13 +45,17 @@ export default function CheckEmail() {
     linkRequested.current = true;
     void (async () => {
       const result = await resendVerification({ ifNoneOut: true });
-      if (result.sent) setLinkState("out");
+      // Verified elsewhere (another tab or device): nothing was sent, so the
+      // screen claims nothing and refreshes the session, which moves the
+      // person on as it does for any verified account (#884).
+      if (result.verified) await refreshUser();
+      else if (result.sent) setLinkState("out");
       else {
         setLinkError(result.message);
         setLinkState("error");
       }
     })();
-  }, [unverified, readOnly]);
+  }, [unverified, readOnly, refreshUser]);
 
   async function resend() {
     setResendState("sending");
