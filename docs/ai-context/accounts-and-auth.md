@@ -620,7 +620,9 @@ a forward migration ([`docs/retired/README.md`](../retired/README.md)).
   /users/me/legal-acceptance`), and again when either version changes. Until
   then they are `terms_unaccepted`: they read everything and act on
   nothing but accepting, leaving, asking for help and cancelling a
-  membership; "Not now" lets them keep reading for the browser visit.
+  membership; "Not now" lets them keep reading for the browser visit, and
+  the screen's "Leaving instead?" line takes a member who wants to leave to
+  Profile to cancel, deferring the question the same way (Q27: 1).
 
 ## Session management
 
