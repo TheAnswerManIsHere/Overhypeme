@@ -19,6 +19,11 @@ import { replayStripeEvent, type ReplayDeps } from "../lib/stripeEventReplay.js"
 import { processAuthenticEvent } from "../lib/webhookHandlers.js";
 import type { StripeApi, StripeSyncApi } from "../lib/stripeApi.js";
 import { logger } from "../lib/logger.js";
+import express from "express";
+import request from "supertest";
+import { authMiddleware } from "../middlewares/authMiddleware.js";
+import adminRouter from "../routes/admin.js";
+import { createSession, type SessionData } from "../lib/auth.js";
 
 const P = `evt_rpl${randomUUID().replace(/-/g, "").slice(0, 10)}`;
 const USER = `trpl-${randomUUID()}`;
@@ -278,5 +283,47 @@ describe("replaying a missed Stripe event", () => {
       assert.equal(await remindersSent(() => replayStripeEvent(live2.id, ADMIN, live.deps)), 0, "a repeat sends nothing");
       assert.equal(await remindersSent(() => replayStripeEvent(test.id, ADMIN, harness([test]).deps)), 0);
     });
+  });
+});
+
+describe("the admin routes", () => {
+  const app = express();
+  app.use(express.json());
+  app.use(authMiddleware);
+  app.use(adminRouter);
+  let adminSid: string;
+  let memberSid: string;
+
+  before(async () => {
+    const session = (id: string, isAdmin: boolean) =>
+      createSession({ user: { id } as unknown as SessionData["user"], access_token: "test-token", isAdmin }, id);
+    adminSid = await session(ADMIN, true);
+    memberSid = await session(USER, false);
+  });
+
+  const bearer = (sid: string) => `Bearer ${sid}`;
+
+  it("both routes refuse a signed-out caller and a member who is not an admin", async () => {
+    for (const r of [
+      () => request(app).get("/admin/stripe/missed-events"),
+      () => request(app).post(`/admin/stripe/missed-events/${P}x/replay`),
+    ]) {
+      assert.equal((await r()).status, 401);
+      assert.equal((await r().set("authorization", bearer(memberSid))).status, 403);
+    }
+  });
+
+  it("the list answers an admin, and a comparison that cannot run says so rather than listing nothing", async () => {
+    const res = await request(app).get("/admin/stripe/missed-events").set("authorization", bearer(adminSid));
+    assert.equal(res.status, 200);
+    // No Stripe credentials in the test environment: unjudgeable, never an empty "ok".
+    assert.equal(res.body.status, "unjudgeable");
+    assert.equal(typeof res.body.reason, "string");
+  });
+
+  it("a malformed id is a 400 with its reason, before Stripe is asked", async () => {
+    const res = await request(app).post("/admin/stripe/missed-events/not-an-event/replay").set("authorization", bearer(adminSid));
+    assert.equal(res.status, 400);
+    assert.deepEqual(res.body, { outcome: "refused", reason: "malformed_id", eventId: "not-an-event" });
   });
 });

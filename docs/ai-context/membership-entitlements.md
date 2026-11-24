@@ -274,6 +274,27 @@ the guard does not have. That is a named gap, not an implied capability.
 the declared one. Which mode created an entitlement source is recorded on the
 source itself (`livemode`, #454; *Known, accepted gaps* item 2 below).
 
+## A missed event is replayed, never marked
+
+When Stripe sent an event that never reached processing — its endpoint was
+gone, or every retry failed — the way back is the **Missed Stripe events**
+panel on the admin Billing page (Issue #1244,
+`docs/plans/PLAN_REPLAY_MISSED_STRIPE_EVENT.md`). It lists exactly what the
+payment alert counts (`compareStripeEvents`'s own `missing` set), and Replay
+(`lib/stripeEventReplay.ts`) reads the event from Stripe by id with the
+verified client for the active mode — never from the request body — then runs
+the library's mirror and `processAuthenticEvent`, the same function the
+webhook calls after its signature check. So a replay has the delivery's
+effect, claims the event in the same transaction, and is once-only for the same
+reason. Its order matters: an `admin_actions` attempt row naming the admin
+before any processing (no row, no replay); refusals for the other mode, a sync
+built for another mode, and an unsubscribed type; an already-claimed event
+reported before any mirror or prepare work; then an outcome row. The webhook
+audit rows of a replayed event carry the detail `admin replay`. Stripe keeps
+events 30 days, so a replay works by id after an event leaves the alert's
+seven-day window. Nothing ever writes a claim row except that transaction:
+there is no "mark processed".
+
 ## The app database is read before the Stripe mirror
 
 **One shape the mirror does not take: a preview invoice** (Issue #1244, Q40: 1,

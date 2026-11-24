@@ -4,6 +4,7 @@ import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { deriveSyncSummary } from "./syncStatusSummary";
 import { parseToggleErrorBody, type VerificationSnapshot } from "./stripeVerification";
 import { StripeVerificationStatus } from "./StripeVerificationStatus";
+import { MissedStripeEventsPanel } from "./MissedStripeEventsPanel";
 import { Button } from "@/components/ui/Button";
 import {
   CreditCard, Zap, Star, CheckCircle, XCircle, AlertTriangle,
@@ -609,6 +610,9 @@ export default function AdminBilling() {
         </div>
 
         {/* Stripe Connection */}
+        {/* Missed Stripe events — what the payment alert counts, each replayable (Issue #1244) */}
+        <MissedStripeEventsPanel />
+
         <CollapsibleSection
           title="Stripe Connection"
           icon={<CreditCard className="w-4 h-4 text-primary" />}
