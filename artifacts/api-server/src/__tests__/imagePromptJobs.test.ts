@@ -758,7 +758,8 @@ describe("image_generation — the photoreal fallback: GPT Image refuses, Nano B
     const rowA = await attemptRow(malformed);
     assert.equal(rowA.errorCode, "vendor_request_rejected");
     assert.equal(rowA.engineFallback, null);
-    assert.match(rowA.error ?? "", /rejected this request \(HTTP 422: Input should be a valid enumeration member\)/);
+    assert.match(rowA.error ?? "", /rejected the request for this picture, which will not change on a retry \(HTTP 422: Input should be a valid enumeration member\)/);
+    assertReadsAsSentence(rowA.error);
     assert.equal(buildRenderStatusPayload(rowA).status, "failed", "the tile reads failed now, not Drawing…");
 
     // A reference photo fal can no longer fetch (its stored link has expired), refused at submission.

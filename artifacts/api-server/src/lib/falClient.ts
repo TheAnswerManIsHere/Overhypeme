@@ -294,12 +294,14 @@ export function falPermanentRejection(err: unknown): string | null {
  * The attempt error recorded when a render's fal submission fails. A content
  * refusal names the engine and fal's reason instead of the bare HTTP status
  * ("Unprocessable Entity"), so a moderator can tell the model declined the
- * picture (Issue #985). The "fal submit failed: " prefix is kept.
+ * picture (Issue #985). Every form reads as a sentence a moderator can act on,
+ * with fal's own detail in brackets for diagnosis (Issue #1020); the old
+ * "fal submit failed: " prefix is gone, and nothing parses this text.
  */
 export function falSubmitErrorMessage(err: unknown, engineLabel: string): string {
   const refusal = falContentRefusal(err);
   if (refusal) {
-    return `fal submit failed: ${engineLabel} refused this picture under its content policy (${refusal})`;
+    return `${engineLabel} refused this picture under its content policy (${refusal})`;
   }
-  return `fal submit failed: ${err instanceof Error ? err.message : String(err)}`;
+  return `the image service could not draw this picture (${err instanceof Error ? err.message : String(err)})`;
 }

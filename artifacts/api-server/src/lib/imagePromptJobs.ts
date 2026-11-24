@@ -447,7 +447,7 @@ export const imageGenerationHandler: JobHandler = {
         return recordTerminalAttemptFailure(
           p.attemptId,
           VENDOR_REJECTED_ERROR_CODE,
-          `fal submit failed: ${engine.label} rejected this request (${rejection})`,
+          `${engine.label} rejected the request for this picture, which will not change on a retry (${rejection})`,
         );
       }
       return retryRender(p.attemptId, falSubmitErrorMessage(err, engine.label));
@@ -489,7 +489,7 @@ export const imageGenerationHandler: JobHandler = {
       });
       storedPath = finished.objectPath;
     } catch (err) {
-      return retryRender(p.attemptId, `image store failed: ${err instanceof Error ? err.message : String(err)}`);
+      return retryRender(p.attemptId, `the finished picture could not be saved (${err instanceof Error ? err.message : String(err)})`);
     }
 
     // Mark the attempt complete and mirror it, in one fenced transaction (plan
