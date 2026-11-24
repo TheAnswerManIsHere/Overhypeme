@@ -24,7 +24,11 @@ export const ADMIN_ACTION_VALUES = [
   "classification_rerun",
   // A live fact
   "fact_edit",
+  "publish",
+  "discard",
   "deactivate",
+  "reactivate",
+  "delete",
   // Gags (in moderation and on a live fact)
   "gag_create",
   "gag_save",

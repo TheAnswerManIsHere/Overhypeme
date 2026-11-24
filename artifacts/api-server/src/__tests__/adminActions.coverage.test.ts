@@ -27,6 +27,10 @@ const EXEMPT: Record<string, string> = {
   "POST /admin/references/research": "researches text it is given and changes no fact",
   "PUT /admin/facts/:id/hashtags": "saveFactHashtags records in its transaction (lib/factSheet.ts)",
   "PUT /admin/facts/:id/humor-note": "saveFactHumorNote records in its transaction (lib/factSheet.ts)",
+  "POST /admin/facts/:id/publish": "publishFactChanges records in its transaction (lib/factLifecycle.ts)",
+  "POST /admin/facts/:id/discard": "discardFactChanges records in its transaction (lib/factLifecycle.ts)",
+  "POST /admin/facts/:id/deactivate": "deactivateFact records in its transaction (lib/factLifecycle.ts)",
+  "POST /admin/facts/:id/reactivate": "reactivateFact records in its transaction (lib/factLifecycle.ts)",
 };
 
 interface Handler { key: string; body: string }

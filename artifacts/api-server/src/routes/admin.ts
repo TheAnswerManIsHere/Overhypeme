@@ -26,6 +26,7 @@ import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { normalizeFactTemplateForStorage } from "../lib/normalizeFactTemplateForStorage";
 import { logActivity } from "../lib/activity";
 import { recordAdminAction } from "../lib/adminActions";
+import { publishFactChanges, discardFactChanges, deactivateFact, reactivateFact, factHasUnpublishedChanges, type FactLifecycleResult } from "../lib/factLifecycle";
 import { FACT_HASHTAG_LIMIT, factSheet, saveFactHashtags, saveFactHumorNote } from "../lib/factSheet";
 import { factEnrichmentPayload } from "../lib/enrichmentJobs";
 import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConfig";
@@ -825,6 +826,7 @@ const FACT_LIST_COLUMNS = {
   enrichmentStatus: factsTable.enrichmentStatus,
   hasEmbedding: sql<boolean>`(${factsTable.embedding} IS NOT NULL)`,
   hasEnrichment: sql<boolean>`(${factsTable.enrichment} IS NOT NULL)`,
+  hasUnpublishedChanges: factHasUnpublishedChanges,
 } as const;
 
 // The Facts list, newest first: approved facts only, live or deactivated
@@ -872,26 +874,38 @@ router.get("/admin/facts", requireAdmin, async (req: Request, res: Response) => 
   res.json({ facts, total, page, limit, attentionCounts });
 });
 
-// Deactivate a fact: the only removal there is until the fact sheet's guarded
-// delete (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1F). A deactivated fact keeps
-// every member's memes, AI pictures and comments.
-router.delete("/admin/facts/:id", requireAdmin, async (req: Request, res: Response) => {
-  const id = parseInt(String(req.params["id"] ?? ""), 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid fact id" }); return; }
-
-  try {
-    const updated = await db.transaction(async (tx) => {
-      const [row] = await tx.update(factsTable).set({ isActive: false }).where(and(eq(factsTable.id, id), eq(factsTable.isActive, true))).returning({ id: factsTable.id });
-      if (row) await recordAdminAction({ factId: id }, req.user?.id, "deactivate", {}, tx);
-      return row;
-    });
-    if (!updated) { res.status(404).json({ error: "Fact not found or already inactive" }); return; }
-    res.json({ success: true, deleted: false });
-  } catch (e) {
-    logger.error({ err: e, factId: id }, "[DELETE /admin/facts/:id] failed");
-    res.status(500).json({ error: "Failed to deactivate fact" });
+// POST /admin/facts/:id/publish, /discard, /deactivate, /reactivate — an
+// approved fact's lifecycle actions on the fact sheet (plan 3B; oracle items
+// 12, 14 and 21). Each is one transaction and recorded (lib/factLifecycle.ts).
+// The DELETE route that only deactivated is gone: deactivation is
+// /deactivate, and DELETE becomes the guarded permanent delete (3.2c).
+function sendLifecycle<T>(res: Response, result: FactLifecycleResult<T>): void {
+  switch (result.kind) {
+    case "done": res.json(result.value); return;
+    case "not_found": res.status(404).json({ error: "Fact not found" }); return;
+    case "no_changes": res.status(409).json({ error: "This fact has no unpublished changes.", code: "NO_CHANGES" }); return;
+    case "already": res.status(409).json({ error: result.isActive ? "This fact is already live." : "This fact is already deactivated.", code: "ALREADY", isActive: result.isActive }); return;
+    case "go_live": res.status(409).json({ error: result.error, code: "GO_LIVE", check: result.check }); return;
   }
-});
+}
+
+function lifecycleRoute(name: string, act: (factId: number, adminId: string) => Promise<FactLifecycleResult<unknown>>) {
+  return async (req: Request, res: Response) => {
+    const id = Number(req.params["id"]);
+    if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
+    try {
+      sendLifecycle(res, await act(id, req.user!.id));
+    } catch (e) {
+      logger.error({ err: e, factId: id }, `[POST /admin/facts/:id/${name}] failed`);
+      res.status(500).json({ error: "Something went wrong. Nothing was changed." });
+    }
+  };
+}
+
+router.post("/admin/facts/:id/publish", requireAdmin, lifecycleRoute("publish", publishFactChanges));
+router.post("/admin/facts/:id/discard", requireAdmin, lifecycleRoute("discard", discardFactChanges));
+router.post("/admin/facts/:id/deactivate", requireAdmin, lifecycleRoute("deactivate", deactivateFact));
+router.post("/admin/facts/:id/reactivate", requireAdmin, lifecycleRoute("reactivate", reactivateFact));
 
 /** Shared success response — strips the raw embedding, adds the has* flags, and
  *  merges any extra fields. */
