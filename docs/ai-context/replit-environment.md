@@ -442,7 +442,7 @@ never gated, and the published deployment never is.
 Measured on this Repl from David's screenshots, during Issue #1220 (the
 Stripe sandbox split). The platform-wide picture is
 [`replit-platform.md`](replit-platform.md), *Secrets and environment*; these
-four are what it does not say yet.
+four are what it does not say yet (sending them to KITT is Issue #1233).
 
 - **A change on the Republish page's Production app secrets is a draft.**
   The page says *"Secret changes here are saved only when this publish
