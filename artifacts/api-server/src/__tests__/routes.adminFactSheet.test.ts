@@ -116,7 +116,7 @@ describe("GET /admin/facts/:id/sheet", () => {
     assert.equal(typeof b.approvedAt, "string");
     assert.equal(b.submittedByName, "Sheet Admin");
     assert.equal(b.upvotes, 4);
-    assert.deepEqual(b.usage, { memes: 0, aiPictures: 0 });
+    assert.deepEqual(b.usage, { memes: 0, aiPictures: 0, comments: 0 });
     assert.deepEqual(b.hashtags, [TAG("alpha")]);
     assert.equal(b.reading.approved.text, "The joke is the scale.");
     assert.equal(b.reading.approvedByName, "Sheet Admin");

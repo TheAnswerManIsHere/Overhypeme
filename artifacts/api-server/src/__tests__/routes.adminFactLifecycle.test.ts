@@ -20,10 +20,11 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
 import request from "supertest";
-import { db, factsTable, usersTable, factGagsTable, factGagExamplesTable, adminActionsTable } from "@workspace/db";
+import { db, factsTable, usersTable, factGagsTable, factGagExamplesTable, adminActionsTable, commentsTable, hashtagsTable } from "@workspace/db";
+import { deleteFact } from "../lib/factLifecycle.js";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import { imagePromptAttemptsTable, pendingReviewsTable } from "@workspace/db/schema";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
   buildPlaceholderFactEnrichment,
@@ -110,6 +111,7 @@ describe("an approved fact's lifecycle actions", () => {
     }
     await db.delete(adminActionsTable).where(eq(adminActionsTable.actorId, adminId));
     await db.delete(usersTable).where(eq(usersTable.id, adminId));
+    await db.delete(hashtagsTable).where(sql`${hashtagsTable.name} LIKE ${`lc${RUN.replace(/[^a-z0-9]/gi, "").slice(-8).toLowerCase()}%`}`);
   });
 
   describe("Publish changes", () => {
@@ -253,6 +255,111 @@ describe("an approved fact's lifecycle actions", () => {
       const res = await request(app).get(`/api/admin/facts/${a.factId}/history`);
       assert.equal(res.status, 200);
       assert.equal((res.body.history as { action: string }[]).some((h) => h.action === "deactivate"), false);
+    });
+  });
+
+  describe("Permanent delete", () => {
+    const factRow = async (id: number) => (await db.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, id)))[0];
+    const del = (id: number) => request(app).delete(`/api/admin/facts/${id}`);
+
+    it("deletes a deactivated fact with nothing attached, and the record keeps its id and wording", async () => {
+      const { factId } = await completeFact();
+      assert.equal((await post(factId, "deactivate")).status, 200);
+      const res = await del(factId);
+      assert.equal(res.status, 200, JSON.stringify(res.body));
+      assert.equal(await factRow(factId), undefined, "the fact row is gone");
+      const [record] = await db.select().from(adminActionsTable)
+        .where(and(eq(adminActionsTable.action, "delete"), eq(adminActionsTable.actorId, adminId), sql`${adminActionsTable.detail} ->> 'factId' = ${String(factId)}`));
+      assert.ok(record, "the delete is recorded");
+      assert.equal(record.factId, null, "the record's fact reference is nulled by the delete");
+      assert.match(String((record.detail as { text?: string }).text), /lifecycle/);
+    });
+
+    it("refuses a live fact: deactivate first", async () => {
+      const { factId } = await completeFact();
+      const res = await del(factId);
+      assert.equal(res.status, 409);
+      assert.equal(res.body.code, "STILL_LIVE");
+      assert.ok(await factRow(factId));
+    });
+
+    it("refuses while a member's comment is attached, naming the count", async () => {
+      const { factId } = await completeFact();
+      assert.equal((await post(factId, "deactivate")).status, 200);
+      await db.insert(commentsTable).values({ factId, text: "a member's comment" });
+      const res = await del(factId);
+      assert.equal(res.status, 409);
+      assert.equal(res.body.code, "MEMBER_CONTENT_ATTACHED");
+      assert.deepEqual(res.body.attached, { memes: 0, aiPictures: 0, comments: 1 });
+      assert.equal(res.body.error, "Members have 1 comment on this fact, so it can't be deleted. Deactivating keeps it off the site.");
+      assert.ok(await factRow(factId));
+      // The sheet counts it the same way, though the public counter (approved only) reads 0.
+      const sheet = await request(app).get(`/api/admin/facts/${factId}/sheet`);
+      assert.deepEqual(sheet.body.usage, res.body.attached, "the sheet's count is the count the delete refuses with");
+      assert.equal(sheet.body.commentCount, 0);
+    });
+
+    it("a rejected comment holds the delete too, and the sheet says so", async () => {
+      const { factId } = await completeFact();
+      assert.equal((await post(factId, "deactivate")).status, 200);
+      await db.insert(commentsTable).values({ factId, text: "a rejected comment", status: "rejected" });
+      const res = await del(factId);
+      assert.equal(res.body.code, "MEMBER_CONTENT_ATTACHED");
+      const sheet = await request(app).get(`/api/admin/facts/${factId}/sheet`);
+      assert.deepEqual(sheet.body.usage, { memes: 0, aiPictures: 0, comments: 1 });
+    });
+
+    it("lowers each of the fact's hashtags by one, keeping another fact's share; a refused delete changes none", async () => {
+      const tag = (s: string) => `lc${RUN.replace(/[^a-z0-9]/gi, "").slice(-8).toLowerCase()}${s}`;
+      const shared = tag("shared");
+      const solo = tag("solo");
+      const counts = async () => Object.fromEntries((await db.select({ name: hashtagsTable.name, n: hashtagsTable.factCount }).from(hashtagsTable)
+        .where(inArray(hashtagsTable.name, [shared, solo]))).map((r) => [r.name, r.n]));
+      const { factId } = await completeFact();
+      const { factId: other } = await completeFact();
+      assert.equal((await request(app).put(`/api/admin/facts/${factId}/hashtags`).send({ hashtags: [shared, solo] })).status, 200);
+      assert.equal((await request(app).put(`/api/admin/facts/${other}/hashtags`).send({ hashtags: [shared] })).status, 200);
+      assert.deepEqual(await counts(), { [shared]: 2, [solo]: 1 });
+      assert.equal((await post(factId, "deactivate")).status, 200);
+
+      await db.insert(commentsTable).values({ factId, text: "holds it" });
+      assert.equal((await del(factId)).body.code, "MEMBER_CONTENT_ATTACHED");
+      assert.deepEqual(await counts(), { [shared]: 2, [solo]: 1 }, "a refused delete changes no count");
+
+      await db.delete(commentsTable).where(eq(commentsTable.factId, factId));
+      assert.equal((await del(factId)).status, 200);
+      assert.deepEqual(await counts(), { [shared]: 1, [solo]: 0 });
+    });
+
+    it("holds against a comment being attached at the same moment: the check and the delete are one operation", async () => {
+      const { factId } = await completeFact();
+      assert.equal((await post(factId, "deactivate")).status, 200);
+      // A member's comment insert is in flight, uncommitted, when the delete starts.
+      let commit!: () => void;
+      const held = new Promise<void>((r) => { commit = r; });
+      let inserted!: () => void;
+      const insertStarted = new Promise<void>((r) => { inserted = r; });
+      const member = db.transaction(async (tx) => {
+        await tx.insert(commentsTable).values({ factId, text: "posted at the same moment" });
+        inserted();
+        await held;
+      });
+      await insertStarted;
+      let settled = false;
+      const deleting = deleteFact(factId, adminId).then((r) => { settled = true; return r; });
+      await new Promise((r) => setTimeout(r, 300));
+      assert.equal(settled, false, "the delete waits for the member's insert");
+      commit();
+      await member;
+      const result = await deleting;
+      assert.equal(result.kind, "attached", JSON.stringify(result));
+      assert.ok(await factRow(factId), "the fact and the comment survive");
+    });
+
+    it("is a 404 for a fact never approved", async () => {
+      const [f] = await db.insert(factsTable).values({ text: `{NAME} staged ${RUN} ${randomUUID().slice(0, 6)}`, isActive: false }).returning({ id: factsTable.id });
+      factIds.push(f!.id);
+      assert.equal((await del(f!.id)).status, 404);
     });
   });
 

@@ -9,8 +9,8 @@
  * gag and example edits wait for Publish (3.2). A changed note on an approved
  * fact rewrites no gag ideas and touches no gag: that rule is the Gags step's.
  */
-import { factHasUnpublishedChanges } from "./factLifecycle";
-import { and, asc, count, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { attachedContent, factHasUnpublishedChanges } from "./factLifecycle";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db, usersTable } from "@workspace/db";
 import {
@@ -20,8 +20,6 @@ import {
   factGagsTable,
   factGagExamplesTable,
   factReadingsTable,
-  memesTable,
-  userAiImagesTable,
   pendingReviewsTable,
   adminActionsTable,
 } from "@workspace/db/schema";
@@ -132,11 +130,11 @@ export async function factSheet(factId: number) {
     ? eq(factReadingsTable.id, row.humorNoteReadingId)
     : eq(factReadingsTable.factId, factId);
 
-  const [hashtags, pictures, [memes], [aiPictures], [review], [reading]] = await Promise.all([
+  const [hashtags, pictures, usage, [review], [reading]] = await Promise.all([
     factHashtagNames(factId),
     gagPictures(factId),
-    db.select({ n: count() }).from(memesTable).where(eq(memesTable.factId, factId)),
-    db.select({ n: count() }).from(userAiImagesTable).where(eq(userAiImagesTable.factId, factId)),
+    // The delete's own definition of what is attached (lib/factLifecycle.ts).
+    attachedContent(factId),
     db.select({ id: pendingReviewsTable.id })
       .from(pendingReviewsTable)
       .where(eq(pendingReviewsTable.approvedFactId, factId))
@@ -155,7 +153,7 @@ export async function factSheet(factId: number) {
     attention: attention as AttentionReason[],
     reviewId: review?.id ?? null,
     hashtags,
-    usage: { memes: memes?.n ?? 0, aiPictures: aiPictures?.n ?? 0 },
+    usage,
     pictures,
     reading: {
       ...readingView(reading ?? null, { humorNote, humorNoteReadingId, humorNoteApprovedBy, humorNoteApprovedAt }),

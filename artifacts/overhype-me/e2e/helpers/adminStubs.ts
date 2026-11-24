@@ -179,7 +179,7 @@ export function factSheetOf(row: AdminFactRow, enrichment: FactEnrichment | null
     hasUnpublishedChanges: row.hasUnpublishedChanges ?? false,
     reviewId: null,
     hashtags: ["legend"],
-    usage: { memes: 0, aiPictures: 0 },
+    usage: { memes: 0, aiPictures: 0, comments: row.commentCount },
     pictures: gag ? [{ gagId: gagIdFor(row.id), slot: 1, approvedKinds: [], missingKinds: ["male", "female", "pet"] }] : [],
     reading: { latest: null, approved: null, approvedByName: null },
   };
