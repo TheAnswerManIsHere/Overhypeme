@@ -67,6 +67,7 @@ import {
   terminalFailure,
 } from "./asyncJobs";
 import { logger } from "./logger";
+import { applyHouseStyle } from "./templateGrammar";
 import { assertJobOwnership, fencedTransaction } from "./jobFence";
 import { enqueueGagPrefill, isUntouchedPrefill } from "./gags/prefill";
 
@@ -217,6 +218,18 @@ export async function contextGagsFor(factId: number): Promise<ContextGag[]> {
   return out;
 }
 
+/**
+ * The wording an idea set's freshness is judged against (plan
+ * PLAN_FACT_HOUSE_STYLE.md, R1): the wording the set records it was drafted
+ * for, while the fact's wording is exactly that wording in the house style;
+ * otherwise the fact's own wording. A capital and a period added by the house
+ * style therefore leave the set current, and any other change stales it.
+ */
+export function factTextForFreshness(current: string, recorded: string | undefined): string {
+  if (recorded === undefined || recorded === current) return current;
+  return applyHouseStyle(recorded) === current ? recorded : current;
+}
+
 /** Compute the CURRENT concept input hash for a cycle (no LLM). Shared by the
  *  handler (to stamp, with the gags it sent) and the endpoint (to test
  *  staleness, against the gags as they are now). */
@@ -322,6 +335,7 @@ export async function runVisualConceptsJob(
     source: cycle.source,
     inputHash,
     humorNoteUsed: humorNote,
+    factTextUsed: cycle.factText,
   };
 
   // Written only while this generation still owns the fact: a review's
@@ -460,7 +474,9 @@ export async function buildVisualConceptsResponse(review: ConceptsRow & { id: nu
   return assembleConceptsResponse(review, async (blob) => {
     if (blob.reviewId !== review.id) return "review_mismatch";
     const resolved = await resolveVisualConceptCycle(review.id);
-    if (!resolved.ok || blob.inputHash !== (await computeCurrentInputHash(resolved.cycle))) return "input_hash_mismatch";
+    if (!resolved.ok) return "input_hash_mismatch";
+    const cycle = { ...resolved.cycle, factText: factTextForFreshness(resolved.cycle.factText, blob.factTextUsed) };
+    if (blob.inputHash !== (await computeCurrentInputHash(cycle))) return "input_hash_mismatch";
     return undefined;
   });
 }

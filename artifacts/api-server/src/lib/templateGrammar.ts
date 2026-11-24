@@ -12,6 +12,7 @@ export {
   repairGluedConjugationSuffixes,
   capitalizeSentenceInitialPronounTokens,
   applyDeterministicGrammar,
+  applyHouseStyle,
   HAS_ONLY_FOLLOWING_WORDS,
   ALLOWED_SIMPLE_TOKENS,
   hasPlainSubjectReference,

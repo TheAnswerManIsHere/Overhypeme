@@ -473,6 +473,130 @@ export function applyDeterministicGrammar(template: string): string {
   return capitalizeSentenceInitialPronounTokens(collapseIdenticalConjugationBranches(conjugated));
 }
 
+// ─── House style ───────────────────────────────────────────────────────────
+// Plan docs/plans/PLAN_FACT_HOUSE_STYLE.md, *The rule* (David, 2026-11-23 and
+// 2026-11-24, Q3–Q5). Fact wording only: gag scenes, bubbles and other
+// visual-strategy text never pass through it.
+
+/** Openers skipped to find a fact's first character. */
+const HOUSE_STYLE_OPENERS = new Set(['"', "'", "“", "‘", "(", "[", "«", "¿", "¡"]);
+/** Closing quotes, always set aside to find a fact's last character. */
+const HOUSE_STYLE_CLOSING_QUOTES = new Set(['"', "”", "»"]);
+/** Closing brackets, set aside only when the matching opener wraps the whole
+ *  fact (`("no")` → `("no.")`); a bracket closing a phrase takes the period
+ *  after it (`zero (really)` → `zero (really).`). */
+const HOUSE_STYLE_CLOSING_BRACKETS: Readonly<Record<string, string>> = { ")": "(", "]": "[" };
+const HOUSE_STYLE_TERMINAL = new Set([".", "!", "?", "…"]);
+/** A trailing mark that a period replaces (Q5). */
+const HOUSE_STYLE_REPLACED_ENDING = new Set([",", ";", ":"]);
+/** An emoji ending, left as written (Q4): a pictograph, a flag letter, a skin
+ *  tone, a variation selector, a keycap, a joiner or a tag character. */
+const HOUSE_STYLE_EMOJI_END_RE =
+  /(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|[\u{1F3FB}-\u{1F3FF}\uFE0F\u20E3\u200D\u{E0020}-\u{E007F}])$/u;
+/** Lower-case pronoun tokens a fact may start with, including the legacy
+ *  forms the renderer still substitutes, mapped to their capitalized form. */
+const HOUSE_STYLE_START_TOKENS: Readonly<Record<string, string>> = {
+  ...PRONOUN_TOKEN_CAPITALIZED,
+  he: "He", him: "Him", his: "His", himself: "Himself", "he's": "He's",
+};
+
+function upperFirstLetter(word: string): string {
+  const first = String.fromCodePoint(word.codePointAt(0)!);
+  if (!/^\p{Ll}$/u.test(first)) return word;
+  const upper = first.toUpperCase();
+  // A letter whose capital is not one character (ß → SS) is left as written,
+  // so the rule never changes a fact's length beyond its first letter.
+  if ([...upper].length !== 1) return word;
+  return upper + word.slice(first.length);
+}
+
+function houseStyleStart(text: string): string {
+  let i = 0;
+  while (i < text.length && HOUSE_STYLE_OPENERS.has(text[i]!)) i++;
+  if (i >= text.length) return text;
+  const head = text.slice(0, i);
+  const rest = text.slice(i);
+
+  if (rest.startsWith("{")) {
+    const close = rest.indexOf("}");
+    if (close === -1) return text;
+    const inner = rest.slice(1, close);
+    const after = rest.slice(close + 1);
+    const mapped = HOUSE_STYLE_START_TOKENS[inner];
+    if (mapped) return `${head}{${mapped}}${after}`;
+    if (CONJUGATION_PAIR_RE.test(inner)) {
+      const [a, b] = inner.split("|") as [string, string];
+      return `${head}{${upperFirstLetter(a)}|${upperFirstLetter(b)}}${after}`;
+    }
+    return text; // {NAME}, {NAME_POSSESSIVE}, an already-capitalized token
+  }
+
+  // Q3: a first word with a capital after its first letter stays as written.
+  const firstWord = /^[^\s{]+/u.exec(rest)?.[0] ?? "";
+  const firstLen = String.fromCodePoint(rest.codePointAt(0)!).length;
+  if (/\p{Lu}/u.test(firstWord.slice(firstLen))) return text;
+  return head + upperFirstLetter(rest);
+}
+
+/**
+ * Whether the single quote at `pos` closes a quotation: it does only when an
+ * opening single quote before it is still unclosed. Scanned left to right,
+ * so an apostrophe (`don't`, `the Joneses'`) is never mistaken for a quote.
+ */
+function closesSingleQuote(text: string, pos: number): boolean {
+  let open = 0;
+  for (let i = 0; i < pos; i++) {
+    const c = text[i]!;
+    const prev = i > 0 ? text[i - 1]! : "";
+    const next = text[i + 1] ?? "";
+    const opener = c === "‘" || (c === "'" && (i === 0 || /[\s("“[]/u.test(prev)) && next !== "" && !/\s/u.test(next));
+    if (opener) { open++; continue; }
+    const closerShaped = (c === "'" || c === "’") && prev !== "" && !/\s/u.test(prev) && !/[\p{L}\p{N}]/u.test(next);
+    if (closerShaped && open > 0) open--;
+  }
+  return open > 0;
+}
+
+function houseStyleEnd(text: string): string {
+  let lead = 0;
+  while (lead < text.length && HOUSE_STYLE_OPENERS.has(text[lead]!)) lead++;
+  const leadingOpeners = text.slice(0, lead);
+  let end = text.length;
+  while (end > 0) {
+    const c = text[end - 1]!;
+    const wrappingBracket = c in HOUSE_STYLE_CLOSING_BRACKETS && leadingOpeners.includes(HOUSE_STYLE_CLOSING_BRACKETS[c]!);
+    if (HOUSE_STYLE_CLOSING_QUOTES.has(c) || wrappingBracket || ((c === "'" || c === "’") && closesSingleQuote(text, end - 1))) {
+      end--;
+      continue;
+    }
+    break;
+  }
+  if (end === 0) return text;
+  const body = text.slice(0, end);
+  const tail = text.slice(end);
+  const last = body[body.length - 1]!;
+  if (HOUSE_STYLE_TERMINAL.has(last)) return text;
+  if (HOUSE_STYLE_EMOJI_END_RE.test(body)) return text; // Q4
+  if (HOUSE_STYLE_REPLACED_ENDING.has(last)) return `${body.slice(0, -1)}.${tail}`; // Q5
+  return `${body}.${tail}`;
+}
+
+/**
+ * The fact wording house style (plan PLAN_FACT_HOUSE_STYLE.md, *The rule*):
+ * ends trimmed and runs of whitespace collapsed; the first letter a capital
+ * (a lower-case pronoun token takes its capitalized form, a conjugation pair
+ * both branches, a brand-style first word like `iPhone` is left); and a
+ * terminal `.`, `!`, `?` or `…`, with a trailing `,` `;` `:` replaced by `.`,
+ * an emoji ending left as written, and an added period placed inside closing
+ * quotes and after closing brackets. Nothing between the first letter and the
+ * ending changes. Pure and idempotent.
+ */
+export function applyHouseStyle(template: string): string {
+  const spaced = template.replace(/\s+/gu, " ").trim();
+  if (!spaced) return spaced;
+  return houseStyleEnd(houseStyleStart(spaced));
+}
+
 // ─── Plain subject references ──────────────────────────────────────────────
 // Shared by the server's tokenizer (its skip-the-model predicates) and the
 // gag editor (which re-sends a stored scene that still holds one), so the two

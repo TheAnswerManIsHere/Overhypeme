@@ -15,6 +15,7 @@ import {
   hasNoLikelySubjectReference,
 } from "../lib/factTokenizer";
 import { renderCanonical } from "../lib/renderCanonical";
+import { applyHouseStyle } from "../lib/templateGrammar";
 import { duplicateMatchText } from "../lib/duplicateText";
 import type { DuplicateOutcome } from "../lib/duplicateVerdict";
 import { logger } from "../lib/logger";
@@ -466,7 +467,11 @@ router.post("/ai/tokenize-fact", requireRateLimit, async (req: Request, res: Res
     // other utility calls are unaffected. The deterministic net inside the
     // core is the real correctness guarantee; the model just improves
     // first-pass quality.
-    const { rawTemplate, template, passes, grammarError } = await tokenizePlainTextToTemplate(text);
+    const tokenized = await tokenizePlainTextToTemplate(text);
+    const { rawTemplate, passes, grammarError } = tokenized;
+    // A fact's wording is shown in the house style before it is saved (plan
+    // PLAN_FACT_HOUSE_STYLE.md, I3); the save path applies it again (I4).
+    const template = applyHouseStyle(tokenized.template);
 
     // Post-process logging: the deterministic net is the real guarantee —
     // even with the hardened prompt the model intermittently leaves a

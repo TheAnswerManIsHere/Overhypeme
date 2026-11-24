@@ -340,6 +340,15 @@ publishes the fact) or sends it back to the Gags step. A render is matched to
 its input, so the same content reuses its render and a change draws a new one.
 → [visual-pipeline](./visual-pipeline.md)
 
+### House style
+
+The fixed form every fact's wording is saved in: a capital first letter and a
+terminal `.`, `!`, `?` or `…`, with spacing tidied, applied by the system on
+every save (`applyHouseStyle`). A brand-style first word (`iPhone`) and an
+emoji ending are left as written; a trailing comma, semicolon or colon becomes
+a period. Not grammar repair: nothing inside the fact changes.
+→ [token-rendering-and-grammar](./token-rendering-and-grammar.md#the-fact-wording-house-style-applyhousestyle)
+
 ### Hero render
 
 A fact's moderation-approved renders, published as the fact's own image assets
