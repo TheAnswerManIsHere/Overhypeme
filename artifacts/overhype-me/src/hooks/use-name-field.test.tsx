@@ -118,11 +118,11 @@ describe("a name field", () => {
   });
 
   it("frees the room of a replaced selection without touching the rest", () => {
-    const full = "Ada " + "x".repeat(42) + " Zoë";
+    const full = "Alex " + "x".repeat(41) + " Zoë";
     render(<Field initial={full} />);
-    // "Ada" selected and replaced by "Augusta": three letters freed, so "Aug" fits.
-    edit("Augusta" + full.slice(3), 7);
-    expect(input().value).toBe("Aug" + full.slice(3));
+    // "Alex" selected and replaced by "Raena": four letters freed, so "Raen" fits.
+    edit("Raena" + full.slice(4), 5);
+    expect(input().value).toBe("Raen" + full.slice(4));
   });
 
   it("lets a stored name over the limit be shortened but not lengthened", () => {

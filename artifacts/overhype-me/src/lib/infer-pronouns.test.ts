@@ -3,23 +3,23 @@ import { inferPronounsFromName } from "./infer-pronouns";
 
 describe("inferPronounsFromName", () => {
   it("returns 'he/him' for known male first names (case-insensitive)", () => {
-    expect(inferPronounsFromName("john")).toBe("he/him");
-    expect(inferPronounsFromName("John")).toBe("he/him");
-    expect(inferPronounsFromName("JOHN")).toBe("he/him");
+    expect(inferPronounsFromName("david")).toBe("he/him");
+    expect(inferPronounsFromName("David")).toBe("he/him");
+    expect(inferPronounsFromName("DAVID")).toBe("he/him");
   });
 
   it("returns 'she/her' for known female first names", () => {
-    expect(inferPronounsFromName("jane")).toBe("she/her");
-    expect(inferPronounsFromName("Sarah")).toBe("she/her");
+    expect(inferPronounsFromName("raena")).toBe("she/her");
+    expect(inferPronounsFromName("Raena")).toBe("she/her");
   });
 
   it("uses only the first whitespace-delimited token as the lookup key", () => {
-    expect(inferPronounsFromName("John Smith")).toBe("he/him");
-    expect(inferPronounsFromName("Sarah   van der Berg")).toBe("she/her");
+    expect(inferPronounsFromName("David Franklin")).toBe("he/him");
+    expect(inferPronounsFromName("Raena   van der Berg")).toBe("she/her");
   });
 
   it("trims leading whitespace", () => {
-    expect(inferPronounsFromName("   john")).toBe("he/him");
+    expect(inferPronounsFromName("   david")).toBe("he/him");
   });
 
   it("returns null for unknown names", () => {
@@ -31,7 +31,7 @@ describe("inferPronounsFromName", () => {
   });
 
   it("returns null when the first token is 2+ chars but not in either set (e.g. 'J.')", () => {
-    expect(inferPronounsFromName("J. Smith")).toBe(null);
+    expect(inferPronounsFromName("D. Franklin")).toBe(null);
   });
 
   it("returns null for an empty string", () => {
