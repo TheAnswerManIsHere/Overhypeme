@@ -10,10 +10,10 @@ describe("chooseBuilderLayout", () => {
     ["phone, landscape", { w: 390, h: 844 }, "landscape", "stacked"],
     ["phone, portrait", { w: 390, h: 844 }, "portrait", "stacked"],
     ["phone, square", { w: 390, h: 844 }, "square", "stacked"],
-    ["phone on its side, landscape", { w: 844, h: 390 }, "landscape", "stacked"],
-    ["phone on its side, square", { w: 844, h: 390 }, "square", "stacked"],
-    ["phone on its side, portrait", { w: 844, h: 390 }, "portrait", "stacked"],
-    ["narrow desktop window, portrait", { w: 1000, h: 1200 }, "portrait", "stacked"],
+    ["phone on its side, landscape", { w: 844, h: 390 }, "landscape", "wide"],
+    ["phone on its side, square", { w: 844, h: 390 }, "square", "wide"],
+    ["phone on its side, portrait", { w: 844, h: 390 }, "portrait", "wide"],
+    ["narrow desktop window, portrait", { w: 1000, h: 1200 }, "portrait", "wide"],
     ["big iPad upright, landscape (David's screenshot)", { w: 1024, h: 1366 }, "landscape", "stacked"],
     ["big iPad upright, portrait", { w: 1024, h: 1366 }, "portrait", "wide"],
     ["iPad upright, square", { w: 820, h: 1180 }, "square", "stacked"],
@@ -52,10 +52,10 @@ describe("chooseBuilderLayout", () => {
     expect(chooseBuilderLayout({ w: 1440, h }, "landscape", cap(h), "stacked")).toBe("wide");
   });
 
-  it("below 1024 px it is always stacked, whatever the saved height or shape", () => {
+  it("an upright phone always stacks: the column beside the controls is too narrow to win", () => {
     for (const shape of ["landscape", "square", "portrait"] as const) {
-      expect(chooseBuilderLayout({ w: 844, h: 390 }, shape, 160)).toBe("stacked");
-      expect(chooseBuilderLayout({ w: 844, h: 390 }, shape, 160, "wide")).toBe("stacked");
+      expect(chooseBuilderLayout({ w: 390, h: 844 }, shape, 320)).toBe("stacked");
+      expect(chooseBuilderLayout({ w: 390, h: 844 }, shape, 320, "wide")).toBe("stacked");
     }
   });
 

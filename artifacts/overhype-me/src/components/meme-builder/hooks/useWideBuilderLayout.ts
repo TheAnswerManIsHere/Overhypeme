@@ -24,11 +24,6 @@ const WIDE_PAD_Y = 100;
 const STACKED_PAD_X = 32;
 /** The preview's 1px border each side. */
 const BORDER = 2;
-/**
- * Below this width the builder keeps today's stacked layout and sizing, so
- * phones, held either way, never change (Astra C6 on amendment 1).
- */
-export const MIN_WIDE_ELIGIBLE_PX = 1024;
 /** Switch only when the other arrangement's picture is this much larger. */
 export const SWITCH_MARGIN = 1.1;
 
@@ -66,7 +61,9 @@ export function chooseBuilderLayout(
   stackedMaxHeight: number,
   current?: BuilderLayout,
 ): BuilderLayout {
-  if (viewport.w < MIN_WIDE_ELIGIBLE_PX) return "stacked";
+  // No width floor: a phone held sideways is short, so its picture is larger
+  // beside the controls (David, 2026-11-24). Upright phones still stack,
+  // because the side-by-side area is too narrow to win.
   const widths = previewWidths(viewport, aspectRatio, stackedMaxHeight);
   const best: BuilderLayout = widths.wide > widths.stacked ? "wide" : "stacked";
   if (!current || best === current) return best;

@@ -278,7 +278,7 @@ export function LockedPreview({
   return (
     <div className="bg-[#111] px-4 pb-1">
       <div
-        className="relative mx-auto max-w-md select-none lg:max-w-none"
+        className="relative mx-auto select-none"
         style={dragStyle}
         {...dragHandlers}
         data-testid="locked-preview"

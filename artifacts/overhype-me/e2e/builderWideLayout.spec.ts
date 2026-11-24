@@ -167,15 +167,17 @@ test.describe("Meme builder on wide screens (Issue #850)", () => {
     expect(await page.evaluate(() => window.localStorage.getItem("mbfo_locked_preview_max_h"))).toBe("700");
   });
 
-  test("a phone on its side keeps the stacked layout for every shape", async ({ page }) => {
+  // David, 2026-11-24: a phone held sideways is too short to stack; the
+  // picture goes beside the controls, for every shape.
+  test("a phone on its side puts the picture beside the controls for every shape", async ({ page }) => {
     await page.setViewportSize({ width: 844, height: 390 });
     await seedIdentity(page);
     await openBuilder(page, 858);
     for (const r of ["landscape", "square", "portrait"]) {
       await page.getByTestId(`aspect-${r}`).click();
-      await expect(page.locator('[data-layout="stacked"]')).toBeVisible();
-      await expect(page.getByTestId("locked-preview-resize-handle")).toBeVisible();
+      await expect(page.locator('[data-layout="wide"]')).toBeVisible();
     }
+    await expect(page.getByRole("button", { name: "Make my meme" })).toBeInViewport();
   });
 
   test("turning the screen keeps the choices made", async ({ page }) => {

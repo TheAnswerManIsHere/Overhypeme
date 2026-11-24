@@ -154,9 +154,13 @@ small in a narrow column above empty space. David: *"I'm sure there's some type 
 - **Q31: 1:** this includes a change of picture shape, so on an upright big
   iPad, tapping a different shape can move the controls between the side
   and the bottom.
-- **Below 1024 px wide the rule does not run:** today's stacked layout and
-  sizing stay, so a phone held either way never changes (Astra C6). At 1024 px
-  and above, the stacked preview is no longer capped at about 450 px wide.
+- **The rule runs at every width** (David, 2026-11-24, overriding the 1024 px
+  floor that Astra's C6 had added: *"on my iPhone, in landscape mode, it must
+  be photo on the left, controls on the right because there's not enough
+  height."*). A phone held sideways goes side by side; a phone held upright
+  still stacks, because the column beside the controls is too narrow to
+  win. The stacked preview is no longer capped at about 450 px wide; upright
+  phones are narrower than that, so they look as before.
 - The layout choice and the stacked preview use one effective height (the
   remembered height clamped to the current screen), so they never disagree
   after a resize (Astra C7).
@@ -168,7 +172,7 @@ small in a narrow column above empty space. David: *"I'm sure there's some type 
   and wider than 900 px, and a portrait-shaped one side by side.
 - **ci:** the existing wide-layout tests run at sizes and shapes where side by
   side still wins.
-- **ci:** a phone held either way (390×844, 844×390) stays stacked for every
-  shape; a large remembered height behaves the same in the choice and the
-  preview across a resize.
+- **ci:** an upright phone (390×844) stacks for every shape; a phone on its
+  side (844×390) goes side by side for every shape; a large remembered
+  height behaves the same in the choice and the preview across a resize.
 - **judgement (David):** T1 on his upright iPad.
