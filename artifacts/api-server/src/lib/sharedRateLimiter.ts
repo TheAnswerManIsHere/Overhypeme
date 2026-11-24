@@ -85,6 +85,23 @@ export async function checkSharedRateLimit(scope: RateLimitScope, config: RateLi
 }
 
 /**
+ * Give back one hit that `checkSharedRateLimit` counted, for a limit that
+ * should count only some outcomes: the caller counts every attempt as it
+ * arrives (so concurrent attempts cannot slip past the limit together), then
+ * refunds the ones that turn out not to count. Never below zero, and never on
+ * a counter whose window has ended (that hit already expired with it).
+ */
+export async function refundSharedRateLimit(scope: RateLimitScope): Promise<void> {
+  const keyHash = hashKey(normalizeRateLimitKey(scope));
+  const now = new Date();
+  await db.execute(sql`
+    UPDATE rate_limit_counters
+       SET count = GREATEST(count - 1, 0), updated_at = ${now}
+     WHERE key_hash = ${keyHash} AND expires_at > ${now}
+  `);
+}
+
+/**
  * Expired-row retention lives in `jobs/rateLimitCounterPurger.ts`, not here.
  *
  * There used to be a `purgeExpiredRateLimitCounters()` beside this function: a
