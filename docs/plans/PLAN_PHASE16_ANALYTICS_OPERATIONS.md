@@ -185,7 +185,7 @@ The oracle's six increments are seven pull requests: alerts ships as two, so the
 4. **Read-only mode.** Tier `sensitive` (it sits in front of auth and payment routes).
 5. **Support.**
 6. **Policy, rollback and the restart question.**
-7. **The fault-injection afternoon**, then close-out against row 8.
+7. **The fault-injection afternoon**, then close-out against row 8. *Moved to the Seed readiness pass by amendment 6; Phase 16 closes without it.*
 
 **Collision with Issue #1018.** At the start of each increment, that issue's State of Play and open pull requests are read. Increments 1, 2 and 4 touch `app.ts`, `index.ts`, the job core and health files, none of them moderation or enrichment routes or the admin facts page. If #1018 has one of those files open, the increment waits for that merge or takes the next increment first.
 
@@ -197,7 +197,7 @@ The oracle's six increments are seven pull requests: alerts ships as two, so the
 - **Read-only mode:** the route-table test. With the mode on, a scripted pass shows browsing works signed out and signed in, personalising works signed out (and signed in, per Q11), each public write is refused with the notice, an admin action succeeds, a webhook is processed, and the switch turns off. Two failure cases are tested: a pause stays in force when the refresh fails, and an older read does not undo a newer save. Exercised live in G.
 - **Support:** a signed-out visitor and a member in each restricted account state send a request that appears as a thread in the Gmail mailbox (amendment 4) and as a row in the support table (amendment 3), with an acknowledgement in their mailbox; a failed row write still delivers the request and reports to Sentry; a direct email and a reply stay in one thread; no Gmail alias remains.
 - **Policy:** the page exists and David can follow the rollback steps; the restart question has a written, evidenced answer.
-- **Row 8:** the afternoon's table, complete, with the spend row as Q9 decides.
+- **Row 8:** the afternoon's table, complete, with the spend row as Q9 decides. *Read at the Seed go/no-go, not at this phase's close (amendment 6).*
 
 ## Open uncertainty
 
@@ -227,6 +227,13 @@ The oracle's six increments are seven pull requests: alerts ships as two, so the
 
 - **Approved by David** (Q30: 1, in chat, recorded on Issue #1029 in the comment headed "David's answers (2026-11-20)"): the fault-injection afternoon also crashes the live server for real, to prove a crash reaches David's phone. The one real production crash on record (2026-10-31, Issue #826) never reached Sentry, and the afternoon's forced error leaves the process running. The change is one admin-only route, `POST /admin/operations/crash-drill`, which acts only on `{ confirm: "crash" }`, answers first, then throws outside any request so the existing `fatalExit` reports to Sentry and exits. A button on the Operations page sends it after a confirmation. Cost: about 12–15 seconds in which the instance that answered does not serve, and requests in flight on it are dropped.
 - **Q29 (David):** the afternoon is planned for Tuesday 2026-11-24.
+
+## Amendment 6 (2026-11-24)
+
+- **Approved by David** (Q33: 1, in chat, recorded on Issue #1029 in the comment headed "David's answers (2026-11-24)"): the fault-injection afternoon (design G, increment 7) **moves from the end of this phase to the Seed readiness pass**, so its proof is taken on the launch build. This matches `launch-definition.md`, which already says row 8 *"is proven by a fault-injection afternoon on the deployed Seed site"* and makes row 8 a Seed go/no-go item. The work still to come before launch changes the paths the afternoon breaks: jobs and renders (Issue #1018), payments (Phase 10) and spend recording (Phase 11). And Seed starts on a fresh production database. So a proof taken now would have to be taken again.
+- **What this replaces:** Q9: 1's "runs at the end of this phase" and Q29's date (Tuesday 2026-11-24, withdrawn), with Q32 withdrawn too. Q9's split of the spend row (proven when Phase 11 shows a ledger-write failure) stands.
+- **What stays ready:** amendment 5's crash drill (PR #1118) and the run sheet (the Issue #1029 comment headed "Increment 7 run sheet"), which the Seed pass picks up.
+- **Phase 16 closes** with increments 1 to 6 done and row 8's proof visibly open until Seed.
 
 ## Answered by David (2026-11-17)
 
