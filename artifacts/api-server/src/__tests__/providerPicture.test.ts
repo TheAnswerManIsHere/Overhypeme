@@ -12,6 +12,7 @@ import { db } from "@workspace/db";
 import { accountDeletionRequestsTable, uploadImageMetadataTable, usersTable } from "@workspace/db/schema";
 import { eq, like } from "drizzle-orm";
 
+import { acceptCurrentLegal } from "./helpers/legalAcceptance.js";
 import { copyProviderPictureIn, googlePictureUrl, type PictureFetcher } from "../lib/providerPicture.js";
 
 const PREFIX = "t_provpic_";
@@ -43,11 +44,12 @@ describe("copying the Google picture in at sign-in", () => {
     fs.rmSync(storageRoot, { recursive: true, force: true });
   });
 
-  // An eligible account by default: verified and onboarded, as one signing in
-  // to an established account is.
+  // An eligible account by default: verified, onboarded and up to date on the
+  // Terms, as one signing in to an established account is.
   async function member(opts: {
     dateOfBirth?: string | null; profileImageUrl?: string | null;
     emailVerifiedAt?: Date | null; onboardingCompletedAt?: Date | null; suspendedAt?: Date | null;
+    legal?: boolean;
   } = {}): Promise<string> {
     const id = `${PREFIX}${randomUUID()}`;
     const now = new Date();
@@ -59,6 +61,7 @@ describe("copying the Google picture in at sign-in", () => {
       dateOfBirth: opts.dateOfBirth === undefined ? "1990-05-05" : opts.dateOfBirth,
       profileImageUrl: opts.profileImageUrl ?? null,
     });
+    if (opts.legal !== false) await acceptCurrentLegal(id);
     return id;
   }
   const GOOGLE = "https://lh3.googleusercontent.com/a/ACg8ocK=s96-c";
@@ -120,6 +123,8 @@ describe("copying the Google picture in at sign-in", () => {
       await member({ suspendedAt: new Date() }),
       await member({ emailVerifiedAt: null }),
       await member({ onboardingCompletedAt: null }),
+      await member({ legal: false }),
+      await member({ dateOfBirth: "2015-01-01" }),
     ];
     for (const id of cases) {
       const f = fetcher();
@@ -131,8 +136,8 @@ describe("copying the Google picture in at sign-in", () => {
     }
   });
 
-  it("a member without an adult date of birth gets nothing: photo uploads are for members 18 and over", async () => {
-    for (const dob of [null, "2015-01-01"]) {
+  it("a member without a date of birth gets nothing: photo uploads are for members 18 and over", async () => {
+    for (const dob of [null]) {
       const id = await member({ dateOfBirth: dob });
       const f = fetcher();
       assert.equal(await copyProviderPictureIn(id, GOOGLE, f), "not_adult");

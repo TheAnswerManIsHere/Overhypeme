@@ -11,7 +11,8 @@ import { logger } from "./logger";
 import { processAndStoreUserUpload } from "./userImageUpload";
 import { makeProfilePhoto } from "./profilePhoto";
 import { profilePictureUrl } from "./profilePicture";
-import { ageInYears, ADULT_AGE, eligibilityOf } from "./eligibility";
+import { ageInYears, MINIMUM_AGE, eligibilityOf } from "./eligibility";
+import { legalAcceptedExpr } from "./legalAcceptance";
 import { userLeaving } from "./contentVisibility";
 import { effectiveTierForRow } from "./membershipState";
 import { isAdminById } from "./auth";
@@ -95,20 +96,21 @@ export async function copyProviderPictureIn(
 ): Promise<CopyOutcome> {
   try {
     const [row] = await db
-      .select({ user: usersTable, deletionPending: userLeaving() })
+      .select({ user: usersTable, deletionPending: userLeaving(), legalAccepted: legalAcceptedExpr() })
       .from(usersTable)
       .where(eq(usersTable.id, userId))
       .limit(1);
     if (!row) return "failed";
     const { user } = row;
     if (profilePictureUrl(user.profileImageUrl)) return "has_photo";
-    // Signing in does not make an account able to add media: one awaiting
-    // deletion, suspended, unverified or not yet onboarded gets nothing, by
-    // the same rule the verified-actor gate enforces.
-    if (eligibilityOf({ ...user, deletionPending: row.deletionPending }) !== "eligible") return "not_eligible";
+    // Signing in does not make an account able to add media: one suspended,
+    // under age, awaiting deletion, unverified, not yet onboarded or behind on
+    // the Terms gets nothing, by the same rule the verified-actor gate enforces.
+    const eligibility = eligibilityOf({ ...user, deletionPending: row.deletionPending, legalAccepted: row.legalAccepted });
+    if (eligibility !== "eligible") return "not_eligible";
     // Photo uploads are for members 18 and over (plan S12); this is one.
     const age = ageInYears(user.dateOfBirth);
-    if (age == null || age < ADULT_AGE) return "not_adult";
+    if (age == null || age < MINIMUM_AGE) return "not_adult";
     if (rawPicture == null || rawPicture === "") return "no_picture";
     const url = googlePictureUrl(rawPicture);
     if (!url) return "refused_url";
