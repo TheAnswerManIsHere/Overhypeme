@@ -612,7 +612,7 @@ async function approveForProduction(
         factId: stagingFact.id,
         adminNote,
       });
-      void sendEmail({ to: submitter.email, ...emailContent });
+      void sendEmail({ to: submitter.email, kind: "review_result", ...emailContent });
     }
   }
 
@@ -932,7 +932,7 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
         adminNote,
         rejectionReason,
       });
-      void sendEmail({ to: submitter.email, ...emailContent });
+      void sendEmail({ to: submitter.email, kind: "review_result", ...emailContent });
     }
   }
 

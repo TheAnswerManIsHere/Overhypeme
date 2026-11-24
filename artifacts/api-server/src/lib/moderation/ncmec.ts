@@ -67,7 +67,7 @@ export async function submitNcmecReport(input: NcmecReportInput): Promise<{ id: 
       admins
         .map((a) => a.email)
         .filter((e): e is string => !!e)
-        .map((to) => sendEmail({ to, subject: `[NCMEC pending] ${input.matchSource} match`, text, html: `<pre>${text}</pre>` })),
+        .map((to) => sendEmail({ to, kind: "admin_ncmec_alert", subject: `[NCMEC pending] ${input.matchSource} match`, text, html: `<pre>${text}</pre>` })),
     );
   } catch (err) {
     logger.warn({ err, reportId: row?.id }, "[ncmec] admin notification failed");

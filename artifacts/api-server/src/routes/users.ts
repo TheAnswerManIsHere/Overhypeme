@@ -314,7 +314,7 @@ router.patch("/users/me", async (req: Request, res: Response) => {
 
     const verifyUrl = `${getSiteBaseUrl()}/verify-email?token=${rawToken}`;
     const emailContent = buildEmailChangeVerificationEmail(emailNormalized, verifyUrl);
-    sendEmail({ to: emailNormalized, ...emailContent }).catch((err) => {
+    sendEmail({ to: emailNormalized, kind: "email_change_verification", ...emailContent }).catch((err) => {
       logger.error({ err }, "[users] Failed to send email change verification");
     });
 

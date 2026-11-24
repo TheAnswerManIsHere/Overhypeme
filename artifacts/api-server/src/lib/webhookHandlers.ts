@@ -569,7 +569,7 @@ async function prepareDomainEvent(stripe: StripeApi, event: Stripe.Event): Promi
             currency,
           });
           try {
-            await sendEmail({ to: email, subject, text, html });
+            await sendEmail({ to: email, kind: "billing_payment_action", subject, text, html });
             logger.info({ userId: user.id, invoiceId: inv.id }, "Sent SCA action-required email");
           } catch (err) {
             logger.error({ err, userId: user.id, invoiceId: inv.id }, "SCA email send failed");
@@ -633,7 +633,7 @@ async function prepareDomainEvent(stripe: StripeApi, event: Stripe.Event): Promi
             plan: plan ?? null,
           });
           try {
-            await sendEmail({ to: email, subject, text, html });
+            await sendEmail({ to: email, kind: "billing_renewal_reminder", subject, text, html });
             logger.info({ userId: user.id, subscriptionId }, "Sent renewal reminder email");
           } catch (err) {
             logger.error({ err, userId: user.id, subscriptionId }, "Renewal reminder email send failed");
@@ -682,8 +682,9 @@ async function prepareDomainEvent(stripe: StripeApi, event: Stripe.Event): Promi
         const last4 = pm.card?.last4 ?? null;
         afterCommit.push(async () => {
           const { subject, text, html } = buildCardAutomaticallyUpdatedEmail({ brand, last4 });
+          const kind = "billing_card_updated";
           try {
-            await sendEmail({ to: email, subject, text, html });
+            await sendEmail({ to: email, kind, subject, text, html });
           } catch (err) {
             logger.error({ err, userId: user.id, paymentMethodId: pm.id }, "Card-updated email send failed");
           }

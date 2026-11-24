@@ -67,12 +67,16 @@ export type DisplayStatus = (typeof DISPLAY_STATUSES)[number];
  *
  * The reasons the registered handlers give when they skip a job, as each
  * handler declares them: the gag fold (`gags/foldJob.ts`) and the retired
- * AI-meme backfill (`aiMemeBackfillJobs.ts`). Taxonomy Health's list went with
+ * AI-meme backfill (`aiMemeBackfillJobs.ts`), and the email queue's
+ * suspended-recipient skip (`lib/email.ts`, Issue #1212). Taxonomy Health's list went with
  * that page (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 2A). Anything outside it
  * becomes `other` — a handler is free to put arbitrary text in `result`, and
  * admin surfaces should not echo it back.
  */
-export const KNOWN_SKIP_REASONS = [...GAG_FOLD_SKIP_REASONS, RETIRED_SKIP_RESULT.reason] as const;
+/** The email queue's one skip (Issue #1212): mail held back from a suspended account (`RECIPIENT_SUSPENDED_SKIP` in lib/email.ts). */
+export const EMAIL_SKIP_REASONS = ["recipient_suspended"] as const;
+
+export const KNOWN_SKIP_REASONS = [...GAG_FOLD_SKIP_REASONS, RETIRED_SKIP_RESULT.reason, ...EMAIL_SKIP_REASONS] as const;
 export type SanitizedSkipReason = (typeof KNOWN_SKIP_REASONS)[number] | "other";
 
 export function sanitizeSkipReason(raw: unknown): SanitizedSkipReason | null {

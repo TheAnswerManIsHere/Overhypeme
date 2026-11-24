@@ -21,7 +21,8 @@
     "migrate:ai-backgrounds-v2": "tsx scripts/migrate-ai-backgrounds-v2.ts",
     "migrate:storage-keys": "tsx scripts/migrate-storage-keys.ts",
     "fix:ai-backgrounds-db": "tsx scripts/fix-ai-backgrounds-db.ts",
-    "print:cloudflare-geo-rule": "tsx scripts/print-cloudflare-geo-rule.ts"
+    "print:cloudflare-geo-rule": "tsx scripts/print-cloudflare-geo-rule.ts",
+    "classify:legacy-email-kinds": "tsx scripts/classify-legacy-email-kinds.ts"
   },
   "dependencies": {
     "@fal-ai/client": "^1.9.5",

@@ -87,7 +87,7 @@ async function sendVerificationEmail(userId: string, email: string, pendingEmail
   // test to mistake for a sent one (#868, PR #871 round 1).
   await db.transaction(async (tx) => {
     await tx.insert(emailVerificationTokensTable).values({ userId, tokenHash, expiresAt, pendingEmail: pendingEmail ?? null });
-    await sendEmail({ to: email, ...emailContent }, tx, { insertUnderTestKey: false });
+    await sendEmail({ to: email, kind: "email_verification", ...emailContent }, tx, { insertUnderTestKey: false });
   });
 }
 
@@ -411,6 +411,7 @@ router.post("/auth/forgot-password", async (req: Request, res: Response) => {
   const emailContent = buildPasswordResetEmail(resetUrl);
   await sendEmail({
     to: user.email!,
+    kind: "password_reset",
     ...emailContent,
   });
 

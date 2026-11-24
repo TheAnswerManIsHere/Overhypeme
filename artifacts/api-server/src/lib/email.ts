@@ -27,7 +27,7 @@ import { BRAND_ORANGE, type RejectionReason } from "@workspace/api-zod";
 import { Resend } from "resend";
 import { eq, sql } from "drizzle-orm";
 import { db as defaultDb } from "@workspace/db";
-import { asyncJobsTable, type AsyncJobRow } from "@workspace/db/schema";
+import { asyncJobsTable, usersTable, type AsyncJobRow } from "@workspace/db/schema";
 import { getConfigString, getConfigInt } from "./adminConfig";
 import { getSiteBaseUrl } from "./siteUrl";
 import { logger } from "./logger";
@@ -449,11 +449,103 @@ export const emailJobHandler: JobHandler = {
  * claim writes nothing. `replace` drops whatever the record held first.
  */
 async function writeDelivery(jobId: number, fields: Partial<EmailDelivery>, replace = false): Promise<void> {
+  await fencedTransaction(defaultDb, (tx) => deliveryUpdate(tx, jobId, fields, replace));
+}
+
+export type DbExecutor = Pick<typeof defaultDb, "select" | "update">;
+
+function deliveryUpdate(tx: DbExecutor, jobId: number, fields: Partial<EmailDelivery>, replace: boolean) {
   const base = replace ? sql`'{}'::jsonb` : sql`COALESCE(${asyncJobsTable.payload}->'delivery', '{}'::jsonb)`;
-  await fencedTransaction(defaultDb, (tx) => tx
+  return tx
     .update(asyncJobsTable)
     .set({ payload: sql`jsonb_set(${asyncJobsTable.payload}, '{delivery}', ${base} || ${JSON.stringify(fields)}::jsonb)` })
-    .where(eq(asyncJobsTable.id, jobId)));
+    .where(eq(asyncJobsTable.id, jobId));
+}
+
+/**
+ * The kinds a suspended account still receives (Issue #1212). Everything else
+ * addressed to a suspended account is skipped at delivery, never sent and
+ * never replayed (Q23: 1).
+ * - The suspension notices (Q7, PR #1216) and the support form's
+ *   acknowledgement (Phase 16 Q4:1): settled.
+ * - Billing mail (Q21: 1): suspension leaves billing running.
+ * - Account-lifecycle mail (Q22: 1): deletion runs regardless of suspension.
+ */
+export const SUSPENSION_PERMITTED_KINDS: ReadonlySet<string> = new Set([
+  "account_suspended",
+  "account_reinstated",
+  "support_ack",
+  "billing_payment_action",
+  "billing_renewal_reminder",
+  "billing_card_updated",
+  "access_revoked",
+  "account_deletion_scheduled",
+  "account_deletion_cancelled",
+]);
+
+/**
+ * The billing and access notices an earlier release queued with no kind, told
+ * apart by their fixed subjects (the builders below and `userNotify.ts`).
+ * Used once, by `classifyLegacyEmailKinds`, at the cutover (plan item 5).
+ */
+const LEGACY_KIND_BY_SUBJECT: readonly { kind: string; exact?: string; prefix?: string }[] = [
+  { kind: "billing_payment_action", exact: "Action required: confirm your renewal — Overhype.me" },
+  { kind: "billing_card_updated", exact: "Your card on file was updated — Overhype.me" },
+  { kind: "billing_renewal_reminder", prefix: "Your Overhype.me renewal — " },
+  { kind: "access_revoked", exact: "Your Overhype.me Legendary access has ended" },
+  { kind: "access_revoked", exact: "Your Overhype.me Legendary access is paused" },
+];
+
+/**
+ * The cutover step for Issue #1212 (plan item 5; Astra S2): every email job an
+ * earlier release queued with no kind, that could still be sent (pending,
+ * recovering, processing or failed), and that is a billing or access notice
+ * by its subject, gets its kind written onto the existing row. Nothing else
+ * changes: its sending record, frozen message and no-duplicate key are kept,
+ * and no send is authorised. Whoever the recipient is now. Idempotent: a
+ * second run finds nothing. Jobs it does not recognise stay ordinary.
+ */
+export async function classifyLegacyEmailKinds(executor: Pick<typeof defaultDb, "update"> = defaultDb): Promise<Record<string, number>> {
+  const counts: Record<string, number> = {};
+  for (const rule of LEGACY_KIND_BY_SUBJECT) {
+    const subjectMatch = rule.exact !== undefined
+      ? sql`${asyncJobsTable.payload}->>'subject' = ${rule.exact}`
+      : sql`starts_with(${asyncJobsTable.payload}->>'subject', ${rule.prefix!})`;
+    const updated = await executor
+      .update(asyncJobsTable)
+      .set({ payload: sql`jsonb_set(${asyncJobsTable.payload}, '{kind}', to_jsonb(${rule.kind}::text))` })
+      .where(sql`${asyncJobsTable.queue} = 'email'
+        AND ${asyncJobsTable.status} IN ('pending', 'recovering', 'processing', 'failed')
+        AND (${asyncJobsTable.payload}->>'kind') IS NULL
+        AND ${subjectMatch}`)
+      .returning({ id: asyncJobsTable.id });
+    counts[rule.kind] = (counts[rule.kind] ?? 0) + updated.length;
+  }
+  return counts;
+}
+
+/** The queue's skip outcome for mail held back from a suspended account (Queue Health reads `skipped`). */
+export const RECIPIENT_SUSPENDED_SKIP = { skipped: true, reason: "recipient_suspended" } as const;
+
+/** The address a job will actually send to: its frozen message's, else the payload's. */
+function recipientOf(ep: EmailJobPayload): string {
+  return ep.delivery?.message?.to ?? ep.to;
+}
+
+/**
+ * Whether `address` belongs to a suspended account. `lock` reads the account
+ * FOR SHARE, which conflicts with `suspendAccount`'s FOR UPDATE, so the answer
+ * cannot change before the transaction that asked it commits (plan, Q24).
+ * Exported for the overlap test.
+ */
+export async function recipientSuspended(executor: DbExecutor, address: string, lock = false): Promise<boolean> {
+  const q = executor
+    .select({ id: usersTable.id })
+    .from(usersTable)
+    .where(sql`lower(${usersTable.email}) = lower(${address}) AND ${usersTable.suspendedAt} IS NOT NULL`)
+    .limit(1);
+  const rows = lock ? await q.for("share") : await q;
+  return rows.length > 0;
 }
 
 /**
@@ -479,6 +571,18 @@ async function runEmailJob(ep: EmailJobPayload, row: ClaimedJobRow): Promise<Han
     // Resend accepted it before the run that sent it could finish the job.
     logger.info({ id: row.id, providerId: prior.providerId }, "[email] already sent — finishing without sending again");
     return { ok: true, result: { providerId: prior.providerId ?? null } };
+  }
+
+  // Issue #1212: mail to a suspended account is held back, except the kinds it
+  // still needs. Decided before the delivery-failure branches below, so a
+  // held-back job is skipped rather than failed or retried, and its delivery
+  // history is left as it was (Astra A1). Decided again, under lock, where
+  // the send is authorised.
+  const recipient = recipientOf(ep);
+  const suppressible = !SUSPENSION_PERMITTED_KINDS.has(ep.kind ?? "");
+  if (suppressible && await recipientSuspended(defaultDb, recipient)) {
+    logger.info({ id: row.id, kind: ep.kind ?? null }, "[email] recipient is suspended — skipped, not sent");
+    return { ok: true, result: RECIPIENT_SUSPENDED_SKIP };
   }
 
   if (prior?.state === "possibly_sent") {
@@ -514,7 +618,19 @@ async function runEmailJob(ep: EmailJobPayload, row: ClaimedJobRow): Promise<Han
     providerId: null,
     resendApproved: false,
   };
-  await writeDelivery(row.id, record, true);
+  // The send is authorised here. For held-back kinds the recipient's
+  // suspension is read FOR SHARE in this same transaction (Q24: 1): a
+  // suspension committed first skips the send; one waiting on this lock lands
+  // after the authorisation, and this one attempt goes.
+  const withheld = await fencedTransaction(defaultDb, async (tx) => {
+    if (suppressible && await recipientSuspended(tx, recipient, true)) return true;
+    await deliveryUpdate(tx, row.id, record, true);
+    return false;
+  });
+  if (withheld) {
+    logger.info({ id: row.id, kind: ep.kind ?? null }, "[email] recipient suspended as the send was authorised — skipped, not sent");
+    return { ok: true, result: RECIPIENT_SUSPENDED_SKIP };
+  }
   if (prior?.state === "possibly_sent") {
     logger.info({ id: row.id, firstDispatchAt: prior.firstDispatchAt }, "[email] resending with the same no-duplicate key after an interrupted or failed attempt");
   }

@@ -350,8 +350,43 @@ reports `notice`: `queued` (a job exists, not that it was delivered),
 `not_queued` with `why` (`no_address`, `email_unavailable`, `failed`), or
 `not_owed`. When nothing was queued there is no job to retry, and repeating
 the action does not resend. The reason is never an input to either template.
-These two notices are the only mail suspension sends; other mail can still
-reach a suspended account (Issue #1212).
+These two notices are the only mail suspension sends.
+
+**Ordinary mail is held back while an account is suspended** (Issue #1212;
+plan `docs/plans/PLAN_SUSPENDED_MAIL.md`; David's Q21–Q24, all 1). The rule is
+decided at delivery, in `runEmailJob` (`artifacts/api-server/src/lib/email.ts`),
+from the recipient's account state at that moment, never at enqueue and never by
+who caused the send. The recipient is the address the worker will send to (the
+frozen `delivery.message.to`, else the payload's `to`), matched to an account's
+`email` case-insensitively. When that account is suspended and the job's kind is
+not in `SUSPENSION_PERMITTED_KINDS`, the job finishes `done` with result
+`{ skipped: true, reason: "recipient_suspended" }`: no provider call, no retry,
+no abandoned-email alert. New jobs, jobs queued before the suspension, retries,
+recovery after an interruption and an admin's Retry all pass the same check.
+- **Still sent:** the two suspension notices, `support_ack`, billing
+  (`billing_payment_action`, `billing_renewal_reminder`, `billing_card_updated`,
+  `access_revoked`; Q21) and account lifecycle
+  (`account_deletion_scheduled`, `account_deletion_cancelled`; Q22). Every
+  other kind, and a job with no kind, is held back.
+- **Held-back mail is dropped for good** (Q23): nothing replays it on
+  reinstatement.
+- **The cutoff** (Q24): the check runs first, before the delivery-failure
+  branches, so a held-back job is skipped rather than failed, keeping its
+  delivery history; it runs again inside the transaction that records the
+  authorisation to send, reading the account `FOR SHARE` against
+  `suspendAccount`'s `FOR UPDATE`. A suspension that commits first skips the
+  send; an authorisation that commits first may still send that one attempt,
+  and every later attempt decides afresh.
+- **Older jobs with no kind** were labelled once, after the deploy, by
+  `pnpm --filter @workspace/api-server run classify:legacy-email-kinds`
+  (`classifyLegacyEmailKinds`): a pending, recovering, processing or failed job
+  whose subject is a billing or access notice gets its kind written onto the
+  row, with its sending record left as it was. Anything it did not recognise
+  stays ordinary.
+- **The Email Queue** shows such a job as *"Skipped — recipient suspended"*,
+  never "Delivered"; its filter for finished rows is "Finished" and its clear
+  control "Clear finished". Queue Health knows `recipient_suspended` as a skip
+  reason.
 Suspension has its own columns — `suspended_at`, `suspended_reason`,
 `suspended_by` (0120) — and never writes `is_active`. It runs under the
 admin population lock, then the user row `FOR UPDATE`. An admin can never
