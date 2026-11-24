@@ -156,7 +156,7 @@ export const imagePromptGenerationHandler: JobHandler = {
       return recordTerminalAttemptFailure(
         p.attemptId,
         "invalid_persisted_enrichment",
-        `enrichment snapshot invalid: ${enrichmentValidation.error}`,
+        `the gag saved with this render can no longer be read, so it cannot be drawn (${enrichmentValidation.error})`,
       );
     }
     const enrichment = enrichmentValidation.data;
@@ -197,7 +197,7 @@ export const imagePromptGenerationHandler: JobHandler = {
     } catch (err) {
       // A compiler throw is deterministic given the frozen inputs → terminal.
       const msg = err instanceof Error ? err.message : String(err);
-      return recordTerminalAttemptFailure(p.attemptId, "compile_failed", `compile failed: ${msg}`);
+      return recordTerminalAttemptFailure(p.attemptId, "compile_failed", `the picture's prompt could not be put together from the gag (${msg})`);
     }
 
     // Fail-loud gate (§12): the final prompt must carry NO unresolved
@@ -312,7 +312,7 @@ export const imageGenerationHandler: JobHandler = {
     if (!promptText) {
       // A stored prompt does not change between runs, so a retry cannot help
       // (David, Q17 option 1): the render fails now, with its reason.
-      return recordTerminalAttemptFailure(p.attemptId, RENDER_INPUT_INVALID, "compiledPrompt has no prompt text");
+      return recordTerminalAttemptFailure(p.attemptId, RENDER_INPUT_INVALID, "the render's stored prompt is empty, so there is nothing to draw");
     }
 
     const generationMode = generationModeFromSubjectRenderMode(
@@ -321,7 +321,7 @@ export const imageGenerationHandler: JobHandler = {
     // Fail fast + legibly when an i2i render has no reference image, instead of
     // the opaque MissingRequiredParamError buildEngineInput would throw later.
     if (generationMode === "i2i" && !compiled.referenceImageUrl) {
-      return recordTerminalAttemptFailure(p.attemptId, RENDER_INPUT_INVALID, "i2i_missing_reference_url");
+      return recordTerminalAttemptFailure(p.attemptId, RENDER_INPUT_INVALID, "this picture is drawn from a reference photo, but none was saved with the render");
     }
     // The engine recorded at construction draws the attempt, never today's
     // default: an attempt queued before a default changed still renders
@@ -368,7 +368,7 @@ export const imageGenerationHandler: JobHandler = {
       return recordTerminalAttemptFailure(
         p.attemptId,
         RENDER_INPUT_INVALID,
-        `buildEngineInput failed: ${err instanceof Error ? err.message : String(err)}`,
+        `the request to ${engine.label} could not be built from this render (${err instanceof Error ? err.message : String(err)})`,
       );
     }
 
