@@ -168,6 +168,122 @@ export interface GagView {
    * Renders of other content are history and are not listed.
    */
   renders: PerKind<RenderScenarioCard | null>;
+  /**
+   * Each picture's roles (Issue #1304, D1): its official renders and its
+   * working render. `renders` above stays as it is until the views move to
+   * these (increment C).
+   */
+  roles: PerKind<GagPictureRoles>;
+}
+
+// ─── A gag's renders: roles, history, cost, delete (Issue #1304) ───────────
+// Plan docs/plans/PLAN_RENDER_HISTORY.md D1, D4, D5 and D6.
+
+/**
+ * The roles a render can hold for its picture (D1), each computed from
+ * existing records, never stored:
+ * - `live`: the gag's published pick for that picture;
+ * - `approved_next`: the draft pick, when it differs from the published one;
+ * - `working`: the newest render of that picture for this gag, whatever its
+ *   content or status.
+ * One render can hold several.
+ */
+export type RenderRole = "live" | "approved_next" | "working";
+
+/** One picture's roles: the official renders, and the working render with its status. */
+export interface GagPictureRoles {
+  live: GagExample | null;
+  /** The draft pick when it differs from the published one. */
+  approvedNext: GagExample | null;
+  /** The newest render of this picture; `stale` when it was drawn from an earlier version of the gag. */
+  working: RenderScenarioCard | null;
+}
+
+/** Whether a render was ever approved (D4; David, Q51). */
+export type RenderApproval =
+  /** It is, or was, a pick: a current pick, a retained pick on the gag, or an approval record naming it. */
+  | "approved"
+  /** No such evidence, and drawn before every approval was recorded with its pick. */
+  | "not_recorded"
+  /** No such evidence, drawn after that guarantee began. */
+  | "not_approved";
+
+/**
+ * What fal billed for a render (D5), summed over the requests it made (a
+ * retry or a fallback makes several). Read from stored bills; viewing makes no
+ * fal call.
+ */
+export type RenderCost =
+  /** Some or all of its requests have a bill: the known amount, and how many requests have none yet. */
+  | { state: "billed"; usd: number; unbilledRequests: number }
+  /** No bill yet, and at least one request has not been looked up. */
+  | { state: "not_checked" }
+  /** Every request was looked up in a window covering it, and fal had no bill. */
+  | { state: "no_bill_found" }
+  /** The billing-read key is not set, so nothing is looked up. */
+  | { state: "billing_key_not_set" }
+  /** It never reached fal, so nothing was charged. */
+  | { state: "never_sent" };
+
+/** The exact input one request sent to the engine. */
+export interface RenderRequestRecord {
+  id: number;
+  endpointId: string;
+  engineId: string | null;
+  createdAt: string;
+  /** The input object exactly as submitted. */
+  request: unknown;
+  billedUsd: number | null;
+}
+
+/** One render in a gag's history, with the full record of how it was made (D4). */
+export interface RenderHistoryEntry {
+  attemptId: number;
+  /** The picture it drew (male, female, pet); null for a render of no example kind. */
+  kind: GagExampleKind | null;
+  createdAt: string;
+  /** The admin who asked for it, named as History names admins. */
+  drawnBy: { userId: string | null; name: string | null };
+  /** The roles it holds now (D1). */
+  roles: RenderRole[];
+  status: RenderScenarioCard["status"];
+  /** Why it failed, in words; null unless failed or blocked. */
+  error: string | null;
+  imageUrl: string | null;
+  /** The gag as it was drawn: its scene and bubbles, from the render's frozen content. */
+  gag: VisualPromptStrategyOverride | null;
+  /** The reference photo: its identity type and asset version. */
+  reference: { identityType: string | null; assetVersion: string | null };
+  /** The engine that drew it, and the fallback when one happened. */
+  engine: { engineId: string | null; fallback: { refusedEngineId: string; reason: string; drawnByEngineId: string } | null };
+  /** The compiled prompt, and every request sent to the engine, exactly as sent. */
+  prompt: { compiled: unknown; requests: RenderRequestRecord[] };
+  approval: RenderApproval;
+  cost: RenderCost;
+}
+
+/** A page of a gag's history, newest first (50 at a time); `nextBefore` reads the next older page, null at the end. */
+export interface RenderHistoryPage {
+  gagId: number;
+  entries: RenderHistoryEntry[];
+  nextBefore: string | null;
+}
+
+/** A removed gag that still has renders: its history, grouped by the gag's own id, never its slot. */
+export interface RemovedGagHistory {
+  gagId: number;
+  renders: number;
+  lastRenderAt: string;
+}
+
+export const gagRenderDeleteBodySchema = z.object(reviewScope).strict();
+export type GagRenderDeleteBody = z.infer<typeof gagRenderDeleteBodySchema>;
+
+/** A delete's answer: the row is gone; its picture file may still be on its way out (the cleanup list). */
+export interface GagRenderDeleteResult {
+  deleted: true;
+  /** True while the cleanup list still holds its file: "Deleted; its picture file is still being removed". */
+  fileStillBeingRemoved: boolean;
 }
 
 export interface FactGagsView {

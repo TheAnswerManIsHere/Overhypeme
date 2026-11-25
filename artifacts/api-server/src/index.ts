@@ -256,6 +256,25 @@ function scheduleContentPurger() {
   });
 }
 
+// Hourly: fill what fal billed for each gag render (lib/renderBilling.ts),
+// with the billing-read key, so viewing a render's history calls nobody. Its
+// own timer: a fal outage retries this alone, not its neighbours.
+function scheduleRenderBillingFill() {
+  scheduleRecurringTask({
+    cadenceMs: HOURLY_MS,
+    steps: [
+      {
+        id: "render_billing_fill",
+        run: async () => {
+          const { runRenderBillingFill } = await import("./lib/renderBilling");
+          await runRenderBillingFill();
+        },
+        failureMessage: "[render-billing] fill failed",
+      },
+    ],
+  });
+}
+
 // Hourly (and a few minutes after a start): fill the duplicate fingerprint of
 // every approved fact that lacks one, live or deactivated, a bounded batch a
 // run (plan PLAN_FACT_LIFECYCLE_REBUILD.md 2C: "Missing fingerprints are
@@ -570,6 +589,7 @@ scheduleTransientRenderPurger();
 scheduleMemberPictureSettlement();
 scheduleRateLimitCounterPurger();
 scheduleContentPurger();
+scheduleRenderBillingFill();
 scheduleAccountDeletionWorker();
 scheduleSessionAndRetentionWindowJobs();
 scheduleMediaBackup();

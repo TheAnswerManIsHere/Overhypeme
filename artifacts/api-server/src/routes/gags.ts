@@ -17,6 +17,9 @@
  *   POST /api/admin/facts/:factId/gags/:gagId/renders          run its test renders
  *   POST /api/admin/facts/:factId/gags/:gagId/approve          approve a render as its draft example
  *   POST /api/admin/facts/:factId/gags/:gagId/remove           remove it from the draft
+ *   GET  /api/admin/facts/:factId/gags/:gagId/render-history   its renders, newest first, 50 a page
+ *   GET  /api/admin/facts/:factId/render-history/removed-gags  removed gags that still have renders
+ *   POST /api/admin/facts/:factId/gags/:gagId/renders/:attemptId/delete  delete an old render for good
  *   GET  /api/admin/gags/:gagId/renders/:renderJobId/image     a render's image
  */
 import { sendStorageBody } from "../lib/sendStorageBody";
@@ -25,6 +28,8 @@ import { and, eq } from "drizzle-orm";
 import { db, imagePromptAttemptsTable } from "@workspace/db";
 import {
   gagApproveBodySchema,
+  gagRenderDeleteBodySchema,
+  type GagRenderDeleteResult,
   gagCastBodySchema,
   gagCreateBodySchema,
   gagRendersBodySchema,
@@ -40,10 +45,13 @@ import {
   approveGagRender,
   assertCanRunGagRenders,
   createGag,
+  deleteGagRender,
   removeGag,
   saveGagContent,
 } from "../lib/gags/gagStore";
 import { buildFactGagsView } from "../lib/gags/gagView";
+import { gagRenderHistory, removedGagHistories } from "../lib/gags/renderHistory";
+import { cleanUpQueuedFiles } from "../lib/storedFileDeletions";
 import { CastPreparationError, prepareDraftCast } from "../lib/gags/castPreparation";
 import { createRateLimiter } from "../lib/rateLimit";
 import { drawGagKinds } from "../lib/reviewRenderScenarios";
@@ -183,6 +191,47 @@ router.post("/admin/facts/:factId/gags/:gagId/renders", requireAdmin, async (req
     if ("error" in result) throw new GagError("REVIEW_NOT_EDITABLE", `The renders could not start: ${result.error}.`);
     await recordAdminAction({ factId: p.factId, reviewId }, req.user.id, "gag_renders_requested", { gagId: p.gagId, kinds: body.kinds ?? null, redraw: body.redraw === true });
   });
+});
+
+// A gag's render history (Issue #1304, plan PLAN_RENDER_HISTORY.md D4): every
+// render of this fact's gag, newest first, 50 a page; `before` reads the next
+// older page. Read only; makes no fal call (bills are stored by the hourly fill).
+router.get("/admin/facts/:factId/gags/:gagId/render-history", requireAdmin, async (req: Request, res: Response) => {
+  const p = ids(req);
+  if (!p || p.gagId <= 0) { res.status(400).json({ error: "Invalid id" }); return; }
+  const before = typeof req.query["before"] === "string" ? req.query["before"] : undefined;
+  res.json(await gagRenderHistory(p.factId, p.gagId, before));
+});
+
+// A fact's removed gags that still have renders, grouped by the gag's own id (D3).
+router.get("/admin/facts/:factId/render-history/removed-gags", requireAdmin, async (req: Request, res: Response) => {
+  const p = ids(req);
+  if (!p) { res.status(400).json({ error: "Invalid id" }); return; }
+  res.json({ gags: await removedGagHistories(p.factId) });
+});
+
+// Delete an old render for good (D6; David, Q47): its row and its picture
+// file. Refused, saying why, for a pick, a render still drawing, or one
+// that is not this gag's. The file is removed after the commit; the answer
+// says when it is still on its way out.
+router.post("/admin/facts/:factId/gags/:gagId/renders/:attemptId/delete", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const p = ids(req);
+  const attemptId = Number(req.params["attemptId"]);
+  if (!p || p.gagId <= 0 || !Number.isInteger(attemptId) || attemptId <= 0) { res.status(400).json({ error: "Invalid id" }); return; }
+  const body = parse(gagRenderDeleteBodySchema, req, res);
+  if (!body) return;
+  try {
+    const { files } = await deleteGagRender(p.factId, p.gagId, attemptId, { adminId: req.user.id, reviewId: body.reviewId ?? null });
+    const outstanding = await cleanUpQueuedFiles(files);
+    const result: GagRenderDeleteResult = { deleted: true, fileStillBeingRemoved: outstanding > 0 };
+    res.json(result);
+  } catch (err) {
+    if (err instanceof GagError) {
+      res.status(err.status).json({ error: err.message, code: err.code });
+      return;
+    }
+    throw err;
+  }
 });
 
 // Stream a gag render's image to admins. Moderation render objects carry no ACL
