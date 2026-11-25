@@ -16,6 +16,7 @@ creation time is unchanged, so it still predates the fix's push. A fresh
 assessment posted after the push satisfies the gate too, but the gate then
 notes that push as preceding the assessments (KITT's review-gate amendment 1,
 2026-11-25: a note, not a failure), and the round's `review-action` block has
-to disclose it as a write-gate breach. Editing the facts line avoids both.
+to disclose that push, saying the assessments preceded it under ids the gate
+could not match. Editing the facts line avoids both.
 
 Measured on PR #971 (compiler review, Phase 2), round 1, 2026-11-16.
