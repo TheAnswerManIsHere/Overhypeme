@@ -15,9 +15,11 @@ report unless I explicitly ask for it"*). Nothing in close-out, `pr-watch`,
 *"easy to understand and less technical"*), and nothing else:
 
 1. **What was built** — at most three sentences, from the diff.
-2. **Agrees**, or each disagreement with my account, one line each. When
-   something could not be checked it reads *"Agrees, as far as it could
-   check"*.
+2. **Agrees**, or each disagreement with my account, one line each. "Agrees"
+   prints only when nothing below is a concern; with a concern below it
+   reads *"No dispute with the builder's account, but see its concerns
+   below"*, and when something could not be checked, *"Agrees, as far as it
+   could check"*.
 3. **Decisions it questions** — only those it has a concern about.
 4. **Should not have shipped unfixed** — only those it calls unreasonable.
 5. **Overbuilt** — only when there is something.
