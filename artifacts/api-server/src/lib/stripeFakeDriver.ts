@@ -173,7 +173,7 @@ const appSurface: StripeApi = {
     retrieve: noneById("customer"),
   },
   disputes: { retrieve: noneById("dispute") },
-  events: { list: listEvents },
+  events: { list: listEvents, retrieve: (id: string) => findById(fakeEvents, "event", id) },
   invoicePayments: {
     list: empty<Stripe.InvoicePayment>,
   },

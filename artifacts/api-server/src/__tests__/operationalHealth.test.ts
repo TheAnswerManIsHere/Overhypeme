@@ -41,7 +41,7 @@ const quiet: OperationalHealthDeps = {
   lanes: async () => [],
   tasks: async () => [],
   jobs: async () => ({ unclaimedQueues: [], held: [] }),
-  payments: async () => ({ status: "ok", expected: 0, unprocessed: 0, oldestUnprocessedAt: null }),
+  payments: async () => ({ status: "ok", expected: 0, unprocessed: 0, oldestUnprocessedAt: null, missing: [] }),
 };
 
 describe("/api/health/alerts", () => {
@@ -59,7 +59,7 @@ describe("/api/health/alerts", () => {
     ["an overdue recurring task", { tasks: async () => [{ id: "content_purge", overdue: true } as never] }],
     ["a due job nobody claims", { jobs: async () => ({ unclaimedQueues: ["email"], held: [] }) }],
     ["a claim held far too long", { jobs: async () => ({ unclaimedQueues: [], held: [{ id: 1, queue: "email", heldForMs: 1 }] }) }],
-    ["an unprocessed Stripe event", { payments: async () => ({ status: "ok", expected: 1, unprocessed: 1, oldestUnprocessedAt: new Date() }) }],
+    ["an unprocessed Stripe event", { payments: async () => ({ status: "ok", expected: 1, unprocessed: 1, oldestUnprocessedAt: new Date(), missing: [] }) }],
     ["an incomplete Stripe comparison", { payments: async () => ({ status: "unjudgeable", reason: "incomplete" }) }],
     ["lanes that cannot be read", { lanes: async () => { throw new Error("db down"); } }],
     ["tasks that cannot be read", { tasks: async () => { throw new Error("db down"); } }],
@@ -173,6 +173,8 @@ describe("the Stripe comparison", () => {
     assert.equal(r.status, "ok");
     assert.equal(r.status === "ok" && r.expected, 2);
     assert.equal(r.status === "ok" && r.unprocessed, 1);
+    // The admin list is the very set counted (Issue #1244): same size, the unprocessed one.
+    assert.deepEqual(r.status === "ok" && r.missing.map((m) => m.id), [`${prefix}a`]);
   });
 
   it("an event of a type the endpoint is not registered for is not expected", async () => {

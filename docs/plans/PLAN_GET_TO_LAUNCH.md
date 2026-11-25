@@ -628,7 +628,8 @@ multi-step thing by definition). Phase 6's settled scope is on #873.*
   priority as inert rows); `livemode` column with pre-existing rows as test
   (#454); upgrade messaging (D24); webhook logs ignored event types; the
   **operator-run reconciliation runbook** for undelivered webhooks (Astra
-  gate 3); tier list and Stripe tagging kept additive for Legendary Pro;
+  gate 3; its first piece, replaying one missed event by id from the admin
+  Billing page, is `PLAN_REPLAY_MISSED_STRIPE_EVENT.md`, Issue #1244); tier list and Stripe tagging kept additive for Legendary Pro;
   remove the unused CI Stripe secrets.
 - **Depends on:** Phase 5; Phase 2's Stripe stub for CI proof.
 - **David's batch:** price; allowance number; messaging copy.

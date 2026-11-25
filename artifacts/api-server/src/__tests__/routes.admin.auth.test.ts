@@ -91,6 +91,9 @@ const ADMIN_AUTH_ROUTES: readonly RouteEntry[] = [
   { method: "post",   path: "/admin/stripe/sync/_test/simulate" },
   { method: "get",    path: "/admin/stripe/sync/status" },
   { method: "post",   path: "/admin/stripe/test-event" },
+  // Missed Stripe events: the list and the replay (Issue #1244).
+  { method: "get",    path: "/admin/stripe/missed-events" },
+  { method: "post",   path: "/admin/stripe/missed-events/:eventId/replay" },
   { method: "get",    path: "/admin/feature-flags" },
   { method: "patch",  path: "/admin/feature-flags" },
   { method: "post",   path: "/admin/_debug/sentry" },

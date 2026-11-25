@@ -1899,6 +1899,53 @@ router.get("/admin/stripe/sync/status", requireAdmin, async (_req: Request, res:
   }
 });
 
+// ─── Missed Stripe events: list and replay (Issue #1244) ─────────────────────
+//
+// The list is the payment alert's own comparison, read uncached, so it shows
+// exactly the events the alert counts and never one already replayed. Replay
+// reads the event from Stripe with the verified client and processes it as a
+// delivery would (lib/stripeEventReplay.ts). Only an id comes from the client.
+
+router.get("/admin/stripe/missed-events", requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    const { compareStripeEvents } = await import("../lib/operationalHealth");
+    const comparison = await compareStripeEvents();
+    if (comparison.status !== "ok") {
+      res.json({ status: "unjudgeable", reason: comparison.reason });
+      return;
+    }
+    res.json({
+      status: "ok",
+      unprocessed: comparison.unprocessed,
+      events: comparison.missing.map((e) => ({ id: e.id, type: e.type, created: e.created.toISOString() })),
+    });
+  } catch (err) {
+    logger.error({ err }, "[admin] missed Stripe events list failed");
+    res.status(500).json({ error: "The missed Stripe events could not be read" });
+  }
+});
+
+const REPLAY_STATUS: Record<string, number> = {
+  malformed_id: 400,
+  not_found: 404,
+  wrong_mode: 409,
+  mode_changed: 409,
+  unsupported_type: 422,
+  audit_unavailable: 503,
+};
+
+router.post("/admin/stripe/missed-events/:eventId/replay", requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { replayStripeEvent } = await import("../lib/stripeEventReplay");
+    const result = await replayStripeEvent(String(req.params.eventId ?? ""), req.user!.id);
+    const status = result.outcome === "refused" ? (REPLAY_STATUS[result.reason] ?? 400) : result.outcome === "failed" ? 502 : 200;
+    res.status(status).json(result);
+  } catch (err) {
+    logger.error({ err }, "[admin] missed Stripe event replay failed");
+    res.status(500).json({ error: "The replay could not be started" });
+  }
+});
+
 router.post("/admin/stripe/test-event", requireAdmin, async (req: Request, res: Response) => {
   try {
     // The gate and the client come from ONE operation, deliberately.
