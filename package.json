@@ -20,7 +20,8 @@
     "check:record-cost": "node scripts/check-record-cost-unconditional.mjs",
     "check:budget-gate-thunk": "node scripts/check-budget-gate-thunk.mjs",
     "check:credit-ledger-writer": "node scripts/check-credit-ledger-writer.mjs",
-    "check:prod-audit": "node scripts/check-prod-audit.mjs"
+    "check:prod-audit": "node scripts/check-prod-audit.mjs",
+    "check:tracked-env": "node scripts/check-tracked-env.mjs"
   },
   "private": true,
   "devDependencies": {
