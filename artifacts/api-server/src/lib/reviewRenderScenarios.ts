@@ -2,10 +2,11 @@
  * Per-gag test-render orchestration (the Test Renders engine).
  *
  * Wraps the entity-agnostic policy in `factRenderScenarios.ts` with the
- * wiring: enqueueing default-scenario test renders of ONE GAG, deriving that
- * gag's scenario grid the admin UI polls, and the
- * `review_render_scenarios_prepare` async job that fires the batches when a
- * review's gags step is approved.
+ * wiring: enqueueing the test renders an admin asks for on ONE GAG, and
+ * deriving that gag's scenario grid the admin UI polls. Nothing here draws on
+ * its own: every render is requested (Issue #1282, plan PLAN_RENDERS_MANUAL.md;
+ * the automatic-render queue `review_render_scenarios_prepare` was removed and
+ * its jobs deleted by migration 0171).
  *
  * Since migration 0139 (plan docs/plans/PLAN_THREE_GAGS.md) renders belong to a
  * gag, not a review: attempts are looked up by gag and scenario, so one gag's
@@ -23,7 +24,7 @@
 
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
-import { db, imagePromptAttemptsTable, pendingReviewsTable, factGagsTable, type ImagePromptAttempt, type FactGag } from "@workspace/db";
+import { db, imagePromptAttemptsTable, factGagsTable, type ImagePromptAttempt, type FactGag } from "@workspace/db";
 import {
   defaultIdentityPolicyForRenderMode,
   validateGagRenderInput,
@@ -31,7 +32,6 @@ import {
   SOURCE_IMAGE_ANALYZER_VERSION,
   GAG_EXAMPLE_KINDS,
   mapKinds,
-  ITERATION_KIND,
   SCENARIO_FOR_KIND,
   type GagExampleKind,
   type PerKind,
@@ -67,11 +67,9 @@ import {
   type RenderControlsWithRefs,
 } from "./imagePromptAttempts";
 import { defaultPreviewSubjectForReference, resolveRenderReviewInput } from "./imagePrompt/resolveRenderReviewInput";
-import { loadGagRenderContext, loadGags, workingContent } from "./gags/resolver";
+import { loadGagRenderContext, workingContent } from "./gags/resolver";
 import { loadGagExamples } from "./gags/examples";
-import { assertCanRunGagRenders, GagError, type GagActor } from "./gags/gagStore";
 import { renderPersonalized } from "./renderCanonical";
-import { RESUMES_FROM_CHECKPOINTS, enqueueJob, registerJobHandler, type EnqueueJobResult, type HandlerResult, type JobHandler } from "./asyncJobs";
 import { fencedTransaction } from "./jobFence";
 import { renderProgressByAttempt } from "./renderProgress";
 import { logger } from "./logger";
@@ -79,7 +77,6 @@ import { attemptImageEngineId, currentRenderRouting, type ImageEngineIds } from 
 import { switchedFallbackOf } from "./engineFallback";
 import { liveRecipeForEngine } from "./imagePrompt/recipeStore";
 
-export const REVIEW_RENDER_PREPARE_QUEUE = "review_render_scenarios_prepare";
 
 // ─── Canonical default render controls (must match enqueue + hash + grid) ────
 
@@ -381,20 +378,6 @@ export async function loadGagRenderTarget(
   };
 }
 
-/** A review and its staging fact, for the review-level entry point below. */
-async function loadReviewRow(reviewId: number) {
-  const [review] = await db
-    .select({
-      id: pendingReviewsTable.id,
-      workflowStage: pendingReviewsTable.workflowStage,
-      stagingFactId: pendingReviewsTable.stagingFactId,
-    })
-    .from(pendingReviewsTable)
-    .where(eq(pendingReviewsTable.id, reviewId))
-    .limit(1);
-  return review ?? null;
-}
-
 // ─── Drawing a gag's kinds ───────────────────────────────────────────────────
 
 /**
@@ -442,44 +425,6 @@ export async function drawGagKinds(
     logger.info({ gagId, reviewId: target.reviewId, kinds, count: enqueued.length, redraw: opts.redraw === true }, "[moderation] gag renders enqueued");
   }
   return { enqueued };
-}
-
-/**
- * The iteration render: one male render of the gag's current content, reused
- * when one exists. Every change to a gag's content and the Gags approval come
- * through here. Never throws: a failure is logged and the tile shows no render,
- * which the moderator can draw again; the save that triggered it stands.
- */
-export async function scheduleIterationRender(gagId: number, adminUserId: string, imageEngines?: ImageEngineIds): Promise<void> {
-  try {
-    const r = await drawGagKinds(gagId, [ITERATION_KIND], { adminUserId, imageEngines });
-    if ("error" in r) logger.info({ gagId, reason: r.error }, "[moderation] iteration render not drawn");
-  } catch (err) {
-    logger.error({ err, gagId }, "[moderation] iteration render failed to enqueue (the save stands)");
-  }
-}
-
-/**
- * What approving a review's Gags step draws: the iteration render of each
- * surviving gag with a new or changed content, and nothing for an unchanged
- * gag (grandfathered ones included). Existing renders are kept and reused.
- * Stage-guarded to Test Renders: a delayed job must not spend once the
- * review has left it.
- */
-export async function ensureReviewIterationRenders(
-  reviewId: number,
-  opts: { adminUserId?: string } = {},
-): Promise<{ scheduled: number }> {
-  const review = await loadReviewRow(reviewId);
-  if (!review || review.stagingFactId == null) return { scheduled: 0 };
-  if (review.workflowStage !== "test_renders") {
-    logger.info({ reviewId, stage: review.workflowStage }, "[moderation] iteration renders skipped (not at Test Renders)");
-    return { scheduled: 0 };
-  }
-  const gags = (await loadGags(review.stagingFactId)).filter((g) => g.pendingContent != null);
-  const imageEngines = await currentRenderRouting();
-  for (const gag of gags) await scheduleIterationRender(gag.id, opts.adminUserId ?? "system", imageEngines);
-  return { scheduled: gags.length };
 }
 
 // ─── A gag's tiles (derived, read-only) ──────────────────────────────────────
@@ -678,79 +623,4 @@ export async function getScenarioAttemptDiagnostics(
 async function currentFallbackRecipeFor(attempt: ImagePromptAttempt): Promise<number | null | undefined> {
   const fallback = switchedFallbackOf(attempt);
   return fallback ? (await liveRecipeForEngine(fallback.fallbackEngineId)).versionId : undefined;
-}
-
-// ─── Async job: prepare default renders on enrichment success ────────────────
-
-export const reviewRenderScenariosPrepareHandler: JobHandler = {
-  async run(payload: unknown): Promise<HandlerResult> {
-    const p = payload as { reviewId?: number; gagId?: number; factId?: number; scopeReviewId?: number | null; adminUserId?: string };
-    if (typeof p.gagId === "number") {
-      const adminUserId = typeof p.adminUserId === "string" && p.adminUserId ? p.adminUserId : "system";
-      // The save that queued this job was allowed from its scope (a review, or
-      // the Facts editor). The job runs seconds or minutes later: if that scope
-      // has ended since (a withdrawn or closed review, a review opened on a
-      // live fact), the render is no longer the moderator's ask and is skipped
-      // (Codex, PR #972 round 1); so is one whose review is on its Gags step
-      // (GAGS_STEP), where a save buys no render.
-      if (typeof p.factId === "number") {
-        try {
-          await assertCanRunGagRenders(p.factId, p.gagId, { adminId: adminUserId, reviewId: p.scopeReviewId ?? null });
-        } catch (err) {
-          if (!(err instanceof GagError)) throw err;
-          logger.info({ gagId: p.gagId, scopeReviewId: p.scopeReviewId ?? null, code: err.code }, "[moderation] iteration render skipped: its scope has ended or its review is on Gags");
-          return { ok: true, result: { gagId: p.gagId, skipped: err.code } };
-        }
-      }
-      await scheduleIterationRender(p.gagId, adminUserId);
-      return { ok: true, result: { gagId: p.gagId } };
-    }
-    if (typeof p.reviewId !== "number") {
-      return { ok: false, error: `${REVIEW_RENDER_PREPARE_QUEUE}: payload missing reviewId` };
-    }
-    try {
-      const { scheduled } = await ensureReviewIterationRenders(p.reviewId, {
-        ...(typeof p.adminUserId === "string" && p.adminUserId ? { adminUserId: p.adminUserId } : {}),
-      });
-      return { ok: true, result: { scheduled } };
-    } catch (err) {
-      return { ok: false, error: `${REVIEW_RENDER_PREPARE_QUEUE}: ${err instanceof Error ? err.message : String(err)}` };
-    }
-  },
-};
-
-export function registerReviewRenderScenarioHandlers(): void {
-  // Execution limit (Issue #1000): database work and one cached reference upload.
-  registerJobHandler(REVIEW_RENDER_PREPARE_QUEUE, reviewRenderScenariosPrepareHandler, { executionLimitMs: 10 * 60_000, ...RESUMES_FROM_CHECKPOINTS });
-}
-
-/**
- * Enqueue one gag's iteration render, after a change to its content (a save,
- * a new gag, an idea used as a gag, a discarded change). The save has already
- * committed; the draw is reused when this content already has its render.
- */
-export async function enqueueGagIterationRender(factId: number, gagId: number, actor: GagActor): Promise<void> {
-  try {
-    await enqueueJob({
-      queue: REVIEW_RENDER_PREPARE_QUEUE,
-      // The scope the save came from rides along, so the job can refuse once it has ended.
-      payload: { factId, gagId, scopeReviewId: actor.reviewId ?? null, adminUserId: actor.adminId },
-    });
-  } catch (err) {
-    logger.error({ err, gagId }, "[moderation] iteration render job failed to enqueue (the save stands)");
-  }
-}
-
-/**
- * Enqueue the job that draws a review's iteration renders after its Gags step
- * is approved (plan PLAN_GAG_EXAMPLES.md, section C). Keyless, so it cannot
- * coalesce onto an older job; the draws themselves are idempotent per content,
- * so a second job draws nothing new. The approving admin rides in the payload
- * so each render records who started it (image tracing).
- */
-export async function enqueueReviewIterationRenders(reviewId: number, adminUserId: string): Promise<EnqueueJobResult> {
-  return enqueueJob({
-    queue: REVIEW_RENDER_PREPARE_QUEUE,
-    payload: { reviewId, adminUserId },
-  });
 }

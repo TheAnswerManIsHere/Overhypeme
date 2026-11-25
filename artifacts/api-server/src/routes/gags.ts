@@ -46,7 +46,7 @@ import {
 import { buildFactGagsView } from "../lib/gags/gagView";
 import { CastPreparationError, prepareDraftCast } from "../lib/gags/castPreparation";
 import { createRateLimiter } from "../lib/rateLimit";
-import { drawGagKinds, enqueueGagIterationRender } from "../lib/reviewRenderScenarios";
+import { drawGagKinds } from "../lib/reviewRenderScenarios";
 import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
 import { logger } from "../lib/logger";
 
@@ -106,8 +106,8 @@ router.post("/admin/facts/:factId/gags", requireAdmin, async (req: Authenticated
   const reviewId = body.reviewId ?? null;
   await respond(res, p.factId, async () => {
     const gag = await createGag(p.factId, body.content, { adminId: req.user.id, reviewId }, body.slot);
+    // Draws nothing: every render is asked for (Issue #1282).
     await recordAdminAction({ factId: p.factId, reviewId }, req.user.id, "gag_create", { gagId: gag.id, content: body.content });
-    await enqueueGagIterationRender(p.factId, gag.id, { adminId: req.user.id, reviewId });
   });
 });
 
@@ -138,8 +138,9 @@ router.put("/admin/facts/:factId/gags/:gagId", requireAdmin, async (req: Authent
   const reviewId = body.reviewId ?? null;
   await respond(res, p.factId, async () => {
     await saveGagContent(p.factId, p.gagId, body.content, { adminId: req.user.id, reviewId });
+    // Stores the gag and draws nothing (Issue #1282); a changed content leaves
+    // the gag's earlier renders unusable for it (saveGagContent, approval, go-live).
     await recordAdminAction({ factId: p.factId, reviewId }, req.user.id, "gag_save", { gagId: p.gagId, content: body.content });
-    await enqueueGagIterationRender(p.factId, p.gagId, { adminId: req.user.id, reviewId });
   });
 });
 
@@ -167,8 +168,9 @@ router.post("/admin/facts/:factId/gags/:gagId/approve", requireAdmin, async (req
   });
 });
 
-// Run a gag's test renders: the default batch, or the named scenarios again.
-// Spends money, so only ever on this explicit request.
+// Run a gag's test renders: the kinds the admin named, drawn or drawn again.
+// Spends money, so only ever on this explicit request; it is the only way a
+// test render starts (Issue #1282, plan PLAN_RENDERS_MANUAL.md).
 router.post("/admin/facts/:factId/gags/:gagId/renders", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const p = ids(req);
   if (!p) { res.status(400).json({ error: "Invalid id" }); return; }

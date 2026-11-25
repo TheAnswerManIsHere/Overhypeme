@@ -8,8 +8,9 @@
  * (for a submission, by "Approve for production"), which needs every gag to
  * have an approved male, female and pet render. The Test Renders step shows
  * each gag as its three render windows and nothing else from the gag setup
- * (plan item 11): the male render is drawn on arrival, the female and pet
- * renders when asked. The Facts editor shows a live fact's gags read-only.
+ * (plan item 11): every render is drawn when the admin asks for it, and none
+ * starts by itself (Issue #1282, plan PLAN_RENDERS_MANUAL.md). The Facts editor
+ * shows a live fact's gags read-only.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2, Plus, Play, RefreshCw, Save, Trash2, Users } from "lucide-react";
@@ -35,13 +36,6 @@ import { castIsCurrent, gagApi, prepareGag, readCast, tokenizeGag, type GagResul
 
 const IN_FLIGHT = new Set(["queued", "rendering"]);
 const POLL_MS = 2000;
-/**
- * How long after an action (or opening at Test Renders) the panel keeps
- * reloading while a gag has no male render yet: the iteration render a save
- * asks for is created by a background job a few seconds later (Codex, PR #956
- * round 1).
- */
-const PREPARE_WINDOW_MS = 60_000;
 
 export function exampleWords(set: PerKind<GagExample | null>, verb = "approved"): string {
   const have = GAG_EXAMPLE_KINDS.filter((k) => set[k] != null);
@@ -64,13 +58,6 @@ export interface GagsPanelProps {
    * removing a gag (that is the Gags step's, through "Back to gags").
    */
   rendersEnabled: boolean;
-  /**
-   * The server queues iteration renders without being asked here (a review
-   * arriving at Test Renders): keep reloading for a short window after opening
-   * while a gag has no male render yet. Every save in the panel opens the same
-   * window on its own.
-   */
-  rendersExpected?: boolean;
   /** Names the tokenizer should recognise as the subject. */
   subjectNames: string[];
   /** The fact's effective character list — the speaker choices in every bubble editor here. */
@@ -116,7 +103,7 @@ export function GagsPanel(props: GagsPanelProps) {
 
 const NO_CHARACTERS: readonly FactCharacter[] = [];
 
-function GagsPanelBody({ factId, reviewId, rendersEnabled, rendersExpected = false, subjectNames, reloadKey = 0, onView, onUnsavedChange, disabled = false, startWithGag1 = false, awaitingIdeas = false }: GagsPanelProps) {
+function GagsPanelBody({ factId, reviewId, rendersEnabled, subjectNames, reloadKey = 0, onView, onUnsavedChange, disabled = false, startWithGag1 = false, awaitingIdeas = false }: GagsPanelProps) {
   const [view, setView] = useState<FactGagsView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   // A new gag's draft kept from before a reload opens the new-gag card again.
@@ -156,11 +143,6 @@ function GagsPanelBody({ factId, reviewId, rendersEnabled, rendersExpected = fal
     setView(v);
     onViewRef.current?.(v);
   }, [factId]);
-  /** A view an action answered with: its iteration render may still be on its way. */
-  const acceptAction = useCallback((v: FactGagsView) => {
-    accept(v);
-    setWindowKick((n) => n + 1);
-  }, [accept]);
 
   const load = useCallback(async () => {
     const r = await gagApi.load(factId);
@@ -169,30 +151,16 @@ function GagsPanelBody({ factId, reviewId, rendersEnabled, rendersExpected = fal
 
   useEffect(() => { if (factId > 0) void load(); }, [factId, reloadKey, load]);
 
-  // Poll while any test render is still drawing, and through a short window
-  // after opening at Test Renders or after any action here while a gag has no
-  // male render yet (its iteration render is queued by a background job).
-  const [windowKick, setWindowKick] = useState(0);
-  // A reload asked for from outside (an idea used on a gag elsewhere on the
-  // page) may have queued an iteration render too, so it opens the window as an
-  // action here does; the first load does not (Codex, PR #972 round 1).
-  const firstReloadKey = useRef(reloadKey);
-  const reloadedFromOutside = reloadKey !== firstReloadKey.current;
-  const [prepareWindowOpen, setPrepareWindowOpen] = useState(rendersExpected);
-  useEffect(() => {
-    if (!rendersExpected && windowKick === 0 && !reloadedFromOutside) { setPrepareWindowOpen(false); return; }
-    setPrepareWindowOpen(true);
-    const t = setTimeout(() => setPrepareWindowOpen(false), PREPARE_WINDOW_MS);
-    return () => clearTimeout(t);
-  }, [rendersExpected, factId, reloadKey, windowKick, reloadedFromOutside]);
+  // Poll while a test render someone asked for is still drawing, while ideas
+  // are being written, and while a fill is under way. Nothing draws by itself
+  // (Issue #1282), so there is no render to wait for that nobody asked for.
   const drawing = !!view?.gags.some((g) => GAG_EXAMPLE_KINDS.some((k) => IN_FLIGHT.has(g.renders[k]?.status ?? "")));
-  const awaitingMale = !!view?.gags.some((g) => g.renders.male == null || g.renders.male.status === "missing");
   // Ideas being written may fill the gags when they land; the view says while
   // a fill is under way (`filling`).
   // The view reads the fill's own job, so this ends when the job does,
   // however long a retry takes (async-ui-status.md: no UI deadline).
   const filling = !!view?.filling;
-  const poll = drawing || (prepareWindowOpen && awaitingMale) || awaitingIdeas || filling;
+  const poll = drawing || awaitingIdeas || filling;
   // Ideas just finished: one more load, so a fill they started is seen.
   const wasAwaiting = useRef(awaitingIdeas);
   useEffect(() => {
@@ -249,7 +217,7 @@ function GagsPanelBody({ factId, reviewId, rendersEnabled, rendersExpected = fal
           reviewId={reviewId}
           gag={g}
           readOnly={readOnly}
-          onView={acceptAction}
+          onView={accept}
         />
       ))}
 
@@ -261,7 +229,7 @@ function GagsPanelBody({ factId, reviewId, rendersEnabled, rendersExpected = fal
           gag={g}
           subjectNames={subjectNames}
           readOnly={readOnly}
-          onView={acceptAction}
+          onView={accept}
           reportUnsaved={reportUnsaved}
         />
       ))}
@@ -274,7 +242,7 @@ function GagsPanelBody({ factId, reviewId, rendersEnabled, rendersExpected = fal
           title={showGag1 ? "Visual gag 1" : "New visual gag"}
           cancellable={!showGag1}
           onCancel={() => { reportUnsaved("new", false); setAdding(false); }}
-          onView={(v) => { reportUnsaved("new", false); acceptAction(v); setAdding(false); }}
+          onView={(v) => { reportUnsaved("new", false); accept(v); setAdding(false); }}
           reportUnsaved={reportUnsaved}
         />
       )}
@@ -669,9 +637,10 @@ function GagCard({
 
 /**
  * A gag on the Test Renders step (plan PLAN_FACT_LIFECYCLE_REBUILD.md, item
- * 11): its three render windows and nothing else from the gag setup. The
- * male render is drawn on arrival (the review's prepare job); the female and
- * pet renders when asked, together or one at a time.
+ * 11): its three render windows and nothing else from the gag setup. Every
+ * render is drawn when asked (Issue #1282): each window on its own, or the
+ * female and pet renders together. A first male render is drawn from its
+ * own window.
  */
 function GagRendersCard({
   factId,

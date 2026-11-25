@@ -13,8 +13,9 @@
  *   - every slot follows the same rules;
  *   - any gag can be removed, the last one included; a published gag is only
  *     removed in the draft;
- *   - saving and adding enqueue one iteration render job each; removing
- *     enqueues nothing.
+ *   - nothing draws by itself: saving, adding and removing queue no job and
+ *     start no render; a render is drawn only when an admin asks for it,
+ *     male alone included (Issue #1282, plan PLAN_RENDERS_MANUAL.md).
  */
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -40,7 +41,7 @@ import { buildTestApp } from "./helpers/buildTestApp.js";
 import { availableGags, normaliseGagContent, primaryGag } from "../lib/gags/resolver.js";
 import { GagError, approveGagRender, gagContentEqual, removeGag } from "../lib/gags/gagStore.js";
 import { hasUnpublishedChanges, publishFactChanges } from "../lib/factLifecycle.js";
-import { loadGagRenderTarget, ensureReviewIterationRenders, reviewRenderStates } from "../lib/reviewRenderScenarios.js";
+import { loadGagRenderTarget, reviewRenderStates } from "../lib/reviewRenderScenarios.js";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -118,6 +119,8 @@ const examplesOf = async (gagId: number, stage: "approved" | "pending") =>
 const gagRow = async (gagId: number) => (await db.select().from(factGagsTable).where(eq(factGagsTable.id, gagId)))[0]!;
 const offeredScenes = async (factId: number) => (await availableGags(factId)).map((g) => g.content.coreSceneOverride);
 const jobsSinceStart = async () => (await db.select({ id: asyncJobsTable.id }).from(asyncJobsTable).where(gte(asyncJobsTable.createdAt, START))).length;
+/** Render attempts a fact has, across its gags: a render that started by itself would show here. */
+const attemptsFor = async (factId: number) => (await db.select({ id: imagePromptAttemptsTable.id }).from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.factId, factId))).length;
 const jobsForGag = async (gagId: number) => (await db.select({ payload: asyncJobsTable.payload }).from(asyncJobsTable).where(gte(asyncJobsTable.createdAt, START)))
   .filter((j) => (j.payload as { gagId?: number } | null)?.gagId === gagId).length;
 
@@ -143,9 +146,10 @@ after(async () => {
 });
 
 describe("gag routes: every write is to the draft, from a review", () => {
-  it("a saved change stays in the draft, enqueues its one iteration render, and the view says what the draft still needs", async () => {
+  it("a saved change stays in the draft, draws nothing, and the view says what the draft still needs", async () => {
     const { factId, gagId, reviewId } = await submission();
     const jobsBefore = await jobsForGag(gagId);
+    const attemptsBefore = await attemptsFor(factId);
     const res = await request(app).put(url(factId, `/${gagId}`)).send({ content: scene("{NAME} lifts the sun (change)."), reviewId });
     assert.equal(res.status, 200, JSON.stringify(res.body));
     const view = res.body.gags.find((g: { id: number }) => g.id === gagId);
@@ -154,7 +158,8 @@ describe("gag routes: every write is to the draft, from a review", () => {
     assert.equal(res.body.draftReady.ok, false);
     assert.match(res.body.draftReady.reason, /Visual gag 1 needs male, female and pet renders approved/);
     assert.equal((await gagRow(gagId)).approvedContent, null, "nothing is published");
-    assert.equal(await jobsForGag(gagId), jobsBefore + 1, "saving enqueues one iteration render job");
+    assert.equal(await jobsForGag(gagId), jobsBefore, "saving queues no render job (Issue #1282)");
+    assert.equal(await attemptsFor(factId), attemptsBefore, "saving starts no render");
   });
 
   // Plan 3B and the Testing Plan's journey "edit a live fact's gag →
@@ -168,7 +173,8 @@ describe("gag routes: every write is to the draft, from a review", () => {
     const saved = await request(app).put(url(factId, `/${gagId}`)).send({ content: B });
     assert.equal(saved.status, 200, JSON.stringify(saved.body));
     assert.deepEqual(await offeredScenes(factId), [A.coreSceneOverride], "a save changes nothing members see");
-    assert.equal(await jobsForGag(gagId) >= 1, true, "the save queues its male render, as on any fact outside moderation");
+    assert.equal(await jobsForGag(gagId), 0, "the save queues no render: every render is asked for (Issue #1282)");
+    assert.equal(await attemptsFor(factId), 0, "the save starts no render");
 
     const added = await request(app).post(url(factId)).send({ content: C });
     assert.equal(added.status, 200, JSON.stringify(added.body));
@@ -449,25 +455,31 @@ describe("gag routes: while a review is open, gags change only inside it", () =>
     assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: change, reviewId })).status, 200);
   });
 
-  it("advancing to Test Renders draws each gag's male render once: none for a gag whose current content has one (plan PLAN_GAG_EXAMPLES.md)", async () => {
+  // Issue #1282: no render starts by itself at Test Renders either; the
+  // one way a render starts is the admin asking for it, male alone included.
+  it("at Test Renders, adding and saving a gag draw nothing, and a render starts only when asked for, male alone included", async () => {
     const { factId, gagId, reviewId } = await submission("test_renders");
-    await render(factId, gagId, A);
+    const jobsBefore = await jobsSinceStart();
     const added = await request(app).post(url(factId)).send({ content: scene("{NAME} a second gag."), reviewId });
+    assert.equal(added.status, 200, JSON.stringify(added.body));
     const secondId = added.body.gags.find((g: { slot: number }) => g.slot === 2).id as number;
-    // The add enqueued its own iteration job; that job has not run, so the gag has no render yet.
-    const count = async (gid: number) => (await db.select({ id: imagePromptAttemptsTable.id }).from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.gagId, gid))).length;
-    const before = { first: await count(gagId), second: await count(secondId) };
+    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: scene("{NAME} the first gag, changed."), reviewId })).status, 200);
+    assert.equal(await attemptsFor(factId), 0, "adding and saving start no render");
+    assert.equal(await jobsSinceStart(), jobsBefore, "and queue no job");
 
     // No vendor call: the i2i reference upload is stubbed, as the render tests do.
     __setReferenceFalUploadForTest(async () => "https://fal.test/ref.jpg");
     try {
-      await ensureReviewIterationRenders(reviewId, { adminUserId: adminId });
-      await ensureReviewIterationRenders(reviewId, { adminUserId: adminId });
+      const drawn = await request(app).post(url(factId, `/${secondId}/renders`)).send({ kinds: ["male"], reviewId });
+      assert.equal(drawn.status, 200, JSON.stringify(drawn.body));
     } finally {
       __setReferenceFalUploadForTest(null);
     }
-    assert.equal(await count(gagId), before.first, "a gag whose content already has its male render gets none");
-    assert.equal(await count(secondId), before.second + 1, "the other gag gets one male render, once");
+    const attempts = await db.select({ gagId: imagePromptAttemptsTable.gagId, key: imagePromptAttemptsTable.reviewRenderScenarioKey, controls: imagePromptAttemptsTable.renderControls })
+      .from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.factId, factId));
+    assert.deepEqual(attempts.map(({ gagId, key }) => ({ gagId, key })), [{ gagId: secondId, key: "i2i_male_default" }], "exactly the male render asked for, on the gag it was asked for");
+    // Image tracing: the render names the admin who asked for it, never "system" (moved here from imageProvenance.test.ts).
+    assert.equal((attempts[0]!.controls as { reviewAudit?: { adminUserId?: string } }).reviewAudit?.adminUserId, adminId);
   });
 
   it("the list's render state counts each gag that is not removed: one finishing never hides another (Codex, PR #956 round 2)", async () => {

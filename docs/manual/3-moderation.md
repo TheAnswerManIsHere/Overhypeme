@@ -45,8 +45,7 @@ The review opens as a three-step wizard:
    the paid **[moderation prep](../ai-context/glossary.md#moderation-prep)** — [enrichment](../ai-context/glossary.md#enrichment) and visual-idea
    drafting, with no renders yet — is allowed to begin; before it,
    none of that moderation spend has happened. Test renders are a separate,
-   later spend: one male render each time a gag is saved, and the rest only at
-   the moderator's ask. (Cheap pre-submit
+   later spend, and only ever at the moderator's ask: nothing draws by itself. (Cheap pre-submit
    affordances the [submitter](../ai-context/glossary.md#submitter) already used — tokenizing the fact, suggesting
    pronouns, duplicate-checking — do touch utility LLMs and embeddings; what
    Triage gates is the expensive moderation pipeline, not every LLM call ever
@@ -57,9 +56,9 @@ The review opens as a three-step wizard:
    "describe the picture" scene that is the authoritative description of how the
    gag works visually. They can accept one of several AI-drafted idea cards, edit
    one, or write their own, then **"approve the [visual gag](../ai-context/glossary.md#visual-gag)."** Spend here is
-   deliberately small: each saved gag gets one male test render to judge it
-   by, reused while its content stays the same, and nothing more is drawn until
-   the moderator asks.
+   deliberately small: saving a gag stores it and draws nothing, so the
+   moderator can keep changing the scene and its bubbles before paying for a
+   picture.
 
    Writing the concept (and the rest of the [Visual Strategy Override](../ai-context/glossary.md#visual-strategy-override), in
    Advanced Options) is plain-English authoring — naming the subject naturally
@@ -67,9 +66,11 @@ The review opens as a three-step wizard:
    personalized version before it persists, so the same scene works correctly
    no matter who the fact ends up rendered for.
 
-3. **Test Renders.** Each new or changed gag arrives with its male render. The
-   moderator iterates on each gag until it works, then draws its **female and
-   pet** renders, approves all three as the gag's **examples**, and finally
+3. **Test Renders.** Each gag arrives with its three render windows, and none
+   is drawn until the moderator asks: each window has its own "Draw this
+   render", and "Render female and pet" draws those two together. The
+   moderator draws the male render first and iterates until the gag works,
+   then draws its **female and pet** renders, approves all three as the gag's **examples**, and finally
    **approves for production** (which publishes the fact), which needs every
    offered gag to have its three. From here they can also **send the fact back
    to Visual Concept** if the gag itself needs rethinking
@@ -115,8 +116,8 @@ A submission becomes a row in a review table with a coarse status
 the three gates. Provisional approval creates an **inactive "[staging fact](../ai-context/glossary.md#staging-fact)"** — a
 real catalogue row that isn't published yet — and all the paid prep (AI
 classification) runs against *that*, with no renders yet;
-test renders are a separate, later spend, one male render per saved gag
-version and the rest on the moderator's ask. The live catalogue is never touched by in-progress work.
+test renders are a separate, later spend, each one drawn only when the
+moderator asks for it. The live catalogue is never touched by in-progress work.
 Approving for production simply flips the staging fact to live.
 
 Renders are **matched to their input**: a gag whose content has not changed
@@ -257,10 +258,13 @@ or by anyone downstream, as if it did.
   *the* description of how a gag works as a picture — so it now deserves a human
   eval on every fact, and the full set of renders shouldn't be drawn until that
   eval passes. That's why the flow was split into an explicit **Visual Concept**
-  gate before **Test Renders**; since 2026-11-15 the gate itself draws one male
-  render per saved gag version, so the moderator judges each gag by a picture.
+  gate before **Test Renders**. From 2026-11-15 to 2026-11-25 a save or the
+  Gags approval drew one male render by itself; since 2026-11-25 every render is
+  drawn when the moderator asks, because a render drawn by itself paid for a
+  version that was still changing.
   → [Visual Concept is a mandatory human gate before any render spend](../ai-context/decisions.md#2026-07--visual-concept-is-a-mandatory-human-gate-before-any-render-spend-three-step-moderation),
-  [amended 2026-11-15](../ai-context/decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)
+  [amended 2026-11-15](../ai-context/decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates),
+  [and 2026-11-25](../ai-context/decisions.md#2026-11-25--every-render-is-drawn-on-request-nothing-draws-by-itself)
 
 - **The *saved* concept is the contract, not the AI's suggestions.** Approval
   checks the persisted scene, never an unsaved draft or the AI candidate cards —
@@ -288,10 +292,11 @@ or by anyone downstream, as if it did.
 
 ## Boundaries & known limitations
 
-- **Renders start small.** Saving a gag, or approving the Gags step, draws one
-  male render of each new or changed gag and nothing else, so iterating on a gag
-  costs one picture per try; its female and pet renders are drawn only when the
-  moderator asks, once the gag works. A render is matched to its input, so a
+- **Nothing draws by itself.** Saving a gag, or approving the Gags step, draws
+  nothing; every render, male included, is drawn when the moderator asks, on
+  the moderation screen and the fact sheet alike. Iterating on a gag costs only
+  the pictures the moderator chooses to draw, and its female and pet renders
+  are usually drawn once the gag works. A render is matched to its input, so a
   gag returned to earlier content shows that content's render again rather
   than drawing a new one.
 - **Every offered gag carries three examples.** A gag reaches users only with

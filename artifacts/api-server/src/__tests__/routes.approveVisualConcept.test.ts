@@ -4,11 +4,11 @@
  *   POST /admin/reviews/:id/back-to-visual-concept
  *
  * Covers the gag gate's distinct 409 codes, the stale-but-saved allowance, the
- * atomic compare-and-set (concurrent approvals → exactly one iteration-render
- * job), and the Step-3 → Step-2 bounce. Renders are only ENQUEUED (no worker in
- * tests), so we assert on the `review_render_scenarios_prepare` job row rather
- * than finished images. Since plan PLAN_GAG_EXAMPLES.md the job draws only new
- * or changed gags' male renders, and existing renders are kept for reuse. Seeds under the `t_avc_` user prefix.
+ * atomic compare-and-set (concurrent approvals → exactly one advances), and the
+ * Step-3 → Step-2 bounce, which keeps existing renders for reuse. Arriving at
+ * Test Renders draws nothing (Issue #1282, plan PLAN_RENDERS_MANUAL.md): no
+ * render attempt is created and no job queued, so every render there is one an
+ * admin asks for. Seeds under the `t_avc_` user prefix.
  */
 
 import { describe, it, before, after } from "node:test";
@@ -33,7 +33,6 @@ import { createSession, type SessionData } from "../lib/auth.js";
 
 const USER_PREFIX = "t_avc_";
 const TEST_FILE_START = new Date();
-const PREPARE_QUEUE = "review_render_scenarios_prepare";
 
 /** A valid enrichment carrying a saved, enabled, non-empty Visual Concept. */
 function enrichmentWithConcept(coreScene: string | null): FactEnrichment {
@@ -175,14 +174,15 @@ async function seedReviewRenderAttempt(reviewId: number, factId: number): Promis
   return attempt!.id;
 }
 
-async function prepareJobsFor(reviewId: number): Promise<{ id: number; dedupeKey: string | null }[]> {
-  const rows = await db
-    .select({ id: asyncJobsTable.id, dedupeKey: asyncJobsTable.dedupeKey, payload: asyncJobsTable.payload })
-    .from(asyncJobsTable)
-    .where(and(eq(asyncJobsTable.queue, PREPARE_QUEUE), gte(asyncJobsTable.createdAt, TEST_FILE_START)));
-  return rows
-    .filter((r) => (r.payload as { reviewId?: number })?.reviewId === reviewId)
-    .map((r) => ({ id: r.id, dedupeKey: r.dedupeKey }));
+/** Render attempts on a fact: a render that started by itself would show here. */
+async function attemptsOn(factId: number): Promise<number> {
+  return (await db.select({ id: imagePromptAttemptsTable.id }).from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.factId, factId))).length;
+}
+
+/** Jobs queued since this file started whose payload names the review (any queue). */
+async function jobsNaming(reviewId: number): Promise<string[]> {
+  const rows = await db.select({ queue: asyncJobsTable.queue, payload: asyncJobsTable.payload }).from(asyncJobsTable).where(gte(asyncJobsTable.createdAt, TEST_FILE_START));
+  return rows.filter((r) => (r.payload as { reviewId?: number } | null)?.reviewId === reviewId).map((r) => r.queue);
 }
 
 let adminId: string;
@@ -210,9 +210,6 @@ before(async () => {
 
 after(async () => {
   await cleanup();
-  await db
-    .delete(asyncJobsTable)
-    .where(and(eq(asyncJobsTable.queue, PREPARE_QUEUE), gte(asyncJobsTable.createdAt, TEST_FILE_START)));
 });
 
 describe("POST /admin/reviews/:id/approve-visual-concept — preconditions", () => {
@@ -266,18 +263,19 @@ describe("POST /admin/reviews/:id/approve-visual-concept — preconditions", () 
 });
 
 describe("POST /admin/reviews/:id/approve-visual-concept — happy path + concurrency", () => {
-  it("advances to Test Renders and enqueues one iteration-render job", async () => {
-    const { reviewId } = await seedReview({ submittedById: adminId, stage: "gags", visualConceptStatus: "ok" });
+  it("advances to Test Renders and draws nothing: no render, no job (Issue #1282)", async () => {
+    const { reviewId, stagingFactId } = await seedReview({ submittedById: adminId, stage: "gags", visualConceptStatus: "ok" });
+    assert.ok(stagingFactId);
     const res = await request(makeApp()).post(`/admin/reviews/${reviewId}/approve-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({});
     assert.equal(res.status, 200, JSON.stringify(res.body));
     assert.equal(res.body.workflowStage, "test_renders");
-    assert.equal(typeof res.body.renderPrepareJobId, "number");
+    assert.equal("renderPrepareJobId" in res.body, false, "no render job to report");
 
     const [row] = await db.select({ stage: pendingReviewsTable.workflowStage }).from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
     assert.equal(row!.stage, "test_renders");
 
-    const jobs = await prepareJobsFor(reviewId);
-    assert.equal(jobs.length, 1, "exactly one iteration-render job");
+    assert.equal(await attemptsOn(stagingFactId), 0, "arriving at Test Renders starts no render");
+    assert.deepEqual(await jobsNaming(reviewId), [], "and queues no job");
   });
 
   it("stale-but-saved concept still advances (visualConcepts.current false is allowed)", async () => {
@@ -332,8 +330,9 @@ describe("POST /admin/reviews/:id/approve-visual-concept — happy path + concur
     }
   });
 
-  it("two concurrent approvals → exactly one advances, one 409s, exactly one iteration-render job", async () => {
-    const { reviewId } = await seedReview({ submittedById: adminId, stage: "gags", visualConceptStatus: "ok" });
+  it("two concurrent approvals → exactly one advances, one 409s, and neither draws", async () => {
+    const { reviewId, stagingFactId } = await seedReview({ submittedById: adminId, stage: "gags", visualConceptStatus: "ok" });
+    assert.ok(stagingFactId);
     const [a, b] = await Promise.all([
       request(makeApp()).post(`/admin/reviews/${reviewId}/approve-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({}),
       request(makeApp()).post(`/admin/reviews/${reviewId}/approve-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({}),
@@ -343,8 +342,7 @@ describe("POST /admin/reviews/:id/approve-visual-concept — happy path + concur
     const loser = a.status === 409 ? a : b;
     assert.equal(loser.body.code, "REVIEW_MOVED");
 
-    const jobs = await prepareJobsFor(reviewId);
-    assert.equal(jobs.length, 1, "exactly one iteration-render job despite two approvals");
+    assert.equal(await attemptsOn(stagingFactId), 0, "neither approval starts a render");
   });
 });
 
@@ -361,7 +359,7 @@ describe("POST /admin/reviews/:id/back-to-visual-concept", () => {
     assert.equal(res.status, 409);
   });
 
-  it("bounces Test Renders → Gags; re-approval keeps prior renders for reuse and enqueues the iteration job", async () => {
+  it("bounces Test Renders → Gags; re-approval keeps prior renders for reuse and draws nothing new", async () => {
     const { reviewId, stagingFactId } = await seedReview({ submittedById: adminId, stage: "test_renders", visualConceptStatus: "ok" });
     assert.ok(stagingFactId);
     const priorAttemptId = await seedReviewRenderAttempt(reviewId, stagingFactId);
@@ -379,7 +377,6 @@ describe("POST /admin/reviews/:id/back-to-visual-concept", () => {
       .where(eq(imagePromptAttemptsTable.id, priorAttemptId));
     assert.equal(priorAttempt!.reviewId, reviewId, "an existing render stays on the review, so an unchanged gag reuses it");
 
-    const jobs = await prepareJobsFor(reviewId);
-    assert.ok(jobs.length >= 1, "re-approval scheduled the iteration-render job");
+    assert.equal(await attemptsOn(stagingFactId), 1, "re-approval starts no render: only the prior one is there");
   });
 });

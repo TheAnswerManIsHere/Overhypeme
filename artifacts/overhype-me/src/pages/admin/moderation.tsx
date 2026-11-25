@@ -863,8 +863,8 @@ function ReviewModal({
 
               {/* Each gag as its three render windows and nothing else from
                   the gag setup (plan PLAN_FACT_LIFECYCLE_REBUILD.md, item 11):
-                  the male render is drawn on arrival, female and pet on
-                  request; approving all three makes them that gag's examples.
+                  every render is drawn on request, none on arrival (Issue
+                  #1282); approving all three makes them that gag's examples.
                   A gag is changed on the Gags step, through "Back to gags". */}
               {stagingFactId > 0 && (
                 <GagsPanel
@@ -872,7 +872,6 @@ function ReviewModal({
                   characters={classification?.characters}
                   reviewId={review.id}
                   rendersEnabled
-                  rendersExpected
                   subjectNames={SUBJECT_NAMES}
                   reloadKey={gagsReloadKey}
                   onView={setGagsView}
