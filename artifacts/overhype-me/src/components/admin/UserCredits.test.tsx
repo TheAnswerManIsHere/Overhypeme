@@ -9,8 +9,8 @@ import { UserCredits } from "./UserCredits";
 afterEach(() => vi.unstubAllGlobals());
 
 const ENTRIES = [
-  { id: 2, kind: "admin_grant", credits: 3, lotId: null, note: "Support goodwill", actorLabel: "Admin Tester", createdAt: "2026-11-25T10:00:00.000Z" },
-  { id: 1, kind: "free_grant", credits: 1, lotId: null, note: null, actorLabel: null, createdAt: "2026-11-24T10:00:00.000Z" },
+  { id: 2, kind: "admin_grant", credits: 3, note: "Support goodwill", actorLabel: "Admin Tester", createdAt: "2026-11-25T10:00:00.000Z" },
+  { id: 1, kind: "free_grant", credits: 1, note: null, actorLabel: null, createdAt: "2026-11-24T10:00:00.000Z" },
 ];
 
 function stub(postResponses: Array<{ status: number; body: unknown }>) {

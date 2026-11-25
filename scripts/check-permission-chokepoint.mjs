@@ -111,6 +111,14 @@ const ALLOWLIST = [
     pattern: /^ {2}"tier_feature_permissions",$/,
     reason: "The same fixture copy: the loader upserts the grid's rows as configuration. Permanent, as above.",
   },
+  {
+    file: "artifacts/api-server/src/lib/retirementLosses.ts",
+    pattern: /^ {2}return table === "tier_feature_permissions" && feature !== undefined && RETIRED_FEATURE_KEYS\.includes\(feature\);$/,
+    reason:
+      "The upgrade rehearsal (Issue #1302) recognises a stored grid row a migration retired (0163's " +
+      "custom_avatar) by the name its settings comparison gives it. It reads no row and resolves no " +
+      "permission, and runs only in the hand-run rehearsal. Permanent while 0163 is declared.",
+  },
 ];
 
 // Grid tables. Reading these outside the chokepoint reintroduces the second

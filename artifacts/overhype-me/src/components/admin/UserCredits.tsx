@@ -12,7 +12,6 @@ export interface CreditEntry {
   id: number;
   kind: string;
   credits: number;
-  lotId: number | null;
   note: string | null;
   actorLabel: string | null;
   createdAt: string;

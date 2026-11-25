@@ -59,12 +59,12 @@ import {
   RETIRED_TABLES,
   aiMemeBackfillDropLosses,
   reviewRenderPrepareDropLosses,
+  isIntendedSettingChange,
   isRetiredSettingValue,
   mergeLosses,
-  refreshRetirementLosses,
   retiredSettingLosses,
+  rowRetirementLosses,
   taxonomyDropLosses,
-  variantRetirementLosses,
 } from "../src/lib/retirementLosses.js";
 
 function arg(name: string): string | undefined {
@@ -132,8 +132,8 @@ async function main(): Promise<void> {
     // jobs 0160, 0169 and 0171 delete. The tables 0160, 0167 and 0170 drop whole are
     // RETIRED_TABLES.
     const intended = mergeLosses(
-      await variantRetirementLosses(db),
-      await refreshRetirementLosses(db),
+      // 0142, 0145 and 0151 through one counter, so no row is counted twice (Issue #1302).
+      await rowRetirementLosses(db),
       await retiredSettingLosses(db),
       await taxonomyDropLosses(db),
       await aiMemeBackfillDropLosses(db),
@@ -186,6 +186,7 @@ async function main(): Promise<void> {
         if (settingsAfter.has(key)) failures.push(`setting: ${key} was retired but is still present`);
         continue;
       }
+      if (isIntendedSettingChange(key, value, settingsAfter.get(key))) continue;
       if (settingsAfter.get(key) !== value) failures.push(`setting: ${key} was ${value}, now ${settingsAfter.get(key) ?? "absent"}`);
     }
     failures.push(...(await orphans(after)).map((o) => `relationship: ${o}`));
