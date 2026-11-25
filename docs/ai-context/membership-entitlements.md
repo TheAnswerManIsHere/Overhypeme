@@ -276,6 +276,20 @@ source itself (`livemode`, #454; *Known, accepted gaps* item 2 below).
 
 ## The app database is read before the Stripe mirror
 
+**One shape the mirror does not take: a preview invoice** (Issue #1244, Q40: 1,
+2026-11-24). Stripe's `invoice.upcoming` (the renewal reminder) carries an
+invoice with **no id**. The library would upsert it into `stripe.invoices`,
+whose primary key is generated from `_raw_data->>'id'`, and fail on the null
+key (measured on the test database: Postgres 23502). Because the library
+mirrors inside `processWebhook`, before the app sees the event, every renewal
+reminder used to be rejected, retried by Stripe for three days, never sent, and
+counted by the payment alert. `stripeSyncAdaptations.ts` skips the mirror for
+exactly that shape, at the one place sync instances are built
+(`stripeClient.ts` `buildStripeSync`); signature verification stays in the
+library, and every other event, including id-less entitlement summaries whose
+handler mirrors nested rows, keeps the library's processing. A library upgrade
+that changes its handler map is caught by `stripeSyncAdaptations.test.ts`.
+
 The sync library maintains `stripe.*` tables (e.g. `stripe.subscriptions`).
 These are a **mirror the webhook writes**, not live Stripe data, and they lag:
 on the case behind PR #600 a new subscription's mirror row appeared **eleven

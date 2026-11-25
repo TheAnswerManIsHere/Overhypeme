@@ -135,8 +135,11 @@ describe("AI settings are set in code and have no admin surface", () => {
     assert.equal(provenance.status, 404);
   });
 
+  // The enrichment prompt's hash moved once since: its hashtag rules were cut
+  // (David, 2026-11-24 — hashtags are generated once, on the submit form).
   it("holds the wording David chose (2026-10-29): the code's enrichment prompt, the tuned reference-research prompt with web_search", () => {
-    assert.equal(md5(FACT_ENRICHMENT_SYSTEM_DEFAULT), "2db85bd52c00f4c009db8b8fb204dcea");
+    assert.equal(md5(FACT_ENRICHMENT_SYSTEM_DEFAULT), "263e526ce49d23adfa6c7fac09728189");
+    assert.doesNotMatch(FACT_ENRICHMENT_SYSTEM_DEFAULT, /suggestedHashtags|Hashtag rules/);
     assert.equal(md5(REFERENCE_RESEARCH_SYSTEM_DEFAULT), "79b131309730218b6b1899ba2f6ea3c4");
     assert.doesNotMatch(REFERENCE_RESEARCH_SYSTEM_DEFAULT, /web_search_preview/);
     assert.match(REFERENCE_RESEARCH_SYSTEM_DEFAULT, /capture the JOKE MECHANISM/);

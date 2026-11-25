@@ -260,7 +260,7 @@ function OverviewTab({ fact, hashtags }: { fact: FactSheetView; hashtags: Hashta
 
       <Group title="Hashtags" testId="sheet-group-hashtags">
         <div className="space-y-2">
-          <FinalHashtagsEditor finalHashtags={hashtags.tags} onFinalHashtagsChange={hashtags.change} aiSuggestions={fact.suggestedHashtags} context="live" />
+          <FinalHashtagsEditor finalHashtags={hashtags.tags} onFinalHashtagsChange={hashtags.change} context="live" />
           <div className="min-h-4" data-testid="sheet-hashtags-status"><SaveStatus state={hashtags.state} /></div>
         </div>
       </Group>

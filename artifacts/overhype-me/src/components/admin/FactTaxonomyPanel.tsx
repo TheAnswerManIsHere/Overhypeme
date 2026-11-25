@@ -60,9 +60,6 @@ function TaxonomySummary({ e }: { e: FactEnrichment }) {
       {(e.modifiers ?? []).length > 0 && (
         <p className="text-xs text-muted-foreground">Modifiers: <span className="text-foreground">{e.modifiers.join(", ")}</span></p>
       )}
-      {(e.suggestedHashtags ?? []).length > 0 && (
-        <p className="text-xs text-muted-foreground">Suggested hashtags: <span className="text-foreground">{e.suggestedHashtags.join(", ")}</span></p>
-      )}
       {(e.characters ?? []).length > 0 && (
         <p className="text-xs text-muted-foreground">Characters: <span className="text-foreground">{(e.characters ?? []).map((c) => c.label).join(", ")}</span></p>
       )}

@@ -11,8 +11,7 @@
  * Uses **OpenAI Structured Outputs** (`response_format: json_schema`) backed
  * by `factEnrichmentWireSchema` so the model is forced to emit the full shape
  * (including `culturalReferences`). The parsed result is then run through our
- * `validateEnrichment` for business-rule validation (subtype ∈ archetype,
- * hashtag normalization). One corrective retry on validation failure before
+ * `validateEnrichment` for business-rule validation (subtype ∈ archetype). One corrective retry on validation failure before
  * the enrichment is marked failed — submission is never blocked.
  */
 
@@ -43,10 +42,6 @@ import { logger } from "./logger";
 import { stripGag } from "./gags/resolver";
 import { stripSubjectNameSemanticEntities } from "./renderCanonical";
 import { attachCharacters, extractFactCharacters, type PriorCharacters } from "./factCharacters";
-// The subject/app-name hashtag denylist now lives in the shared hashtag module
-// (it is a general hashtag concern, not enrichment-only). Re-exported below so
-// existing `import { stripDeniedHashtags } from "./factEnrichment"` keeps working.
-import { stripDeniedHashtags } from "./hashtags";
 
 export class EnrichmentError extends Error {
   constructor(message: string) {
@@ -68,25 +63,6 @@ export interface EnrichInput {
 
 type UserMessage = { role: "user"; content: string };
 
-// The subject/app-name hashtag denylist + `stripDeniedHashtags` moved to
-// `./hashtags` (shared by enrichment, the submit-time suggester, and approval).
-// Re-export so existing importers of it from this module are unaffected.
-export { stripDeniedHashtags } from "./hashtags";
-
-/**
- * Apply the hashtag denylist to a freshly-parsed (pre-validation) enrichment
- * blob so the stripped tags never count toward the schema's min-3 check. If
- * stripping leaves fewer than 3, validation fails on suggestedHashtags and the
- * existing corrective-retry loop re-asks the model — exactly the "run the LLM
- * again" path we want when a fact's only ideas were the subject/app name.
- */
-function filterParsedHashtags(parsed: unknown): unknown {
-  if (!parsed || typeof parsed !== "object") return parsed;
-  const obj = parsed as Record<string, unknown>;
-  if (!Array.isArray(obj.suggestedHashtags)) return parsed;
-  return { ...obj, suggestedHashtags: stripDeniedHashtags(obj.suggestedHashtags as unknown[] as string[]) };
-}
-
 // ─── Prompt assembly ────────────────────────────────────────────────────────
 
 export function buildEnrichmentUserMessage(input: EnrichInput): string {
@@ -106,21 +82,14 @@ export function buildEnrichmentUserMessage(input: EnrichInput): string {
   ].join("\n");
 }
 
-// Both correctives carry the hashtag exclusion reminder. A first response can
-// fail with BOTH an invalid subtype AND denied tags that, once stripped, leave
-// fewer than 3 — and subtypeMismatch wins the corrective selection. If the
-// subtype message said nothing about hashtags, the single retry could fix the
-// subtype but keep too few tags and still fail. Reminding in both paths lets the
-// one retry recover the full blob.
-const HASHTAG_CORRECTIVE_REMINDER =
-  `For hashtags: never use the subject's name ("alex", "alex's") or the app name ("overhype"/"overhypeme") — those are removed automatically, so always provide 3-8 genuine discovery tags that are neither.`;
-
+// Enrichment generates no hashtags: they are generated once, by the submit
+// form's suggester where the submitter reviews them (David, 2026-11-24).
 function buildSubtypeCorrective(archetype: string, subtype: string): string {
-  return `The previous response failed validation because subtype "${subtype}" is not valid for primaryArchetype "${archetype}". Reclassify the fact using only valid subtypes for that primary archetype. Return the full JSON object again. ${HASHTAG_CORRECTIVE_REMINDER}`;
+  return `The previous response failed validation because subtype "${subtype}" is not valid for primaryArchetype "${archetype}". Reclassify the fact using only valid subtypes for that primary archetype. Return the full JSON object again.`;
 }
 
 function buildGenericCorrective(error: string): string {
-  return `The previous response failed validation: ${error}. Return the full JSON object again with every required field, using only the allowed enum values, 3-8 lowercase alphanumeric hashtags, and taxonomyConfidence between 0 and 1. ${HASHTAG_CORRECTIVE_REMINDER}`;
+  return `The previous response failed validation: ${error}. Return the full JSON object again with every required field, using only the allowed enum values and taxonomyConfidence between 0 and 1.`;
 }
 
 function safeJsonParse(raw: string): unknown {
@@ -261,10 +230,7 @@ export async function enrichFactWithModel(
   const firstUser: UserMessage = { role: "user", content: buildEnrichmentUserMessage(input) };
 
   let raw = await callModel([firstUser]);
-  // Strip denied (subject/app name) hashtags BEFORE validation so they can't
-  // satisfy the min-3 count: if removing them drops the list below 3, validation
-  // fails and the corrective retry re-asks the model for real discovery tags.
-  let parsed = filterParsedHashtags(safeJsonParse(raw));
+  let parsed = safeJsonParse(raw);
   let result = validateEnrichment(parsed);
 
   if (!result.ok) {
@@ -275,7 +241,7 @@ export async function enrichFactWithModel(
       ? buildSubtypeCorrective(archetype, subtype)
       : buildGenericCorrective(result.error);
     raw = await callModel([firstUser, { role: "user", content: corrective }]);
-    parsed = filterParsedHashtags(safeJsonParse(raw));
+    parsed = safeJsonParse(raw);
     result = validateEnrichment(parsed);
   }
 

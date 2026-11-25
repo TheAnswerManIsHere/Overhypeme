@@ -1,6 +1,6 @@
 /**
  * Shared hashtag persistence helpers — the ONE place server-side code turns raw
- * tag strings (from AI suggestions, submitter input, or enrichment fallback)
+ * tag strings (from the submit form's AI suggestions, submitter or moderator input)
  * into the normalized, denylist-filtered, deduped, capped list that gets written
  * to the hashtags table.
  *
@@ -39,11 +39,6 @@ const SERVER_DENIED_HASHTAGS: ReadonlySet<string> = new Set<string>([
   ...CANONICAL_SUBJECT_NAMES.map((n) => normalizeHashtag(possessive(n))),
 ].filter((t) => t.length > 0));
 
-/** Drop denied (subject / app / generic-humor) tags, matched on normalized form. */
-export function stripDeniedHashtags(tags: readonly string[]): string[] {
-  return tags.filter((t) => typeof t === "string" && !SERVER_DENIED_HASHTAGS.has(normalizeHashtag(t)));
-}
-
 // Re-export the shared client-facing predicate so callers importing from this
 // server module get the same check the UI uses.
 export { isDeniedHashtag };
@@ -60,8 +55,7 @@ export const SUGGEST_HASHTAGS_LIMIT = 6;
  * drop empty → strip denied → dedupe (first-seen order) → cap at `limit`.
  *
  * `limit` is REQUIRED (no hidden default) so each call site owns its business
- * limit explicitly — suggestions (6), submitter input (10), enrichment fallback
- * (8). Accepts `unknown[]` and defends against non-string members so it can be
+ * limit explicitly — suggestions (6), submitter and moderator input (10). Accepts `unknown[]` and defends against non-string members so it can be
  * pointed at raw request bodies / parsed model JSON without a pre-cast.
  */
 export function sanitizeHashtagsForPersistence(
@@ -84,40 +78,23 @@ export function sanitizeHashtagsForPersistence(
 }
 
 /**
- * Approval-time precedence: the submitter's valid tags are the source of truth;
- * the enrichment-suggested tags are the fallback used ONLY when the submitter
- * left no valid tags (so a fact is never left untagged). Both candidate sources
- * are sanitized FIRST, then chosen by sanitized length — a submission of only
- * denied/invalid tags (e.g. `["alex","overhype"]`) sanitizes to empty and
- * correctly falls through to the enrichment tags rather than producing zero tags.
- */
-export function resolveTagsForApproval(
-  reviewHashtags: readonly unknown[] | null | undefined,
-  enrichmentHashtags: readonly unknown[] | null | undefined,
-): string[] {
-  const submitted = sanitizeHashtagsForPersistence(reviewHashtags ?? [], { limit: 10 });
-  if (submitted.length > 0) return submitted;
-  return sanitizeHashtagsForPersistence(enrichmentHashtags ?? [], { limit: 8 });
-}
-
-/**
  * The FINAL discovery-tag list attached at production approval.
  *
  * - `bodyHashtags` **present** (the moderation UI always sends the curated list,
  *   even when empty) → it is authoritative; sanitized and used verbatim.
- * - `bodyHashtags` **absent** (`undefined` — legacy / non-UI callers) → fall back
- *   to the submitter's tags, else the AI suggestions.
+ * - `bodyHashtags` **absent** (`undefined` — legacy / non-UI callers) → the
+ *   submitter's tags.
  *
- * Presence is `!== undefined`, NOT truthiness: an empty array is a deliberate
- * "no tags" signal and must not silently fall back. The caller (approval) then
- * rejects an empty result, since a fact can't ship without tags.
+ * There is no AI fallback: hashtags are generated once, by the submit form's
+ * suggester where the submitter reviews them, and moderation generates none
+ * (David, 2026-11-24). Presence is `!== undefined`, NOT truthiness: an empty
+ * array is a deliberate "no tags" signal and must not silently fall back. The
+ * caller (approval) then rejects an empty result, since a fact can't ship
+ * without tags.
  */
 export function resolveFinalApprovalTags(
   bodyHashtags: readonly unknown[] | undefined,
   reviewHashtags: readonly unknown[] | null | undefined,
-  enrichmentHashtags: readonly unknown[] | null | undefined,
 ): string[] {
-  return bodyHashtags !== undefined
-    ? sanitizeHashtagsForPersistence(bodyHashtags, { limit: 10 })
-    : resolveTagsForApproval(reviewHashtags, enrichmentHashtags);
+  return sanitizeHashtagsForPersistence(bodyHashtags ?? reviewHashtags ?? [], { limit: 10 });
 }

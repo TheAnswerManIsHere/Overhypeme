@@ -284,21 +284,43 @@ export function drawMeme<Img extends { width: number; height: number }>(
   const captionBoxes: Box[] = [];
   const inkPad = 3; // half the outline width
 
-  // Each block is centred horizontally, its vertical midpoint at yPct% of the height.
+  // Each block is centred horizontally, its vertical midpoint at yPct% of the
+  // height — unless that would put a line across an edge (#1254: a five-line
+  // top caption in portrait lost its first line off the top). Then the block
+  // slides in just far enough to clear the edge, and a block too tall for the
+  // picture at its font size is drawn smaller until it fits.
+  const edgeMargin = Math.round(Math.min(dims.w, dims.h) * CAPTION_EDGE_MARGIN);
   const drawBlock = (segments: CaptionSegment[], yPct: number) => {
-    const lines = wrap(captionWords(segments, allCaps), dims.w * 0.92);
+    const words = captionWords(segments, allCaps);
+    let size = fontSize;
+    ctx.font = input.captionFont(size); // a block before this one may have been drawn smaller
+    let lines = wrap(words, dims.w * 0.92);
     if (lines.length === 0) return;
-    const lineH = fontSize * 1.1;
-    const firstCentre = (yPct / 100) * dims.h - (lines.length * lineH) / 2 + fontSize / 2;
+    // The ink a block of n lines spans, top of the first line's capitals to the foot of the last line's descenders.
+    const inkHeight = (n: number, s: number) => (n - 1) * s * 1.1 + s * (GLYPH_ASCENT_EM + GLYPH_DESCENT_EM) + 2 * inkPad;
+    const room = dims.h - 2 * edgeMargin;
+    while (inkHeight(lines.length, size) > room && size > MIN_CAPTION_FONT_SIZE) {
+      size = Math.max(MIN_CAPTION_FONT_SIZE, Math.floor(size * 0.95));
+      ctx.font = input.captionFont(size);
+      lines = wrap(words, dims.w * 0.92);
+    }
+    const lineH = size * 1.1;
+    let firstCentre = (yPct / 100) * dims.h - (lines.length * lineH) / 2 + size / 2;
+    // Line centre to the top of its ink: the baseline sits CAPTION_BASELINE_EM below the centre, the ink GLYPH_ASCENT_EM above that.
+    const inkTop = firstCentre + size * (CAPTION_BASELINE_EM - GLYPH_ASCENT_EM) - inkPad;
+    const inkBottom = inkTop + inkHeight(lines.length, size);
+    if (inkBottom - inkTop > room) firstCentre += (dims.h - inkTop - inkBottom) / 2;
+    else if (inkTop < edgeMargin) firstCentre += edgeMargin - inkTop;
+    else if (inkBottom > dims.h - edgeMargin) firstCentre -= inkBottom - (dims.h - edgeMargin);
     ctx.textBaseline = "alphabetic";
     ctx.textAlign = "left";
     lines.forEach((line, li) => {
-      const y = firstCentre + li * lineH + fontSize * CAPTION_BASELINE_EM;
+      const y = firstCentre + li * lineH + size * CAPTION_BASELINE_EM;
       const lineWidth = ctx.measureText(line.map((w) => w.text).join(" ")).width;
       let x = (dims.w - lineWidth) / 2;
       captionBoxes.push({
         x0: x - inkPad, x1: x + lineWidth + inkPad,
-        y0: y - fontSize * GLYPH_ASCENT_EM - inkPad, y1: y + fontSize * GLYPH_DESCENT_EM + inkPad,
+        y0: y - size * GLYPH_ASCENT_EM - inkPad, y1: y + size * GLYPH_DESCENT_EM + inkPad,
       });
       line.forEach((word, wi) => {
         word.pieces.forEach((piece, pi) => {
@@ -356,6 +378,11 @@ export function drawMeme<Img extends { width: number; height: number }>(
 
 /** A rectangle in logical canvas units. */
 export type Box = { x0: number; y0: number; x1: number; y1: number };
+
+/** The clear band a caption keeps from the top and bottom edges, as a fraction of the canvas's shorter side. */
+const CAPTION_EDGE_MARGIN = 0.03;
+/** The smallest a caption block is drawn when shrinking it to fit the picture: the builder's own font-size minimum. */
+const MIN_CAPTION_FONT_SIZE = 32;
 
 /** How far a line of text reaches above and below its alphabetic baseline, as fractions of the font size (fixed, so both canvases agree). */
 const GLYPH_ASCENT_EM = 0.85;
