@@ -49,10 +49,10 @@ import { realStripeDriver } from "../lib/stripeRealDriver.js";
 import {
   FAKE_SECRET_KEY,
   FAKE_WEBHOOK_ENDPOINT_ID,
-  __forgetFakeWebhookEndpointsForTests,
   fakeStripeDriver,
 } from "../lib/stripeFakeDriver.js";
 import { checkOperatorWebhookEndpoint } from "../lib/stripeWebhookEndpoint.js";
+import { StripeWebhookManagementClosedError } from "../lib/stripeClient.js";
 import { getSiteBaseUrl } from "../lib/siteUrl.js";
 import { FAKE_ACCOUNT_ID } from "../lib/stripeFakeFixture.js";
 import { isAdaptedStripeSync } from "../lib/stripeSyncAdaptations.js";
@@ -495,19 +495,24 @@ describe("the fake Stripe driver and the database partition", () => {
       assert.ok(isAdaptedStripeSync(sync), "getStripeSync() handed out an instance without adaptStripeSync applied");
     });
 
-    it("a reboot after the fake's memory is gone still finds the operator's endpoint, and creates none", async () => {
+    it("the boot path's sync finds the operator's endpoint by reading it, and cannot create one", async () => {
       useFake();
       partitionAnswers(FAKE_OWNED);
-      // What a restart does to the fake: its in-memory endpoints vanish. The
-      // operator's endpoint is not one of them, as a real one outlives a process.
-      __forgetFakeWebhookEndpointsForTests();
+      const sync = await getStripeSync();
+      // The library's endpoint writers are out of StripeSyncApi (a compile
+      // error); a cast reaches a refusal, not Stripe.
+      const library = sync as unknown as Record<string, (url: string) => Promise<unknown>>;
+      for (const method of ["findOrCreateManagedWebhook", "updateManagedWebhook", "deleteManagedWebhook"]) {
+        await assert.rejects(library[method]!("http://localhost/api/stripe/webhook"),
+          (err: unknown) => err instanceof StripeWebhookManagementClosedError && err.method === method);
+      }
       const check = await checkOperatorWebhookEndpoint({
         stripe: fakeStripeDriver.createClient(FAKE_SECRET_KEY),
         url: `${getSiteBaseUrl()}/api/stripe/webhook`,
         secretConfigured: fakeStripeDriver.webhookSecret(false) !== null,
         endpointId: fakeStripeDriver.webhookEndpointId(false),
         settings: fakeStripeDriver.settingNames(false),
-        requiredEvents: (await getStripeSync()).getSupportedEventTypes(),
+        requiredEvents: sync.getSupportedEventTypes(),
       });
       assert.deepEqual(check, { ok: true, endpointId: FAKE_WEBHOOK_ENDPOINT_ID });
       const rows = await db.execute(sql`SELECT count(*)::int AS n FROM stripe._managed_webhooks WHERE account_id = ${FAKE_ACCOUNT_ID}`);

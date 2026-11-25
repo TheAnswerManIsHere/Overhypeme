@@ -80,10 +80,10 @@ export const realStripeDriver: StripeDriver = {
 
   async buildSync({ secretKey, webhookSecret }) {
     const { StripeSync } = await import("stripe-replit-sync");
-    // If a webhook signing secret is configured for the active mode, pass it
-    // through so signature verification uses it directly. When null, the library
-    // falls back to the per-account managed-webhook secret stored in
-    // stripe._managed_webhooks.
+    // The configured signing secret, when there is one. With none, the library
+    // would fall back to the managed-webhook row in stripe._managed_webhooks;
+    // `closeManagedWebhooks` (stripeClient.ts) shuts that on every build,
+    // whichever driver made it.
     return new StripeSync({
       poolConfig: { connectionString: process.env.DATABASE_URL!, max: 2 },
       stripeSecretKey: secretKey,

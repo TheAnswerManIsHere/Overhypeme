@@ -128,7 +128,7 @@ function notSetUpReason(detail: string): string {
  * Without it, a setup that kept failing was visible only in the log while the
  * Billing panel read `verified` — the observability half of #577's P1.
  */
-const setupFailures = new Map<"live" | "test", { step: SetupStep; at: number; notSetUp?: string }>();
+const setupFailures = new Map<"live" | "test", { step: SetupStep; at: number; reason: string }>();
 
 /**
  * The three effects the remaining initialization performs, injectable so a test
@@ -228,7 +228,7 @@ export function getStripeSetupStatus(liveMode: boolean): StripeSetupSnapshot {
   if (failure) {
     return {
       state: "failing",
-      reason: failure.notSetUp ? notSetUpReason(failure.notSetUp) : SETUP_FAILURE_REASONS[failure.step],
+      reason: failure.reason,
       lastFailureAt: new Date(failure.at).toISOString(),
     };
   }
@@ -315,8 +315,12 @@ export async function resumeStripeInitialization(): Promise<boolean> {
       step = "webhook";
       const check = await stripeSync.checkWebhookEndpoint(webhookUrl);
       if (!check.ok) {
-        setupFailures.set(mode, { step, at: Date.now(), notSetUp: check.detail });
-        logger.warn({ mode, problem: check.problem, webhookUrl }, `Stripe webhooks are not set up: ${check.detail}`);
+        const reason = notSetUpReason(check.detail);
+        // Once per distinct answer, not every retry interval: the same line
+        // every 30 s while an operator fixes the endpoint is noise.
+        const unchanged = setupFailures.get(mode)?.reason === reason;
+        setupFailures.set(mode, { step, at: Date.now(), reason });
+        (unchanged ? logger.debug : logger.warn).call(logger, { mode, problem: check.problem, webhookUrl }, `Stripe webhooks are not set up: ${check.detail}`);
         return false;
       }
       logger.info({ webhookUrl, endpointId: check.endpointId }, "Stripe webhook endpoint checked");
@@ -332,7 +336,7 @@ export async function resumeStripeInitialization(): Promise<boolean> {
 
       return true;
     } catch (err) {
-      setupFailures.set(mode, { step, at: Date.now() });
+      setupFailures.set(mode, { step, at: Date.now(), reason: SETUP_FAILURE_REASONS[step] });
       logger.error({ err, step }, "Stripe init failed — will retry; continuing without payments");
       return false;
     }

@@ -17,7 +17,7 @@
  * transient setup failure.
  */
 import type Stripe from "stripe";
-import type { StripeApi } from "./stripeApi.js";
+import { isStripeResourceMissing, type StripeApi } from "./stripeApi.js";
 
 export type WebhookEndpointProblem =
   | "secret_not_configured"
@@ -46,11 +46,6 @@ export interface WebhookEndpointCheckInput {
   requiredEvents: readonly string[];
 }
 
-function isResourceMissing(err: unknown): boolean {
-  const e = err as { statusCode?: number; code?: string } | null;
-  return e?.statusCode === 404 || e?.code === "resource_missing";
-}
-
 export async function checkOperatorWebhookEndpoint(input: WebhookEndpointCheckInput): Promise<WebhookEndpointCheck> {
   const { stripe, url, settings } = input;
   if (!input.secretConfigured) {
@@ -72,7 +67,7 @@ export async function checkOperatorWebhookEndpoint(input: WebhookEndpointCheckIn
   try {
     endpoint = await stripe.webhookEndpoints.retrieve(input.endpointId);
   } catch (err) {
-    if (isResourceMissing(err)) {
+    if (isStripeResourceMissing(err)) {
       return {
         ok: false,
         problem: "endpoint_not_found",

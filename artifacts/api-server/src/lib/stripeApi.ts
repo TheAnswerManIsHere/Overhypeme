@@ -21,6 +21,12 @@
  */
 import type Stripe from "stripe";
 
+/** Stripe's "no such object": `resource_missing`, or a 404 from any resource. */
+export function isStripeResourceMissing(err: unknown): boolean {
+  const e = err as { code?: unknown; statusCode?: unknown } | null;
+  return !!e && (e.code === "resource_missing" || e.statusCode === 404);
+}
+
 /** The `StripeSync` instance type, without importing the library at module load. */
 export type StripeSyncInstance = InstanceType<typeof import("stripe-replit-sync").StripeSync>;
 

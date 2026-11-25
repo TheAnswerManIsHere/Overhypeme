@@ -1199,7 +1199,7 @@ export class WebhookHandlers {
     // sync.processWebhook verifies the signature against the mode's configured signing
     // secret (STRIPE_WEBHOOK_SECRET_TEST / _LIVE) and throws on any invalid/forged event.
     // With no configured secret it refuses every delivery — the library's fallback to the
-    // managed-webhook row is closed on every build (refuseWithoutWebhookSecret,
+    // managed-webhook row is closed on every build (closeManagedWebhooks,
     // stripeClient.ts). After this line succeeds, the event is guaranteed authentic.
     const sync = await syncProvider();
     try {

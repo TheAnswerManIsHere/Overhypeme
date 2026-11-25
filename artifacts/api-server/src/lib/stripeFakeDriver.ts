@@ -109,19 +109,12 @@ const noneById = (kind: string) => (id: string) => Promise.reject(resourceMissin
 // ── State ───────────────────────────────────────────────────────────────────
 
 /**
- * Per process, deliberately. Webhook endpoints live here and vanish on restart
- * while `stripe._managed_webhooks` persists — which is exactly the case the
- * `resource_missing` answer exists for.
- */
-const webhookEndpoints = new Map<string, Stripe.WebhookEndpoint>();
-let webhookSeq = 0;
-
-/**
  * The endpoint an operator provisioned on the fake account, as one is on a real
  * account: enabled, at this server's own webhook URL, subscribed to every event.
- * It is not in the map above, so a restart does not lose it — an operator's
- * endpoint outlives a process. A test reshapes it (disabled, elsewhere, gone)
- * through `__setFakeOperatorWebhookEndpointForTests`.
+ * The fake holds no other endpoint and implements only `retrieve`: nothing in
+ * this application creates, replaces or deletes one, so any attempt reaches the
+ * fake's refusal by name. A test reshapes it (disabled, elsewhere, gone)
+ * through `__setFakeOperatorWebhookEndpointForTests`, and `null` restores it.
  */
 type OperatorEndpointOverride = Partial<Pick<Stripe.WebhookEndpoint, "status" | "url" | "enabled_events">> | "missing" | null;
 let operatorEndpointOverride: OperatorEndpointOverride = null;
@@ -148,7 +141,7 @@ function operatorEndpoint(): Stripe.WebhookEndpoint | null {
 }
 
 function retrieveWebhookEndpoint(id: string): Promise<Stripe.Response<Stripe.WebhookEndpoint>> {
-  const found = id === FAKE_WEBHOOK_ENDPOINT_ID ? operatorEndpoint() : webhookEndpoints.get(id);
+  const found = id === FAKE_WEBHOOK_ENDPOINT_ID ? operatorEndpoint() : null;
   return found ? respond(found) : Promise.reject(resourceMissing("webhook_endpoint", id));
 }
 
@@ -258,33 +251,6 @@ const librarySurface = {
   disputes: { list: empty },
   refunds: { list: empty },
   radar: { earlyFraudWarnings: { list: empty } },
-  webhookEndpoints: {
-    retrieve: retrieveWebhookEndpoint,
-    list: (params?: unknown) => list([...webhookEndpoints.values()], params),
-    create: (params: { url: string; enabled_events: string[]; metadata?: Record<string, string> }) => {
-      webhookSeq++;
-      const endpoint = {
-        id: `we_fake_${webhookSeq}`,
-        object: "webhook_endpoint",
-        api_version: null,
-        application: null,
-        created: Math.floor(Date.now() / 1000),
-        description: null,
-        enabled_events: params.enabled_events,
-        livemode: false,
-        metadata: params.metadata ?? {},
-        secret: `whsec_fake_double_${webhookSeq}`,
-        status: "enabled",
-        url: params.url,
-      } as Stripe.WebhookEndpoint;
-      webhookEndpoints.set(endpoint.id, endpoint);
-      return respond(endpoint);
-    },
-    del: (id: string) => {
-      webhookEndpoints.delete(id);
-      return respond({ id, object: "webhook_endpoint", deleted: true });
-    },
-  },
 };
 
 // ── Assembly ────────────────────────────────────────────────────────────────
@@ -333,12 +299,6 @@ function guarded(target: Surface, path: string): Surface {
 }
 
 const fakeClient = guarded(merge(appSurface as unknown as Surface, librarySurface), "") as unknown as StripeApi;
-
-/** Test seam: drop the in-memory webhook endpoints, as a restart does. */
-export function __forgetFakeWebhookEndpointsForTests(): void {
-  webhookEndpoints.clear();
-  operatorEndpointOverride = null;
-}
 
 // ── The driver ──────────────────────────────────────────────────────────────
 

@@ -144,7 +144,7 @@ Stripe's dashboard by the operator and named to the server by two settings:
 environment like the keys, since each environment's endpoint issues its own
 secret. With no secret configured, verification **refuses every delivery**: the
 library's fallback to the secret it stored in `stripe._managed_webhooks` is
-closed on every sync build (`refuseWithoutWebhookSecret`, `stripeClient.ts`).
+closed on every sync build (`closeManagedWebhooks`, `stripeClient.ts`).
 Start-up never creates, re-enables or replaces an endpoint — it no longer calls
 `findOrCreateManagedWebhook`, which also deleted any managed endpoint its own
 database did not know (the cause of #1220's cross-environment deletions) — and

@@ -23,12 +23,11 @@ import { StripeSync, runMigrations } from "stripe-replit-sync";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
-import { StripeWebhookSecretNotConfiguredError, refuseWithoutWebhookSecret } from "../lib/stripeClient.js";
+import { StripeWebhookSecretNotConfiguredError, closeManagedWebhooks } from "../lib/stripeClient.js";
 import { checkOperatorWebhookEndpoint, type WebhookEndpointCheckInput } from "../lib/stripeWebhookEndpoint.js";
 import {
   FAKE_SECRET_KEY,
   FAKE_WEBHOOK_ENDPOINT_ID,
-  __forgetFakeWebhookEndpointsForTests,
   __setFakeOperatorWebhookEndpointForTests,
   fakeStripeDriver,
 } from "../lib/stripeFakeDriver.js";
@@ -96,7 +95,7 @@ describe("verification without a configured secret", () => {
   });
 
   it("refuses when no secret is configured, even though the managed row holds one that verifies", async () => {
-    const sync = refuseWithoutWebhookSecret(newSync(null), null, "STRIPE_WEBHOOK_SECRET_TEST");
+    const sync = closeManagedWebhooks(newSync(null), null, "STRIPE_WEBHOOK_SECRET_TEST");
     const { payload, signature } = signedDelivery(ROW_SECRET);
     await assert.rejects(
       sync.processWebhook(payload, signature),
@@ -108,7 +107,7 @@ describe("verification without a configured secret", () => {
   });
 
   it("with a configured secret, that secret verifies and the managed row's does not", async () => {
-    const sync = refuseWithoutWebhookSecret(newSync(CONFIGURED_SECRET), CONFIGURED_SECRET, "STRIPE_WEBHOOK_SECRET_TEST");
+    const sync = closeManagedWebhooks(newSync(CONFIGURED_SECRET), CONFIGURED_SECRET, "STRIPE_WEBHOOK_SECRET_TEST");
     const good = signedDelivery(CONFIGURED_SECRET);
     await sync.processWebhook(good.payload, good.signature);
 
@@ -140,14 +139,9 @@ describe("the start-up check reads the operator's endpoint and creates none", ()
     requiredEvents: ["charge.refunded", "customer.subscription.updated"],
     ...over,
   });
-  /** Endpoints the fake account holds beyond the operator's: a creation would show here. */
-  async function createdEndpoints(): Promise<number> {
-    const listed = await (client() as unknown as { webhookEndpoints: { list: () => Promise<{ data: unknown[] }> } })
-      .webhookEndpoints.list();
-    return listed.data.length;
-  }
-
-  afterEach(() => __forgetFakeWebhookEndpointsForTests());
+  // The fake implements only `retrieve` for endpoints, so any attempt to
+  // create, update or delete one refuses by name and fails the test.
+  afterEach(() => __setFakeOperatorWebhookEndpointForTests(null));
 
   it("an enabled endpoint at this URL, subscribed to everything, is set up", async () => {
     assert.deepEqual(await checkOperatorWebhookEndpoint(input()), { ok: true, endpointId: FAKE_WEBHOOK_ENDPOINT_ID });
@@ -162,13 +156,12 @@ describe("the start-up check reads the operator's endpoint and creates none", ()
     ["an endpoint missing an event type", () => __setFakeOperatorWebhookEndpointForTests({ enabled_events: ["charge.refunded"] }), {}, "endpoint_events_missing", /customer\.subscription\.updated/],
   ];
   for (const [name, arrange, over, problem, detail] of cases) {
-    it(`${name} is reported as not set up, and nothing is created`, async () => {
+    it(`${name} is reported as not set up, by reading only`, async () => {
       arrange();
       const check = await checkOperatorWebhookEndpoint(input(over));
       assert.equal(check.ok, false);
       assert.equal(!check.ok && check.problem, problem);
       assert.match(!check.ok ? check.detail : "", detail);
-      assert.equal(await createdEndpoints(), 0, "the check must create no endpoint");
     });
   }
 
