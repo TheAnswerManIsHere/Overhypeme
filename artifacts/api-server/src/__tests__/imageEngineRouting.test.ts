@@ -32,7 +32,9 @@ import {
 import { bustConfigCache } from "../lib/adminConfig.js";
 import { ALL_ENGINES } from "../lib/engines/index.js";
 import { NANO_BANANA_2_SIZES } from "../lib/engines/nano-banana-2.js";
-import { FLUX_3 } from "../lib/engines/flux-3.js";
+import { MUSE_IMAGE } from "../lib/engines/muse-image.js";
+import { NANO_BANANA_PRO } from "../lib/engines/nano-banana-pro.js";
+import { testEngineRow } from "./helpers/testEngines.js";
 import { computeScenarioInputHash } from "../lib/reviewRenderScenarios.js";
 import { isAttemptStale } from "../lib/factRenderScenarios.js";
 import { imageGenerationHandler } from "../lib/imagePromptJobs.js";
@@ -132,27 +134,60 @@ describe("resolveImageEngine", () => {
   });
 
   it("an override wins, and the engine it returns carries the code's definition", async () => {
-    const engine = await resolveImageEngine("t2i", "flux-3");
-    assert.equal(engine.id, "flux-3");
-    assert.equal(engine.endpointId, FLUX_3.endpointId);
+    const engine = await resolveImageEngine("t2i", "muse-image");
+    assert.equal(engine.id, "muse-image");
+    assert.equal(engine.endpointId, MUSE_IMAGE.endpointId);
     assert.equal(engine.imageMode, "t2i");
     assert.ok(engine.sizeVocabulary);
   });
 
   it("refuses, never defaults: no code definition, inactive, non-image, wrong mode, no vocabulary", async () => {
     const orphan = `${PREFIX}${randomUUID().slice(0, 12)}`;
+    // An active engine with no size vocabulary: a clone of one that has none.
+    const noVocabulary = `${PREFIX}novocab-${randomUUID().slice(0, 8)}`;
+    testEngineRow(NANO_BANANA_PRO, noVocabulary, noVocabulary);
     const cases: Array<[string, boolean, "t2i" | "i2i", string]> = [
       [orphan, false, "t2i", "not in the catalogue"],
-      ["flux-3", true, "t2i", "inactive"],
+      ["muse-image", true, "t2i", "inactive"],
       ["openai-general", false, "t2i", "kind is llm"],
       ["nano-banana-2-edit", false, "t2i", "draws pictures from a reference photo instead"],
-      ["nano-banana-pro", false, "i2i", "no size vocabulary"],
+      [noVocabulary, false, NANO_BANANA_PRO.imageMode as "t2i" | "i2i", "no size vocabulary"],
     ];
     for (const [id, off, mode, why] of cases) {
       if (off) switchOff(id);
       await assert.rejects(resolveImageEngine(mode, id), (err: unknown) =>
         err instanceof ImageEngineRoutingError && err.message.includes(why), `${id}: ${why}`);
       await restore();
+    }
+  });
+});
+
+describe("the retired engines (prompt tuner plan, E. Retirements)", () => {
+  const RETIRED = [
+    "flux-pro-v1-1", "flux-2-pro", "flux-3", "flux-3-edit", "seedream-5-pro", "seedream-5-pro-edit",
+    "nano-banana-pro", "nano-banana-pro-t2i", "gpt-image-2", "gpt-image-2-edit", "gpt-image-2-5", "gpt-image-2-5-edit",
+  ];
+  const KEPT = ["nano-banana-2", "nano-banana-2-edit", "nano-banana-2-1", "nano-banana-2-1-edit", "gpt-image-2-6", "gpt-image-2-6-edit", "muse-image", "muse-image-edit"];
+
+  it("stay in the catalogue, so old results still name them, but none is active", () => {
+    for (const id of RETIRED) {
+      const def = ALL_ENGINES.find((e) => e.id === id);
+      assert.ok(def, `${id} is still in the catalogue`);
+      assert.equal(def!.isActive, false, `${id} is retired`);
+    }
+  });
+
+  it("every kept image engine is active, and no other image engine is", () => {
+    const activeImage = ALL_ENGINES.filter((e) => e.kind === "image" && e.isActive).map((e) => e.id).sort();
+    assert.deepEqual(activeImage, [...KEPT].sort());
+  });
+
+  it("a retired engine cannot draw, even when named", async () => {
+    for (const id of RETIRED) {
+      const def = ALL_ENGINES.find((e) => e.id === id)!;
+      const mode = (def.imageMode ?? "t2i") as "t2i" | "i2i";
+      await assert.rejects(resolveImageEngine(mode, id), (err: unknown) =>
+        err instanceof ImageEngineRoutingError && err.message.includes("inactive"), id);
     }
   });
 });

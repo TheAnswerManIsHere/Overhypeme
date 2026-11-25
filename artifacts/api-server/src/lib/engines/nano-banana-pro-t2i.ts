@@ -24,7 +24,9 @@ export const NANO_BANANA_PRO_T2I: EngineDefinition = {
   imageMode: "t2i",
   family: "nano-banana-pro",
   tierRequirement: "legendary",
-  isActive: true,
+  // Retired by the prompt tuner plan, *E. Retirements* (launch Phase 8): kept
+  // so old comparison results still name it; nothing can draw with it.
+  isActive: false,
   sortOrder: 82,
   featureFlagRequired: null,
 

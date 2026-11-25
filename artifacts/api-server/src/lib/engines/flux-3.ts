@@ -54,7 +54,9 @@ export const FLUX_3: EngineDefinition = {
   imageMode: "t2i",
   family: "flux-3",
   tierRequirement: "legendary",
-  isActive: true,
+  // Retired by the prompt tuner plan, *E. Retirements* (launch Phase 8): kept
+  // so old comparison results still name it; nothing can draw with it.
+  isActive: false,
   sortOrder: 64,
   featureFlagRequired: null,
   allowedResolutions: ["768sq", "1k", "1.5k", "2k", "4k"],

@@ -25,7 +25,9 @@ export const FLUX_2_PRO: EngineDefinition = {
   imageMode: "t2i",
   family: "flux-2-pro",
   tierRequirement: "legendary",
-  isActive: true,
+  // Retired by the prompt tuner plan, *E. Retirements* (launch Phase 8): kept
+  // so old comparison results still name it; nothing can draw with it.
+  isActive: false,
   sortOrder: 71,
   featureFlagRequired: null,
 

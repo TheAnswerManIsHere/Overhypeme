@@ -9,7 +9,10 @@ import { toEngineRecord, type Engine } from "../../lib/engines/engineRecord.js";
 import { __registerEngineDefinitionForTest } from "../../lib/engineInterpreter.js";
 
 export function testEngineRow(base: EngineDefinition, id: string, family: string, overrides: Partial<EngineDefinition> = {}): Engine {
-  const def: EngineDefinition = { ...base, ...overrides, id, family };
+  // A clone is active unless the test says otherwise: tests borrow a retired
+  // engine's price and size rules (FLUX 3, GPT Image 2.5) as a stand-in, and
+  // must not inherit its retirement.
+  const def: EngineDefinition = { ...base, isActive: true, ...overrides, id, family };
   __registerEngineDefinitionForTest(def);
   return toEngineRecord(def);
 }
