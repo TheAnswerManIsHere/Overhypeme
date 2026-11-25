@@ -552,6 +552,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
   exclude(s.stripeWebhookAuditTable, "payment-obligation", "Stripe webhook plumbing; the Stripe fake (#566) owns this evidence"),
   exclude(s.stripeCheckoutRequestLedgerTable, "payment-obligation", "Stripe checkout session ids"),
   exclude(s.entitlementSourceDisputesTable, "payment-obligation", "Stripe dispute ids; the Stripe fake (#566) owns this evidence"),
+  exclude(s.creditLedgerTable, "payment-obligation", "credits are payment records (launch Phase 7, migration 0171), and the fixture predates them; a fresh account's free credit comes from the trigger"),
   exclude(s.rateLimitCountersTable, "runtime-state", "IP-keyed abuse counters"),
   exclude(s.transientRendersTable, "runtime-state", "IP-hash-keyed abuse log"),
   exclude(s.searchHistoryTable, "telemetry", "free-text search queries"),

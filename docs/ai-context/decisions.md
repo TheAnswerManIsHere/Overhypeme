@@ -13,6 +13,24 @@
 
 ---
 
+### 2026-11-25 · Launch Phase 7: credits, the free picture, the pack, membership credits, and who keeps the watermark
+- **Decision:** David approved the Phase 7 plan, `docs/plans/PLAN_PHASE7_IMAGE_OFFERING.md` (sha256 `b25fec82…0615`, Issue #1289), rebased onto the [2026-11-11 product strategy](#2026-11-11--the-product-strategy-made-about-a-friend-credits-two-engines-up-to-three-gags). His answers:
+  - **Q1: 1.** No friend-photo consent flow is built, not even switched off, until counsel answers.
+  - **Q2: 1.** An annual membership's credits are granted at purchase.
+  - **Q3: 1.** Phase 7 builds the credit pack and membership credits; Phase 10 keeps test-versus-live proof, the reconciliation runbook and upgrade messaging.
+  - **Q4: 1.** A refund or dispute on credits already spent takes the balance below zero; no new picture until later credits repay it.
+  - **Q5: 2.** A meme made for a friend can carry an AI picture too, starring the sender or their pet, behind the friend's name.
+  - **Q6: 1.** Existing lifetime and admin-granted members receive no automatic credits.
+  - **Q7: 1.** A membership refund is suggested as the price times the share of that purchase's credits still unspent.
+  - **Q8: 1.** No refund of unspent paid credits when a member deletes their account or is removed for breaking the Terms, with the loss shown before they confirm and on the purchase screens; when Overhype.me ends an account that did nothing wrong, the unspent share is suggested by the Q7 formula. Free credits are never refunded.
+  - **The watermark** (amending the agreed scope's "members' saves do not" carry it): on by default for everyone. A member may uncheck "Include Overhype.me watermark" for a meme; a free account sees the box checked and locked, with a gold lock and a tooltip saying it is a Legendary feature.
+  - **Dropped from the launch plan's older Phase 7 text:** hero renders as free backgrounds, the hero-image hard gate, the catalogue-wide hero re-render and AI pictures as members-only. A live fact already needs an approved gag with its examples, and examples are never backgrounds.
+- **Taken on Claude's recommendation:** the free picture is one credit granted at first verification; the per-account dollar cap becomes a backstop tied to the credits an account has been granted, the same rule for every account (any fixed figure blocks someone who bought many packs); the watermark checkbox is not remembered between memes.
+- **Dissent:** Claude and Astra recommended Q5: 1 (an uploaded photo only for a friend's meme), since a picture of the sender behind a boast about the friend can read as a mistake.
+- **Why:** David, 2026-11-25, answering the plan's questions ("q1 1. q2 1. q3 1", "q4 1. q5 2. q6 1. q7 1", "q8 1. approved") and on the watermark: *"Members should have the option to opt out of the watermark. It should be on by default unless they uncheck a box that says 'Include Overhype.me watermark'. For free saves, the checkbox should be there but can't be unchecked."*
+- **Reference:** Issue #1289; the plan's *Questions for David*.
+- **Revisit if:** counsel answers on a friend's photo; real bills move the cost of a picture far from the placeholder prices; whether prepaid credits are stored value in any state (a question for Phase 14's counsel).
+
 ### 2026-11-25 · Seven image engines are retired in code; four families stay able to draw
 - **Decision:** FLUX 1.1 Pro, FLUX 2 Pro, FLUX 3, Seedream 5.0 Pro, Nano Banana Pro, GPT Image 2 and GPT Image 2.5, with each one's edit or text-to-image twin, are `isActive: false` in their code definitions (prompt tuner plan `docs/plans/PLAN_PROMPT_TUNER.md`, *E. Retirements*; launch Phase 8, Issue #887).
   - **They stay in the catalogue**, so old comparison results still name them. Nothing can draw with one: routing refuses an inactive engine, even when a caller names it.

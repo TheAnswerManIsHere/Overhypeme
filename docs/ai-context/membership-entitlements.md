@@ -577,6 +577,40 @@ the deletion panel lists any kept account whose settlement is unfinished. The
 retired soft delete cancelled only `active`/`trialing` rows and swallowed a
 Stripe failure; its reinstatement path re-verified the retained sources.
 
+## Credits
+
+Launch Phase 7 (plan `docs/plans/PLAN_PHASE7_IMAGE_OFFERING.md` §1, approved
+by David 2026-11-25; increment 1, Issue #1295). **Credits are not an
+entitlement and never touch `membership_tier`**: an account's credits pay for
+AI pictures, and its tier decides its perks. Neither is read to decide the
+other, save that a paid membership invoice will grant credits (increment 5).
+
+- **One table, append-only.** `credit_ledger` (migration 0171) holds one row
+  per change; the balance is the sum of an account's rows. A trigger refuses
+  every UPDATE and DELETE, except the cascade from an account's deletion (its
+  rows go, with the rest of its payment history). `actor_id` has no foreign
+  key, so an admin's own deletion touches no row; `actor_label` is what is
+  shown.
+- **Lots.** A grant row is a lot (`lot_id` null, positive credits). A row
+  that draws on a lot or restores one names it, so a lot's unspent count is
+  its credits plus the rows naming it. A debit draws on the oldest lots first.
+- **Exactly once.** `(kind, ref, lot)` is unique, so a retried webhook, job
+  or admin click is a no-op, never a second row.
+- **One writer in application code:** `artifacts/api-server/src/lib/credits/`.
+  `scripts/check-credit-ledger-writer.mjs` (CI) refuses a write anywhere else.
+- **The free credit is the database's write**, not the application's: an
+  AFTER INSERT OR UPDATE trigger on `users` grants one credit the first time
+  `email_verified_at` is set, so every way an account becomes verified (email
+  link, email change, a provider that vouches for the address, an admin's
+  "verify email") grants it, and a second verification finds it already
+  there. Accounts verified before 0171 were granted by its backfill,
+  suspended ones included (a suspended account cannot spend).
+- **An admin adjustment** (`POST /admin/users/:id/credits`, the Users page's
+  Credits panel) carries a whole number, a required note and the admin's own
+  request id; the row records the admin's label. A debit never takes the
+  balance below zero. A balance goes negative only when a refund or dispute
+  reverses credits already spent (David, Q4: 1; increments 4 and 5).
+
 ## The admin surfaces are entitlements, not fake payments or a tier field
 
 **Comping a membership writes an `admin_grant` entitlement** — actor, reason,
