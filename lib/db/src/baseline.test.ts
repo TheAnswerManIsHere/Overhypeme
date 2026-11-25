@@ -297,12 +297,7 @@ describe("schema baseline", { concurrency: false }, () => {
  * declares a column reads it in every full-row query. Each entry names the
  * migration that drops it, and leaves this set in that same change.
  */
-const UNDECLARED_AWAITING_DROP = new Set<string>([
-  // Launch Phase 8 part 4: the eval harness's columns, dropped by the migration
-  // that follows the first publish without them.
-  ...["moderator_rating", "failure_tag", "eval_notes", "eval_by", "eval_at", "eval_run_id", "eval_scenario_key", "eval_input_hash"]
-    .map((c) => `image_prompt_attempts.${c}`),
-]);
+const UNDECLARED_AWAITING_DROP = new Set<string>([]);
 
 /** The spellings drizzle and PostgreSQL use for the same column type. */
 function sameType(declared: string, stored: string): boolean {

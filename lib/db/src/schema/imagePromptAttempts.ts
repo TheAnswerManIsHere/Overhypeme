@@ -95,11 +95,7 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
   reviewReferenceIdentityType: varchar("review_reference_identity_type", { length: 32 }),
   /** Groups the scenarios auto-enqueued in one default batch (debugging/audit). */
   reviewRenderBatchId: varchar("review_render_batch_id", { length: 64 }),
-  // The eval harness's eight columns (migration 0081: moderator_rating,
-  // failure_tag, eval_notes, eval_by, eval_at, eval_run_id, eval_scenario_key,
-  // eval_input_hash) are no longer declared: launch Phase 8 part 4 drops them
-  // once a release that does not declare them is published
-  // (migrations-and-backfills.md, *Expand, then contract*).
+  // The eval harness's eight columns (migration 0081) were dropped by 0170.
   // ── Engine attribution (migration 0123, launch Phase 8) ───────────────────
   /**
    * The image engine that draws (or drew) this attempt, resolved once at
