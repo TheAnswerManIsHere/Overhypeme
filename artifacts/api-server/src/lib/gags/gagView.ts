@@ -15,7 +15,7 @@ import {
   type FactGag,
 } from "@workspace/db";
 import { GAG_EXAMPLE_KINDS, MAX_GAGS_PER_FACT, mapKinds, type FactGagsView, type GagExample, type GagPictureRoles, type GagView, type PerKind } from "@workspace/api-zod";
-import { buildGagKindCards, buildGagWorkingCards, gagRenderImageUrl } from "../reviewRenderScenarios";
+import { buildGagWorkingCards, gagRenderImageUrl } from "../reviewRenderScenarios";
 import { loadGags, normaliseGagContent, openReviewForFact } from "./resolver";
 import { fillState, isUntouchedPrefill } from "./prefill";
 import { examplesFor, isGrandfathered, loadExamples, type GagExamples } from "./examples";
@@ -104,8 +104,7 @@ async function viewOf(
 ): Promise<GagView> {
   const approved = g.approvedContent != null;
   const state = !approved ? "new" : g.pendingContent != null || g.draftRemoved ? "approved_with_change" : "approved";
-  // The view is polled while renders draw: its two render reads run together.
-  const [renders, roles] = await Promise.all([buildGagKindCards(g.id), rolesView(g.id, set, ex)]);
+  const roles = await rolesView(g.id, set, ex);
   return {
     id: g.id,
     slot: g.slot,
@@ -120,7 +119,6 @@ async function viewOf(
     pendingExamples: perKind(set.pending, ex),
     draftRemoved: g.draftRemoved,
     prefilledUntouched: isUntouchedPrefill(g),
-    renders,
     roles,
   };
 }

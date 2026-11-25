@@ -363,15 +363,16 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
     await admin.json("3", "POST", `/api/admin/reviews/${reviewId}/approve-visual-concept`, {});
     log("journey 3: the gag saved and the gags step approved");
 
-    // A gag's renders, per kind (plan PLAN_GAG_EXAMPLES.md). Nothing draws by
+    // A gag's working render per kind (plans PLAN_GAG_EXAMPLES.md and
+    // PLAN_RENDER_HISTORY.md D1). Nothing draws by
     // itself (Issue #1282, plan PLAN_RENDERS_MANUAL.md): the moderator asks for
     // the male render first, then the rest, the same vendor calls in the same
     // order as when the male one started on arrival, so the recordings hold.
     const tiles = async () => {
-      const view = await admin.json<{ gags: Array<{ id: number; renders: Record<"male" | "female" | "pet", { status: string; message?: string | null; imageUrl?: string | null; latestAttemptId?: number | null } | null> }> }>("3", "GET", `/api/admin/facts/${stagingFactId}/gags`);
+      const view = await admin.json<{ gags: Array<{ id: number; roles: Record<"male" | "female" | "pet", { working: { status: string; message?: string | null; imageUrl?: string | null; latestAttemptId?: number | null } | null }> }> }>("3", "GET", `/api/admin/facts/${stagingFactId}/gags`);
       const g = view.gags.find((x) => x.id === gagId);
       if (!g) throw new JourneyError("3", "the gag's renders", `gag ${gagId} is not in the view`);
-      return g.renders;
+      return { male: g.roles.male.working, female: g.roles.female.working, pet: g.roles.pet.working };
     };
     await admin.json("3", "POST", `/api/admin/facts/${stagingFactId}/gags/${gagId}/renders`, { kinds: ["male"], reviewId });
     log("journey 3: the male render running");

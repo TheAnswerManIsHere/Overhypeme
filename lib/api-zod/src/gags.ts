@@ -163,15 +163,9 @@ export interface GagView {
    */
   prefilledUntouched: boolean;
   /**
-   * This gag's render of its current content, per kind: the attempt the
-   * scheduler reused or drew for that content (null when none was drawn).
-   * Renders of other content are history and are not listed.
-   */
-  renders: PerKind<RenderScenarioCard | null>;
-  /**
    * Each picture's roles (Issue #1304, D1): its official renders and its
-   * working render. `renders` above stays as it is until the views move to
-   * these (increment C).
+   * working render. They replaced the content-matched `renders` tiles when
+   * the views moved to them (increment C).
    */
   roles: PerKind<GagPictureRoles>;
 }

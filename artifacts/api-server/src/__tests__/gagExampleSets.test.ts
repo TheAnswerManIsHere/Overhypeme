@@ -40,7 +40,7 @@ import gagsRouter from "../routes/gags.js";
 import { __setReferenceFalUploadForTest } from "../lib/defaultReferenceResolver.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import { availableGags } from "../lib/gags/resolver.js";
-import { buildGagKindCards, drawGagKinds } from "../lib/reviewRenderScenarios.js";
+import { buildGagWorkingCards, drawGagKinds } from "../lib/reviewRenderScenarios.js";
 import { pendingReviewsTable } from "@workspace/db/schema";
 import { withCast } from "./helpers/gagCast.js";
 import { approveGagRender, saveGagContent } from "../lib/gags/gagStore.js";
@@ -184,15 +184,18 @@ describe("renders, counted per action", () => {
 
     const B = scene("{NAME} lifts the sun (B).");
     await save(factId, gagId, B);
-    assert.equal(drawn(await drawGagKinds(gagId, ["male"], { adminUserId: adminId })).length, 1, "B gets its own render");
+    const forB = drawn(await drawGagKinds(gagId, ["male"], { adminUserId: adminId }));
+    assert.equal(forB.length, 1, "B gets its own render");
 
     // Saving A again returns the gag to its published version in the draft.
     await save(factId, gagId, A);
     assert.equal(drawn(await drawGagKinds(gagId, ["male"], { adminUserId: adminId })).length, 0, "back to A: A's render is reused");
-    const cards = await buildGagKindCards(gagId);
-    assert.equal(cards.male!.latestAttemptId, forA[0]!.attemptId, "the tile shows A's render");
-    assert.equal(cards.male!.stale, false);
-    assert.equal(cards.female!.status, "missing");
+    // The working render is the newest, B's, drawn from another version
+    // (PLAN_RENDER_HISTORY.md D1); A's stays in the gag's history.
+    const cards = await buildGagWorkingCards(gagId);
+    assert.equal(cards.male!.latestAttemptId, forB[0]!.attemptId, "the working render is the newest");
+    assert.equal(cards.male!.stale, true, "drawn from an earlier version");
+    assert.equal(cards.female, null, "no female render yet");
 
     // A's render, once finished, is approvable as the male example.
     await db.update(imagePromptAttemptsTable).set({ generatedImageObjectPath: `/objects/ai-bg-v2/${factId}/a.png` })
@@ -210,13 +213,15 @@ describe("renders, counted per action", () => {
     // An admin note and a rating: neither reaches the picture.
     await db.update(factsTable).set({ enrichment: { ...base, adminReviewNotes: "a note written after seeing the render", adultSuitability: base.adultSuitability === "safe" ? "compatible" : "safe" } as never }).where(eq(factsTable.id, factId));
     assert.equal(drawn(await drawGagKinds(gagId, ["male"], { adminUserId: adminId })).length, 0, "the render is reused");
-    assert.equal((await buildGagKindCards(gagId)).male!.latestAttemptId, first[0]!.attemptId, "the tile still shows it");
+    const kept = (await buildGagWorkingCards(gagId)).male!;
+    assert.equal(kept.latestAttemptId, first[0]!.attemptId, "the tile still shows it");
+    assert.equal(kept.stale, false, "a classification edit is not a new version of the picture");
     // A field the planner used to read: since the switch it shapes no picture either.
     await db.update(factsTable).set({ enrichment: { ...base, visualComplexity: base.visualComplexity === "high" ? "low" : "high" } as never }).where(eq(factsTable.id, factId));
     assert.equal(drawn(await drawGagKinds(gagId, ["male"], { adminUserId: adminId })).length, 0, "the render is still reused");
   });
 
-  it("a published example drawn from an earlier version of the content shows on its tile, out of date, until it is drawn again (Issue #1277)", async () => {
+  it("a published example drawn from an earlier version of the content is the working render, out of date, until it is drawn again (Issue #1277; PLAN_RENDER_HISTORY.md D1)", async () => {
     // The published set was drawn before the cast fill wrote a cast into the
     // approved content (PLAN_GAG_DIRECT_RENDER.md, E): no render matches the
     // content as it is now, but the gag has a picture of every kind.
@@ -234,7 +239,7 @@ describe("renders, counted per action", () => {
       }
     });
 
-    const cards = await buildGagKindCards(gagId);
+    const cards = await buildGagWorkingCards(gagId);
     for (const k of GAG_EXAMPLE_KINDS) {
       assert.equal(cards[k]!.latestAttemptId, ids[k], `the ${k} tile shows the published ${k} example`);
       assert.equal(cards[k]!.status, "done");
@@ -245,16 +250,17 @@ describe("renders, counted per action", () => {
     // Drawn again for the content as it is: the new render takes the tile, current.
     const male = drawn(await drawGagKinds(gagId, ["male"], { adminUserId: adminId, redraw: true }));
     assert.equal(male.length, 1);
-    const after = await buildGagKindCards(gagId);
+    const after = await buildGagWorkingCards(gagId);
     assert.equal(after.male!.latestAttemptId, male[0]!.attemptId);
     assert.equal(after.male!.stale, false);
     assert.equal(after.female!.latestAttemptId, ids.female, "the other kinds keep their example");
 
-    // A change in the draft has no picks yet: its tiles are its own, so the
-    // published pictures of the earlier content do not stand in for it.
+    // A change in the draft: every working render now reads out of date,
+    // the one just drawn included, until it is drawn again.
     await save(factId, gagId, scene("{NAME} lifts the sun (a change)."));
-    const changed = await buildGagKindCards(gagId);
-    assert.equal(changed.female!.status, "missing", "a changed gag with no render of the change reads not drawn");
+    const changed = await buildGagWorkingCards(gagId);
+    assert.equal(changed.female!.stale, true, "the earlier version's render reads out of date");
+    assert.equal(changed.male!.stale, true, "so does the render of the content before the change");
   });
 
   it("overlapping requests for the same content draw one render", async () => {
@@ -280,7 +286,7 @@ describe("renders, counted per action", () => {
   it("a failed render shows on its tile with its error, and an explicit redraw retries it", async () => {
     const { factId, gagId } = await liveFact();
     await render(factId, gagId, A, "male", { failed: true });
-    const card = (await buildGagKindCards(gagId)).male!;
+    const card = (await buildGagWorkingCards(gagId)).male!;
     assert.equal(card.status, "failed");
     assert.equal(card.message, "vendor failed");
     assert.equal(drawn(await drawGagKinds(gagId, ["male"], { adminUserId: adminId, redraw: true })).length, 1);

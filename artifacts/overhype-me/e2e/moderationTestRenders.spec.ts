@@ -12,7 +12,7 @@
  * api-server suites.
  */
 import { expect, test, type Page, type Route } from "@playwright/test";
-import { EMPTY_VISUAL_STRATEGY_OVERRIDE, type FactGagsView, type GagView, type RenderScenarioCard } from "@workspace/api-zod";
+import { EMPTY_VISUAL_STRATEGY_OVERRIDE, type FactGagsView, type GagView, type RenderHistoryEntry, type RenderScenarioCard } from "@workspace/api-zod";
 import { enrichmentWithConcept } from "./helpers/adminStubs";
 
 const REVIEW_ID = 9461;
@@ -38,11 +38,16 @@ function gag(id: number, slot: number): GagView {
     pendingExamples: { male: example(id * 10 + 1), female: example(id * 10 + 2), pet: example(id * 10 + 3) },
     draftRemoved: false,
     prefilledUntouched: false,
-    renders: { male: tile("i2i_male_default", id * 10 + 1), female: tile("i2i_female_default", id * 10 + 2), pet: tile("i2i_nonhuman_animal", id * 10 + 3) },
+    // Each picture's draft pick is its working render too (PLAN_RENDER_HISTORY.md D1).
+    roles: {
+      male: { live: null, approvedNext: example(id * 10 + 1), working: tile("i2i_male_default", id * 10 + 1) },
+      female: { live: null, approvedNext: example(id * 10 + 2), working: tile("i2i_female_default", id * 10 + 2) },
+      pet: { live: null, approvedNext: example(id * 10 + 3), working: tile("i2i_nonhuman_animal", id * 10 + 3) },
+    },
   };
 }
 
-async function stubReview(page: Page, stage: "gags" | "test_renders" = "test_renders", draftReady: FactGagsView["draftReady"] = { ok: true, reason: null }): Promise<{ approvals: () => unknown[] }> {
+async function stubReview(page: Page, stage: "gags" | "test_renders" = "test_renders", draftReady: FactGagsView["draftReady"] = { ok: true, reason: null }): Promise<{ approvals: () => unknown[]; view: FactGagsView }> {
   const approvals: unknown[] = [];
   const row = {
     id: REVIEW_ID, submittedText: TEXT, matchingFactId: null, matchingSimilarity: 0, status: "pending",
@@ -66,9 +71,24 @@ async function stubReview(page: Page, stage: "gags" | "test_renders" = "test_ren
     return route.fulfill({ json: { success: true } });
   });
   await page.route(new RegExp(`/api/admin/facts/${FACT_ID}/gags$`), (route: Route) => route.fulfill({ json: view }));
+  await page.route(new RegExp(`/api/admin/facts/${FACT_ID}/render-history/removed-gags$`), (route: Route) => route.fulfill({ json: { gags: [] } }));
+  await page.route(new RegExp(`/api/admin/facts/${FACT_ID}/gags/\\d+/render-history`), (route: Route) =>
+    route.fulfill({ json: { gagId: 1, entries: [], nextBefore: null } }));
   await page.route(new RegExp(`/api/admin/facts/${FACT_ID}(\\?.*)?$`), (route: Route) =>
     route.fulfill({ json: { id: FACT_ID, text: TEXT, isActive: false, enrichment: classification, enrichmentStatus: "ok" } }));
-  return { approvals: () => approvals };
+  return { approvals: () => approvals, view };
+}
+
+/** A render in a gag's history, as the server reads it (PLAN_RENDER_HISTORY.md D4). */
+function historyEntry(attemptId: number, over: Partial<RenderHistoryEntry> = {}): RenderHistoryEntry {
+  return {
+    attemptId, kind: "male", createdAt: CREATED, drawnBy: { userId: "a1", name: "Raena Admin" }, roles: [], status: "done", error: null,
+    imageUrl: null, gag: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "{NAME} outlifts a forklift, take 1." },
+    reference: { identityType: "male", assetVersion: "v1" }, engine: { engineId: "gpt-image-2", fallback: null },
+    prompt: { compiled: { scene: "outlifts a forklift" }, requests: [] },
+    approval: "not_approved", cost: { state: "billed", usd: 0.04, unbilledRequests: 0, unknownRequests: 0 },
+    ...over,
+  };
 }
 
 test.describe("Admin · moderation · Test Renders per gag", () => {
@@ -113,6 +133,69 @@ test.describe("Admin · moderation · Test Renders per gag", () => {
     await page.getByTestId("approve-for-production").click();
     await expect.poll(() => server.approvals().length).toBe(1);
     expect((server.approvals()[0] as { hashtags: string[] }).hashtags).toContain("forklift");
+  });
+
+  // Issue #1304 (plan PLAN_RENDER_HISTORY.md D3 and D6): the approved render is
+  // locked beside the working one, and each gag's history opens to its renders,
+  // pages, and deletes an old one after a confirmation naming it.
+  test("the approved render is locked beside the working render, and the gag's history opens and deletes an old render after a confirmation", async ({ page }) => {
+    const { view } = await stubReview(page);
+    const g1 = view.gags[0]!;
+    // A newer male render (#15) is working; the approved one (#11) stays locked.
+    const picture = `/api/admin/facts/${FACT_ID}/gags/1/renders/job15/image`;
+    const withNewer: FactGagsView = { ...view, gags: [{ ...g1, roles: { ...g1.roles, male: { ...g1.roles.male, working: { ...tile("i2i_male_default", 15), imageUrl: picture } } } }, view.gags[1]!] };
+    // A finished working render has a picture: Approve is offered only then.
+    await page.route(new RegExp(`${picture}$`), (route: Route) => route.fulfill({ contentType: "image/png", body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64") }));
+    await page.route(new RegExp(`/api/admin/facts/${FACT_ID}/gags$`), (route: Route) => route.fulfill({ json: withNewer }));
+    const deletes: string[] = [];
+    let deleted = false;
+    await page.route(new RegExp(`/api/admin/facts/${FACT_ID}/gags/1/render-history`), (route: Route) => route.fulfill({ json: {
+      gagId: 1,
+      entries: [
+        historyEntry(15, { roles: ["working"] }),
+        historyEntry(11, { roles: ["approved_next"], approval: "approved" }),
+        ...(deleted ? [] : [historyEntry(9, { status: "failed", error: "vendor failed", cost: { state: "never_sent" } })]),
+      ],
+      nextBefore: null,
+    } }));
+    await page.route(new RegExp(`/api/admin/facts/${FACT_ID}/gags/1/renders/\\d+/delete$`), (route: Route) => {
+      deletes.push(route.request().url());
+      deleted = true;
+      return route.fulfill({ json: { deleted: true, fileStillBeingRemoved: false } });
+    });
+
+    await page.goto("/admin/moderation");
+    await page.getByText(`"${TEXT}"`, { exact: true }).first().click();
+    const card = page.getByTestId("gag-card").first();
+    const male = card.locator('[data-testid="gag-render"][data-kind="male"]');
+    const official = male.getByTestId("gag-render-official");
+    await expect(official).toHaveCount(1);
+    await expect(official).toContainText("Approved for publishing");
+    await expect(official).toContainText("Locked");
+    await expect(official.getByTestId("gag-redraw-render"), "no draw on the approved render").toHaveCount(0);
+    await expect(male.getByTestId("gag-render-working").getByTestId("gag-approve-render")).toBeVisible();
+
+    const history = card.getByTestId("gag-history");
+    await expect(history.getByTestId("gag-history-entry"), "history is collapsed until opened").toHaveCount(0);
+    await history.getByTestId("gag-history-toggle").click();
+    await expect(history.getByTestId("gag-history-entry")).toHaveCount(3);
+    const old = history.locator('[data-testid="gag-history-entry"][data-attempt-id="9"]');
+    await expect(old).toContainText("Failed: vendor failed");
+    await old.getByTestId("gag-history-entry-toggle").click();
+    await expect(old.getByTestId("gag-history-record")).toContainText("outlifts a forklift, take 1.");
+    // The approved render offers no delete; the old failed one does, after a confirmation.
+    const approved = history.locator('[data-testid="gag-history-entry"][data-attempt-id="11"]');
+    await approved.getByTestId("gag-history-entry-toggle").click();
+    await expect(approved.getByTestId("gag-history-delete")).toHaveCount(0);
+    let asked = "";
+    page.once("dialog", (d) => { asked = d.message(); void d.accept(); });
+    await old.getByTestId("gag-history-delete").click();
+    await expect(history.getByTestId("gag-history-notice")).toHaveText("Deleted.");
+    expect(asked).toMatch(/^Delete the male render drawn .+ for good\?/);
+    expect(deletes).toHaveLength(1);
+    expect(deletes[0]).toMatch(/\/gags\/1\/renders\/9\/delete$/);
+    await expect(history.getByTestId("gag-history-entry")).toHaveCount(2);
+    await page.screenshot({ path: "test-results/render-history.png", fullPage: true });
   });
 
   // The lock beside Approve names what is missing, in the gags' own names (Issue #1018, 1.3b build report).
