@@ -421,8 +421,10 @@ is a separate, same-origin static artifact** (Replit's application router / the
 Vite dev server), so a CSP here governs only this server's responses and can't
 break the SPA's inline scripts. Deliberate, env/route-aware choices:
 
-- **CSP is Report-Only first** (flip to enforce after UAT); strict
-  `default-src 'none'` for JSON, `img-src` added for OG shells.
+- **CSP is Report-Only first** (enforced in Phase 15, increment 3d, after the
+  OAuth popup journeys pass under it); strict `default-src 'none'` for JSON,
+  `img-src` added for OG shells. Every policy reports to the collector (below)
+  by `report-uri /api/csp-report/api` alone.
 - **Frame policy is env-aware** — `X-Frame-Options: DENY` + `frame-ancestors
   'none'` in production, **omitted when `REPLIT_DEV_DOMAIN` is set** because the
   app runs inside the Replit webview iframe in dev.
@@ -435,6 +437,37 @@ break the SPA's inline scripts. Deliberate, env/route-aware choices:
 - **COOP disabled** (would sever an OAuth-popup `window.opener`); COEP off.
 - Canonical prod predicate: `REPLIT_DEPLOYMENT === "1" || NODE_ENV ===
   "production"` (mirrors `siteUrl.ts`).
+
+### The web app's own headers, and the CSP report collector (Phase 15, increment 3)
+
+- **The published web server** (`artifacts/overhype-me/server/serve.mjs`, which
+  runs only in the published deployment; the workspace preview runs Vite) sends
+  `X-Content-Type-Options: nosniff` and `Referrer-Policy:
+  strict-origin-when-cross-origin` on every response, `X-Frame-Options: DENY`
+  and `frame-ancestors 'none'` in the deployment, and on every HTML page the web
+  app's CSP as **report-only**. Its `script-src` admits `'self'`, the sha256 of
+  each inline script in the served `index.html` (computed from the file, so a
+  rebuilt page is always matched), and the named third-party script hosts; no
+  `'unsafe-inline'` or `'unsafe-eval'` for scripts. It reports by `report-uri
+  /api/csp-report/web`. Enforcing it is increment 3f, a separate PR whose
+  trigger is a 7-day clean window of deployed reports plus the journeys run
+  under enforcement.
+- **`report-uri` only, never `report-to`**, on both servers: Chromium ignores
+  `report-uri` whenever `report-to` is present, and measured on 2026-11-25 in
+  headless Chromium the `report-to` path delivered nothing in 75 seconds while
+  `report-uri` delivered every violation.
+- **zod runs `jitless` in the browser** (`src/lib/zodConfig.ts`, imported
+  first in `main.tsx`): zod 4's probe for `new Function` is a CSP violation
+  report on every page load even though zod swallows the error.
+- **The collector** (`artifacts/api-server/src/lib/cspReport.ts`, `POST
+  /api/csp-report/:source`, source `web` or `api`) is unauthenticated by
+  necessity and mounted ahead of the cookie parser, the body parsers, the origin
+  and CSRF checks and the auth chain. It reads only `application/csp-report`
+  and `application/reports+json`, refuses a body over 16 KB (413), sheds more
+  than 60 reports a minute from one address (429), and answers with an empty
+  body. Each violation becomes one `csp_report` log line of fixed fields;
+  every URL keeps only its scheme, host and path, the script sample is dropped,
+  and the raw body is cleared before the request logger runs.
 
 ## Secrets & supply chain (C10)
 

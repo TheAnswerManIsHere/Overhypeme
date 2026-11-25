@@ -38,12 +38,24 @@
  *    on a JSON/redirect surface. COEP stays off (helmet default) — requiring it
  *    would break cross-origin embeds.
  *
- * @purpose The security-header chain app.ts mounts first on every response: helmet baselines, a route-class-aware report-only CSP, an env-aware frame policy and production-only HSTS; the public cross-origin relaxation lives in cacheHeaders instead.
+ * @purpose The security-header chain app.ts mounts first on every response: helmet baselines, a route-class-aware report-only CSP that reports to lib/cspReport.ts, an env-aware frame policy and production-only HSTS; the public cross-origin relaxation lives in cacheHeaders instead.
  * @subsystem security
  */
 import helmet from "helmet";
 import type { Request, RequestHandler } from "express";
 import { isProductionEnv } from "./env";
+import { CSP_REPORT_PATH } from "./cspReport";
+
+/**
+ * Where this server's policies report (launch Phase 15, increment 3b): the
+ * collector in lib/cspReport.ts. Same-origin and relative, so it is right on
+ * every serving hostname. `report-uri` only, with no `report-to`: Chromium
+ * ignores `report-uri` whenever `report-to` is present, and measured
+ * 2026-11-25 in headless Chromium the `report-to` path delivered nothing in
+ * 75 seconds while `report-uri` delivered every violation. Every current
+ * browser still sends `report-uri` reports.
+ */
+const API_REPORT_URL = `${CSP_REPORT_PATH}/api`;
 
 // The OG shells are the only HTML documents this server emits; they carry an
 // <img> (same-origin render or a legacy R2/Cloudinary/GCS CDN URL) and NO
@@ -65,6 +77,7 @@ function buildCsp(kind: "json" | "og", isProduction: boolean): string {
   }
   // frame-ancestors only in production; in Replit preview the webview frames us.
   if (isProduction) directives.push("frame-ancestors 'none'");
+  directives.push(`report-uri ${API_REPORT_URL}`);
   return directives.join("; ");
 }
 
