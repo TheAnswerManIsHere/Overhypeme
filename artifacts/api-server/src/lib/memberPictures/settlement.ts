@@ -148,6 +148,25 @@ export async function returnUndeliveredPicture(attemptId: number, tx: Executor, 
 
 const LIVE_JOB_STATUSES = ["pending", "processing", "recovering"];
 
+/**
+ * The one statement of "spent, not returned, not delivered" over
+ * `image_prompt_attempts`: a member picture whose credit is still owed an
+ * outcome. The recovery pass finds its candidates with it, and a fact's
+ * permanent delete counts it as attached (factLifecycle.ts), since deleting
+ * the fact would delete the attempt and leave the spend with nothing that
+ * can return it (Codex review, PR #1300).
+ */
+const UNSETTLED = sql`NOT EXISTS (SELECT 1 FROM credit_ledger c WHERE c.kind = 'picture_return' AND c.ref = 'picture:' || ${imagePromptAttemptsTable.id}::text)
+    AND NOT EXISTS (SELECT 1 FROM user_ai_images u WHERE u.attempt_id = ${imagePromptAttemptsTable.id})
+    AND EXISTS (SELECT 1 FROM credit_ledger s WHERE s.kind = 'picture_spend' AND s.ref = 'picture:' || ${imagePromptAttemptsTable.id}::text)`;
+
+/** How many member pictures of this fact still owe their member an outcome (delivered or returned). */
+export async function unsettledPicturesOnFact(factId: number, executor: Executor = db): Promise<number> {
+  const [row] = await executor.select({ n: sql<number>`count(*)::int` }).from(imagePromptAttemptsTable)
+    .where(and(eq(imagePromptAttemptsTable.factId, factId), isNotNull(imagePromptAttemptsTable.memberRequestId), UNSETTLED));
+  return row?.n ?? 0;
+}
+
 interface SettlementPassResult { failedReturned: number; strandedReturned: number; deadlineReturned: number }
 
 /**
@@ -168,9 +187,7 @@ interface SettlementPassResult { failedReturned: number; strandedReturned: numbe
  */
 export async function runMemberPictureSettlementPass(now = Date.now(), limit = 200): Promise<SettlementPassResult> {
   const result: SettlementPassResult = { failedReturned: 0, strandedReturned: 0, deadlineReturned: 0 };
-  const unsettled = sql`NOT EXISTS (SELECT 1 FROM credit_ledger c WHERE c.kind = 'picture_return' AND c.ref = 'picture:' || ${imagePromptAttemptsTable.id}::text)
-    AND NOT EXISTS (SELECT 1 FROM user_ai_images u WHERE u.attempt_id = ${imagePromptAttemptsTable.id})
-    AND EXISTS (SELECT 1 FROM credit_ledger s WHERE s.kind = 'picture_spend' AND s.ref = 'picture:' || ${imagePromptAttemptsTable.id}::text)`;
+  const unsettled = UNSETTLED;
 
   const failed = await db.select({ id: imagePromptAttemptsTable.id }).from(imagePromptAttemptsTable)
     .where(and(

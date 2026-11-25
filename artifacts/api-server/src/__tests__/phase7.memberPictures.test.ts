@@ -42,6 +42,7 @@ import { __setRenderFalForTest } from "../lib/renderFalTransport.js";
 import { __setTier3ForTest } from "../lib/sourceImageAnalysis/index.js";
 import { creditBalance } from "../lib/credits/ledger.js";
 import { createMemeRecord, CreateMemeError } from "../lib/createMemeRecord.js";
+import { deleteFact, attachedContent } from "../lib/factLifecycle.js";
 import { photoBackgrounds } from "./helpers/photoBackground.js";
 import { withCast } from "./helpers/gagCast.js";
 import { giveExampleSet } from "./helpers/gagExampleSets.js";
@@ -563,6 +564,25 @@ describe("Phase 7 inc 2: every failure returns the credit", () => {
     await runMemberPictureSettlementPass();
     await runMemberPictureSettlementPass();
     await assertSettled(attemptId, "returned");
+  });
+
+  it("a fact is not permanently deleted while a member's picture on it is owed its outcome (Codex review, PR #1300)", async () => {
+    const userId = await newMember(1);
+    const adminId = await newMember(0);
+    await db.update(usersTable).set({ isAdmin: true }).where(eq(usersTable.id, adminId));
+    const { factId } = await liveFact();
+    const { attemptId } = await requestMemberPicture(await command(userId, factId));
+    await db.update(factsTable).set({ isActive: false }).where(eq(factsTable.id, factId));
+    const refused = await deleteFact(factId, adminId);
+    assert.equal(refused.kind, "attached");
+    assert.equal((refused as { attached: { aiPictures: number } }).attached.aiPictures, 1, "names an AI picture");
+    assert.deepEqual(await attachedContent(factId), (refused as { attached: unknown }).attached, "the fact sheet reads the same count");
+    assert.ok(await attempt(attemptId), "the attempt is untouched");
+    assert.equal((await ledgerFor(attemptId)).length, 1, "the spend is untouched");
+    // Once it has failed and its credit is back, the delete goes through.
+    await runMemberPictureSettlementPass(Date.now() + PICTURE_DEADLINE_MS + 60_000);
+    assert.equal(await creditBalance(userId), 1, "the balance is what it was before the picture");
+    assert.equal((await deleteFact(factId, adminId)).kind, "done");
   });
 
   it("a delivered picture is never returned by the recovery pass", async () => {
