@@ -101,12 +101,12 @@ describe("pino-http request body scrubbing (integration)", () => {
     await listenRandom(server);
 
     try {
-      await postJson(server, "/test", { username: "alice", password: "s3cr3t" });
+      await postJson(server, "/test", { username: "raena", password: "s3cr3t" });
       const log = logLines.find((l) => l.includes('"req"'));
       assert.ok(log, "expected a request log line");
       const parsed = JSON.parse(log) as { req: { body: Record<string, unknown> } };
       assert.equal(parsed.req.body.password, "[Filtered]", "password must be filtered");
-      assert.equal(parsed.req.body.username, "alice", "username must be preserved");
+      assert.equal(parsed.req.body.username, "raena", "username must be preserved");
     } finally {
       await new Promise<void>((r) => server.close(() => r()));
     }
@@ -120,7 +120,7 @@ describe("pino-http request body scrubbing (integration)", () => {
 
     try {
       await postJson(server, "/test", {
-        email: "alice@example.com",
+        email: "raena@example.com",
         accessToken: "tok-abc",
         action: "login",
       });
@@ -265,12 +265,12 @@ describe("pino-http URL query parameter scrubbing (integration)", () => {
     await listenRandom(server);
 
     try {
-      await getRequest(server, "/test?code=oauth-code&email=alice%40example.com&redirect=home");
+      await getRequest(server, "/test?code=oauth-code&email=raena%40example.com&redirect=home");
       const log = logLines.find((l) => l.includes('"req"'));
       assert.ok(log, "expected a request log line");
       const parsed = JSON.parse(log) as { req: { url: string } };
       assert.ok(!parsed.req.url.includes("oauth-code"), "code value must not appear in log URL");
-      assert.ok(!parsed.req.url.includes("alice"), "email value must not appear in log URL");
+      assert.ok(!parsed.req.url.includes("raena"), "email value must not appear in log URL");
       assert.ok(parsed.req.url.includes("redirect=home"), "redirect param must be preserved");
     } finally {
       await new Promise<void>((r) => server.close(() => r()));

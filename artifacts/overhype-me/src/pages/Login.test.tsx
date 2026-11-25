@@ -77,7 +77,7 @@ describe("Login — an email sign-up carries the page it started from (Issue #12
     fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
     fireEvent.change(screen.getByPlaceholderText("your@email.com"), { target: { value: "alex@example.com" } });
     fireEvent.change(screen.getByPlaceholderText("First"), { target: { value: "Alex" } });
-    fireEvent.change(screen.getByPlaceholderText("Last"), { target: { value: "Lee" } });
+    fireEvent.change(screen.getByPlaceholderText("Last"), { target: { value: "Franklin" } });
     fireEvent.change(screen.getByPlaceholderText("Min 8 characters"), { target: { value: "hunter2222" } });
     fireEvent.submit(document.querySelector("form")!);
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());

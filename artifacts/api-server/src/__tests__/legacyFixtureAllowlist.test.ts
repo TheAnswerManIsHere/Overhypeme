@@ -233,7 +233,7 @@ describe("the scrub primitives", () => {
 
   it("prints a refused reference as categories only, whatever the length of its parts (Codex round 1)", () => {
     for (const [ref, mustNot] of [
-      ["https://cdn.foo.io/alice/head.jpg", ["foo", "alice", "head"]],
+      ["https://cdn.foo.io/raena/head.jpg", ["foo", "raena", "head"]],
       ["/objects/zqx/me.png?sig=abc", ["zqx", "me", "sig", "abc"]],
       ["https://v3b.fal.media/files/b/zqxsecretface.jpeg#x", ["zqx", "v3b"]],
     ] as const) {

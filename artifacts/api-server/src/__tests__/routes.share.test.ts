@@ -170,14 +170,14 @@ describe("POST /share/invite", () => {
   it("rebuilds the emailed link on the site's own address from the page and the two fields", async () => {
     const body = {
       ...validBody(),
-      shareUrl: "https://evil.example.net/facts/7/?displayName=Mallory&pronouns=she%2Fher&next=https%3A%2F%2Fevil.example.net#x",
+      shareUrl: "https://evil.example.net/facts/7/?displayName=Raena&pronouns=she%2Fher&next=https%3A%2F%2Fevil.example.net#x",
     };
     const res = await request(makeApp()).post("/share/invite").send(body);
     assert.equal(res.status, 200);
     const [row] = await db.select().from(asyncJobsTable).where(whereEmailTo(body.recipientEmail));
     const text = emailPayload(row!).text ?? "";
     assert.match(text, /https:\/\/overhype\.me\/facts\/7\?displayName=Alex&pronouns=she%2Fher/);
-    assert.doesNotMatch(text, /evil\.example\.net|Mallory|next=/);
+    assert.doesNotMatch(text, /evil\.example\.net|Raena|next=/);
   });
 
   it("accepts the home page as a share target", async () => {

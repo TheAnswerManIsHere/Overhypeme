@@ -65,7 +65,7 @@ describe("addresses leave as route patterns", () => {
   it("drops the query, the fragment and every dynamic segment", () => {
     expect(routePattern("/facts/7?displayName=Raena&pronouns=she%2Fher#x")).toBe("/facts/:id");
     expect(routePattern("/facts/7/comments")).toBe("/facts/:id/:sub");
-    expect(routePattern("/m/alice-is-great")).toBe("/m/:slug");
+    expect(routePattern("/m/raena-is-great")).toBe("/m/:slug");
     expect(routePattern("/search?q=Raena")).toBe("/search");
     expect(routePattern("/reset-password?token=secret")).toBe("/reset-password");
     expect(routePattern("/privacy")).toBe("/privacy");
@@ -398,13 +398,13 @@ describe("what PostHog adds by itself is scrubbed before sending", () => {
     vi.stubEnv("VITE_POSTHOG_KEY", "phc_test123");
     startAnalytics();
     await flush();
-    page("/m/alice-is-great");
+    page("/m/raena-is-great");
     const out = scrubPosthogEvent({
       uuid: "u",
       event: "submit",
       properties: {
-        $current_url: "https://overhype.me/m/alice-is-great?displayName=Raena",
-        $pathname: "/m/alice-is-great",
+        $current_url: "https://overhype.me/m/raena-is-great?displayName=Raena",
+        $pathname: "/m/raena-is-great",
         $referrer: "https://overhype.me/search?q=Raena",
         $title: "Raena is great",
         $elements_chain: "a:text=\"Raena\"",
@@ -428,7 +428,7 @@ describe("a landing address's campaign tags reach GA4 (fix after PR #1059)", () 
   it("keeps only the listed tags, and only code-shaped values", () => {
     expect(campaignQuery("?utm_source=newsletter&utm_medium=email&utm_campaign=launch-week&displayName=Raena&gclid=abc"))
       .toBe("?utm_source=newsletter&utm_medium=email&utm_campaign=launch-week");
-    expect(campaignQuery("?utm_term=Raena%20Smith&utm_content=alice%40example.com&utm_id=spring_2027")).toBe("?utm_id=spring_2027");
+    expect(campaignQuery("?utm_term=Raena%20Franklin&utm_content=raena%40example.com&utm_id=spring_2027")).toBe("?utm_id=spring_2027");
     expect(campaignQuery("?utm_source=" + "a".repeat(101))).toBe("");
     expect(campaignQuery("?q=Raena")).toBe("");
     expect(campaignQuery("")).toBe("");
@@ -437,7 +437,7 @@ describe("a landing address's campaign tags reach GA4 (fix after PR #1059)", () 
   it("the landing page view carries them, and the page after it does not", () => {
     vi.stubEnv("VITE_GA_MEASUREMENT_ID", "G-TEST123");
     vi.stubEnv("VITE_POSTHOG_KEY", "");
-    window.history.replaceState(null, "", "/facts/7?displayName=Raena&utm_source=newsletter&utm_campaign=launch-week&utm_term=Raena%20Smith");
+    window.history.replaceState(null, "", "/facts/7?displayName=Raena&utm_source=newsletter&utm_campaign=launch-week&utm_term=Raena%20Franklin");
     startAnalytics();
     const landing = `${window.location.origin}/facts/:id?utm_source=newsletter&utm_campaign=launch-week`;
     // Before config, so even a hit sent before the first page view is attributed.
@@ -468,7 +468,7 @@ describe("a landing address's campaign tags reach GA4 (fix after PR #1059)", () 
   it("PostHog gets the landing tags for the session even after the visitor has moved on (owed after PR #1069)", async () => {
     vi.stubEnv("VITE_GA_MEASUREMENT_ID", "");
     vi.stubEnv("VITE_POSTHOG_KEY", "phc_test123");
-    window.history.replaceState(null, "", "/facts/7?utm_source=newsletter&utm_campaign=launch-week&utm_term=Raena%20Smith&displayName=Raena");
+    window.history.replaceState(null, "", "/facts/7?utm_source=newsletter&utm_campaign=launch-week&utm_term=Raena%20Franklin&displayName=Raena");
     vi.resetModules();
     const fresh = await import("./analytics");
     // The app moves on before analytics starts, and PostHog reads the address at each event.
@@ -508,7 +508,7 @@ describe("a landing address's campaign tags reach GA4 (fix after PR #1059)", () 
     async function landThenMoveOn() {
       vi.stubEnv("VITE_GA_MEASUREMENT_ID", "");
       vi.stubEnv("VITE_POSTHOG_KEY", "phc_test123");
-      window.history.replaceState(null, "", "/?utm_source=newsletter&utm_campaign=launch-week&utm_term=Raena%20Smith");
+      window.history.replaceState(null, "", "/?utm_source=newsletter&utm_campaign=launch-week&utm_term=Raena%20Franklin");
       vi.resetModules();
       const fresh = await import("./analytics");
       window.history.replaceState(null, "", "/pricing");
@@ -567,7 +567,7 @@ describe("a landing address's campaign tags reach GA4 (fix after PR #1059)", () 
   it("PostHog registers nothing when the landing address had no clean tags", async () => {
     vi.stubEnv("VITE_GA_MEASUREMENT_ID", "");
     vi.stubEnv("VITE_POSTHOG_KEY", "phc_test123");
-    window.history.replaceState(null, "", "/?utm_term=Raena%20Smith");
+    window.history.replaceState(null, "", "/?utm_term=Raena%20Franklin");
     startAnalytics();
     resetIdentity();
     await flush();
@@ -587,8 +587,8 @@ describe("a landing address's campaign tags reach GA4 (fix after PR #1059)", () 
   it("PostHog keeps the campaign tags it reads only when their value passes the same check", () => {
     const event = {
       uuid: "1", event: "$pageview",
-      properties: { utm_source: "newsletter", utm_term: "Raena Smith", __page_pattern: "/" },
-      $set_once: { $initial_utm_source: "newsletter", $initial_utm_content: "alice@example.com" },
+      properties: { utm_source: "newsletter", utm_term: "Raena Franklin", __page_pattern: "/" },
+      $set_once: { $initial_utm_source: "newsletter", $initial_utm_content: "raena@example.com" },
     } as unknown as Parameters<typeof scrubPosthogEvent>[0];
     const out = scrubPosthogEvent(event)!;
     expect(out.properties).toMatchObject({ utm_source: "newsletter" });

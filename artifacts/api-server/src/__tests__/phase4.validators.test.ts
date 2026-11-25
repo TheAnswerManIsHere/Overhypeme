@@ -77,19 +77,19 @@ describe("Phase 4 — NameSchema", () => {
   });
 
   it("collapses internal whitespace runs", () => {
-    const r = NameSchema.safeParse("Alex   Smith");
+    const r = NameSchema.safeParse("Alex   Franklin");
     assert.equal(r.success, true);
-    if (r.success) assert.equal(r.data, "Alex Smith");
+    if (r.success) assert.equal(r.data, "Alex Franklin");
   });
 
   // The shared name rule turns any whitespace run into one space, so a line
   // break or tab never reaches a prompt or a caption (identity-flow Phase 2;
   // before, this schema refused them).
   it("turns newlines, carriage returns and tabs into a single space", () => {
-    for (const raw of ["Alex\nSmith", "Alex\rSmith", "Alex\tSmith", "Alex\r\n Smith"]) {
+    for (const raw of ["Alex\nFranklin", "Alex\rFranklin", "Alex\tFranklin", "Alex\r\n Franklin"]) {
       const r = NameSchema.safeParse(raw);
       assert.equal(r.success, true, JSON.stringify(raw));
-      assert.equal(r.success && r.data, "Alex Smith");
+      assert.equal(r.success && r.data, "Alex Franklin");
     }
   });
 

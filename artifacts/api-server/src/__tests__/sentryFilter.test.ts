@@ -25,10 +25,10 @@ describe("scrubSentryEvent – request.url", () => {
 
   it("replaces an email query param in request.url with [Filtered]", () => {
     const event: Event = {
-      request: { url: "https://api.example.com/verify?email=alice%40example.com&step=1" },
+      request: { url: "https://api.example.com/verify?email=raena%40example.com&step=1" },
     };
     scrubSentryEvent(event);
-    assert.ok(!event.request?.url?.includes("alice"), "email value must not appear");
+    assert.ok(!event.request?.url?.includes("raena"), "email value must not appear");
     assert.ok(event.request?.url?.includes("step=1"), "step must be preserved");
   });
 
@@ -55,12 +55,12 @@ describe("scrubSentryEvent – request.query_string", () => {
 
   it("replaces a password in query_string with [Filtered]", () => {
     const event: Event = {
-      request: { query_string: "password=hunter2&user=alice" },
+      request: { query_string: "password=hunter2&user=raena" },
     };
     scrubSentryEvent(event);
     assert.ok(!(event.request?.query_string as string)?.includes("hunter2"), "password value must not appear");
     assert.ok(
-      (event.request?.query_string as string).includes("user=alice"),
+      (event.request?.query_string as string).includes("user=raena"),
       "user must be preserved",
     );
   });
@@ -99,12 +99,12 @@ describe("scrubSentryEvent – header scrubbing", () => {
 describe("scrubSentryEvent – request.data body scrubbing", () => {
   it("redacts password fields in request.data", () => {
     const event: Event = {
-      request: { data: { username: "alice", password: "s3cr3t" } },
+      request: { data: { username: "raena", password: "s3cr3t" } },
     };
     scrubSentryEvent(event);
     const data = event.request?.data as Record<string, unknown>;
     assert.equal(data.password, "[Filtered]");
-    assert.equal(data.username, "alice");
+    assert.equal(data.username, "raena");
   });
 });
 
