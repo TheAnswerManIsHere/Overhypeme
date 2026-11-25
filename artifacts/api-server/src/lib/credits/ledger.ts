@@ -11,11 +11,16 @@ export const ADMIN_ADJUSTMENT_MAX = 1000;
 export const ADMIN_ADJUSTMENT_NOTE_MAX = 1000;
 const CREDIT_LEDGER_PAGE = 100;
 
+/**
+ * One change to an account's credits as a person sees it: an adjustment, a
+ * grant or a picture. The ledger may hold several rows for one change, one per
+ * lot it drew on (an admin's removal of 2 across two grants); this is their
+ * total (Issue #1301).
+ */
 export interface CreditEntry {
   id: number;
   kind: CreditLedgerKind;
   credits: number;
-  lotId: number | null;
   note: string | null;
   actorLabel: string | null;
   createdAt: Date;
@@ -30,21 +35,25 @@ export async function creditBalance(userId: string, executor: Executor = db): Pr
   return row?.balance ?? 0;
 }
 
-/** An account's most recent ledger entries, newest first. */
+/**
+ * An account's most recent changes, newest first: one entry per change, its
+ * ledger rows totalled. A change is the rows sharing a kind and a reference,
+ * which `(kind, ref, lot)` makes exactly the rows one write produced.
+ */
 export async function creditEntries(userId: string, limit = CREDIT_LEDGER_PAGE, executor: Executor = db): Promise<CreditEntry[]> {
   return executor
     .select({
-      id: creditLedgerTable.id,
+      id: sql<number>`min(${creditLedgerTable.id})::int`,
       kind: creditLedgerTable.kind,
-      credits: creditLedgerTable.credits,
-      lotId: creditLedgerTable.lotId,
-      note: creditLedgerTable.note,
-      actorLabel: creditLedgerTable.actorLabel,
-      createdAt: creditLedgerTable.createdAt,
+      credits: sql<number>`sum(${creditLedgerTable.credits})::int`,
+      note: sql<string | null>`min(${creditLedgerTable.note})`,
+      actorLabel: sql<string | null>`min(${creditLedgerTable.actorLabel})`,
+      createdAt: sql<Date>`min(${creditLedgerTable.createdAt})`.mapWith(creditLedgerTable.createdAt),
     })
     .from(creditLedgerTable)
     .where(eq(creditLedgerTable.userId, userId))
-    .orderBy(desc(creditLedgerTable.id))
+    .groupBy(creditLedgerTable.kind, creditLedgerTable.ref)
+    .orderBy(desc(sql`min(${creditLedgerTable.id})`))
     .limit(limit);
 }
 
