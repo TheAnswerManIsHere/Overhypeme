@@ -79,7 +79,10 @@ describe("securityHeaders — production env", () => {
   it("JSON: strict default-src 'none' + frame-ancestors, DENY frame, HSTS", async () => {
     const res = await request(makeApp("prod")).get("/api/foo");
     const csp = res.headers["content-security-policy-report-only"];
-    assert.equal(csp, "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+    assert.equal(
+      csp,
+      "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; report-uri /api/csp-report/api",
+    );
     assert.equal(res.headers["x-frame-options"], "DENY");
     assert.match(res.headers["strict-transport-security"] ?? "", /max-age=\d+/);
     assert.doesNotMatch(res.headers["strict-transport-security"] ?? "", /includeSubDomains|preload/);
@@ -127,6 +130,28 @@ describe("securityHeaders — CORP baseline", () => {
     ]) {
       const res = await request(makeApp("prod")).get(path);
       assert.equal(res.headers["cross-origin-resource-policy"], "same-origin", `expected same-origin baseline for ${path}`);
+    }
+  });
+});
+
+describe("securityHeaders — CSP reporting (launch Phase 15, increment 3b)", () => {
+  it("every route class's policy reports to the collector by report-uri alone, in every environment", async () => {
+    for (const mode of ["prod", "dev"] as const) {
+      for (const path of ["/api/foo", "/api/og/m/abc"]) {
+        const res = await request(makeApp(mode)).get(path);
+        const csp = res.headers["content-security-policy-report-only"] ?? "";
+        assert.match(csp, /(^|; )report-uri \/api\/csp-report\/api(;|$)/, `${mode} ${path}`);
+        // report-to would make Chromium ignore report-uri (lib/securityHeaders.ts).
+        assert.doesNotMatch(csp, /report-to/, `${mode} ${path}`);
+      }
+    }
+  });
+
+  it("JSON and OG stay script-free", async () => {
+    for (const path of ["/api/foo", "/api/og/m/abc"]) {
+      const csp = (await request(makeApp("prod")).get(path)).headers["content-security-policy-report-only"] ?? "";
+      assert.doesNotMatch(csp, /script-src/, path);
+      assert.match(csp, /default-src 'none'/, path);
     }
   });
 });

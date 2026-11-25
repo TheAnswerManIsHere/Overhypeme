@@ -17,6 +17,7 @@ import { noStore } from "./lib/cacheHeaders";
 import { fallbackErrorHandler } from "./lib/errorHandler";
 import { SESSION_COOKIE } from "./lib/auth";
 import { securityHeaders } from "./lib/securityHeaders";
+import { cspReportRouter } from "./lib/cspReport";
 import { createGlobalLimiter, globalLimiterLogLevel, type GlobalRateLimiterOverrides } from "./lib/rateLimit";
 import { healthzHandler } from "./routes/health";
 import { devPreviewGate } from "./middlewares/devPreviewGate";
@@ -237,6 +238,14 @@ export function createApp(options: { limiterOverrides?: GlobalRateLimiterOverrid
   // pattern-sensitive on this exact shape.
   const globalLimiter = createGlobalLimiter(options.limiterOverrides);
   app.use("/api", globalLimiter);
+
+  // The CSP report collector (launch Phase 15, increment 3b): a browser posts
+  // its own violation report, with no CSRF header and no reason to carry a
+  // session, so it sits ahead of the cookie parser, the body parsers, the
+  // origin and CSRF checks and the auth chain. It reads only the two report
+  // media types, caps the body and has its own per-address limit; see
+  // lib/cspReport.ts.
+  app.use(cspReportRouter());
 
   app.use(cookieParser());
   app.use(express.json({ limit: "2mb" }));

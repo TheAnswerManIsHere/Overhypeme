@@ -15,12 +15,23 @@
  * around any country rule (David, Q20: a shared secret with Cloudflare is a
  * hardening item before Full US launch). The health path is answered first.
  *
+ * Browser protections (launch Phase 15, increment 3a): every response carries
+ * `X-Content-Type-Options: nosniff` and a referrer policy; in the published
+ * deployment it also refuses to be framed (`X-Frame-Options: DENY` and
+ * `frame-ancestors 'none'`), which the workspace preview, a Replit iframe
+ * running Vite, never reaches. Every HTML page carries the web app's Content
+ * Security Policy as **report-only**, reporting to the API's collector
+ * (`/api/csp-report/web`, artifacts/api-server/src/lib/cspReport.ts). It is
+ * enforced in a later, separate change, once a measured window of real
+ * traffic has reported clean (the plan's increment 3f).
+ *
  * Node built-ins only, and no build step: the published run command starts
  * it directly, so it depends on nothing the API's build produces. The
  * workspace preview is unchanged: development still runs Vite.
  */
 import { createServer } from "node:http";
-import { createReadStream, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { createReadStream, readFileSync, statSync } from "node:fs";
 import { pipeline } from "node:stream";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -63,6 +74,102 @@ const EXPLANATION_FILE = "/unavailable.html";
 /** Paths whose missing files answer 404 rather than the app's page. */
 const FILE_ONLY_PREFIXES = ["/assets/", "/fonts/"];
 
+/**
+ * Where the web policy reports: the API's collector, same-origin; must match
+ * CSP_REPORT_PATH in the API's lib/cspReport.ts (this file imports nothing
+ * from the API, by design). `report-uri`
+ * only, for the reason given in the API's lib/securityHeaders.ts (Chromium
+ * ignores it when `report-to` is present, and `report-to` was not seen to
+ * deliver).
+ */
+export const WEB_REPORT_URL = "/api/csp-report/web";
+
+/**
+ * The third-party origins the app loads from, by what it loads. Each is named
+ * in src/ (or index.html): Turnstile (sign-up), Google Analytics 4 and
+ * PostHog (src/lib/analytics.ts), Sentry (src/lib/sentry.ts, DSN host
+ * supplied at build), AdSense (index.html, only when built with a publisher
+ * id). Anything missing here shows up as a report, which is the point of the
+ * report-only window.
+ */
+const THIRD_PARTY = {
+  script: [
+    "https://challenges.cloudflare.com",
+    "https://www.googletagmanager.com",
+    "https://us-assets.i.posthog.com",
+    "https://pagead2.googlesyndication.com",
+  ],
+  connect: [
+    "https://us.i.posthog.com",
+    "https://us-assets.i.posthog.com",
+    "https://*.google-analytics.com",
+    "https://*.analytics.google.com",
+    "https://www.googletagmanager.com",
+    "https://*.ingest.sentry.io",
+    "https://*.ingest.us.sentry.io",
+    "https://pagead2.googlesyndication.com",
+  ],
+  frame: [
+    "https://challenges.cloudflare.com",
+    "https://googleads.g.doubleclick.net",
+    "https://tpc.googlesyndication.com",
+    "https://www.google.com",
+  ],
+};
+
+/** The `'sha256-…'` source for every inline script in an HTML document, so the policy admits exactly the scripts the build shipped. */
+export function inlineScriptHashes(html) {
+  const hashes = [];
+  for (const match of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script[^>]*>/gi)) {
+    if (/\bsrc\s*=/i.test(match[1])) continue;
+    hashes.push(`'sha256-${createHash("sha256").update(match[2], "utf8").digest("base64")}'`);
+  }
+  return hashes;
+}
+
+/** The web app's Content Security Policy for one HTML document. */
+export function buildWebCsp({ scriptHashes = [], denyFraming = false } = {}) {
+  const directives = [
+    "default-src 'self'",
+    ["script-src 'self'", ...scriptHashes, ...THIRD_PARTY.script].join(" "),
+    // React and the UI kit set style attributes, which only 'unsafe-inline' admits.
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: https:",
+    "media-src 'self' blob: https:",
+    "font-src 'self' data:",
+    ["connect-src 'self'", ...THIRD_PARTY.connect].join(" "),
+    ["frame-src", ...THIRD_PARTY.frame].join(" "),
+    "worker-src 'self' blob:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ];
+  if (denyFraming) directives.push("frame-ancestors 'none'");
+  directives.push(`report-uri ${WEB_REPORT_URL}`);
+  return directives.join("; ");
+}
+
+/** The headers every response carries; framing is refused only where nothing legitimate frames the app. */
+function baseHeaders(denyFraming) {
+  const headers = {
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "strict-origin-when-cross-origin",
+  };
+  if (denyFraming) headers["x-frame-options"] = "DENY";
+  return headers;
+}
+
+/** The finished policy per HTML file, rebuilt only when the file changes (its inline-script hashes are the only part that varies). */
+const policyCache = new Map();
+function policyFor(file, stat, denyFraming) {
+  const key = `${file}\0${denyFraming}`;
+  const cached = policyCache.get(key);
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.policy;
+  const policy = buildWebCsp({ scriptHashes: inlineScriptHashes(readFileSync(file, "utf8")), denyFraming });
+  policyCache.set(key, { mtimeMs: stat.mtimeMs, size: stat.size, policy });
+  return policy;
+}
+
 function fileAt(root, urlPath) {
   const resolved = path.resolve(root, `.${urlPath}`);
   if (resolved !== root && !resolved.startsWith(root + path.sep)) return null;
@@ -74,13 +181,19 @@ function fileAt(root, urlPath) {
   }
 }
 
-function send(req, res, { file, stat }) {
-  res.writeHead(200, {
-    "content-type": CONTENT_TYPES[path.extname(file).toLowerCase()] ?? "application/octet-stream",
+function send(req, res, { file, stat }, base, denyFraming) {
+  const contentType = CONTENT_TYPES[path.extname(file).toLowerCase()] ?? "application/octet-stream";
+  const headers = {
+    ...base,
+    "content-type": contentType,
     "content-length": stat.size,
     "cache-control": "private",
     "last-modified": stat.mtime.toUTCString(),
-  });
+  };
+  if (contentType.startsWith("text/html")) {
+    headers["content-security-policy-report-only"] = policyFor(file, stat, denyFraming);
+  }
+  res.writeHead(200, headers);
   if (req.method === "HEAD") return res.end();
   // pipeline, not pipe: when the visitor goes away mid-download, pipe leaves
   // the file open for the life of the process; pipeline closes it.
@@ -100,45 +213,46 @@ export function onReplitHost(req) {
  */
 export function createHandler(root, options = {}) {
   const absoluteRoot = path.resolve(root);
-  const { redirectReplitHost = false, canonicalOrigin = "https://overhype.me" } = options;
+  const { redirectReplitHost = false, canonicalOrigin = "https://overhype.me", denyFraming = false } = options;
+  const base = baseHeaders(denyFraming);
   return (req, res) => {
     if (req.method !== "GET" && req.method !== "HEAD") {
-      res.writeHead(405, { allow: "GET, HEAD" });
+      res.writeHead(405, { ...base, allow: "GET, HEAD" });
       return res.end();
     }
     let urlPath;
     try {
       urlPath = decodeURIComponent(new URL(req.url ?? "/", "http://local").pathname);
     } catch {
-      res.writeHead(400);
+      res.writeHead(400, base);
       return res.end();
     }
     if (urlPath === HEALTH_PATH) {
-      res.writeHead(200, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
+      res.writeHead(200, { ...base, "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
       return res.end("ok");
     }
     if (redirectReplitHost && onReplitHost(req)) {
       // Plain concatenation, never new URL(req.url, origin): a target such as
       // //evil.example would then replace the host (an open redirect).
-      res.writeHead(308, { location: canonicalOrigin + (req.url ?? "/"), "cache-control": "no-store" });
+      res.writeHead(308, { ...base, location: canonicalOrigin + (req.url ?? "/"), "cache-control": "no-store" });
       return res.end();
     }
     if (urlPath === EXPLANATION_PATH) {
       const page = fileAt(absoluteRoot, EXPLANATION_FILE);
-      if (page) return send(req, res, page);
+      if (page) return send(req, res, page, base, denyFraming);
     }
     const hit = urlPath.endsWith("/") ? null : fileAt(absoluteRoot, urlPath);
-    if (hit) return send(req, res, hit);
+    if (hit) return send(req, res, hit, base, denyFraming);
     if (FILE_ONLY_PREFIXES.some((p) => urlPath.startsWith(p))) {
-      res.writeHead(404, { "content-type": "text/plain; charset=utf-8", "cache-control": "private" });
+      res.writeHead(404, { ...base, "content-type": "text/plain; charset=utf-8", "cache-control": "private" });
       return res.end("Not found");
     }
     const index = fileAt(absoluteRoot, "/index.html");
     if (!index) {
-      res.writeHead(503, { "content-type": "text/plain; charset=utf-8" });
+      res.writeHead(503, { ...base, "content-type": "text/plain; charset=utf-8" });
       return res.end("The app has not been built");
     }
-    return send(req, res, index);
+    return send(req, res, index, base, denyFraming);
   };
 }
 
@@ -147,6 +261,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const port = Number(process.env.PORT ?? 26169);
   const handler = createHandler(root, {
     redirectReplitHost: process.env.REPLIT_DEPLOYMENT === "1",
+    // Only the published deployment refuses framing: the workspace preview's
+    // iframe runs Vite, but a run of this file outside the deployment keeps
+    // the same latitude.
+    denyFraming: process.env.REPLIT_DEPLOYMENT === "1",
     // Mirrors the API's getSiteBaseUrl() for the deployment (lib/siteUrl.ts).
     canonicalOrigin: (process.env.SITE_BASE_URL ?? "https://overhype.me").replace(/\/$/, ""),
   });

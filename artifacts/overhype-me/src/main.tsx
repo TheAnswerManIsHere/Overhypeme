@@ -1,4 +1,7 @@
-// First: in development, take the preview key out of the page address before
+// Before any schema is built: zod must never probe `new Function` under the
+// web CSP (lib/zodConfig.ts).
+import "./lib/zodConfig";
+// Then: in development, take the preview key out of the page address before
 // error monitoring starts and could record it (launch Phase 14, increment 3).
 import { devPreviewKey, DEV_PREVIEW_HEADER } from "./lib/devPreviewUnlock";
 // Telemetry must start before App renders so error monitoring can capture render errors.
