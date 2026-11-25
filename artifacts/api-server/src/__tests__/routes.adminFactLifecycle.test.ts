@@ -248,6 +248,40 @@ describe("an approved fact's lifecycle actions", () => {
       await db.delete(pendingReviewsTable).where(eq(pendingReviewsTable.id, review!.id));
     });
 
+    // Issue #1284: each line names its gag (by slot) and, for a render, its picture,
+    // read from what the record already stores, so records written before the
+    // change are named too. A record whose gag or picture can't be found names neither.
+    it("names each record's gag by its slot and a render's picture, from the ids the record stores", async () => {
+      const { factId, gagId } = await completeFact();
+      const slot = (await gagRow(gagId)).slot;
+      const petAttempt = await render(factId, gagId, A, "pet");
+      await db.update(imagePromptAttemptsTable).set({ reviewReferenceIdentityType: "nonhuman_animal" }).where(eq(imagePromptAttemptsTable.id, petAttempt));
+      const femaleAttempt = await render(factId, gagId, A, "female");
+      await db.update(imagePromptAttemptsTable).set({ reviewReferenceIdentityType: "female" }).where(eq(imagePromptAttemptsTable.id, femaleAttempt));
+      assert.equal((await post(factId, "deactivate")).status, 200);
+      const t = Date.now() + 60_000;
+      await db.insert(adminActionsTable).values([
+        { factId, actorId: adminId, action: "gag_render_approval", detail: { gagId, attemptId: petAttempt }, createdAt: new Date(t + 4) },
+        { factId, actorId: adminId, action: "test_renders_requested", detail: { attemptId: femaleAttempt }, createdAt: new Date(t + 3) },
+        { factId, actorId: adminId, action: "gag_save", detail: { gagId, content: A }, createdAt: new Date(t + 2) },
+        { factId, actorId: adminId, action: "gag_renders_requested", detail: { gagId, kinds: ["female", "pet"] }, createdAt: new Date(t + 1) },
+        { factId, actorId: adminId, action: "gag_remove", detail: { gagId: 2_000_000_000 }, createdAt: new Date(t) },
+      ]);
+      const res = await request(app).get(`/api/admin/facts/${factId}/history`);
+      assert.equal(res.status, 200, JSON.stringify(res.body));
+      const top = (res.body.history as { action: string; gagSlot: number | null; picture: string | null }[]).slice(0, 5)
+        .map((h) => [h.action, h.gagSlot, h.picture]);
+      assert.deepEqual(top, [
+        ["gag_render_approval", slot, "pet"],
+        ["test_renders_requested", slot, "female"],
+        ["gag_save", slot, null],
+        ["gag_renders_requested", slot, null],
+        ["gag_remove", null, null],
+      ]);
+      const plain = (res.body.history as { action: string; gagSlot: number | null; picture: string | null }[]).find((h) => h.action === "deactivate");
+      assert.deepEqual([plain?.gagSlot, plain?.picture], [null, null], "a record about no gag names none");
+    });
+
     it("leaves out another fact's records", async () => {
       const a = await completeFact();
       const b = await completeFact();

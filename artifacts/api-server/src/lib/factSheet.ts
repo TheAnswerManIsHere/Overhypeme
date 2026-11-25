@@ -22,6 +22,7 @@ import {
   factReadingsTable,
   pendingReviewsTable,
   adminActionsTable,
+  imagePromptAttemptsTable,
 } from "@workspace/db/schema";
 import { GAG_EXAMPLE_KINDS, type AttentionReason, type GagExampleKind } from "@workspace/api-zod";
 import { ATTENTION_REASONS_COLUMN, approvedFact } from "./factAttention";
@@ -254,7 +255,54 @@ export async function factHistory(factId: number) {
     .where(sql`${adminActionsTable.factId} = ${factId} OR ${adminActionsTable.reviewId} IN (${reviewIds})`)
     .orderBy(desc(adminActionsTable.createdAt), desc(adminActionsTable.id))
     .limit(FACT_HISTORY_LIMIT);
-  return rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }));
+  const about = await historySubjects(rows.map((r) => r.detail));
+  return rows.map((r) => ({ ...r, ...about(r.detail), createdAt: r.createdAt.toISOString() }));
+}
+
+/** A render's picture, in the sheet's words: the reference it drew on. */
+export type HistoryPicture = "male" | "female" | "pet";
+const PICTURE_OF_IDENTITY: Record<string, HistoryPicture> = { male: "male", female: "female", nonhuman_animal: "pet" };
+
+const idOf = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) && v > 0 ? v : null);
+
+/**
+ * Issue #1284: what each History record acted on, read from what it already
+ * stores. A gag record keeps its gag's id (`gagId`), a render approval or a
+ * moderation test render its picture's attempt (`attemptId`); the gag's slot
+ * and the picture's reference are looked up here, so records written before
+ * this change name them too. A gag row is never deleted while its fact is
+ * approved (removal stamps `removed_at`), so its slot stays readable; a
+ * record whose gag or picture can't be found says only what it stores.
+ */
+async function historySubjects(details: unknown[]) {
+  const gagIds = new Set<number>();
+  const attemptIds = new Set<number>();
+  for (const d of details) {
+    const o = (d ?? {}) as Record<string, unknown>;
+    const g = idOf(o["gagId"]);
+    const a = idOf(o["attemptId"]);
+    if (g) gagIds.add(g);
+    if (a) attemptIds.add(a);
+  }
+  const attempts = attemptIds.size
+    ? await db.select({ id: imagePromptAttemptsTable.id, gagId: imagePromptAttemptsTable.gagId, identity: imagePromptAttemptsTable.reviewReferenceIdentityType })
+      .from(imagePromptAttemptsTable).where(inArray(imagePromptAttemptsTable.id, [...attemptIds]))
+    : [];
+  for (const a of attempts) if (a.gagId) gagIds.add(a.gagId);
+  const gags = gagIds.size
+    ? await db.select({ id: factGagsTable.id, slot: factGagsTable.slot }).from(factGagsTable).where(inArray(factGagsTable.id, [...gagIds]))
+    : [];
+  const slotOf = new Map(gags.map((g) => [g.id, g.slot]));
+  const attemptOf = new Map(attempts.map((a) => [a.id, a]));
+  return (d: unknown): { gagSlot: number | null; picture: HistoryPicture | null } => {
+    const o = (d ?? {}) as Record<string, unknown>;
+    const attempt = attemptOf.get(idOf(o["attemptId"]) ?? -1);
+    const gagId = idOf(o["gagId"]) ?? attempt?.gagId ?? null;
+    return {
+      gagSlot: gagId != null ? slotOf.get(gagId) ?? null : null,
+      picture: (attempt?.identity && PICTURE_OF_IDENTITY[attempt.identity]) || null,
+    };
+  };
 }
 
 export type FactHistoryEntry = NonNullable<Awaited<ReturnType<typeof factHistory>>>[number];

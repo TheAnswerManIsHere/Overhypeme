@@ -440,6 +440,50 @@ describe("FactSheet", () => {
     expect(calls.some((c) => c.url.endsWith("/api/admin/facts/42/history"))).toBe(true);
   });
 
+  // Issue #1284: each line names its gag and picture, and a click opens the full record.
+  it("History lines name their gag and picture, and a click opens the record in full, bubbles included", async () => {
+    const LONG_SCENE = `{NAME} ${"stacks the clouds into a tower and waits for applause from the sky. ".repeat(4)}`.trim();
+    stub(SHEET, {
+      history: [
+        { id: 12, action: "gag_render_approval", reviewId: 6809, actorId: "a1", actorName: "Raena Admin", detail: { gagId: 5, attemptId: 77 }, gagSlot: 2, picture: "pet", createdAt: "2026-11-24T12:00:02Z" },
+        { id: 11, action: "gag_renders_requested", reviewId: null, actorId: "a1", actorName: "Raena Admin", detail: { gagId: 5, kinds: ["female", "pet"], redraw: false }, gagSlot: 2, picture: null, createdAt: "2026-11-24T12:00:01Z" },
+        {
+          id: 10, action: "gag_save", reviewId: null, actorId: "a1", actorName: "Raena Admin", gagSlot: 1, picture: null, createdAt: "2026-11-24T12:00:00Z",
+          detail: { gagId: 4, content: { coreSceneOverride: LONG_SCENE, bubbles: [{ type: "speech", entity: "the bartender", text: "That's my umbrella." }, { type: "thought", entity: "subject", text: "Nailed it." }] } },
+        },
+        { id: 9, action: "deactivate", reviewId: null, actorId: "a1", actorName: "Raena Admin", detail: {}, createdAt: "2026-11-23T12:00:00Z" },
+      ],
+    });
+    open();
+    await screen.findByTestId("sheet-wording");
+    fireEvent.click(screen.getByTestId("sheet-tab-history"));
+    const entries = await screen.findAllByTestId("sheet-history-entry");
+    expect(entries.map((e) => e.querySelector("[data-testid=sheet-history-subject]")?.textContent ?? null))
+      .toEqual(["· Gag 2 · pet picture", "· Gag 2", "· Gag 1", null]);
+    expect(screen.queryByTestId("sheet-history-detail")).toBeNull();
+
+    const saved = entries[2]!.querySelector("button")!;
+    expect(saved.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(saved);
+    expect(saved.getAttribute("aria-expanded")).toBe("true");
+    const detail = screen.getByTestId("sheet-history-detail");
+    expect(detail.textContent).toContain(LONG_SCENE);
+    expect(detail.textContent).toContain("Speech bubble (the bartender): “That's my umbrella.”");
+    expect(detail.textContent).toContain("Thought bubble (subject): “Nailed it.”");
+    expect(detail.textContent).toContain("Gag 1");
+
+    // Opening another line closes the first; a click on an open line closes it.
+    fireEvent.click(entries[0]!.querySelector("button")!);
+    expect(screen.getAllByTestId("sheet-history-detail")).toHaveLength(1);
+    expect(screen.getByTestId("sheet-history-detail").textContent).toContain("Gag 2 · pet picture");
+    fireEvent.click(entries[0]!.querySelector("button")!);
+    expect(screen.queryByTestId("sheet-history-detail")).toBeNull();
+
+    // A record about no gag opens too, with what it stores.
+    fireEvent.click(entries[3]!.querySelector("button")!);
+    expect(screen.getByTestId("sheet-history-detail").textContent).toContain("record #9");
+  });
+
   it("History with nothing recorded says so", async () => {
     stub();
     open();
