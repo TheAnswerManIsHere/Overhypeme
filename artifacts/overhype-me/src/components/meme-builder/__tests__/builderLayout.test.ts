@@ -22,12 +22,19 @@ describe("chooseBuilderLayout", () => {
     ["iPad on its side, portrait", { w: 1180, h: 820 }, "portrait", "wide"],
     ["desktop, landscape", { w: 1440, h: 900 }, "landscape", "wide"],
     ["desktop, portrait", { w: 1440, h: 900 }, "portrait", "wide"],
+    // Codex F2 on PR #1258: stacked stops at the canvas's own 1280 px.
+    ["very large upright screen, landscape", { w: 1920, h: 2400 }, "landscape", "wide"],
   ];
   for (const [name, v, shape, expected] of table) {
     it(`${name} → ${expected}`, () => {
       expect(chooseBuilderLayout(v, shape, cap(v.h))).toBe(expected);
     });
   }
+
+  it("never counts a stacked picture wider than the canvas's own pixels", () => {
+    expect(previewWidths({ w: 1920, h: 2400 }, "landscape", cap(2400)).stacked).toBe(1280);
+    expect(previewWidths({ w: 1600, h: 2400 }, "landscape", cap(2400)).stacked).toBe(1280);
+  });
 
   it("picks the arrangement whose picture is wider, from scratch", () => {
     const v = { w: 1024, h: 1366 };

@@ -46,7 +46,9 @@ export function previewWidths(
   const dims = MEME_CANVAS_DIMS[aspectRatio];
   const ratio = dims.w / dims.h;
   const wide = fittedWidth(viewport.w - CONTROLS_COLUMN_PX - WIDE_PAD_X, viewport.h - WIDE_PAD_Y, ratio);
-  const stacked = fittedWidth(viewport.w - STACKED_PAD_X, stackedMaxHeight, ratio);
+  // The stacked canvas is sized automatically, so it never grows past its own
+  // pixel width (Codex F2 on PR #1258); the wide one is sized explicitly.
+  const stacked = Math.min(dims.w, fittedWidth(viewport.w - STACKED_PAD_X, stackedMaxHeight, ratio));
   return { wide, stacked };
 }
 

@@ -167,6 +167,58 @@ test.describe("Meme builder on wide screens (Issue #850)", () => {
     expect(await page.evaluate(() => window.localStorage.getItem("mbfo_locked_preview_max_h"))).toBe("700");
   });
 
+  // Codex F1 on PR #1258: a remembered height read on a short screen comes
+  // back in full when the screen grows, without reopening the builder.
+  test("a remembered preview height read on a short screen returns in full when the screen grows", async ({ page }) => {
+    await page.setViewportSize({ width: 600, height: 844 });
+    await seedIdentity(page);
+    await page.addInitScript(() => window.localStorage.setItem("mbfo_locked_preview_max_h", "700"));
+    await openBuilder(page, 859);
+    const canvas = page.locator('canvas[aria-label="Meme preview"]');
+    const canvasHeight = async () => (await canvas.boundingBox())?.height ?? 0;
+    await page.getByTestId("aspect-portrait").click();
+    await expect(page.locator('[data-layout="stacked"]')).toBeVisible();
+    // 52% of 844 is 438 px: the screen's limit, not the remembered 700.
+    await expect.poll(canvasHeight).toBeLessThan(440);
+    await page.setViewportSize({ width: 600, height: 1400 });
+    await expect.poll(canvasHeight).toBeGreaterThan(690);
+    await page.setViewportSize({ width: 600, height: 844 });
+    await expect.poll(canvasHeight).toBeLessThan(440);
+
+    // Codex's example: opened side by side on a desktop, then made taller, the
+    // landscape picture stacks at the remembered 700 px, wider than the 970 px
+    // side by side would give.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.getByTestId("aspect-landscape").click();
+    await expect(page.locator('[data-layout="wide"]')).toBeVisible();
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Make my meme" })).toBeVisible();
+    await page.getByTestId("aspect-landscape").click();
+    await expect(page.locator('[data-layout="wide"]')).toBeVisible();
+    await page.setViewportSize({ width: 1440, height: 1600 });
+    await expect(page.locator('[data-layout="stacked"]')).toBeVisible();
+    await expect.poll(async () => (await canvas.boundingBox())?.width ?? 0).toBeGreaterThan(1100);
+    expect(await page.evaluate(() => window.localStorage.getItem("mbfo_locked_preview_max_h"))).toBe("700");
+  });
+
+  // Codex F2 on PR #1258: the stacked canvas stops at its own 1280 px, so
+  // the layout choice counts that ceiling. Where it binds, side by side wins.
+  test("on a very large upright screen the stacked picture stops at 1280 px, and the choice counts that", async ({ page }) => {
+    await seedIdentity(page);
+    await page.setViewportSize({ width: 1600, height: 2400 });
+    await openBuilder(page, 860);
+    const canvas = page.locator('canvas[aria-label="Meme preview"]');
+    await page.getByTestId("aspect-landscape").click();
+    // Side by side would be 1130 px; stacked is capped at the canvas's 1280.
+    await expect(page.locator('[data-layout="stacked"]')).toBeVisible();
+    await expect.poll(async () => Math.round((await canvas.boundingBox())?.width ?? 0)).toBe(1280);
+
+    // At 1920 wide, stacked would still be 1280 but side by side gives 1450.
+    await page.setViewportSize({ width: 1920, height: 2400 });
+    await expect(page.locator('[data-layout="wide"]')).toBeVisible();
+    await expect.poll(async () => (await canvas.boundingBox())?.width ?? 0).toBeGreaterThan(1400);
+  });
+
   // David, 2026-11-24: a phone held sideways is too short to stack; the
   // picture goes beside the controls, for every shape.
   test("a phone on its side puts the picture beside the controls for every shape", async ({ page }) => {

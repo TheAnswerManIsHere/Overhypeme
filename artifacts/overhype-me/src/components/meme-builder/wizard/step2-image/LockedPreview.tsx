@@ -64,15 +64,18 @@ function effectiveMaxH(maxH: number, viewportHeight: number): number {
   return Math.max(MIN_PX, Math.min(MAX_PX, maxH, Math.floor(viewportHeight * MAX_SAVED_VIEWPORT_FRACTION)));
 }
 
+/**
+ * The remembered handle height as saved, bounded only by the fixed limits.
+ * The screen's own limit is applied where it is used (`effectiveMaxH`), never
+ * here: a preference read on a short screen must come back in full when the
+ * screen grows (Codex F1 on PR #1258).
+ */
 function readSavedMaxH(): number | null {
   if (typeof window === "undefined") return null;
   const saved = window.localStorage.getItem(CANVAS_HEIGHT_KEY);
   const parsed = saved ? parseInt(saved, 10) : NaN;
   if (!Number.isFinite(parsed)) return null;
-  // Clamp against the actual visible height so a previously-saved large value
-  // doesn't hide all the controls on a small screen / mobile browser.
-  const viewportCap = Math.floor(window.innerHeight * MAX_SAVED_VIEWPORT_FRACTION);
-  return Math.max(MIN_PX, Math.min(MAX_PX, parsed, viewportCap));
+  return Math.max(MIN_PX, Math.min(MAX_PX, parsed));
 }
 
 /**
