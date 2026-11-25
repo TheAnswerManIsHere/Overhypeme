@@ -673,7 +673,7 @@ function OfficialExamples({ gag, factLive }: { gag: GagView; factLive: boolean }
   );
 }
 
-/** A picture's official renders (D1): the live example, then the next publish's pick when it differs. */
+/** A picture's official renders (D1): the live example, then the draft's pick when it differs. */
 function officialOf(r: GagPictureRoles): Array<{ role: "live" | "approved_next"; example: GagExample }> {
   const out: Array<{ role: "live" | "approved_next"; example: GagExample }> = [];
   if (r.live) out.push({ role: "live", example: r.live });
@@ -841,6 +841,7 @@ function PictureColumn({ kind, roles, pickId, factLive, canAct, readOnly, onAppr
               <img src={example.imageUrl} alt={`${KIND_LABEL[kind]}: ${roleWords(role, factLive).toLowerCase()}`} className="w-full rounded-sm border border-border" />
             </a>
           ) : <p className="text-[11px] text-muted-foreground">The picture is not available.</p>}
+          {role === "live" && <p className="text-[10px] text-muted-foreground" data-testid="gag-render-members-see">Members see this until you publish</p>}
           <p className="text-[10px] text-muted-foreground">Locked. Approving a newer render replaces it.</p>
         </div>
       ))}
