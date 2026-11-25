@@ -12,7 +12,7 @@
 
 ## dev-admin-login backdoor (C1)
 
-`GET/POST /api/auth/dev-admin-login` (`artifacts/api-server/src/routes/localAuth.ts`)
+`POST /api/auth/dev-admin-login` (`artifacts/api-server/src/routes/localAuth.ts`)
 mints a **bootstrap-admin** session for *any* caller — the review's
 highest-severity finding (unauthenticated privilege escalation). It is now
 **hardened fail-closed** (PR #221) via one source-of-truth predicate,
@@ -22,11 +22,22 @@ highest-severity finding (unauthenticated privilege escalation). It is now
   **non-production** preview; and **NEVER** enabled in production even if the
   flag is set (`REPLIT_DEPLOYMENT==="1" || NODE_ENV==="production"` wins).
 - When disabled, `handleDevAdminLogin` returns 404 with no session/cookie (the
-  authoritative request-time guard); `app.ts` also withholds the permissive
-  CORS + the `ORIGIN_EXEMPT_PATHS` entry; and the Navbar triple-tap trigger
-  no-ops outside a dev build (`import.meta.env.DEV`).
+  authoritative request-time guard), and the Navbar triple-tap trigger no-ops
+  outside a dev build (`import.meta.env.DEV`).
 - The enabled path **rotates** the session (fresh sid, delete old — closes
-  fixation) and sanitizes `returnTo` via `safeReturnTo.ts`.
+  fixation).
+- **Launch Phase 15, increment 2 made it safe to keep** (plan
+  `PLAN_PHASE15_SECURITY_HARDENING.md`): **POST only** — no GET mints a
+  session, and the executable page that wrote the token into `localStorage`
+  is gone; **no origin-check exemption and no permissive CORS**, so it passes
+  the same origin and CSRF checks as every other write and a page on another
+  site cannot sign a browser in; the SPA calls it from the wordmark gesture
+  through its own fetch, and because the Replit canvas iframe drops the
+  cookie, this one gated route returns the session token in its JSON body
+  (`token`), which the SPA stores in the existing Bearer slot
+  (`auth_token`). Normal sign-in never returns a token. Through the public
+  preview the caller still needs `DEV_PREVIEW_KEY` (`previewKeyAdmits()`).
+  Whether production keeps any admin override is Phase 18's decision.
 
 The local dev entrypoint (`artifacts/api-server/scripts/dev-run.sh`) sets the flag, so the Replit
 preview and the Playwright e2e admin flows keep working; production
@@ -103,8 +114,7 @@ entry (David, 2026-10-21; [`decisions.md`](./decisions.md#2026-10-21--the-dev-ad
   set-password and registration enforce an **8-char minimum** (C7).
 - **CSRF**: double-submit `csrf_token` cookie + `x-csrf-token` header on
   cookie-session unsafe methods; origin allowlist enforced except for the
-  intentional `ORIGIN_EXEMPT_PATHS` (Stripe webhook, Apple form_post callback,
-  and — for now — dev-admin-login).
+  intentional `ORIGIN_EXEMPT_PATHS` (Stripe webhook, Apple form_post callback).
 - **CodeQL doesn't recognize either hand-rolled control** as satisfying its
   `js/missing-rate-limiting` / `js/missing-token-validation` (CSRF) queries —
   see [`codeql-missing-rate-limiting-csrf-false-positive.md`](../../.agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md)

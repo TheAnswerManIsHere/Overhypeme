@@ -17,7 +17,6 @@ import { noStore } from "./lib/cacheHeaders";
 import { fallbackErrorHandler } from "./lib/errorHandler";
 import { SESSION_COOKIE } from "./lib/auth";
 import { securityHeaders } from "./lib/securityHeaders";
-import { isDevAdminLoginEnabled } from "./lib/devAdminLogin";
 import { createGlobalLimiter, globalLimiterLogLevel, type GlobalRateLimiterOverrides } from "./lib/rateLimit";
 import { healthzHandler } from "./routes/health";
 import { devPreviewGate } from "./middlewares/devPreviewGate";
@@ -33,12 +32,6 @@ const ORIGIN_EXEMPT_PATHS = new Set([
   // `state` parameter (PKCE), so origin-checking here is redundant and wrong.
   "/api/callback/apple",
 ]);
-// dev-admin-login is origin-exempt ONLY while the backdoor is enabled (a
-// non-production preview). When disabled it is subject to the normal
-// origin/CSRF checks, and the handler 404s anyway. Fail-closed (C1).
-if (isDevAdminLoginEnabled()) {
-  ORIGIN_EXEMPT_PATHS.add("/api/auth/dev-admin-login");
-}
 
 function isOriginExempt(req: Request): boolean {
   return ORIGIN_EXEMPT_PATHS.has(req.path);
@@ -209,15 +202,6 @@ export function createApp(options: { limiterOverrides?: GlobalRateLimiterOverrid
       }
     },
   );
-
-  // Dev admin login needs permissive CORS so the POST fetch works from any
-  // preview context (Replit canvas iframes, direct mobile browser, etc.).
-  // Registered before the global cors() so it handles preflights too. Mounted
-  // ONLY while the backdoor is enabled (a non-production preview) — when disabled
-  // the path falls through to the global origin-allowlist CORS. Fail-closed (C1).
-  if (isDevAdminLoginEnabled()) {
-    app.use("/api/auth/dev-admin-login", cors({ origin: true, credentials: true }));
-  }
 
   const allowedOrigins = parseAllowedOrigins();
   app.use(cors({

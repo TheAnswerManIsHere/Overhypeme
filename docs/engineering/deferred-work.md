@@ -965,39 +965,6 @@ re-gather it when the work is scheduled.
     threshold the sibling CI-guard entries below used before being written
     up as backlog items).
 
-- **`app.ts`'s `ORIGIN_EXEMPT_PATHS` can desync from `isDevAdminLoginEnabled()` in a shared process (found on PR #319's `/document` harvest review).**
-  - **Reviewed (on my recommendation, David delegated 2026-10-13): not blocking.** Still present on `main` (`app.ts:41` at import, `:208` per call). Development-only and fail-closed. Fixed in launch Phase 2 if the test harness touches `app.ts`; otherwise the bugfix trigger stands.
-  - **What.** `app.ts:23-43`: `ORIGIN_EXEMPT_PATHS` is a module-level `Set`,
-    conditionally gaining `/api/auth/dev-admin-login` only inside an
-    `if (isDevAdminLoginEnabled())` block that runs **once at import time**.
-    `createApp()` (`:107` onward) separately re-checks
-    `isDevAdminLoginEnabled()` **fresh on every call** to decide whether to
-    mount the permissive dev-admin CORS middleware — but the origin-check
-    middleware it also registers calls `isOriginExempt()`, which reads the
-    same frozen-at-import `Set`. In a shared-process caller (a test file, a
-    preview helper) that imports `app.ts` before `ENABLE_DEV_ADMIN_LOGIN` is
-    set and calls `createApp()` after, the permissive CORS gets mounted
-    (fresh check passes) but the exemption never gets added (stale check) —
-    a cross-origin dev-admin-login POST gets permissive CORS headers and is
-    then rejected by the origin-check middleware anyway.
-  - **Why deferred now.** Same species of import-time-env-capture bug as the
-    eager-singleton fix PR #308 shipped
-    ([`app-ts-eager-singleton-test-isolation.md`](../../.agents/memory/app-ts-eager-singleton-test-isolation.md)),
-    but that fix targeted the app-instance singleton specifically and did not
-    touch this `Set` — found by a later Codex review round on the `/document`
-    harvest documenting that fix, not by PR #308 itself. Not implemented here
-    because this is a docs-only harvest PR.
-  - **Cost of waiting.** Narrow blast radius: only fires for a caller that
-    imports `app.ts` before flipping `ENABLE_DEV_ADMIN_LOGIN`, which is
-    already a non-production-only backdoor (fail-closed by design). No known
-    production or CI incident.
-  - **Revisit trigger.** Next `/bugfix` pass through `app.ts`, or if a
-    dev-admin-login-in-tests symptom is actually observed. Fix is either
-    moving `ORIGIN_EXEMPT_PATHS`'s conditional entry into `createApp()`
-    itself (so it's re-evaluated per call, matching the CORS-mount check), or
-    documenting the asymmetry as an intentional exception if there's a reason
-    the exemption specifically must stay import-time-frozen.
-
 - **~~The api-server test suite flaked once on `main` (observed 2026-08-15 `/maintenance`)~~ — GRADUATED to #642, 2026-10-12.**
   **Launch plan placement (on my recommendation, David delegated 2026-10-13):** #642 is closed in Phase 2, since a flaky suite is not evidence.
   The revisit trigger fired at the 2026-10-12 pass and David approved the

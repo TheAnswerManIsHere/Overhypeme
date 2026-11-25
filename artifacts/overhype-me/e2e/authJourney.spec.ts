@@ -49,7 +49,9 @@ test("a production-mode account: register, verify, act, sign out, recover the pa
   // the bootstrap admin (scripts/seed-e2e-test-accounts.ts), so an enabled
   // backdoor would sign in; "Admin user not found" would mean the precondition
   // is missing, not that the backdoor is off — only "Not found" proves it.
-  const devAdmin = await page.request.get("/api/auth/dev-admin-login");
+  // POST is the only method the route answers (launch Phase 15, increment 2);
+  // a GET never reaches the handler, so it could not prove the gate is shut.
+  const devAdmin = await page.request.post("/api/auth/dev-admin-login");
   expect(devAdmin.status()).toBe(404);
   expect(await devAdmin.json()).toEqual({ error: "Not found" });
   expect(await currentUser(page)).toBeNull();

@@ -4,6 +4,7 @@ import { devPreviewKey, DEV_PREVIEW_HEADER } from "./lib/devPreviewUnlock";
 // Telemetry must start before App renders so error monitoring can capture render errors.
 import { startTelemetry } from "./lib/telemetry";
 import { inspectForReadOnly } from "./lib/readOnlyNotice";
+import { readBearerToken } from "./lib/bearerToken";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "@fontsource/inter/400.css";
@@ -46,7 +47,7 @@ window.fetch = function (input, init) {
     const previewKey = devPreviewKey();
     if (previewKey && !headers.has(DEV_PREVIEW_HEADER)) headers.set(DEV_PREVIEW_HEADER, previewKey);
 
-    const token = localStorage.getItem("auth_token");
+    const token = readBearerToken();
     if (token && !headers.has("Authorization")) {
       headers.set("Authorization", `Bearer ${token}`);
     }
