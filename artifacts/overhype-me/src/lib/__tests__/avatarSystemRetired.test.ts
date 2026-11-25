@@ -23,6 +23,10 @@ const ALLOWED = new Set([
   "artifacts/api-server/src/__tests__/routes.users.test.ts",
   "artifacts/overhype-me/e2e/photoUpload.spec.ts",
   "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
+  // The upgrade rehearsal's declaration that migration 0163 deleted the feature's
+  // rows on purpose (Issue #1302), and that declaration's test.
+  "artifacts/api-server/src/lib/retirementLosses.ts",
+  "artifacts/api-server/src/__tests__/retirementLosses.test.ts",
 ]);
 
 function* files(dir: string): Generator<string> {
