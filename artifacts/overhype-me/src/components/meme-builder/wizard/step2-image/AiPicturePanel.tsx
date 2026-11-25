@@ -242,6 +242,9 @@ export function AiPicturePanel({ factId, photoUploadKey, onPicture, selectedAiIm
               )}
             </div>
           )}
+          {picture.status === "done" && !picture.imageUrl && (
+            <p className="text-sm text-muted-foreground">This picture was deleted, so there is nothing to show.</p>
+          )}
           {(picture.status === "done" || picture.status === "failed") && (
             <button type="button" className="text-xs underline text-muted-foreground" onClick={() => setPicture(null)}>
               Make another

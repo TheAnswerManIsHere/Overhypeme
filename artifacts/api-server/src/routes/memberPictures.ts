@@ -13,6 +13,7 @@
  * only: `requireEligibleActor` refuses a state-changing request from anyone
  * else, and every route here checks the session itself.
  */
+import { MEMBER_PICTURE_IN_PROGRESS } from "../lib/imagePromptAttempts";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
 import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
@@ -64,7 +65,7 @@ export interface MemberPictureState {
 }
 
 async function statesFor(userId: string, attemptIds: number[] | null, limit = 20): Promise<MemberPictureState[]> {
-  const rows = await db.select({
+  const columns = {
     id: imagePromptAttemptsTable.id,
     factId: imagePromptAttemptsTable.factId,
     error: imagePromptAttemptsTable.error,
@@ -72,14 +73,26 @@ async function statesFor(userId: string, attemptIds: number[] | null, limit = 20
     compiledPrompt: imagePromptAttemptsTable.compiledPrompt,
     generatedImageObjectPath: imagePromptAttemptsTable.generatedImageObjectPath,
     createdAt: imagePromptAttemptsTable.createdAt,
-  }).from(imagePromptAttemptsTable)
-    .where(and(
-      eq(imagePromptAttemptsTable.userId, userId),
-      isNotNull(imagePromptAttemptsTable.memberRequestId),
-      attemptIds ? inArray(imagePromptAttemptsTable.id, attemptIds) : undefined,
-    ))
-    .orderBy(desc(imagePromptAttemptsTable.id))
-    .limit(limit);
+  };
+  const mine = and(eq(imagePromptAttemptsTable.userId, userId), isNotNull(imagePromptAttemptsTable.memberRequestId));
+  let rows;
+  if (attemptIds) {
+    rows = await db.select(columns).from(imagePromptAttemptsTable)
+      .where(and(mine, inArray(imagePromptAttemptsTable.id, attemptIds)));
+  } else {
+    // The list: every picture still in progress (at most the in-progress cap),
+    // however many newer ones there are, plus the most recently changed ones,
+    // so a picture that finished or failed late is shown on the member's next
+    // visit (Issue #1299, the recorded gap from PR #1300's review).
+    const [inProgress, recent] = await Promise.all([
+      db.select(columns).from(imagePromptAttemptsTable).where(and(mine, MEMBER_PICTURE_IN_PROGRESS)),
+      db.select(columns).from(imagePromptAttemptsTable).where(mine)
+        .orderBy(desc(imagePromptAttemptsTable.updatedAt), desc(imagePromptAttemptsTable.id)).limit(limit),
+    ]);
+    const byId = new Map([...inProgress, ...recent].map((r) => [r.id, r]));
+    rows = [...byId.values()];
+  }
+  rows.sort((a, b) => b.id - a.id);
   if (rows.length === 0) return [];
   const ids = rows.map((r) => r.id);
   const [delivered, submitted, returned] = await Promise.all([
