@@ -109,7 +109,7 @@ after(async () => {
   __setReferenceFalUploadForTest(null);
   await cleanup();
   await db.delete(asyncJobsTable).where(and(
-    inArray(asyncJobsTable.queue, ["image_prompt_generation", "review_render_scenarios_prepare"]),
+    inArray(asyncJobsTable.queue, ["image_prompt_generation"]),
     gte(asyncJobsTable.createdAt, TEST_FILE_START),
   ));
 });

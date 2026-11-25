@@ -10,7 +10,8 @@
  *   (tokenise, duplicate check, hashtags, submit), and the submission is in
  *   the admin queue at triage before any moderation call;
  * - journey 3 — the admin takes it through triage, preparation, the saved
- *   gag, its male iteration render, its female and pet renders, and the
+ *   gag, its male render and then its female and pet renders, each asked
+ *   for (nothing draws by itself, Issue #1282), and the
  *   three approved as the gag's examples, to an active fact; each render's
  *   image decodes (plan PLAN_GAG_EXAMPLES.md);
  * - journey 7 — the free user uploads a photo; the owner reads back the same
@@ -207,7 +208,7 @@ export interface DriveResult {
 export interface DriveOptions {
   /**
    * Run with `AI_DOUBLE_FAIL=fal.subscribe:openai/gpt-image-2.6/sunburst/edit`: journey 3's
-   * male iteration render must end failed — the recorded vendor error carried
+   * male render, which it asks for, must end failed — the recorded vendor error carried
    * through the real render job and the queue's give-up path, with the run
    * pinned to one picture attempt (`pinOneRenderAttempt` in inner.ts) — and
    * the run stops there. A control, never an acceptance pass.
@@ -360,17 +361,21 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
     }
     const gagId = gag1.id;
     await admin.json("3", "POST", `/api/admin/reviews/${reviewId}/approve-visual-concept`, {});
-    log("journey 3: the gag saved and the gags step approved; its male iteration render running");
+    log("journey 3: the gag saved and the gags step approved");
 
-    // A gag's renders, per kind (plan PLAN_GAG_EXAMPLES.md): the save and the
-    // Gags approval draw one male render; the moderator then asks for the rest.
+    // A gag's renders, per kind (plan PLAN_GAG_EXAMPLES.md). Nothing draws by
+    // itself (Issue #1282, plan PLAN_RENDERS_MANUAL.md): the moderator asks for
+    // the male render first, then the rest, the same vendor calls in the same
+    // order as when the male one started on arrival, so the recordings hold.
     const tiles = async () => {
       const view = await admin.json<{ gags: Array<{ id: number; renders: Record<"male" | "female" | "pet", { status: string; message?: string | null; imageUrl?: string | null; latestAttemptId?: number | null } | null> }> }>("3", "GET", `/api/admin/facts/${stagingFactId}/gags`);
       const g = view.gags.find((x) => x.id === gagId);
       if (!g) throw new JourneyError("3", "the gag's renders", `gag ${gagId} is not in the view`);
       return g.renders;
     };
-    const male = await poll("3", "the male iteration render", tiles, (r) => settledBaselineRenders(r, ["male"]) !== null, () => null, 20 * 60_000);
+    await admin.json("3", "POST", `/api/admin/facts/${stagingFactId}/gags/${gagId}/renders`, { kinds: ["male"], reviewId });
+    log("journey 3: the male render running");
+    const male = await poll("3", "the male render", tiles, (r) => settledBaselineRenders(r, ["male"]) !== null, () => null, 20 * 60_000);
     if (options.expectRenderFailure) {
       const tile = settledBaselineRenders(male, ["male"])![0]!;
       ev.controlRenders = [{ key: "male", status: tile.status, message: tile.message ?? undefined }];

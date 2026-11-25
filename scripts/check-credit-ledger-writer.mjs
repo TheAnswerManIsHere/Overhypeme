@@ -11,7 +11,7 @@
  * This refuses any non-test source file outside that directory that names the
  * ledger in a write: `creditLedgerTable` passed to insert/update/delete, or the
  * table's SQL name after INSERT INTO / UPDATE / DELETE FROM. Reads are free.
- * The database's own writers (migration 0171's free-credit trigger and
+ * The database's own writers (migration 0172's free-credit trigger and
  * backfill) live in migrations, which this does not scan.
  *
  * Limits, stated so a pass is not read as more: it reads text, so a write built

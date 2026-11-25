@@ -4,7 +4,7 @@ import { usersTable } from "./auth";
 
 /**
  * An account's credits (launch Phase 7, plan PLAN_PHASE7_IMAGE_OFFERING.md §1;
- * migration 0171). One row per change; the balance is the sum of an account's
+ * migration 0172). One row per change; the balance is the sum of an account's
  * rows, derived by `artifacts/api-server/src/lib/credits/ledger.ts`, the only
  * writer in application code (`scripts/check-credit-ledger-writer.mjs`).
  *

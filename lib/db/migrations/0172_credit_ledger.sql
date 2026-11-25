@@ -134,5 +134,5 @@ BEGIN
   SELECT u.id, 'free_grant', 1, u.id FROM users u WHERE u.email_verified_at IS NOT NULL
   ON CONFLICT ("kind", "ref", (COALESCE("lot_id", 0))) DO NOTHING;
   GET DIAGNOSTICS v_granted = ROW_COUNT;
-  RAISE NOTICE '[0171] verified accounts=% free credits granted=% already present=%', v_verified, v_granted, v_verified - v_granted;
+  RAISE NOTICE '[0172] verified accounts=% free credits granted=% already present=%', v_verified, v_granted, v_verified - v_granted;
 END $$;

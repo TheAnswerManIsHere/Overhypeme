@@ -585,7 +585,7 @@ entitlement and never touch `membership_tier`**: an account's credits pay for
 AI pictures, and its tier decides its perks. Neither is read to decide the
 other, save that a paid membership invoice will grant credits (increment 5).
 
-- **One table, append-only.** `credit_ledger` (migration 0171) holds one row
+- **One table, append-only.** `credit_ledger` (migration 0172) holds one row
   per change; the balance is the sum of an account's rows. A trigger refuses
   every UPDATE and DELETE, except the cascade from an account's deletion (its
   rows go, with the rest of its payment history). `actor_id` has no foreign
@@ -603,7 +603,7 @@ other, save that a paid membership invoice will grant credits (increment 5).
   `email_verified_at` is set, so every way an account becomes verified (email
   link, email change, a provider that vouches for the address, an admin's
   "verify email") grants it, and a second verification finds it already
-  there. Accounts verified before 0171 were granted by its backfill,
+  there. Accounts verified before 0172 were granted by its backfill,
   suspended ones included (a suspended account cannot spend).
 - **An admin adjustment** (`POST /admin/users/:id/credits`, the Users page's
   Credits panel) carries a whole number, a required note and the admin's own

@@ -23,7 +23,6 @@
  */
 import { BASELINE_FACT, JourneyError, poll, readImage, Session } from "./driver";
 import { CAPTURE_DOCS, writeShot, type CaptureDoc, type ManifestLine } from "./captureShots";
-import { settledBaselineRenders } from "../aiBaselineCoverage";
 
 export const MAILMAN_BUBBLE = { type: "speech" as const, entity: "the mailman", text: "Special delivery!" };
 /**
@@ -128,22 +127,7 @@ export async function driveCaptures(base: string, opts: { doc: CaptureDoc; out: 
       log("pr229: the mailman bubble saved; approving the concept");
 
       await admin.json("pr229", "POST", `/api/admin/reviews/${reviewId}/approve-visual-concept`, {});
-      // Approval draws the gag's male iteration render (plan PLAN_GAG_EXAMPLES.md).
-      // Let it settle first, so its reservation is released before the test
-      // render asks the allowance.
-      try {
-        const male = await poll(
-          "pr229",
-          "the gag's male iteration render",
-          async () => ((await admin.json<any>("pr229", "GET", `/api/admin/facts/${stagingFactId}/gags`)).gags[0]?.renders ?? {}),
-          (r) => settledBaselineRenders(r, ["male"]) !== null,
-          () => null,
-          20 * 60_000,
-        );
-        pr229.grid = [{ key: "male", status: male.male?.status }];
-      } catch (err) {
-        pr229.gridNote = `did not settle: ${(err as Error).message.slice(0, 300)}; the test render runs anyway`;
-      }
+      // Approval draws nothing (Issue #1282): the test render below is the one render asked for.
 
       const { renderJobId } = await admin.json<{ renderJobId: string }>("pr229", "POST", `/api/admin/reviews/${reviewId}/render`, { renderControls: { aspectRatio: "landscape" } }, [202]);
       pr229.renderJobId = renderJobId;

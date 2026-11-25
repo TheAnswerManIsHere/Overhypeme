@@ -1,5 +1,5 @@
 /**
- * @purpose An account's credits (launch Phase 7, plan PLAN_PHASE7_IMAGE_OFFERING.md §1): the balance derived from the append-only ledger, its entries, and an admin's adjustment, which draws a debit from the oldest lots first. The one writer of `credit_ledger` in application code (scripts/check-credit-ledger-writer.mjs); the free credit is granted by a database trigger when an account is first verified (migration 0171).
+ * @purpose An account's credits (launch Phase 7, plan PLAN_PHASE7_IMAGE_OFFERING.md §1): the balance derived from the append-only ledger, its entries, and an admin's adjustment, which draws a debit from the oldest lots first. The one writer of `credit_ledger` in application code (scripts/check-credit-ledger-writer.mjs); the free credit is granted by a database trigger when an account is first verified (migration 0172).
  * @subsystem membership
  */
 import { db, creditLedgerTable, usersTable, type CreditLedgerKind } from "@workspace/db";
