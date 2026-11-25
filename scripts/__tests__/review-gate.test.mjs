@@ -51,21 +51,37 @@ const pr915 = () => ({
     ["2026-11-11T02:00:12Z", "8cbfd38"]),
 });
 
-test("#915's real sequence fails, naming the pushes that preceded both assessments", () => {
+test("#915's real sequence passes once both assessments exist, noting both early pushes (amendment 1)", () => {
   const r = decide(pr915());
-  assert.equal(r.state, "failure");
-  assert.match(r.description, /round at 139cadb: push `9e438b1` at 2026-11-11T01:57:57Z preceded the Astra and Fable assessments/);
-  assert.ok(r.lines.some((l) => /8cbfd38/.test(l)), "the 02:00 push is listed too");
-  assert.ok(r.lines.some((l) => /cannot repair a push already made/.test(l)), "the recovery is the waiver, not a late assessment");
+  assert.equal(r.state, "success", r.lines.join("\n"));
+  assert.equal(r.description, "1 findings round assessed; 2 pushes preceded their assessments (noted)");
+  assert.ok(r.lines.some((l) => /Note: push `9e438b1` at 2026-11-11T01:57:57Z preceded the Astra and Fable assessments \(noted, not failing/.test(l)));
+  assert.ok(r.lines.some((l) => /Note: push `8cbfd38`/.test(l)), "the 02:00 push is listed too");
+  assert.ok(!r.lines.some((l) => /waiver/i.test(l)), "no waiver is asked for a push");
+});
+
+// Overhype.me PR #1263's shape: an unrelated commit pushed 24 seconds after
+// the findings review, both assessments posted after it. David waived it and
+// asked that the gate stop needing him to (2026-11-25).
+test("#1263's shape passes with one note (amendment 1)", () => {
+  const r = decide(oneRound([
+    assessment("Astra", 1, "aaaaaaaaaa", ["11", "12"], "2026-01-01T01:10:00Z"),
+    assessment("Fable", 1, "aaaaaaaaaa", ["11", "12"], "2026-01-01T01:11:00Z"),
+  ], { pushes: pushes("2026-01-01T00:00:00Z", ["2026-01-01T00:00:00Z", "aaaaaaa", "branch_creation"], ["2026-01-01T01:00:24Z", "fffffff"]) }));
+  assert.equal(r.state, "success", r.lines.join("\n"));
+  assert.equal(r.description, "1 findings round assessed; 1 push preceded its assessments (noted)");
+  assert.ok(r.lines.some((l) => /Note: push `fffffff` at 2026-01-01T01:00:24Z preceded the Astra and Fable assessments/.test(l)));
 });
 
 test("#915 before the assessments existed fails as missing", () => {
   const f = pr915();
   f.comments = f.comments.slice(0, 1);
-  f.pushes.events = f.pushes.events.slice(0, 2);
+  f.pushes.events = f.pushes.events.slice(0, 3);
   const r = decide(f);
   assert.equal(r.state, "failure");
   assert.match(r.description, /Astra and Fable missing/);
+  assert.ok(r.lines.some((l) => /Note: push `9e438b1`/.test(l)), "an early push is still noted on a failing round");
+  assert.ok(r.lines.some((l) => /post the missing assessment/.test(l)));
 });
 
 test("a compliant two-round sequence passes", () => {
@@ -204,21 +220,30 @@ test("a findings round asks for push history before deciding", () => {
   assert.deepEqual(r, { need: "pushes", since: "2026-01-01T01:00:00Z" });
 });
 
-test("push history unavailable or incomplete is an error, never success", () => {
+test("push history unavailable or incomplete is a note, never an error (amendment 1)", () => {
   const done = [assessment("Astra", 1, "aaaaaaaaaa", ["11", "12"], "2026-01-01T01:10:00Z"), assessment("Fable", 1, "aaaaaaaaaa", ["11", "12"], "2026-01-01T01:11:00Z")];
-  assert.equal(decide(oneRound(done, { pushes: null })).state, "error");
+  const gone = decide(oneRound(done, { pushes: null }));
+  assert.equal(gone.state, "success");
+  assert.equal(gone.description, "1 findings round assessed; push order not checked");
+  assert.ok(gone.lines.some((l) => /could not be read, so push order was not checked/.test(l)));
   const late = decide(oneRound(done, { pushes: pushes("2026-01-01T02:00:00Z", ["2026-01-01T02:00:00Z", "ccccccc"]) }));
-  assert.equal(late.state, "error");
-  assert.match(late.description, /incomplete/);
+  assert.equal(late.state, "success");
+  assert.ok(late.lines.some((l) => /reaches back only to/.test(l)));
+  // A missing assessment still fails, never errors, without push history.
+  const missing = decide(oneRound(done.slice(0, 1), { pushes: null }));
+  assert.equal(missing.state, "failure");
+  assert.match(missing.description, /Fable missing/);
 });
 
 test("a branch deletion is not a push", () => {
   const done = [assessment("Astra", 1, "aaaaaaaaaa", ["11", "12"], "2026-01-01T01:10:00Z"), assessment("Fable", 1, "aaaaaaaaaa", ["11", "12"], "2026-01-01T01:11:00Z")];
   const f = oneRound(done);
   f.pushes.events.push({ type: "branch_deletion", at: "2026-01-01T01:05:00Z", after: "0000000" });
-  assert.equal(decide(f).state, "success");
+  assert.equal(decide(f).description, "1 findings round assessed in order");
   f.pushes.events.push({ type: "branch_creation", at: "2026-01-01T01:06:00Z", after: "ddddddd" });
-  assert.equal(decide(f).state, "failure");
+  const r = decide(f);
+  assert.equal(r.state, "success");
+  assert.match(r.description, /1 push preceded its assessments/);
 });
 
 test("a pull request merged into the head branch counts as a push (Overhype.me PR #918)", () => {
@@ -227,8 +252,8 @@ test("a pull request merged into the head branch counts as a push (Overhype.me P
     const f = oneRound(done);
     f.pushes.events.push({ type, at: "2026-01-01T01:05:00Z", after: "eeeeeee" });
     const r = decide(f);
-    assert.equal(r.state, "failure", type);
-    assert.match(r.description, /push `eeeeeee` .* preceded the Astra and Fable assessments/);
+    assert.equal(r.state, "success", type);
+    assert.ok(r.lines.some((l) => /push `eeeeeee` .* preceded the Astra and Fable assessments/.test(l)), type);
   }
 });
 
@@ -369,13 +394,14 @@ test("I/O: transitions from success on an unchanged head", async () => {
   assert.equal(s.posted.at(-1).state, "failure");
 });
 
-test("I/O: push history unavailable is error; a waived or exempt PR still passes without it", async () => {
+test("I/O: push history unavailable is a note on success (amendment 1); a waived or exempt PR passes without it", async () => {
   let s = stubGitHub({ facts: satisfied(), fail: /^GET repos\/o\/r\/activity/ });
   await evaluate({ gh: s.gh, repo: "o/r", pr: 1 });
-  assert.equal(s.posted.at(-1).state, "error");
+  assert.equal(s.posted.at(-1).state, "success");
+  assert.match(s.posted.at(-1).description, /push order not checked/);
   s = stubGitHub({ facts: { ...satisfied(), pushes: null } });
   await evaluate({ gh: s.gh, repo: "o/r", pr: 1 });
-  assert.equal(s.posted.at(-1).state, "error");
+  assert.equal(s.posted.at(-1).state, "success");
   s = stubGitHub({ facts: { ...satisfied(), body: "Review class: sync" }, fail: /^GET repos\/o\/r\/activity/ });
   await evaluate({ gh: s.gh, repo: "o/r", pr: 1 });
   assert.equal(s.posted.at(-1).state, "success");

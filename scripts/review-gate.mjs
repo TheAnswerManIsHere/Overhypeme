@@ -3,19 +3,23 @@
 /**
  * The review gate ("Devon", KITT #293): a required commit status that fails a
  * pull request while a Codex findings round lacks its two independent
- * assessments, or while a push landed between such a review and them.
+ * assessments.
  *
- * WHAT IT PROVES, AND WHAT IT DOES NOT (David, 2026-11-11, approval item 1).
- * GitHub records when a commit reached the branch; it cannot see when a file
- * was edited. So the gate proves that no commit was PUSHED after a findings
- * review and before both of its assessments. "No fix is written before them"
- * stays a working rule (`claude-core.md`, *The write-gate rule*).
+ * PUSH ORDER IS NOTED, NOT ENFORCED (David, 2026-11-25, plan amendment 1).
+ * A push that landed after a findings review and before both of its
+ * assessments used to fail the gate until David waived it, and he always
+ * did: the gate cannot tell a fix from an unrelated commit, and a waiver
+ * cannot undo a push already made. Such a push is now listed as a note in
+ * the summary and counted in a passing status's description. "No fix is
+ * written before the assessments" stays a working rule (`claude-core.md`,
+ * *The write-gate rule*), and an early push is disclosed by the builder.
  *
  * THREAT MODEL: the builder's own mistakes, never deliberate bypass
  * (`agents-core.md`, *Important product principles*). Anyone who can comment
  * can post text shaped like an assessment; author filtering is not attempted,
  * because the builder's comments carry the owner's login. The waiver label is
- * David's, by agreement, not by mechanism.
+ * David's, by agreement, not by mechanism, and it is for assessors that
+ * genuinely cannot run.
  *
  * ASYNCHRONOUS, NOT A VETO (approval item 3). Until a run publishes `pending`
  * on the current head, an earlier success may stand. After it, an incomplete
@@ -28,7 +32,9 @@
  *   - the waiver label plus a `Review gate waived:` comment (decision 2);
  *   - Codex connector reviews and the review comments they own (decision 3);
  *   - `review-proxy.mjs`'s assessment comments (decision 4);
- *   - the head branch's push history from the activity API (decision 5).
+ *   - the head branch's push history from the activity API (decision 5),
+ *     read only to note early pushes (amendment 1); unreadable history is
+ *     a note, never an error.
  * It writes one thing: a commit status, context `Review gate` (decision 6).
  */
 import { readFileSync, appendFileSync } from "node:fs";
@@ -162,7 +168,8 @@ export function satisfiedAt(round, assessor, assessments) {
  *
  * Returns { state, description, lines } or { need: "pushes", since: iso }.
  * Order (decision 2's note): waiver, then exemption, then rounds; so a waived
- * or exempt PR never needs the push history.
+ * or exempt PR never needs the push history. Push history never changes the
+ * state (amendment 1): it only adds notes.
  */
 export function decide(facts) {
   const waived = waiverReason(facts.labels, facts.comments);
@@ -191,45 +198,50 @@ function decideRounds(facts) {
     return result("success", "no findings rounds", ["No Codex review on this PR returned findings."]);
   }
   if (facts.pushes === undefined) return { need: "pushes", since: rounds[0].submittedAt };
+  // Push history only feeds notes (amendment 1), so a missing or short
+  // history is said and the verdict goes on without it.
+  let moves = null;
+  let pushNote = null;
   if (facts.pushes === null) {
-    return result("error", "push history unavailable", ["The head branch's push history could not be read, so push order cannot be checked. Re-run the gate."]);
-  }
-  if (t(facts.pushes.from) > t(rounds[0].submittedAt)) {
-    return result("error", "push history incomplete", [`The head branch's push history reaches back only to ${facts.pushes.from}, after the first findings review (${rounds[0].submittedAt}); push order cannot be checked.`]);
+    pushNote = "The head branch's push history could not be read, so push order was not checked (a note, not a failure).";
+  } else if (t(facts.pushes.from) > t(rounds[0].submittedAt)) {
+    pushNote = `The head branch's push history reaches back only to ${facts.pushes.from}, after the first findings review (${rounds[0].submittedAt}), so push order was not checked (a note, not a failure).`;
+  } else {
+    moves = facts.pushes.events.filter((e) => MOVES.has(e.type)).sort((a, b) => t(a.at) - t(b.at));
   }
   const assessments = facts.comments.map(parseAssessment).filter(Boolean);
-  const moves = facts.pushes.events.filter((e) => MOVES.has(e.type)).sort((a, b) => t(a.at) - t(b.at));
+  let early = 0;
   for (const r of rounds) {
     const label = `round at \`${short(r.commit)}\` (review ${r.reviewId}, ${r.submittedAt}, findings ${r.findings.map((f) => `\`${f}\``).join(", ")})`;
     const done = Object.fromEntries(ASSESSORS.map((a) => [a, satisfiedAt(r, a, assessments)]));
     const missing = ASSESSORS.filter((a) => !done[a]);
-    const after = moves.filter((m) => t(m.at) > t(r.submittedAt));
     const states = ASSESSORS.map((a) => `${a} ${done[a] ? `at ${done[a]}` : "missing"}`).join(", ");
-    const roundProblems = [];
-    if (missing.length) {
-      roundProblems.push(`${missing.join(" and ")} missing`);
-    }
-    for (const m of after) {
+    const notes = [];
+    for (const m of (moves ?? []).filter((m) => t(m.at) > t(r.submittedAt))) {
       const late = ASSESSORS.filter((a) => !done[a] || t(done[a]) > t(m.at));
       if (late.length) {
-        roundProblems.push(`push \`${short(m.after)}\` at ${m.at} preceded the ${late.join(" and ")} assessment${late.length > 1 ? "s" : ""}`);
+        notes.push(`Note: push \`${short(m.after)}\` at ${m.at} preceded the ${late.join(" and ")} assessment${late.length > 1 ? "s" : ""} (noted, not failing; the builder discloses it in the round's \`review-action\` block)`);
       }
     }
-    if (!roundProblems.length) {
+    early += notes.length;
+    if (!missing.length) {
       lines.push(`- **Satisfied:** ${label}: ${states}.`);
-      continue;
+    } else {
+      problems.push(`round at ${short(r.commit)}: ${missing.join(" and ")} missing`);
+      lines.push(`- **Not satisfied:** ${label}: ${states}.`);
+      lines.push(`  - ${missing.join(" and ")} missing.`);
+      lines.push("  - **Recovery:** post the missing assessment (`review-proxy.mjs`); if the assessors genuinely cannot run, David's waiver.");
     }
-    problems.push(`round at ${short(r.commit)}: ${roundProblems[0]}`);
-    lines.push(`- **Not satisfied:** ${label}: ${states}.`);
-    for (const p of roundProblems) lines.push(`  - ${p}.`);
-    const pushProblem = roundProblems.some((p) => p.startsWith("push "));
-    lines.push(
-      pushProblem
-        ? "  - **Recovery:** a late assessment cannot repair a push already made. Post both assessments, then David's waiver: the label `" + WAIVER_LABEL + "` and a comment starting `Review gate waived:` explaining what happened."
-        : "  - **Recovery:** post the missing assessment (`review-proxy.mjs`); if the assessors genuinely cannot run, David's waiver."
-    );
+    for (const n of notes) lines.push(`  - ${n}.`);
   }
-  if (!problems.length) return result("success", `${rounds.length} findings round${rounds.length > 1 ? "s" : ""} assessed in order`, lines);
+  if (pushNote) lines.push(`- ${pushNote}`);
+  if (!problems.length) {
+    const base = `${rounds.length} findings round${rounds.length > 1 ? "s" : ""} assessed`;
+    const tail = pushNote
+      ? "; push order not checked"
+      : early ? `; ${early} push${early > 1 ? "es" : ""} preceded ${early > 1 ? "their" : "its"} assessments (noted)` : " in order";
+    return result("success", `${base}${tail}`, lines);
+  }
   const more = problems.length > 1 ? ` (+${problems.length - 1} more)` : "";
   return result("failure", `${problems[0]}${more}`, lines);
 }

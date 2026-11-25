@@ -100,13 +100,15 @@ thread is still resolved, because the ruleset requires it.
 
    **The review gate checks this from GitHub's record**: its `Review gate`
    status fails while a findings round lacks either assessment of the
-   reviewed commit, and stays failed if any push landed between the review
-   and them. So both assessments are posted before the first push of
-   anything — a fix, a base merge, an unrelated commit. A failed gate is read
-   on its run's summary: a missing assessment is posted, which re-runs it; a
-   push that came first cannot be repaired by a late assessment, so both are
-   posted anyway and David's waiver is asked for as a 🛑 (`claude-core.md`,
-   *Shared judgement on a review round*).
+   reviewed commit. Both assessments are posted before the first push of
+   anything — a fix, a base merge, an unrelated commit — and the gate does
+   not hold me to that: a push that lands before them anyway (a race with a
+   review that arrived seconds earlier, or a mistake) is listed on the gate's
+   run summary as a note, not a failure, and I disclose it in that round's
+   `review-action` block (step 3.6). A failed gate is read on its run's
+   summary: a missing assessment is posted, which re-runs it; David's waiver
+   is asked for, as a 🛑, only when the assessors genuinely cannot run
+   (`claude-core.md`, *Shared judgement on a review round*).
 
    **The oracle comes first, and it is agreed with David before round 1.** It
    is the outcome he agreed the work should achieve — an approved plan, an
@@ -312,6 +314,12 @@ thread is still resolved, because the ruleset requires it.
       block for the class and the pre-fix sweep, names the commit, and carries
       the post-fix re-run of the oracle to zero, which the block cannot hold
       because it is posted before the batch is written (class-sweep step 3).
+      **A push that landed after the round's review and before both
+      assessments is disclosed in this block**, whatever the action: the
+      commit, what it contained, and whether it touched a line a finding
+      names. An early push of a fix is named as a breach of the write-gate
+      rule; the build report carries it, and it asks David for nothing
+      (`claude-core.md`, *Shared judgement* item 6).
 
    **Sign-in is the session's first action** (`claude-core.md`, *Astra*); a
    dispatch only re-checks it, so a restarted container is caught before a
@@ -335,7 +343,8 @@ thread is still resolved, because the ruleset requires it.
    requirement or fails a required check does not merge: I fix it or cut it,
    and report. What goes to David is only what step 3.5 names — intended
    behaviour, an accepted user-facing shortfall, where no settled decision
-   already covers them — and the review gate's waiver (step 3, above), and a
+   already covers them — and the review gate's waiver when the assessors
+   cannot run (step 3, above), and a
    change to the review loop is judged like any other. The usual outcome is
    **recorded gaps and follow-up issues**, and the pull request goes to
    close-out like any other. **A follow-up issue is filed with its labels**:
@@ -615,7 +624,8 @@ payload, which delivers fleet machinery rather than a workstream (the
   (step 3.5 above — a purely technical fork is settled in the loop, never
   escalated) → `waiting:david`; `stage:code-review` stays put — the stage
   hasn't moved, but the turn has. **The review gate's waiver is asked** (step
-  3: a push came before a round's assessments) → `waiting:david` the same way.
+  3: the assessors cannot run) → `waiting:david` the same way. A push that
+  came before a round's assessments asks him nothing.
 - **The close-out bar is met** (CLAUDE.md's *Close-out*, all three items) →
   the ready bar is met and **I merge it myself per CLAUDE.md's close-out
   contract** — re-verify live state, squash-merge, check and sync the Repl,
@@ -623,7 +633,8 @@ payload, which delivers fleet machinery rather than a workstream (the
   state. A guardrail- or authority-widening PR merges the same way, with the
   latitude it grants named in the report. The PRs that do not are the ones
   whose shortfall is a product decision (step 3.5), and one whose review gate
-  waits on his waiver (step 3); no count and no class sends one to him.
+  waits on his waiver because the assessors cannot run (step 3); no count
+  and no class sends one to him.
 - **The PR merges with a Post-merge verification section that has real
   content** → `stage:test-run`, `waiting:replit` — or `waiting:david` while
   a step in it that would start a paid AI run above his budget waits for his

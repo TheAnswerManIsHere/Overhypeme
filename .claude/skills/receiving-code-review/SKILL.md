@@ -45,8 +45,8 @@ written. A cap on further editing is never an exemption from reviewing what
 was edited. **A third: implementing a Codex finding before its round's Astra
 and Fable assessments are posted.** On a PR in the standard loop nothing below
 is written or pushed for a round that returned findings until both are in;
-the review gate fails a round missing either, and a push before both fails
-it in a way only David's waiver releases
+the review gate fails a round missing either, and a push that lands before
+both anyway is disclosed in the round's `review-action` block
 ([`claude-core.md`](../../../.agents/core/claude-core.md), *Shared judgement on a
 review round*).
 

@@ -501,8 +501,8 @@ my enactment is `.claude/skills/document/`.
    in it, end to end.** Between increments I stop for three things only, each
    a 🛑 banner with a push notification (and the alert hook's ring, since
    each is a hand-back that waits on him): a blocker only he can clear (a key, a
-   sign-in, a purchase, the review gate's waiver — *Shared judgement on a
-   review round*), a UAT step that is his and that the next increment depends
+   sign-in, a purchase, the review gate's waiver when the assessors cannot
+   run — *Shared judgement on a review round*), a UAT step that is his and that the next increment depends
    on, and the irreversible list. A UAT the next increment does not depend on
    never pauses the build: the machine lanes are settled (the `uat` skill,
    section 3), the judgement steps go to him, and the next increment starts; a
@@ -636,8 +636,8 @@ written when the judgement says it is worth it, and the merge report says what
 was recorded and why. No count bounds the loop. **No round brings findings to
 David**: a corrected head that still violates an agreed requirement or fails a
 required check is mine to fix or cut; only a product decision, the
-irreversible list, or the review gate's waiver for a push made before a round's
-assessments is his. The retired two-review limit's record is
+irreversible list, or the review gate's waiver when the assessors cannot run is
+his. The retired two-review limit's record is
 [`working-modes.md`](../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19).
 
 ### The ship gate: when the Worth rule stops being asked (David, 2026-09-19)
@@ -749,7 +749,12 @@ The loop:
    pushed, the round's `review-action` block names each finding's class and
    shows the sweep of that class** — every member found, with the command
    that found them; the post-push thread reply cites that block and names the
-   commit (`pr-watch` step 3.6 posts the block).
+   commit (`pr-watch` step 3.6 posts the block). **A push that landed after
+   the round's review and before both assessments is disclosed in that
+   block**: the commit, what it contained, and whether it touched a line a
+   finding names; an early push of a fix is named as a breach of the
+   write-gate rule, and the build report carries it under *Where it
+   disagrees with the builder*.
 
 - **The oracle is agreed with David before the first round runs**; the script
   refuses to compose a package without one. **The assessors take it from
@@ -760,15 +765,18 @@ The loop:
   parses an assessment, so no phrase in one can authorise work.
 - **A failed dispatch is not permission to proceed on one assessment alone.**
   It is reported in plain English and the round stops.
-- **The review gate enforces both assessments and their order.** A required
-  commit status, `Review gate`, fails a PR while a Codex findings round lacks
-  an Astra or a Fable assessment of the reviewed commit, or while a push
-  landed between that review and them. It proves push order, not when a fix
-  was written — that stays this rule. A failure is answered by posting what
-  is missing; a push made before them is released only by David's waiver —
-  the label `review-gate: waived by David` and a comment starting `Review
-  gate waived:` with the reason, a 🛑 since only he applies it — never by
-  working around the gate. An exempt PR says so on a line of its own:
+- **The review gate enforces both assessments.** A required commit status,
+  `Review gate`, fails a PR while a Codex findings round lacks an Astra or a
+  Fable assessment of the reviewed commit, posted after the review. **A push
+  that landed between that review and them is a note, not a failure** (David,
+  2026-11-25): the gate lists it, and I disclose it in the round's
+  `review-action` block (item 6). Every push still waits for both
+  assessments, and no fix is written before them — that stays this rule,
+  which the gate does not see. A failure is answered by posting what is
+  missing; **David's waiver** — the label `review-gate: waived by David` and
+  a comment starting `Review gate waived:` with the reason, a 🛑 since only
+  he applies it — **is for assessors that genuinely cannot run**, and a
+  failure is never answered by working around the gate. An exempt PR says so on a line of its own:
   `Review class: trivial`, `sync`, `registry` or `prototype`. Mechanics:
   `core/scripts/review-gate.mjs` here, `scripts/review-gate.mjs` in a consumer.
 - **Both assessors read the live checkout, so the dispatch refuses unless the
@@ -1065,8 +1073,9 @@ autonomy merges under the same bar as everything else. Exactly three things
 make a merge wait on him: the irreversible list; a corrected head whose
 shortfall is a product decision — what the product should do, or a user-facing
 consequence he has not accepted (*A reversible choice proceeds*); and a PR
-whose review gate failed on a push made before its round's assessments, which
-only his waiver releases (*Shared judgement on a review round*). A review-loop
+whose review gate fails because the assessors genuinely cannot run, which only
+his waiver releases (*Shared judgement on a review round*). A push made before
+a round's assessments makes no merge wait on him: the gate notes it. A review-loop
 PR's second review, a Trivial P1 and a second-review finding worth reopening
 are mine, reported. **What
 replaces the gate is visibility:** the PR body and the merge report each carry

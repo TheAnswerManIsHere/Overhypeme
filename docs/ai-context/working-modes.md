@@ -1047,8 +1047,9 @@ pushed:
 1. A round returns findings.
 2. The judgement is made per finding: on a code loop from two independent
    assessments and the builder's own reading of them — both posted before
-   anything is pushed, which the review gate enforces (`claude-core.md`,
-   *Shared judgement on a review round*). (A planning loop is not
+   anything is pushed; the review gate enforces that both are posted, and
+   notes a push that came first (`claude-core.md`, *Shared judgement on a
+   review round*). (A planning loop is not
    a review loop and this write gate does not govern it — see *Who judges*
    below.)
 3. **Anything written** → the fixes are pushed, and another review round is
@@ -1115,8 +1116,9 @@ violates an agreed requirement or fails a required check is still not
 mergeable: the builder fixes it or cuts it, and reports. What still goes to
 David is what always did — a product decision (what the product should do,
 an accepted user-facing consequence), a plan, the irreversible list, and —
-new with the review gate (2026-11-11) — the waiver for a push made before a
-round's assessments (`claude-core.md`, *Shared judgement on a review round*;
+new with the review gate (2026-11-11) — its waiver when the assessors cannot
+run; a push made before a round's assessments is noted by the gate and goes
+to no one (2026-11-25; `claude-core.md`, *Shared judgement on a review round*;
 `agent-working-rules.md`, *A reversible choice proceeds on the
 recommendation*).
 
@@ -1393,9 +1395,9 @@ shortfall, where no settled decision already covers it — on a code round a
 there is no readout to carry it (the Claude core's *Shared judgement on a
 review round*, rule 5; [`agent-working-rules.md`](agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10)); a consequence a settled
 decision reaches is settled with it, and the reply names the decision; a
-disclosure question is his; so is the review gate's waiver, the one release
-for a push made before a round's assessments (the Claude core's *Shared
-judgement on a review round*); a scope addition is taken as *next* and reported,
+disclosure question is his; so is the review gate's waiver, for when the
+assessors cannot run (the Claude core's *Shared judgement on a review
+round*); a scope addition is taken as *next* and reported,
 and a split is proposed in the plan (David, 2026-10-21). **A purely technical design fork is not among them** — it is
 settled in the loop, with the Fable assessor holding the tie-break on a code
 round. This list read "a product or design fork" until 2026-09-20, which a
@@ -1420,8 +1422,8 @@ that the findings will all be declined as grounds for skipping the assessments
 ends the round on the builder's judgement alone. That is the exact behaviour
 the shared judgement replaces. Note one status line either way, so the
 discipline stays visible; the review gate also fails a findings round
-missing either assessment, or pushed to before both (`claude-core.md`,
-*Shared judgement on a review round*).
+missing either assessment (`claude-core.md`, *Shared judgement on a review
+round*).
 
 **Trivial nits do not skip the judgement** (David, 2026-08-22, the write-gate
 rule). Writing for them is exactly the decision it exists to make: under this

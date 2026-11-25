@@ -99,6 +99,22 @@ repeatedly caught what nobody else did.
   nobody named, a claim in a merge report or a pull request body the evidence
   does not bear out. Each with `why_it_matters` to him. **An empty list is a
   real and often correct answer**; never pad it, never suppress an item.
+  **A push that landed after a findings review and before both of its
+  assessments** goes here when it carried a fix: a breach of the write-gate
+  rule, since the review gate notes such a push rather than failing on it, so
+  its passing status no longer certifies push order (`claude-core.md`,
+  *Shared judgement on a review round*). It asks David for no waiver. **Push
+  order comes only from records of pushes, never from commit, author or
+  committer dates** — a commit made while the assessments were pending and
+  pushed after them is the rule followed, not broken. The two records are
+  the builder's disclosure in the round's `review-action` block and the
+  `Review gate` status on the PR's head, whose description counts the pushes
+  that preceded their assessments (`… N push(es) preceded … (noted)`, `… in
+  order`, or `… push order not checked`). More pushes noted there than the
+  builder disclosed is a disagreement too; the count is per PR, so it says
+  that one went undisclosed, not which round it belongs to. Where the status
+  cannot be reached, or says push order was not checked, put "push order not
+  independently checked" in `took_on_trust` and infer nothing.
 - **`where_we_are`** — against the plan or agreed scope the issue records:
   what was planned, what this unit leaves finished, and the next unit, one
   sentence each.
@@ -153,6 +169,9 @@ Load your tools first if they are not already available: `ToolSearch` with
      else. Its *summary* comment (body beginning
      `<!-- codex-pull-request-review-summary -->`) is rewritten in place every
      round; it is not a marker. Round N is the Nth marker in time order.
+   - `get_status`, for the `Review gate` status on the head: its description
+     is the record of pushes that preceded their round's assessments (see
+     `disagreements`).
    - `get_commits` for the ordered commit list, then `get_commit` with
      `detail: "full_patch"` for each. **Select commits by ancestry, never by
      date**: a cherry-pick carries an older author date, and a clock-based
