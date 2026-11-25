@@ -609,7 +609,7 @@ export function FactSheet({
   return (
     <div
       data-modal-overlay
-      className="fixed inset-0 z-50 bg-black/60 flex items-stretch sm:items-center justify-center sm:p-4"
+      className="fixed inset-0 z-50 bg-black/60 flex items-stretch sm:items-start justify-center sm:p-4 sm:pt-[5vh]"
       onClick={close}
     >
       <div
