@@ -49,6 +49,7 @@ import { openReviewForFact, type GagContent } from "./resolver";
 import { CANONICAL_SUBJECT_NAME_FORMS_LC } from "../renderCanonical";
 import { lockFactRow, lockReview } from "../reviewLocks";
 import { recordAdminAction } from "../adminActions";
+import { isGagModerationRender } from "../imagePromptAttempts";
 import { queueStoredFileDeletions, renderFilePaths } from "../storedFileDeletions";
 import { renderProgressByAttempt } from "../renderProgress";
 import { clearPendingExamples, copyPublishedExamplesToDraft, putExample } from "./examples";
@@ -395,7 +396,8 @@ export async function approveGagRender(factId: number, gagId: number, attemptId:
  * Refused, saying why, inside one transaction under the fact lock every gag
  * action and the render worker's final store take, so it holds against an
  * approval, a publish or a finishing render at the same moment:
- *   - a render of another fact or gag (as not found);
+ *   - a render of another fact or gag, or anything that is not an admin's
+ *     render of this gag — a member's picture above all (as not found);
  *   - any gag's pick, live or for the next publish (`fact_gag_examples`'
  *     foreign key enforces this too);
  *   - a render still queued or drawing;
@@ -409,7 +411,9 @@ export async function deleteGagRender(factId: number, gagId: number, attemptId: 
     await lockFact(tx, factId);
     await resolveScope(tx, factId, actor);
     const [attempt] = await tx.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.id, attemptId)).limit(1);
-    if (!attempt || attempt.factId !== factId || attempt.gagId !== gagId) {
+    // Only an admin's render of this gag: never a member's picture, which
+    // also names the gag it drew (fails closed on anything not positively one).
+    if (!attempt || attempt.factId !== factId || attempt.gagId !== gagId || !isGagModerationRender(attempt)) {
       throw new GagError("RENDER_NOT_FOUND", "That render is not one of this gag's.", 404);
     }
     const picks = await tx.select({ stage: factGagExamplesTable.stage }).from(factGagExamplesTable)

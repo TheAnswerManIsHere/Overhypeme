@@ -23,7 +23,8 @@ import { withCast } from "./helpers/gagCast.js";
 import { GagError, approveGagRender, deleteGagRender } from "../lib/gags/gagStore.js";
 import { buildFactGagsView } from "../lib/gags/gagView.js";
 import { HISTORY_PAGE_SIZE, approvalOf, gagRenderHistory, renderCostOf, removedGagHistories } from "../lib/gags/renderHistory.js";
-import { billingWindows, runRenderBillingFill } from "../lib/renderBilling.js";
+import { WINDOW_SPAN_MS, billingWindows, runRenderBillingFill } from "../lib/renderBilling.js";
+import { MAX_WINDOW_MS } from "../lib/comparison/billedCost.js";
 import { RENDER_APPROVAL_AUDIT_KEY } from "../lib/renderApprovalAudit.js";
 import { __setFileRemoverForTest } from "../lib/storedFileDeletions.js";
 
@@ -153,7 +154,7 @@ describe("a gag's history (D4)", () => {
     assert.ok(d.imageUrl);
     assert.deepEqual(d.roles.sort(), ["approved_next", "working"].sort(), "both working and official; its record is still here");
     assert.equal(d.approval, "approved");
-    assert.deepEqual(d.cost, { state: "billed", usd: 0.039, unbilledRequests: 1 }, "the known amount and what is still outstanding");
+    assert.deepEqual(d.cost, { state: "billed", usd: 0.039, unbilledRequests: 1, unknownRequests: 0 }, "the known amount and what is still outstanding");
     assert.equal(f.status, "failed");
     assert.equal(f.error, "vendor failed");
     assert.equal(f.kind, "pet");
@@ -221,14 +222,25 @@ describe("a gag's history (D4)", () => {
 });
 
 describe("billed cost (D5)", () => {
-  it("reads each state from stored bills", () => {
-    const r = (v: string | null, billed: string | null, checked: boolean) => ({ vendorRequestId: v, billedUsd: billed, billingCheckedAt: checked ? new Date() : null });
-    assert.deepEqual(renderCostOf([r(null, null, false)], true), { state: "never_sent" });
-    assert.deepEqual(renderCostOf([r("a", "0.0100", true), r("b", "0.0250", true)], true), { state: "billed", usd: 0.035, unbilledRequests: 0 }, "a render with several requests sums them");
-    assert.deepEqual(renderCostOf([r("a", "0.0100", true), r("b", null, false)], false), { state: "billed", usd: 0.01, unbilledRequests: 1 });
-    assert.deepEqual(renderCostOf([r("a", null, false)], true), { state: "not_checked" });
-    assert.deepEqual(renderCostOf([r("a", null, true)], true), { state: "no_bill_found" });
-    assert.deepEqual(renderCostOf([r("a", null, true)], false), { state: "billing_key_not_set" });
+  it("reads each state from stored bills, and never reads an unknown request as nothing charged", () => {
+    const r = (v: string | null, billed: string | null, checked: boolean, status: string | null = v ? "COMPLETED" : null) =>
+      ({ vendorRequestId: v, vendorStatus: status, billedUsd: billed, billingCheckedAt: checked ? new Date() : null });
+    const on = { keySet: true, hasPicture: true };
+    assert.deepEqual(renderCostOf([r("a", "0.0100", true), r("b", "0.0250", true)], on), { state: "billed", usd: 0.035, unbilledRequests: 0, unknownRequests: 0 }, "a render with several requests sums them");
+    assert.deepEqual(renderCostOf([r("a", "0.0100", true), r("b", null, false)], { ...on, keySet: false }), { state: "billed", usd: 0.01, unbilledRequests: 1, unknownRequests: 0 });
+    assert.deepEqual(renderCostOf([r("a", null, false)], on), { state: "not_checked" });
+    assert.deepEqual(renderCostOf([r("a", null, true)], on), { state: "no_bill_found" });
+    assert.deepEqual(renderCostOf([r("a", null, true)], { ...on, keySet: false }), { state: "billing_key_not_set" });
+    // A receipt lost and the picture drawn again: the billed replacement is not the whole cost.
+    assert.deepEqual(renderCostOf([r(null, null, false, "LOST"), r("b", "0.0390", true)], on), { state: "billed", usd: 0.039, unbilledRequests: 0, unknownRequests: 1 });
+    // Only requests whose outcome is unknown (lost, or a transport failure): not recorded, never "nothing charged".
+    assert.deepEqual(renderCostOf([r(null, null, false, "LOST")], on), { state: "not_recorded" });
+    assert.deepEqual(renderCostOf([r(null, null, false, null)], { ...on, hasPicture: false }), { state: "not_recorded" });
+    // A finished picture with no request records (drawn before requests were recorded).
+    assert.deepEqual(renderCostOf([], on), { state: "not_recorded" });
+    // Refused by fal at submission, or failed before any request: nothing was charged.
+    assert.deepEqual(renderCostOf([r(null, null, false, "FAILED")], { ...on, hasPicture: false }), { state: "never_sent" });
+    assert.deepEqual(renderCostOf([], { ...on, hasPicture: false }), { state: "never_sent" });
   });
 
   it("the fill sums a request's events, looks an old request up in its own window, and marks an unbilled one checked", async () => {
@@ -266,6 +278,18 @@ describe("billed cost (D5)", () => {
     await assert.rejects(runRenderBillingFill({ batch: 10_000, fetchEvents: async () => { throw new Error("fal down"); } }), /billing lookups failed/);
     const [row] = await db.select().from(imageGenerationRequestsTable).where(eq(imageGenerationRequestsTable.id, req.id));
     assert.equal(row!.billingCheckedAt, null, "not checked stays not checked");
+  });
+
+  it("a whole window, margins included, stays within fal's 90 days at the span's boundary, and one past it splits", () => {
+    const now = new Date("2026-11-25T00:00:00Z");
+    const first = new Date(now.getTime() - 200 * 86_400_000);
+    const at = (ms: number) => ({ createdAt: new Date(first.getTime() + ms) });
+    const one = billingWindows([at(0), at(WINDOW_SPAN_MS)], now);
+    assert.equal(one.length, 1, "exactly the maximum span apart: one window");
+    assert.ok(one[0]!.end.getTime() - one[0]!.start.getTime() <= MAX_WINDOW_MS, "head, span and tail together within the cap");
+    const two = billingWindows([at(0), at(WINDOW_SPAN_MS + 1)], now);
+    assert.equal(two.length, 2, "just past it: two windows, each request still covered");
+    for (const w of two) assert.ok(w.end.getTime() - w.start.getTime() <= MAX_WINDOW_MS);
   });
 
   it("windows group by creation date and never exceed 90 days", () => {
@@ -355,6 +379,36 @@ describe("deleting an old render (D6)", () => {
     await assert.rejects(deleteGagRender(factId, gagId, target, { adminId: `missing-${RUN}`, reviewId: null }));
     assert.equal((await db.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.id, target))).length, 1);
     assert.equal((await db.select().from(storedFileDeletionsTable).where(eq(storedFileDeletionsTable.path, path!))).length, 0);
+  });
+
+  it("a member's picture of the gag is not one of its renders: absent from the history and the removed count, and refused by the delete", async () => {
+    const { factId, gagId, reviewId } = await submission();
+    const admins = await render(factId, gagId, A);
+    // A member's failed picture and a delivered one: they also store the gag they drew.
+    const memberRow = async (failed: boolean) => {
+      const [row] = await db.insert(imagePromptAttemptsTable).values({
+        factId, gagId, userId: adminId, memberRequestId: randomUUID(), memberRequestFingerprint: "f",
+        renderJobId: randomUUID(), generationMode: "i2i", subjectRenderMode: "human_identity_i2i", targetEngine: "nano_banana_2",
+        sourceImageAnalysis: {} as never, identityPolicy: {} as never, renderControls: {} as never,
+        factEnrichmentSnapshot: { ...buildPlaceholderFactEnrichment(), visualPromptStrategyOverride: A } as never,
+        archetypeStrategyVersion: "v2",
+        generatedImageObjectPath: failed ? null : `/objects/ai-bg-v2/${factId}/${randomUUID()}.png`,
+        error: failed ? "vendor failed" : null,
+      }).returning({ id: imagePromptAttemptsTable.id });
+      return row!.id;
+    };
+    const failedPicture = await memberRow(true);
+    const deliveredPicture = await memberRow(false);
+    assert.deepEqual((await gagRenderHistory(factId, gagId)).entries.map((e) => e.attemptId), [admins]);
+    for (const id of [failedPicture, deliveredPicture]) {
+      const res = await request(app).post(`/api/admin/facts/${factId}/gags/${gagId}/renders/${id}/delete`).send({ reviewId });
+      assert.equal(res.status, 404, JSON.stringify(res.body));
+      assert.equal(res.body.code, "RENDER_NOT_FOUND");
+      assert.equal((await db.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.id, id))).length, 1, "the member's row is untouched");
+    }
+    await db.update(factGagsTable).set({ removedAt: new Date() }).where(eq(factGagsTable.id, gagId));
+    const removedGags = await removedGagHistories(factId);
+    assert.equal(removedGags.find((g) => g.gagId === gagId)?.renders, 1, "only the admin's render is counted");
   });
 
   it("is admin only", async () => {

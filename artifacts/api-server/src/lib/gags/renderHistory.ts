@@ -37,7 +37,7 @@ import {
   type RenderRole,
 } from "@workspace/api-zod";
 import { deriveScenarioStatus } from "../factRenderScenarios";
-import { buildRenderStatusPayload } from "../imagePromptAttempts";
+import { GAG_MODERATION_RENDER, buildRenderStatusPayload } from "../imagePromptAttempts";
 import { switchedFallbackOf } from "../engineFallback";
 import { renderProgressByAttempt } from "../renderProgress";
 import { gagRenderImageUrl, newestRendersPerKind } from "../reviewRenderScenarios";
@@ -102,16 +102,29 @@ async function approvedIds(gagId: number, ids: number[]): Promise<Set<number>> {
   return out;
 }
 
-/** A render's cost from its requests' stored bills (D5); no fal call. */
-export function renderCostOf(requests: { vendorRequestId: string | null; billedUsd: string | null; billingCheckedAt: Date | null }[], keySet: boolean): RenderCost {
+/**
+ * A render's cost from its requests' stored bills (D5); no fal call. A
+ * request with no fal id is "never sent" only when fal refused it at
+ * submission (`FAILED`); any other receipt-less request may have been
+ * received and charged, so it counts against a total's completeness and is
+ * never read as "nothing was charged" (PR #1316 round 1).
+ */
+export function renderCostOf(
+  requests: { vendorRequestId: string | null; vendorStatus: string | null; billedUsd: string | null; billingCheckedAt: Date | null }[],
+  opts: { keySet: boolean; hasPicture: boolean },
+): RenderCost {
   const sent = requests.filter((r) => r.vendorRequestId != null);
-  if (sent.length === 0) return { state: "never_sent" };
+  const unknown = requests.filter((r) => r.vendorRequestId == null && r.vendorStatus !== "FAILED").length;
+  if (sent.length === 0) {
+    if (unknown > 0 || (requests.length === 0 && opts.hasPicture)) return { state: "not_recorded" };
+    return { state: "never_sent" };
+  }
   const billed = sent.filter((r) => r.billedUsd != null);
   if (billed.length > 0) {
     const usd = billed.reduce((sum, r) => sum + Number(r.billedUsd), 0);
-    return { state: "billed", usd: Math.round(usd * 10_000) / 10_000, unbilledRequests: sent.length - billed.length };
+    return { state: "billed", usd: Math.round(usd * 10_000) / 10_000, unbilledRequests: sent.length - billed.length, unknownRequests: unknown };
   }
-  if (!keySet) return { state: "billing_key_not_set" };
+  if (!opts.keySet) return { state: "billing_key_not_set" };
   return sent.some((r) => r.billingCheckedAt == null) ? { state: "not_checked" } : { state: "no_bill_found" };
 }
 
@@ -135,6 +148,7 @@ export async function gagRenderHistory(factId: number, gagId: number, before?: s
     .where(and(
       eq(a.factId, factId),
       eq(a.gagId, gagId),
+      GAG_MODERATION_RENDER,
       cursor ? or(lt(a.createdAt, cursor.at), and(eq(a.createdAt, cursor.at), lt(a.id, cursor.id))) : undefined,
     ))
     .orderBy(desc(a.createdAt), desc(a.id))
@@ -187,7 +201,7 @@ export async function gagRenderHistory(factId: number, gagId: number, before?: s
         })),
       },
       approval: approvalOf(r, approved, boundary),
-      cost: renderCostOf(reqs, keySet),
+      cost: renderCostOf(reqs, { keySet, hasPicture: r.generatedImageObjectPath != null }),
     };
   });
   const last = page[page.length - 1];
@@ -208,6 +222,7 @@ export async function removedGagHistories(factId: number): Promise<RemovedGagHis
     .where(and(
       eq(a.factId, factId),
       isNotNull(a.gagId),
+      GAG_MODERATION_RENDER,
       sql`NOT EXISTS (SELECT 1 FROM fact_gags g WHERE g.id = ${a.gagId} AND g.removed_at IS NULL)`,
     ))
     .groupBy(a.gagId)

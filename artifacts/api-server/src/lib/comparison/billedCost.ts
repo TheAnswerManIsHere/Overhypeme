@@ -20,7 +20,7 @@ import { logger } from "../logger.js";
 
 const FAL_BILLING_EVENTS_API = "https://api.fal.ai/v1/models/billing-events";
 /** fal caps one query's window at 90 days. */
-const MAX_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
+export const MAX_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
 const PAGE_LIMIT = 1000;
 const MAX_PAGES = 50;
 

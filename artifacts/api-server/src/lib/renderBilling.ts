@@ -19,17 +19,22 @@
  */
 import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, imageGenerationRequestsTable } from "@workspace/db";
-import { falBillingFetcher, falBillingKey, sumBilledByRequest, type BillingFetcher } from "./comparison/billedCost";
+import { MAX_WINDOW_MS, falBillingFetcher, falBillingKey, sumBilledByRequest, type BillingFetcher } from "./comparison/billedCost";
 import { logger } from "./logger";
 
 /** Requests looked up in one run. */
 const BATCH = 500;
 const DAY_MS = 24 * 60 * 60 * 1000;
-/** Requests whose creation dates span at most this share one lookup... */
-const WINDOW_SPAN_MS = 88 * DAY_MS;
-/** ...which reaches this far past the last of them, since fal posts a bill a little after the picture: 90 days in all, fal's limit. */
-const WINDOW_TAIL_MS = 2 * DAY_MS;
+/** A lookup starts this far before its first request... */
 const WINDOW_HEAD_MS = 60 * 60 * 1000;
+/** ...and reaches this far past its last, since fal posts a bill a little after the picture. */
+const WINDOW_TAIL_MS = 2 * DAY_MS;
+/**
+ * Requests whose creation dates span at most this share one lookup: fal's
+ * limit less both margins, so a whole window, margins included, never passes
+ * it (PR #1316 round 1).
+ */
+export const WINDOW_SPAN_MS = MAX_WINDOW_MS - WINDOW_HEAD_MS - WINDOW_TAIL_MS;
 
 export interface RenderBillingCounts {
   /** Requests looked up this run. */

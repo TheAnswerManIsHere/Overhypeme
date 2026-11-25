@@ -52,6 +52,7 @@ import {
 import { buildFactGagsView } from "../lib/gags/gagView";
 import { gagRenderHistory, removedGagHistories } from "../lib/gags/renderHistory";
 import { cleanUpQueuedFiles } from "../lib/storedFileDeletions";
+import { GAG_MODERATION_RENDER } from "../lib/imagePromptAttempts";
 import { CastPreparationError, prepareDraftCast } from "../lib/gags/castPreparation";
 import { createRateLimiter } from "../lib/rateLimit";
 import { drawGagKinds } from "../lib/reviewRenderScenarios";
@@ -244,7 +245,7 @@ router.get("/admin/gags/:gagId/renders/:renderJobId/image", requireAdmin, async 
   const [attempt] = await db
     .select({ path: imagePromptAttemptsTable.generatedImageObjectPath })
     .from(imagePromptAttemptsTable)
-    .where(and(eq(imagePromptAttemptsTable.renderJobId, renderJobId), eq(imagePromptAttemptsTable.gagId, gagId)))
+    .where(and(eq(imagePromptAttemptsTable.renderJobId, renderJobId), eq(imagePromptAttemptsTable.gagId, gagId), GAG_MODERATION_RENDER))
     .limit(1);
   if (!attempt) { res.status(404).json({ error: "render_not_found" }); return; }
   if (!attempt.path) { res.status(404).json({ error: "image_not_ready" }); return; }

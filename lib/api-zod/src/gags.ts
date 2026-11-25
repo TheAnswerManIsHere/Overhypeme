@@ -214,15 +214,26 @@ export type RenderApproval =
  * fal call.
  */
 export type RenderCost =
-  /** Some or all of its requests have a bill: the known amount, and how many requests have none yet. */
-  | { state: "billed"; usd: number; unbilledRequests: number }
+  /**
+   * Some or all of its requests have a bill: the known amount, how many sent
+   * requests have none yet, and how many requests fal may or may not have
+   * received (no fal id on record, and not refused at submission). The amount
+   * is the whole cost only when both counts are zero.
+   */
+  | { state: "billed"; usd: number; unbilledRequests: number; unknownRequests: number }
   /** No bill yet, and at least one request has not been looked up. */
   | { state: "not_checked" }
   /** Every request was looked up in a window covering it, and fal had no bill. */
   | { state: "no_bill_found" }
   /** The billing-read key is not set, so nothing is looked up. */
   | { state: "billing_key_not_set" }
-  /** It never reached fal, so nothing was charged. */
+  /**
+   * Whether fal received it is not on record: its requests carry no fal id and
+   * were not refused at submission, or it has a picture and no request records
+   * (drawn before requests were recorded). Never guessed (intent 5).
+   */
+  | { state: "not_recorded" }
+  /** It never reached fal, so nothing was charged: refused at submission, or failed before any request. */
   | { state: "never_sent" };
 
 /** The exact input one request sent to the engine. */
