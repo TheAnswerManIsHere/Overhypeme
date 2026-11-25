@@ -427,7 +427,7 @@ describe("GET /api/callback/google", () => {
     assert.match(policy!, /(^|; )base-uri 'none'(;|$)/);
     assert.match(policy!, /(^|; )form-action 'none'(;|$)/);
     assert.match(policy!, /(^|; )report-uri \/api\/csp-report\/api(;|$)/);
-    const scripts = res.text.match(/<script\b[^>]*>/g) ?? [];
+    const scripts = res.text.match(/<script\b[^>]*>/gi) ?? [];
     assert.deepEqual(scripts, [`<script nonce="${nonce}">`], "exactly one script, carrying the policy's nonce");
   });
 
