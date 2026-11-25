@@ -11,7 +11,7 @@ description: Brief David on where this session's work stands, the way a direct r
 window is how David follows the work, and an autonomous build fills it with
 thousands of lines. His way of catching up by hand: scroll to his last
 instruction, then read forward stopping only at the 👀 FYIs, the close-out
-and build reports, and anything waiting on him — and keep scrolling past a
+reports, and anything waiting on him — and keep scrolling past a
 🛑, because work now continues after an ask. This skill does that scroll
 for him and hands back the result:
 
@@ -45,11 +45,11 @@ first words of each line, since he scans (interaction rule 7).
 5. **Since your last message (<when>)** — what he would have stopped at
    while scrolling, from the anchor below, grouped and counted:
    - `✅` **Finished** — one line per unit of work completed (a PR merged,
-     a prototype version delivered), naming where its build report is.
-     Never a restatement of the report.
+     a prototype version delivered), naming its PR. Never a restatement of
+     the merge report.
    - `👀` **Decisions I took (N)** — one line each: the decision in bold,
      then one clause of why. No undo line here (David, 2026-10-23); the
-     build report and the issue carry the way back.
+     PR body and the issue carry the way back.
    - `👀` **Heads-up (N)** — every other FYI since the anchor (a concern,
      a scope surprise, a process gap, something contradicting intent),
      one line each.
@@ -102,8 +102,7 @@ Right now: PR #212 — Remove the legacy ingest path — is in Codex review, CI 
 
 Since your last message (yesterday 14:10):
   ✅ Finished: Phase 3 — PR #205 — Transcription worker: chunked upload — and
-     PR #208 — Transcription worker: retry on a dropped stream — merged;
-     build reports on issue #190 — Audio transcription prototype
+     PR #208 — Transcription worker: retry on a dropped stream — merged
   👀 Decisions I took (2)
      • Kept the old job table rather than migrating it — one less schema change for the prototype
      • Capped transcript length at 4 hours — the longest file in the sample set is 2h50
@@ -131,14 +130,14 @@ method, so when it over-reports it does so the way he would.
 - `/status since <duration or time>` — an explicit anchor, e.g. `since 2h`,
   `since 14:10`.
 - **A fresh session**, with no message of his and no earlier `/status`,
-  anchors at the latest build-report comment on the issue (David, 2026-10-23:
-  he does not expect to run it this way, and it is allowed).
+  anchors at the latest merged PR of the workstream (David, 2026-10-23: he
+  does not expect to run it this way, and it is allowed).
 - **A compacted chat** is not an excuse to under-report: the issue's FYI
   comments (interaction rule 7, since 2026-10-23) are the durable record,
   so the chat and the issue are read together, and the briefing says
   `from the issue record` where the chat no longer holds the detail.
 - **A unit on the private path has no issue comments** (rule 7's carve-out:
-  its FYIs stay in chat, like its build report, and reach the private item
+  its FYIs stay in chat, like any build report he asks for, and reach the private item
   only by David pasting them there), so its briefing rests on the chat and
   on the private item's text as David relays it. Where the chat has
   compacted, the briefing names the gap and asks, never asserting a record
@@ -157,8 +156,7 @@ The output never shows these; the briefing rests on them.
    from here; for work under the disclosure carve-out say `private tracking
    only` — this repository is public).
 2. **The issue record.** `issue_read` for the body and comments: the State
-   of Play block (*Decisions taken on recommendation*, *What's blocking*), the Phases checklist, the 👀 FYI comments and the
-   build-report comments since the anchor
+   of Play block (*Decisions taken on recommendation*, *What's blocking*), the Phases checklist, the 👀 FYI comments since the anchor
    ([`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md#the-state-of-play-block)).
 3. **The plan.** The approved plan committed under `docs/plans/` on the
    feature branch (Planning rule 3) — its phases and steps are what
@@ -178,7 +176,7 @@ The output never shows these; the briefing rests on them.
    design: its `prototype/<feature>` branch's commits are its activity
    ([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
 5. **This session's context** from the anchor forward: the 👀 FYIs, the
-   🛑 asks and whether each was answered, the merge and build reports, the
+   🛑 asks and whether each was answered, the merge reports and any build report he asked for, the
    hand-backs' plain-English summaries and any `✅ **PLAN DONE** —` line.
 
 ## Side effect — the tracker is repaired, silently
@@ -202,8 +200,8 @@ Not a background writer: it writes at the moment David invoked it.
 - Not **`/status-all`** — every open unit of work in the repository, for a
   cold open ([`../status-all/SKILL.md`](../status-all/SKILL.md)).
 - Not **`/next`** — a ranked recommendation of what to pick up.
-- Not the **build report** — one account per finished unit, written by an
-  independent role; this briefing points at those and never rewrites them.
+- Not the **build report** — an independent account of a unit, only when
+  David asks (`/buildreport`); this briefing never rewrites one.
 - Not the **hand-back summary** — a sentence or two closing each turn
   (`claude-core.md`, *A reversible choice proceeds, and every hand-back says what it did*, rule 2); this is on demand, across turns, and runs only when asked (David,
   2026-10-23, option 1 of "should it also run unprompted"; revisit after a

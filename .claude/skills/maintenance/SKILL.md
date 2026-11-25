@@ -185,25 +185,9 @@ records. From the merged-PR list for the window:
   David. Do not substitute a proxy for either; say the mechanism is gone if
   anyone asks for the trend.
 
-- **The build report, two numbers and no more.** How many build reports ran,
-  and how many flagged a disagreement with the builder's
-  account. **Read them from the workstream issues' build-report comments**, the same source
-  plan-loop rounds come from: its receipts are gitignored evidence that dies
-  with its session, deliberately — making a gut-level count exact is the
-  accounting-precision class the worth rule
-  ([`review-judgment.md`](../../../docs/ai-context/review-judgment.md))
-  declines. **Say so when a
-  merged unit of work has no build report comment**, rather than reporting a
-  figure that silently omits it — except a private-path unit, whose report
-  goes to chat only and is kept on its private item
-  ([`claude-core.md`](../../../.agents/core/claude-core.md), *Watching the PRs I
-  open*): count those as *private, not counted* rather than as missing.
-
-  The shape to watch is the same one B1 has: a run of builds where the report never
-  disagrees means it is agreeing with every account, which is what the
-  zero-for-fifteen retirement rule catches. The opposite shape counts too — a
-  report disagreeing on every build is not obviously working either, and
-  either extreme is worth a sentence to David rather than a number.
+- **The build report: none counted.** It runs only when David asks (the
+  `buildreport` skill) and is delivered in chat only, so there is no record
+  on GitHub to count and no unit is "missing" one.
 - **Recorded dissents.** Override entries in the repo's
   `decisions.md` dated inside the window — the entries the advice rule writes
   when David decides against a recommendation (the Claude core, *Advice is

@@ -140,7 +140,7 @@ Four rules, because setup writes to the live app:
   consumer's per-PR browser job already signs in with is mine (Overhype.me:
   the seeded test accounts and the dev-admin login), which
   is what lets me run a screen check myself (*Where the browser automation
-  lives*, below); a consumer whose gate has no such identity has not settled
+  lives*, in [`lanes.md`](lanes.md)); a consumer whose gate has no such identity has not settled
   it, and a screen check behind a login there is a `[david]` setup line or
   stays his, never an identity I invent.
 
@@ -180,7 +180,7 @@ authority.)
 ([`uat-doc-format.md`](../../../docs/tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07))
 — and a `human` step whose `Expect` a screen can answer is read as a
 machine step, whatever its label, except what an AI-generated image shows,
-which stays his (the bullet below; *Where the browser automation lives*).
+which stays his ([`lanes.md`](lanes.md), its last bullet and *Where the browser automation lives*).
 **The commit under test** is the commit the run verifies: **the Repl's
 checked-out commit when the run starts** — the same SHA close-out's sync
 check reads — and it must **contain the PR's merge commit** (an ancestor
@@ -211,130 +211,10 @@ self-contained by the format's rule; a script whose machine step depends
 on a human step's state is the script-wrong case below, never a check to
 run early:
 
-- **`ci`** — **settled at merge, never re-run or re-checked here, for a
-  check the PR carried when it merged.** The `main` ruleset requires the
-  gate, so the merge is the evidence: the row reads `settled at merge — PR
-  gate` and counts as a Pass. A `**Check:**` written into the body after
-  the merge, retiring a `Deferred:` line, was never seen by this PR's gate
-  or guard, so the merge is no evidence for it: the `Deferred:` bullet
-  below governs it.
-- **`scripted`** — **cited, not re-run, when the PR recorded its output
-  at the merged head**: close-out posts that record before it merges
-  (`pr-watch` step 8; `pr-docs` gives its shape), and the row quotes it and
-  its commit. **A missing comment is missing evidence, not proof the proof
-  never ran**, so before running anything I look for the output the
-  lifecycle already holds — a PR comment or CI job log **at the merged
-  head**, and nothing older: output from any other commit is not evidence
-  however recent, and judging that nothing the proof reads has changed is
-  the call this rule exists not to make — and cite that. Only when none exists does the step run here, **in
-  a checkout or worktree at the commit under test** (or the on-demand
-  workflow dispatched on that commit), with the output kept with the commit
-  it ran at; that is close-out's lapse, so it goes on the run record's
-  **Lifecycle gaps** line (section 5). One that would start a paid AI run runs within David's monthly paid-run budget — $100 a calendar month across every product, no per-run cap — and asks him only for a run that would take the month past it, as a paid capture does (below).
-- **`live`** — **cited from close-out's Post-merge verification when that
-  section ran the step's check and the Repl's commit has not moved since**:
-  the workstream reaching `stage:uat` is that pass's evidence, and the row
-  names the merge report that carried it. Run here only when close-out did
-  not run that check — close-out's lapse, so a **Lifecycle gaps** entry —
-  or when the Repl now holds a later commit than the
-  one close-out verified — a deployed environment can drift in ways
-  `main`'s CI never sees. Then I run it through the live-environment
-  connector, **read-only, always**, after confirming the Repl's synced
-  commit is the commit under test, and quote what it printed. A check that would start a
-  paid AI run is not read-only: it runs within David's monthly paid-run budget — $100 a calendar month across every product, no per-run cap — and asks him only for a run that would take the month past it, as a
-  paid capture does (below). State a check needs is a
-  Setup `[claude]` line with its `[restore]` (section 2); a probe whose
-  refusal is the thing tested writes nothing and is not a write.
-- **`capture`** — I produce the shot each step's `**Check:**` cites
-  **at the commit under test**: the citation says which shot answers the
-  step, and the capture command the consumer declares (its
-  `overlay-declarations.md`, *UAT capture*) says how to bring up the stack
-  and run the set that contains it. **I read each image before it is
-  published anywhere**, and the disclosure check (section 4, step 3) runs
-  on it first, whether or not its clauses pass: a shot it rejects goes to
-  *The private path* (section 4), never to the evidence store. Only then is
-  the shot committed to the evidence store the declaration names, which
-  holds test data alone — a throwaway test database and publishable
-  fixtures — on a dedicated branch that is only appended to. I record, on
-  the step's own row, the shot name, the commit, the evidence link pinned
-  to the evidence commit, and my reading clause by clause. A shot another
-  host has to publish before I can read it — a paid render made where the
-  vendor keys are — is published that way only while the consumer's
-  disclosure check is off; with it on, the shot reaches me privately first.
-  The step's result is
-  that reading: a shot that was not produced, or that I cannot read, is
-  Blocked, never Pass; a reading that contradicts the `Expect` is a Fail,
-  filed before he sees anything (section 4). **A capture that needs a paid vendor runs within David's monthly paid-run
-  budget — $100 a calendar month across every product, no per-run cap** — as
-  does any check, in any lane, that would start a paid AI run
-  (`uat-doc-format.md`, *Lanes*):
-  within it the capture runs without asking, inside the cap the declaration
-  names, and its cost goes in the run record and as a comment on the fleet's
-  paid-run ledger, which is read before the run. One that would take the
-  month past it asks, naming the PR, the paid calls and the worst-case cost, and its
-  steps are Blocked on him until he answers, or he answers the judgement
-  steps from an image he makes himself in the product. A consumer with no such declaration has no
-  capture run, and its `capture` steps are Blocked on that, never handed to
-  him. **A real AI render is read only for what anyone would verify the
-  same way** (`uat-doc-format.md`, *An image an AI model
-  generated*): the render completed, the image decodes at the size asked
-  for, a bubble reads the given text. I make no judgement about generated
-  content — likeness, scene, humour, quality, whether something is shown,
-  whether it is acceptable — unless the answer is as plain and checkable
-  as a bubble's text, and none even when an `Expect` asks for one: that
-  clause is David's, presented as a judgement step with the shot beside it,
-  and the script is recorded as wrong (the lane is corrected in the PR
-  body, section 6).
-- **`Deferred:`** — not run; listed as outstanding with its owner. Never a
-  pass, never a skip he can wave through. When it is the only evidence for a
-  claimed behaviour, the run is Blocked on its owner: `Blocked by: #N` on
-  this workstream, recorded as section 4 step 5 does for a bug, so the
-  owner landing is what reopens it. The owner's PR replaces the line with
-  its runnable **Check:** in the owning PR's body (`pr-docs`), so the
-  resumed run executes it — at the commit under test, whatever its lane,
-  since no gate of this PR ever ran it; a script still carrying the line after #N closed
-  is the script-wrong case, and closing #N alone is never passing evidence.
-- **A `human` step whose `Expect` a screen can answer** — an element is
-  there, a message reads a given sentence, a status or an error shows, a
-  layout holds at a width — **is mine, whatever lane the script gave it,
-  when its `Do` is one I can perform**: the lane is read from the
-  `Expect`'s clauses and from who can perform the `Do`, never from the
-  heading or the verb (the rule's home is *Where the browser automation
-  lives*, below). **Not an interpretive clause about an image an AI model
-  generated**: that stays his whatever its wording (the `capture` bullet
-  above). A `Do` only his own account or device can perform keeps
-  the step `human`, and its screen-fact `Expect` is read after his "yes"
-  (the format's self-contained rule, `uat-doc-format.md`, *Lanes*). I run
-  the step in a real browser at the commit under test, in this block,
-  before he sees anything: a browser in the session's container against a
-  local stack at that commit, launched the way the consumer's per-PR
-  browser job launches it, on a throwaway test-marked database, signed in
-  as the test identity that job already uses (Overhype.me: Playwright, the
-  E2E Smoke launcher, the seeded test accounts or the dev-admin login); or
-  the live-environment connector read-only where the step needs the
-  deployed build. The state the step needs — its `[claude]` setup lines —
-  is applied to the stack the browser opens, never seeded on the deployed
-  build and read locally (section 2). A consumer whose gate has no test
-  identity has not settled the identity question: a screen check behind a
-  login there is a `[david]` setup line or stays his, never an identity I
-  invent. The record quotes what the browser read, with the
-  commit it ran at; a screenshot is evidence when layout is the claim. Only
-  the clause that is judgement — "it is readable", "the image suits the
-  subject" — reaches him, as a turn of its own recorded on the step's own
-  row as a multi-part result (the "it sort of worked" rule, section 4): the
-  row is Pass only when every clause is, and the preview counts that step
-  among his. Such a step was mislabelled
-  (`uat-doc-format.md`, *A step is `human` only when no machine can answer
-  it*): it is the script-wrong case, and the lane fix is an edit of the PR
-  body at close-out (section 6).
-
-Each gets the same four statuses as a human step, with its evidence in the
-record. A machine-lane step that fails is a failure like any other: section 4
-applies, and I file it before he sees the first human step. **He sees the
-machine block, then only the human steps that are judgement** — a `human`
-label over a screen fact went into the machine block, above — so the
-preview says both counts ("9 machine-lane checks — 7 settled at merge and
-close-out, 2 run now, all passed; 3 steps for you").
+**What settles each lane** — `ci`, `scripted`, `live`, `capture`, a
+`Deferred:` step, and a `human` step whose `Expect` a screen can answer — and
+what the preview then says, is [`lanes.md`](lanes.md), with *Where the browser
+automation lives*. **Read it before settling the first machine-lane step.**
 
 **Every step is shown under its static ID**: `T1`, `T2`, … for `### Steps` and `R1`, `R2`, … for `### Regression`, read
 from the script's own headings (`uat-doc-format.md`, *The rule that makes it
@@ -399,259 +279,17 @@ in both directions:
 
 ## 4. When a step fails — file it now, then ask
 
-A bugfix session starts immediately — I start it (item 6 below). My job is
-to make sure the report that session inherits is a real one and that the
-way back to *this* run survives.
+A bugfix session starts immediately, and I start it. Evidence first, a
+one-word severity, the disclosure check, the bug filed, the way back recorded
+in the same edit, a fresh session for the fix, and the private path for a
+sensitive one: [`failure.md`](failure.md). **Read it the moment a step is not
+a clean pass, before anything is written or filed.**
 
-In order, in the same turn:
+## 5 and 6. The run record, and ending a run
 
-1. **Capture the evidence before anything else.** The exact error text, the
-   exact URL, a screenshot — not a paraphrase. Ask for it plainly if it
-   isn't in what he said. Paraphrased symptoms are the single biggest
-   quality loss in this hand-off, and the moment to prevent it is now, not
-   when a cold session reads the issue tomorrow.
-2. **State a severity, as my read, in one word** — showstopper / major /
-   minor / cosmetic — so he can correct it by contradicting me rather than
-   by classifying anything. **This is not the fix tier**: the tier is
-   diagnosis's job in the bugfix session, and pre-empting it here would put
-   a guess where a classification belongs.
-3. **Run the disclosure check** before writing anything public — this repo
-   is public, and a UAT failure can be exactly the kind of thing that must
-   not become a public issue
-   ([`working-modes.md`](../../../docs/ai-context/working-modes.md#disclosure-check-before-the-workstream-issue-opens)).
-   If it fails, **the whole run goes private from that moment** — see
-   *The private path* below, and do not write the symptom anywhere public.
-4. **File the bug** — check the backlog for a match and promote it rather
-   than duplicating, per [`bugfix`](../bugfix/SKILL.md) step 1. New issues
-   open with `stage:coding`, `waiting:claude`, `mode:bugfix` and a State of
-   Play block. `mode:bugfix` is a hypothesis at intake; diagnosis may make
-   it Tier C, and that's fine — the link doesn't care which mode the work
-   ends up in.
-5. **Record the way back, in the same edit** — `Blocked by: #<bug>` on this
-   workstream, plus a State of Play line naming **which step failed**. This
-   is what makes resumption "T4" instead of a full re-run, and it goes
-   in now, at intake, because a session that ends before it is written loses
-   the link entirely. `bugfix` step 1 owns this contract; I'm executing it
-   at the earlier moment, because I'm the one holding the context.
-6. **Start a fresh session for the fix** — `create_session` with a prompt
-   naming the issue number, so that session works the filed bug instead of
-   opening a second one for the same defect, that says the UAT run is still
-   live and its `waiting:` label is this session's to set (below), and with
-   the Astra sign-in as its first action (the `handoff` skill, Step 5, for the call and its
-   fallback). Where it cannot be started, hand him that prompt, paste-ready,
-   instead.
-
-**The `waiting:` flip is NOT part of intake — it happens when the run
-actually stops** (section 6), and it is this session's, not the bugfix
-session's: that session starts while the run may still be going, so its
-prompt says so and `bugfix` step 1 leaves the label alone. If David says continue, he is
-still the holder and the next real action is still his click, so
-`stage:uat`/`waiting:david` stays exactly right. Flipping at intake would
-also mirror the wrong holder onto a phased parent and hide an active,
-David-held run from `/status-all`. What goes in at intake is the `Blocked
-by:` link and the failed-step line — the crash-critical parts. The label is
-display state, and it costs nothing to set it once, correctly, at the end.
-
-**Then ask: continue or pause?** His call, every time. Continuing is often
-worth it — it banks two or three more bugs that can be fixed in parallel
-instead of serially — but a Blocked step or a showstopper usually means
-there's nothing left worth testing, and I say so rather than making him
-work it out. **A pause is a stop: tear the setup down first** (section 2),
-and record what's owed on resume.
-
-**Never diagnose the bug inside the UAT session.** Not even when the cause
-looks obvious. Diagnosis belongs to the bugfix session with a real branch
-and a real review; guessing at it here spends his testing time and produces
-a root cause nobody reviewed.
-
-### The private path
-
-When the disclosure check rejects a failure, the descent-stack machinery
-cannot be used as written — a private draft Project item **has no issue
-number**, so there is no `#N` for a `Blocked by:` marker or for the handoff
-prompt, and the run record itself would leak the symptom on a public issue.
-So, from that moment:
-
-- **The bug becomes a private draft Project item**, per CLAUDE.md's
-  disclosure rule, with a short stable reference of my choosing
-  (`UAT-<PR>-<step ID>`, the step's `T` or `R` ID) written into the item.
-- **The run record goes manual, and I say so.** A draft Project item is
-  write-only to me — no available tool reads or writes Projects v2 item
-  fields (`workstream-tracking.md`), so it cannot hold a record I checkpoint
-  and rediscover. On the private path the live record is therefore
-  maintained **in the session and handed to David at every checkpoint
-  moment** (the same moments section 5 names): a compact copy in chat that
-  he can paste into the private item himself, and that a resuming session
-  asks him for. Resumability degrades from mechanical to David-carried on
-  exactly this path — an accepted cost of not leaking the symptom, stated
-  out loud at the moment it starts, never silently.
-- **The public workstream issue keeps only a content-free pointer**:
-  `Blocked by: private tracking (UAT-472-T2)` and a State of Play line saying
-  which step failed **without saying how**. That reads as prose rather than
-  the anchored `Blocked by: #N` marker, so it does not gate automatically —
-  which means I say so plainly to David rather than assuming the stack pops
-  on its own.
-- **I tell him the automation doesn't cover this path**, in the same breath,
-  because a silent downgrade from mechanical to manual tracking is how a
-  sensitive bug gets forgotten.
-
-## 5. The run record — mutable, batched, resumable at the step
-
-State lives on the **workstream issue body**, as a `## UAT run` section
-alongside State of Play. **The body, not a comment, and that's a mechanical
-constraint rather than a preference:** the available GitHub tools can
-*create* a comment (`add_issue_comment`) but cannot *edit* one, while
-`issue_write` updates the body freely. A record that has to be rewritten at
-every checkpoint therefore cannot live in a comment — it would either freeze
-after setup or fan out into a dozen comments, and a resuming session would
-have no reliable way to tell which is current.
-
-```markdown
-## UAT run — PR #472 · Admin help system
-
-**Script:** PR #472, `## UAT` (a legacy run names its file: `docs/tests/UAT/PR<N>_…_UAT.md`)
-**Commit under test:** `<Repl's checked-out sha>` (contains merge `<PR merge sha>`)
-**Started:** 2026-08-21 · **Last updated:** 2026-08-21
-**Verdict:** in progress
-
-| Step | Status | Note |
-| --- | --- | --- |
-| T1 · Manual renders (ci) | Pass | settled at merge — PR gate (`adminHelp.spec.ts`) |
-| T2 · Deep link (human, run in browser) | Fail | #903 — landed at chapter top, not the heading; a screen fact, read by me at 1440 px, so the lane is corrected in the PR body at close-out |
-| T3 · Search results read as the right answers (human) | Pass | |
-| T4 · Nothing feels missing from the chapter list (human) | — | not yet run |
-| R1 · Sidebar unchanged (ci) | Pass | settled at merge — PR gate (`adminHelp.spec.ts`) |
-| R2 · Chapter diagram drawn in the Manual (capture) | Pass | shot `manual-diagram` at the commit under test, evidence `<link at the evidence commit>`; read: every box labelled, arrows run left to right |
-| R3 · Readable on his own phone (human, his device) | — | not yet run |
-
-**Setup owed on resume:** `budget_limit_legendary_usd` → 0.01 (real value
-2500.00 captured, restored at pause)
-**Bugs filed:** #903 (major)
-**Product notes:** none
-**Lifecycle gaps:** T2 — screen fact labelled `human` (lane corrected in PR #472's body)
-**Resume at:** T4 (2 judgement steps remaining, T4 and R3; T2's screen fact was mine and is recorded; the 3 machine-lane checks are settled: 2 at merge, the capture at this commit)
-```
-
-**The `Lifecycle gaps` line is how the scripts learn.** It lists every check this
-run had to do because the script or the PR left it to the session — a
-screen fact labelled `human`, a `scripted` step with no recoverable
-output, a `live` step whose check was missing from Post-merge
-verification — one entry per step, by kind, or `none`. A `live` re-run
-because the Repl moved is not a gap, and nor is a missing record on a PR
-merged before 2026-11-13. Its reader is the `/maintenance` pass's process
-health (step 6b), which counts the kinds across the window; a kind that
-recurs becomes a `pr-docs` or `check-uat-format.mjs` change, per
-*Recurring failure patterns become CI guards*.
-
-**Write it on the moments that matter, not every turn:** once after setup
-(so the record exists before anything can be lost), on every non-pass, on
-pause, at the end, and every fifth step through a clean stretch. A record
-written every turn costs a round trip per step and buys nothing a five-step
-gap doesn't.
-
-**An ACCEPTED run finalizes; a BLOCKED run stays live.** On either accepted
-verdict, post the final record once as a comment — the permanent, immutable
-history — and clear the body section so the next run starts clean. A
-**Blocked** run does neither: its `## UAT run` section stays in the body
-with verdict `blocked — resumes after #<bug>`, because that section is the
-only thing section 1's resume path searches; finalizing it would make a
-cold `/uat` start a fresh run instead of resuming at the recorded step with
-the owed setup. A re-run after an accepted-with-issues ship is a fresh
-`## UAT run 2 — …` section, never an edit of a previous run's results.
-
-**Keep the State of Play's `To resume` field pointed at it**, per
-[`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md).
-That field is what a cold session actually reads first.
-
-## 6. Ending a run
-
-Roll the step statuses up into one verdict — and roll up from the **steps**,
-never from a general impression of how it went:
-
-| Verdict | When |
-| --- | --- |
-| **Accepted** | Every step executed and Passed — **every step section 3 enumerated, regression checks and machine lanes included**; a `Deferred:` step is never a pass: it is left out of "every step" only when another step in the same run Passed the behaviour it would check; when it is the only evidence for a behaviour the PR claims, the run is **Blocked**, resuming after its owner issue lands. A mechanical step is never turned into a human one to get past a deferral: David's share is judgement only. A Skip counts toward this only when **David explicitly called the step not-applicable** — a reason alone doesn't qualify, or a run where he lacked a phone or a test account could skip its way to a clean acceptance without exercising anything. A step he *couldn't* do is `Blocked`, which never counts. The script-wrong case counts only re-run per section 3 |
-| **Accepted with issues** | Failures exist and **David explicitly accepts each one as shippable**. Minor/cosmetic is the normal case; accepting a major is his call to make in so many words, never a default |
-| **Blocked** | Any failure David hasn't accepted — a showstopper or an unaccepted major ends the run here even when more steps were testable — or too much skipped/untestable to honestly call it either way |
-
-A run that stops with required coverage unexecuted and no decision from him
-isn't a verdict at all — it's a pause, and the record stays `in progress`.
-
-Then, in one edit:
-
-- **Do the teardown** I owe, and confirm it in the record.
-- **Set the labels from the verdict**, and update the **State of Play block
-  in the same edit** — Stage, Waiting on, Last movement, and the narrative,
-  not just `To resume`. `workstream-tracking.md` requires the block and the
-  labels to move together, and a clean run that left the body saying "UAT,
-  waiting on David" while the labels said close-out would be exactly the
-  drift that rule exists to prevent.
-
-| Verdict | Stage | Waiting | The bugs |
-| --- | --- | --- | --- |
-| **Accepted** | `close-out`, then `done` when nothing remains (below) | `claude` | none |
-| **Accepted with issues** | same as Accepted | `claude` | **de-linked** — remove their `Blocked by:` markers; they are tracked independently now |
-| **Blocked** | stays `uat` | `claude` — **recording the prior holder** (`was waiting:david, mid-UAT`) in the same State of Play line, exactly as `bugfix` intake does: `pr-watch`'s blocker-pop restores a holder only from that stashed value, so without it the workstream stays agent-held after the fix instead of returning to David | stay linked; the run resumes after the fix |
-
-  **`Accepted with issues` really does reach close-out.** Every failure in a
-  run has already produced an outstanding bug, so a blanket "any outstanding
-  bug means hold at `uat`" rule would make this verdict unreachable —
-  David could explicitly say ship the cosmetic ones and the workstream would
-  sit at `uat` forever, with the bugs still blocking it. Him accepting the
-  run is exactly what converts those bugs from blockers into ordinary
-  independently-tracked work.
-
-- **On an accepted verdict, drive close-out to done rather than parking
-  there.** An accepted UAT is the last David-gate; what remains of close-out
-  is mine (the harvest-notes comment for a production-phase product feature — a prototype-phase one posts none, per [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26) — any outstanding
-  item the State of Play lists). Do what remains, and when nothing is left,
-  set `stage:done` and close the issue as completed, with a comment naming
-  the PR(s) — the shared rule is
-  [`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md#closing-an-issue)'s
-  *Closing an issue*. Only when a real close-out item
-  genuinely can't be finished now does the workstream sit at
-  `stage:close-out`, with that item named in the State of Play.
-- **If this workstream is a phase sub-issue and the verdict reached
-  close-out, do the parent edits too** — tick this phase's line in the
-  parent's Phases checklist, re-point the parent's `waiting:`, and if this
-  was the last phase, move the parent to `stage:close-out` and close it out
-  in the same pass under the same shared rule (its own State of Play items,
-  `stage:done`, closed naming the phase PRs, or held with a named item). `pr-watch`
-  normally owns those edits at the moment a phase reaches `stage:close-out`,
-  but it finished when the PR merged and nothing wakes it again — so if I
-  skip them, nothing performs them and `/next` keeps treating a finished
-  phase as active.
-- **Log product notes as backlog issues with complete backlog labels** —
-  a concrete priority (`queue:now` / `queue:next` / `queue:later` — ask
-  David which, he's right there; default `queue:next` if he waves it off)
-  plus a `mode:` label and **no** `stage:` label, per
-  `workstream-tracking.md`'s backlog contract. A bare `queue:` shorthand
-  creates an item `/next` can't rank and the board can't display.
-- **Fix the script** where a step's expected result or lane was wrong: an
-  edit of the PR body's `## UAT` section (`update_pull_request`), with the
-  corrected text already quoted on the step's row in the run record, which
-  is the pinned evidence. No PR, no commit — the body is not under the
-  guard after merge, and the record is where the result lives.
-- **Every `Deferred:` step still in the script is recorded on its owner
-  issue** — one comment there naming the PR, the step and the check still
-  owed — so the obligation does not depend on anyone re-reading a merged
-  PR's body. A step not yet recorded there blocks the close-out.
-- **Nothing is deleted.** The script stays in the
-  merged PR's body as history; the `stage:uat` label leaving is what says
-  the run is no longer owed, and section 1 discovers from the label. **A
-  legacy doc is the exception**: a run driven from a file under
-  `docs/tests/UAT/` deletes that file once he confirms the run complete, in
-  the same close-out — unless it is the only written description of some
-  behaviour, which is a gap in the Manual, not a reason to keep a test:
-  harvest it into the right chapter, say so, then delete. "It might be
-  useful later" is not a reason; a re-run of a merged PR's UAT is written
-  fresh from current behaviour, not resurrected.
-- **Tell him what he's holding**: verdict, bugs filed with severities, what
-  he can do next — and, last, the run's plain-English summary
-  (`claude-core.md`, *A reversible choice proceeds, and every hand-back says what it did*, rule 2), with a 🛑 banner when what he
-  can do next is something the work waits on, or on the
-  `✅ **PLAN DONE** —` line when an accepted run finished the approved work
-  and nothing of mine is scheduled after it.
+State lives on the workstream issue body, as a `## UAT run` section, and a
+run ends by its own rules: [`run-record.md`](run-record.md). **Read it before
+the first write to the record, and again before ending a run.**
 
 ## Notification discipline during a run (David, 2026-08-21)
 
@@ -675,45 +313,6 @@ decision from him, when an ask would hold work up after he's walked away, or
 when he's gone quiet mid-run and something needs him. This is a deliberate,
 narrow carve-out from interaction rule 6 rather than a drift away from it —
 written down so a later session doesn't "fix" it back.
-
-## Where the browser automation lives
-
-**Driving a browser for the mechanical steps is not a later phase.** The
-admin identity is settled wherever the consumer's per-PR browser job already
-signs in as a test identity, which is the identity I use (Overhype.me: the
-seeded test accounts and the dev-admin login); a consumer whose gate has no
-such identity has not settled it, and section 3's machine block says what
-happens there. **The rule: a step's lane is read
-from its `Expect`'s clauses and from who can perform its `Do`, never from
-its heading or its verb. A screen fact — an element is there, a message
-reads a given sentence, a status or an error shows, a layout holds, or any
-other UI check that needs no taste input from him — is machine-lane; a `Do` only David's own account or device can perform keeps
-the step `human`; the clause that is judgement is a `human` step of its
-own, and what an image an AI model generated shows, beyond what anyone
-would verify the same way, is always judgement (`uat-doc-format.md`, *Lanes*, *An image an AI model generated*); and a screen fact that reaches a run labelled `human` is run by me, in
-a real browser at the commit under test, before he sees anything (section
-3's machine block says how).** What remains is where each check lives, and
-that is three places:
-
-- **A screen fact a PR claims lives in CI**, as an assertion in a spec or
-  component test the gate already runs, written in the same PR
-  (`pr-docs`): it runs on every change forever instead of once.
-- **A screen fact that reached a run as a `human` step is run by me at run
-  time**, in the machine block above, and the step's lane is corrected.
-- **An answer only pixels hold is the `capture` lane**: a script captures the named image at the commit under test,
-  I read it, and the consumer's evidence store keeps it once the disclosure
-  check has passed it — section 3's machine block says how. The consumer declares the command, the evidence
-  store and any paid-render cap in its `overlay-declarations.md`. For an image an AI
-  model generated, the reading is limited to what anyone would verify the
-  same way; everything interpretive is David's (`uat-doc-format.md`,
-  *Lanes*, *An image an AI model generated*).
-
-**Once a step is fully scriptable, UAT is usually the wrong home for it.** It
-belongs in CI or in the PR's post-merge verification, where it runs on every
-change forever instead of once — unless it calls a paid AI vendor, which
-runs within David's monthly paid-run budget — $100 a calendar month across every product, no per-run cap — and asks him only for a run that would take the month past it (`uat-doc-format.md`, *Lanes*). Automation is mostly *draining* mechanical
-steps out of UAT into the layers that already exist — and scripting whatever
-live-app checks are left over into the PR's post-merge verification.
 
 ## Model tier
 

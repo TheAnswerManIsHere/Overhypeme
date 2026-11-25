@@ -440,9 +440,9 @@ Tools, as the MCP server exposes them: `list_apps`, `search_apps`,
 - **`phase` values seen**: `busy` (dropped, re-ask later) and `paused` (the
   answer is in `response` — the normal successful reply). `updating` belongs
   to the write channel: re-invoking it opens a brand-new Agent turn
-  (`claude-core.md`).
+  (*Working through the connector*, below).
 - **`update_app_using_prompt` never returns the result**, only a status
-  (`claude-core.md`); a read-back is a following `ask_question`.
+  (*Working through the connector*, below); a read-back is a following `ask_question`.
 - **`publish_app` takes only the `replId`.** Type, domain, access and secrets
   are whatever the deployment already has; a first publish takes defaults —
   *"Autoscale hosting, private visibility when the app belongs to a workspace
@@ -473,6 +473,32 @@ eleven hours in the future. So ask it to run a named command and quote the
 output, ask it to say which parts of an answer are observed and which are
 general knowledge, and corroborate the second kind against the docs or a
 measurement before recording it anywhere.
+
+## Working through the connector
+
+How a session works a Repl through the connector. The authorization
+boundaries are `claude-core.md`, *Connectors → Replit*.
+
+- **Every Agent request bills at the mode of the last message David typed in
+  that Repl's Agent chat** — the dropdown alone changes nothing, and
+  `ask_question` and `update_app_using_prompt` behave alike
+  (*Agent modes*, above). When he has typed under Power or Max
+  there, his one short message typed under Free is the way back; I cannot see
+  the mode, so I go by the footers he reports. `list_app_files` and
+  `read_app_file` reach no Agent, and are the read path whenever a file's
+  contents answer the question.
+- **`ask_question` reads, `update_app_using_prompt` acts.** Only
+  `ask_question` returns text; the write channel returns a status, never the
+  result. `phase: "busy"` means the request was dropped: wait two to three
+  minutes, then re-ask (an immediate resend only bounces). `"updating"` is not
+  busy: re-invoking opens a new agent turn. Ask it to **run named commands and
+  report output** (quotable evidence), not how something works.
+- **A post-merge verification run is a two-call sequence**: kick it off with
+  `update_app_using_prompt` carrying the checks and an explicit read-only
+  instruction, wait a few minutes, then `ask_question` for the results. A
+  paid AI step — within his budget, or above it on his go-ahead — goes in a
+  separate request that names its paid calls and worst-case cost as the only
+  thing it may do beyond reading (`uat-doc-format.md`, *Lanes*).
 
 ## Contradictions inside Replit's docs
 
