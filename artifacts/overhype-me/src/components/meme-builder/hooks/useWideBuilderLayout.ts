@@ -79,13 +79,20 @@ function isSideways(v: { w: number; h: number }): boolean {
  *   before the size comparison and its margin.
  * - Otherwise the arrangement that shows the picture larger wins. With
  *   `current` given, it is kept unless the other is at least SWITCH_MARGIN
- *   larger, so near-ties do not flicker on a resize.
+ *   larger, so near-ties do not flicker on a resize, except across a turn
+ *   (`previous` upright and now sideways, or the reverse), which chooses
+ *   afresh.
  */
 export function chooseBuilderLayout(
   viewport: { w: number; h: number },
   aspectRatio: AspectRatio,
   current?: BuilderLayout,
+  previous?: { w: number; h: number },
 ): BuilderLayout {
+  // Turning the screen between upright and sideways chooses afresh: the
+  // margin is for near-ties while a window is resized, and a turn is not one
+  // (Issue #850, amendment 2).
+  if (previous && isSideways(previous) !== isSideways(viewport)) current = undefined;
   const widths = previewWidths(viewport, aspectRatio);
   if (viewport.h < SHORT_SCREEN_PX && isSideways(viewport) && widths.wide >= MIN_SIDE_PICTURE_PX) {
     return "wide";
@@ -101,14 +108,9 @@ function viewportNow(): { w: number; h: number } {
   return { w: window.innerWidth, h: window.innerHeight };
 }
 
-/**
- * The live choice, re-made on every resize and change of shape. Turning the
- * screen between upright and sideways chooses afresh, with no margin: the
- * margin is for near-ties while a window is resized, and a turn is not one
- * (Issue #850, amendment 2; it kept a stacked layout on a sideways phone).
- */
+/** The live choice, re-made on every resize and change of shape. */
 export function useBuilderLayout(aspectRatio: AspectRatio): BuilderLayout {
-  const wasSideways = useRef<boolean | null>(null);
+  const previous = useRef<{ w: number; h: number } | null>(null);
   const [layout, setLayout] = useState<BuilderLayout>(() =>
     chooseBuilderLayout(viewportNow(), aspectRatio),
   );
@@ -117,10 +119,9 @@ export function useBuilderLayout(aspectRatio: AspectRatio): BuilderLayout {
     if (typeof window === "undefined") return;
     const decide = () => {
       const v = viewportNow();
-      const sideways = isSideways(v);
-      const turned = wasSideways.current !== null && sideways !== wasSideways.current;
-      wasSideways.current = sideways;
-      setLayout((current) => chooseBuilderLayout(v, aspectRatio, turned ? undefined : current));
+      const before = previous.current ?? undefined;
+      previous.current = v;
+      setLayout((current) => chooseBuilderLayout(v, aspectRatio, current, before));
     };
     decide();
     window.addEventListener("resize", decide);

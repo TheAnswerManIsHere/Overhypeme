@@ -80,6 +80,26 @@ describe("chooseBuilderLayout", () => {
     expect(se.stacked).toBeGreaterThan(se.wide);
   });
 
+  // Amendment 2's "a turn chooses afresh", which the build report on PR #1273
+  // found untested: at a near-tie the margin keeps the current arrangement on
+  // an ordinary resize, but not across a turn between upright and sideways.
+  it("a turn between upright and sideways chooses afresh, ignoring the 10% margin", () => {
+    let tie: { w: number; h: number } | null = null;
+    for (let w = 1000; w <= 1700 && !tie; w += 2) {
+      for (let h = 700; h < w && !tie; h += 10) {
+        const ws = previewWidths({ w, h }, "landscape");
+        const r = ws.wide / ws.stacked;
+        if (h >= 500 && r > 1 && r < 1.1) tie = { w, h };
+      }
+    }
+    expect(tie).not.toBeNull();
+    const v = tie!;
+    const upright = { w: v.h, h: v.w };
+    const nearbySideways = { w: v.w + 4, h: v.h };
+    expect(chooseBuilderLayout(v, "landscape", "stacked", nearbySideways)).toBe("stacked");
+    expect(chooseBuilderLayout(v, "landscape", "stacked", upright)).toBe("wide");
+  });
+
   it("a short window too narrow for both columns falls back to the size rule and stacks (Astra C8)", () => {
     for (const shape of ["landscape", "square", "portrait"] as const) {
       expect(chooseBuilderLayout({ w: 390, h: 480 }, shape)).toBe("stacked");
