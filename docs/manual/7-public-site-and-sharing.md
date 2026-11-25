@@ -5,7 +5,7 @@
 > a reader becomes a sharer, and a share pulls the next visitor in.
 >
 > Deep spec: [`public-site-and-sharing.md`](../ai-context/public-site-and-sharing.md).
-> Related: [`4-taxonomy-and-enrichment.md`](./4-taxonomy-and-enrichment.md)
+> Related: [`2-content-lifecycle.md`](./2-content-lifecycle.md)
 > (where [hashtags](../ai-context/glossary.md#hashtags) come from), [`6-meme-and-video-studio.md`](./6-meme-and-video-studio.md)
 > (where a shareable [meme](../ai-context/glossary.md#meme) comes from).
 
@@ -148,7 +148,7 @@ in launch Phase 4 (ledger: [`docs/retired/README.md`](../retired/README.md)).
 - Spec: [`public-site-and-sharing.md`](../ai-context/public-site-and-sharing.md)
   — the exact routes, ranking logic, the OG-card pipeline, and the
   specific share/tracking endpoints.
-- Related: [`4-taxonomy-and-enrichment.md`](./4-taxonomy-and-enrichment.md)
+- Related: [`2-content-lifecycle.md`](./2-content-lifecycle.md)
   (where a fact's hashtags come from), [`6-meme-and-video-studio.md`](./6-meme-and-video-studio.md)
   (how a shareable meme gets made in the first place).
 - Rationale: the public-site and sharing entries in
