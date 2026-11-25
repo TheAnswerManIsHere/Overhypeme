@@ -43,6 +43,7 @@ import { __setTier3ForTest } from "../lib/sourceImageAnalysis/index.js";
 import { creditBalance } from "../lib/credits/ledger.js";
 import { createMemeRecord, CreateMemeError } from "../lib/createMemeRecord.js";
 import { deleteFact, attachedContent } from "../lib/factLifecycle.js";
+import { runContentPurger } from "../jobs/contentPurger.js";
 import { photoBackgrounds } from "./helpers/photoBackground.js";
 import { withCast } from "./helpers/gagCast.js";
 import { giveExampleSet } from "./helpers/gagExampleSets.js";
@@ -582,6 +583,41 @@ describe("Phase 7 inc 2: every failure returns the credit", () => {
     // Once it has failed and its credit is back, the delete goes through.
     await runMemberPictureSettlementPass(Date.now() + PICTURE_DEADLINE_MS + 60_000);
     assert.equal(await creditBalance(userId), 1, "the balance is what it was before the picture");
+    assert.equal((await deleteFact(factId, adminId)).kind, "done");
+  });
+
+  it("a delivered picture stays finished after the member deletes it and it is purged (Codex review, PR #1300)", async () => {
+    const userId = await newMember(1);
+    const adminId = await newMember(0);
+    await db.update(usersTable).set({ isAdmin: true }).where(eq(usersTable.id, adminId));
+    const { factId } = await liveFact();
+    const { attemptId } = await requestMemberPicture(await command(userId, factId));
+    await prompt(attemptId);
+    await draw(attemptId);
+    const [row] = await delivered(attemptId);
+    assert.ok(row, "delivered");
+    // "Delete now": the restore window is over, and the purger removes the member's copy.
+    await db.update(userAiImagesTable).set({ deletedAt: new Date(Date.now() - 60_000), purgeAfter: new Date(Date.now() - 1_000) }).where(eq(userAiImagesTable.id, row!.id));
+    await runContentPurger({ generatedIds: [row!.id] });
+    assert.equal((await delivered(attemptId)).length, 0, "the member's copy is gone");
+
+    // Both picture routes read finished, with nothing to show.
+    const appFor = buildTestApp({ kind: "authenticated", userId }, memberPicturesRouter);
+    const one = await request(appFor).get(`/api/member-pictures/${attemptId}`);
+    assert.equal(one.status, 200);
+    assert.equal(one.body.picture.status, "done");
+    assert.equal(one.body.picture.imageUrl, null);
+    const list = await request(appFor).get(`/api/member-pictures`);
+    const listed = (list.body.pictures as Array<{ attemptId: number; status: string }>).find((p) => p.attemptId === attemptId);
+    assert.ok(!listed || listed.status === "done", "never queued or drawing");
+
+    // No credit moves, and the fact can be permanently deleted.
+    await runMemberPictureSettlementPass(Date.now() + PICTURE_DEADLINE_MS + 60_000);
+    assert.equal(await db.transaction((tx) => returnUndeliveredPicture(attemptId, tx)), false);
+    assert.equal(await creditBalance(userId), 0, "the spend stands");
+    assert.equal((await ledgerFor(attemptId)).filter((r) => r.kind === "picture_return").length, 0);
+    await db.update(factsTable).set({ isActive: false }).where(eq(factsTable.id, factId));
+    assert.equal((await attachedContent(factId)).aiPictures, 0);
     assert.equal((await deleteFact(factId, adminId)).kind, "done");
   });
 

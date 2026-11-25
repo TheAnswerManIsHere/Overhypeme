@@ -43,8 +43,16 @@ async function lockAttempt(attemptId: number, tx: Executor): Promise<LockedAttem
   return row ?? null;
 }
 
-async function isDelivered(attemptId: number, tx: Executor): Promise<boolean> {
-  const [row] = await tx.select({ id: userAiImagesTable.id }).from(userAiImagesTable).where(eq(userAiImagesTable.attemptId, attemptId)).limit(1);
+/**
+ * Delivered is the attempt's own record: delivery writes the stored path in
+ * the same transaction as the member's `user_ai_images` row, and nothing
+ * clears it. The row is the member's copy, which they may delete and the
+ * purger then removes, so its absence never means "not delivered" (Codex
+ * review, PR #1300).
+ */
+async function isDelivered(attempt: Pick<LockedAttempt, "id" | "generatedImageObjectPath">, tx: Executor): Promise<boolean> {
+  if (attempt.generatedImageObjectPath) return true;
+  const [row] = await tx.select({ id: userAiImagesTable.id }).from(userAiImagesTable).where(eq(userAiImagesTable.attemptId, attempt.id)).limit(1);
   return !!row;
 }
 
@@ -100,7 +108,7 @@ type DeliveryOutcome = "delivered" | "already_delivered" | "returned";
 export async function deliverMemberPicture(attemptId: number, storedPath: string, tx: Executor): Promise<DeliveryOutcome> {
   const attempt = await lockAttempt(attemptId, tx);
   if (!attempt || !attempt.userId) throw new Error(`member picture ${attemptId} has no owner to deliver to`);
-  if (await isDelivered(attemptId, tx)) return "already_delivered";
+  if (await isDelivered(attempt, tx)) return "already_delivered";
   if ((await pictureCreditState(attemptId, tx)).returned) {
     if (!attempt.error) {
       await tx.update(imagePromptAttemptsTable)
@@ -137,7 +145,7 @@ export async function deliverMemberPicture(attemptId: number, storedPath: string
 export async function returnUndeliveredPicture(attemptId: number, tx: Executor, failWith?: { code: string; message: string }): Promise<boolean> {
   const attempt = await lockAttempt(attemptId, tx);
   if (!attempt || !isMemberPicture(attempt)) return false;
-  if (await isDelivered(attemptId, tx)) return false;
+  if (await isDelivered(attempt, tx)) return false;
   if (failWith && !attempt.error) {
     await tx.update(imagePromptAttemptsTable)
       .set({ error: failWith.message, errorCode: failWith.code, updatedAt: new Date() })
@@ -157,7 +165,7 @@ const LIVE_JOB_STATUSES = ["pending", "processing", "recovering"];
  * can return it (Codex review, PR #1300).
  */
 const UNSETTLED = sql`NOT EXISTS (SELECT 1 FROM credit_ledger c WHERE c.kind = 'picture_return' AND c.ref = 'picture:' || ${imagePromptAttemptsTable.id}::text)
-    AND NOT EXISTS (SELECT 1 FROM user_ai_images u WHERE u.attempt_id = ${imagePromptAttemptsTable.id})
+    AND ${imagePromptAttemptsTable.generatedImageObjectPath} IS NULL
     AND EXISTS (SELECT 1 FROM credit_ledger s WHERE s.kind = 'picture_spend' AND s.ref = 'picture:' || ${imagePromptAttemptsTable.id}::text)`;
 
 /** How many member pictures of this fact still owe their member an outcome (delivered or returned). */
