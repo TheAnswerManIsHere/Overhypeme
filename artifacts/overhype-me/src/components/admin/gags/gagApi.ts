@@ -12,6 +12,9 @@ import {
   type FactGagsView,
   type GagCastView,
   type GagExampleKind,
+  type GagRenderDeleteResult,
+  type RemovedGagHistory,
+  type RenderHistoryPage,
   type VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
 
@@ -80,6 +83,24 @@ export const gagApi = {
    */
   runRenders: (factId: number, gagId: number, reviewId: number | null, kinds: GagExampleKind[], redraw = false) =>
     call("POST", `${base(factId)}/${gagId}/renders`, { kinds, ...(redraw ? { redraw: true } : {}), ...scope(reviewId) }),
+};
+
+// ─── A gag's render history (plan PLAN_RENDER_HISTORY.md D3, D4 and D6) ─────
+
+export type Answer<T> = { ok: true; data: T } | { ok: false; error: string };
+
+export const renderHistoryApi = {
+  /** One page of a gag's history, newest first; `before` is the previous page's `nextBefore`. */
+  page: (factId: number, gagId: number, before?: string | null) =>
+    request("GET", `${base(factId)}/${gagId}/render-history${before ? `?before=${encodeURIComponent(before)}` : ""}`) as Promise<Answer<RenderHistoryPage>>,
+  /** The fact's removed gags that still have renders, grouped by the gag's own id. */
+  removedGags: async (factId: number): Promise<Answer<RemovedGagHistory[]>> => {
+    const r = await request("GET", `/api/admin/facts/${factId}/render-history/removed-gags`);
+    return r.ok ? { ok: true, data: (r.data as { gags: RemovedGagHistory[] }).gags } : r;
+  },
+  /** Delete a render for good, its picture file with it; the server refuses an official, running or in-use render, saying why. */
+  remove: (factId: number, gagId: number, attemptId: number, reviewId: number | null) =>
+    request("POST", `${base(factId)}/${gagId}/renders/${attemptId}/delete`, scope(reviewId)) as Promise<Answer<GagRenderDeleteResult>>,
 };
 
 /** The scene: the one field re-sent while it holds a plain subject reference (a bubble line may be a speaker's own words). */

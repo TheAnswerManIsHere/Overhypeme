@@ -119,6 +119,8 @@ function splitGag(enrichment: FactEnrichment | null): { classification: FactEnri
   return { classification: rest as FactEnrichment, gag: visualPromptStrategyOverride?.coreSceneOverride?.trim() ? visualPromptStrategyOverride : null };
 }
 
+const NO_ROLES = { live: null, approvedNext: null, working: null };
+
 /** GET /api/admin/facts/:id/gags for a fact with at most one gag: published on a live fact, in the draft on a staging one. */
 export function gagsView(factId: number, isActive: boolean, gag: VisualPromptStrategyOverride | null, review: FactGagsView["review"] = null): FactGagsView {
   const gags: GagView[] = gag
@@ -136,7 +138,7 @@ export function gagsView(factId: number, isActive: boolean, gag: VisualPromptStr
         pendingExamples: { male: null, female: null, pet: null },
         draftRemoved: false,
         prefilledUntouched: false,
-        renders: { male: null, female: null, pet: null },
+        roles: { male: NO_ROLES, female: NO_ROLES, pet: NO_ROLES },
       }]
     : [];
   // A live fact's published gag is ready as it stands; a staging gag has no renders approved yet.

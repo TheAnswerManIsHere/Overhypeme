@@ -322,7 +322,7 @@ describe("FactSheet", () => {
       id: 7, slot: 1, state: "pending", availableToUsers: true, isDefault: true,
       approvedContent: null, approvedExamples: { male: null, female: null, pet: null }, grandfathered: false, approvedAt: null,
       pendingContent: null, pendingExamples: { male: null, female: null, pet: null }, draftRemoved: true, prefilledUntouched: false,
-      renders: { male: null, female: null, pet: null },
+      roles: { male: { live: null, approvedNext: null, working: null }, female: { live: null, approvedNext: null, working: null }, pet: { live: null, approvedNext: null, working: null } },
     };
     stub(SHEET, { gags: gagsView({ gags: [changed], draftReady: { ok: false, reason: "Visual gag 1 needs male, female and pet renders approved." } }) });
     const { onChanged, onClose } = open();
@@ -362,7 +362,7 @@ describe("FactSheet", () => {
       id: 7, slot: 1, state: "pending", availableToUsers: true, isDefault: true,
       approvedContent: null, approvedExamples: { male: null, female: null, pet: null }, grandfathered: false, approvedAt: null,
       pendingContent: null, pendingExamples: { male: null, female: null, pet: null }, draftRemoved: true, prefilledUntouched: false,
-      renders: { male: null, female: null, pet: null },
+      roles: { male: { live: null, approvedNext: null, working: null }, female: { live: null, approvedNext: null, working: null }, pet: { live: null, approvedNext: null, working: null } },
     };
     stub(SHEET, { gags: gagsView({ gags: [pending], draftReady: { ok: false, reason: "A fact needs at least one visual gag before it can go live." } }) });
     open();

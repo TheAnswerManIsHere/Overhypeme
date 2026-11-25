@@ -16,11 +16,16 @@ import {
   type GagCastEntry,
   type GagView,
   type GagExample,
+  type GagExampleKind,
+  type GagPictureRoles,
   type PerKind,
+  type RemovedGagHistory,
+  type RenderHistoryEntry,
   type RenderScenarioCard,
   type VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
 import { GagsPanel } from "./GagsPanel";
+import { approvalWords, costWords } from "./RenderHistory";
 
 const scene = (text: string): VisualPromptStrategyOverride => ({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: text });
 const NONE = { male: null, female: null, pet: null };
@@ -34,8 +39,15 @@ function card(key: RenderScenarioCard["key"], over: Partial<RenderScenarioCard> 
   };
 }
 
-function gag(over: Partial<GagView> & Pick<GagView, "id" | "slot">): GagView {
-  return {
+/**
+ * A gag as the server sends it. `renders` (test shorthand) is each picture's
+ * working render; the official roles follow from the picks as the server
+ * computes them (PLAN_RENDER_HISTORY.md D1): live is the published pick, and
+ * the draft's pick is "approved for next publish" when it differs.
+ */
+function gag(over: Partial<GagView> & Pick<GagView, "id" | "slot"> & { renders?: PerKind<RenderScenarioCard | null> }): GagView {
+  const { renders = NONE, ...rest } = over;
+  const g: GagView = {
     state: "approved",
     availableToUsers: true,
     isDefault: false,
@@ -47,10 +59,16 @@ function gag(over: Partial<GagView> & Pick<GagView, "id" | "slot">): GagView {
     pendingExamples: NONE,
     draftRemoved: false,
     prefilledUntouched: false,
-    renders: NONE,
     roles: { male: NO_ROLES, female: NO_ROLES, pet: NO_ROLES },
-    ...over,
+    ...rest,
   };
+  if (over.roles) return g;
+  const roleOf = (k: GagExampleKind): GagPictureRoles => {
+    const live = g.approvedExamples[k];
+    const pick = g.pendingContent != null ? g.pendingExamples[k] : live;
+    return { live, approvedNext: pick && pick.attemptId !== live?.attemptId ? pick : null, working: renders[k] };
+  };
+  return { ...g, roles: { male: roleOf("male"), female: roleOf("female"), pet: roleOf("pet") } };
 }
 
 function view(gags: GagView[], over: Partial<FactGagsView> = {}): FactGagsView {
@@ -60,7 +78,7 @@ function view(gags: GagView[], over: Partial<FactGagsView> = {}): FactGagsView {
 type Call = { url: string; method: string; body: unknown };
 
 /** Stub fetch: GET answers `initial`; writes answer `after` (or a refusal); tokenize echoes. */
-function stubFetch(initial: FactGagsView, opts: { after?: FactGagsView; refuse?: { status: number; body: unknown }; cast?: GagCastEntry[]; castFails?: boolean } = {}) {
+function stubFetch(initial: FactGagsView, opts: { after?: FactGagsView; refuse?: { status: number; body: unknown }; cast?: GagCastEntry[]; castFails?: boolean; history?: (url: string) => unknown; removed?: RemovedGagHistory[]; deleteAnswer?: { status: number; body: unknown } } = {}) {
   const calls: Call[] = [];
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
@@ -80,6 +98,9 @@ function stubFetch(initial: FactGagsView, opts: { after?: FactGagsView; refuse?:
       const unboundSpeakers = b.bubbles.map((bb) => bb.entity).filter((e) => e.trim() !== "" && e !== "subject" && !labels.has(e));
       return json({ cast, castExtraction: { promptVersion: "v2", extractedAt: "2026-11-17T00:00:00.000Z", sourceKey: castSourceKey(b.scene, b.bubbles) }, unboundSpeakers });
     }
+    if (String(url).includes("/render-history/removed-gags")) return json({ gags: opts.removed ?? [] });
+    if (String(url).includes("/render-history")) return json(opts.history?.(String(url)) ?? { gagId: 0, entries: [], nextBefore: null });
+    if (String(url).endsWith("/delete")) return json(opts.deleteAnswer?.body ?? { deleted: true, fileStillBeingRemoved: false }, opts.deleteAnswer?.status ?? 200);
     if (method === "GET") return json(initial);
     if (opts.refuse) return json(opts.refuse.body, opts.refuse.status);
     return json(opts.after ?? initial);
@@ -251,7 +272,8 @@ describe("GagsPanel", () => {
     render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
     fireEvent.click(await screen.findByTestId("gag-render-rest"));
     await waitFor(() => expect(calls.some((c) => c.url.endsWith("/renders"))).toBe(true));
-    expect(calls.find((c) => c.url.endsWith("/renders"))!.body).toEqual({ kinds: ["female", "pet"] });
+    // Only the pictures that need drawing, each a new render (PLAN_RENDER_HISTORY.md D1).
+    expect(calls.find((c) => c.url.endsWith("/renders"))!.body).toEqual({ kinds: ["female", "pet"], redraw: true });
 
     const male = screen.getAllByTestId("gag-render").find((t) => t.getAttribute("data-kind") === "male")!;
     fireEvent.click(within(male).getByTestId("gag-redraw-render"));
@@ -342,6 +364,8 @@ describe("GagsPanel", () => {
       const posts: { url: string; body: unknown }[] = [];
       vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
         const method = init?.method ?? "GET";
+        // The view's own reloads; the removed gags' list is read once on its own.
+        if (String(url).includes("/render-history")) return new Response(JSON.stringify({ gags: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
         if (method === "GET") gets(); else posts.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null });
         const v = views[Math.min(n, views.length - 1)]!;
         if (method === "GET") n++;
@@ -369,7 +393,8 @@ describe("GagsPanel", () => {
       const maleTile = (await screen.findAllByTestId("gag-render")).find((t) => t.getAttribute("data-kind") === "male")!;
       fireEvent.click(within(maleTile).getByTestId("gag-redraw-render"));
       await waitFor(() => expect(posts.filter((p) => p.url.endsWith("/renders"))).toHaveLength(1));
-      expect(posts.find((p) => p.url.endsWith("/renders"))!.body).toEqual({ kinds: ["male"], reviewId: 77 });
+      // Every draw asked for makes a new render (PLAN_RENDER_HISTORY.md D1).
+      expect(posts.find((p) => p.url.endsWith("/renders"))!.body).toEqual({ kinds: ["male"], redraw: true, reviewId: 77 });
     });
 
     it("keeps reloading while a render that was asked for is drawing, and shows its approval when it lands", async () => {
@@ -390,6 +415,202 @@ describe("GagsPanel", () => {
       first.rerender(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} reloadKey={1} />);
       await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
       expect(gets).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe("the Gags and Renders views each earn their place (Issue #1304, plan PLAN_RENDER_HISTORY.md)", () => {
+    const working = (id: number, over: Partial<RenderScenarioCard> = {}) => card("i2i_male_default", { latestAttemptId: id, imageUrl: `/api/admin/gags/1/renders/w${id}/image`, ...over });
+    /** A published gag with a draft change: male live is #1, the draft's male pick is #4, and a newer male render #7 is working. */
+    const changed = () => gag({
+      id: 1, slot: 1, state: "approved_with_change",
+      approvedExamples: { male: ex(1), female: ex(2), pet: null },
+      pendingContent: scene("{NAME} lifts the sun."),
+      pendingExamples: { male: ex(4), female: null, pet: null },
+      renders: { male: working(7), female: null, pet: null },
+    });
+
+    it("D2: the Gags view shows only each picture's official renders, each under its label, and says when a picture has none", async () => {
+      stubFetch(view([changed()]));
+      render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={[]} />);
+      const male = (await screen.findAllByTestId("gag-official")).find((o) => o.getAttribute("data-kind") === "male")!;
+      expect(within(male).getAllByTestId("gag-example-label").map((l) => l.textContent)).toEqual(["Live example", "Approved for next publish"]);
+      expect(within(male).getAllByTestId("gag-example").map((i) => i.getAttribute("src"))).toEqual([ex(1).imageUrl, ex(4).imageUrl]);
+      const pet = screen.getAllByTestId("gag-official").find((o) => o.getAttribute("data-kind") === "pet")!;
+      expect(within(pet).getByTestId("gag-no-official").textContent).toBe("No approved example yet.");
+      // The working render is the Renders view's, never the Gags view's.
+      expect(document.querySelector(`img[src="${working(7).imageUrl}"]`)).toBeNull();
+      expect(screen.queryByTestId("gag-history")).toBeNull();
+    });
+
+    it("D2: on an unpublished fact the pick reads \"Approved for publishing\"", async () => {
+      stubFetch(view([gag({ id: 1, slot: 1, state: "new", availableToUsers: false, approvedContent: null, pendingContent: scene("{NAME} x."), pendingExamples: { male: ex(4), female: null, pet: null } })], { isActive: false }));
+      render(<GagsPanel factId={5} reviewId={77} rendersEnabled={false} subjectNames={[]} />);
+      const male = (await screen.findAllByTestId("gag-official")).find((o) => o.getAttribute("data-kind") === "male")!;
+      expect(within(male).getAllByTestId("gag-example-label").map((l) => l.textContent)).toEqual(["Approved for publishing"]);
+    });
+
+    it("D3: the Renders view shows each official render locked, with no draw, approve or delete, beside the working render", async () => {
+      const calls = stubFetch(view([changed()]));
+      render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+      const male = (await screen.findAllByTestId("gag-render")).find((t) => t.getAttribute("data-kind") === "male")!;
+      const official = within(male).getAllByTestId("gag-render-official");
+      expect(official.map((o) => o.getAttribute("data-role"))).toEqual(["live", "approved_next"]);
+      for (const o of official) {
+        expect(o.textContent).toMatch(/Locked/);
+        for (const id of ["gag-redraw-render", "gag-approve-render", "gag-history-delete"]) expect(within(o).queryByTestId(id), id).toBeNull();
+      }
+      const w = within(male).getByTestId("gag-render-working");
+      expect(within(w).getByTestId("gag-render-open").querySelector("img")!.getAttribute("src")).toBe(working(7).imageUrl);
+      expect(within(w).getByTestId("gag-approve-render")).toBeTruthy();
+      fireEvent.click(within(w).getByTestId("gag-redraw-render"));
+      await waitFor(() => expect(calls.find((c) => c.url.endsWith("/renders"))?.body).toEqual({ kinds: ["male"], redraw: true }));
+    });
+
+    it("D1: a render that is both the working render and a pick is shown once, naming its role", async () => {
+      stubFetch(view([gag({
+        id: 1, slot: 1, state: "approved_with_change",
+        approvedExamples: { male: ex(1), female: null, pet: null },
+        pendingContent: scene("{NAME} lifts the sun."),
+        pendingExamples: { male: ex(7), female: null, pet: null },
+        renders: { male: working(7), female: null, pet: null },
+      })]));
+      render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+      const male = (await screen.findAllByTestId("gag-render")).find((t) => t.getAttribute("data-kind") === "male")!;
+      expect(within(male).getAllByTestId("gag-render-official").map((o) => o.getAttribute("data-role"))).toEqual(["live"]);
+      expect(within(male).getByTestId("gag-render-picked").textContent).toBe("Approved for next publish");
+      expect(within(male).queryByTestId("gag-approve-render")).toBeNull();
+    });
+
+    const entry = (id: number, over: Partial<RenderHistoryEntry> = {}): RenderHistoryEntry => ({
+      attemptId: id, kind: "male", createdAt: `2026-11-2${id % 10}T12:00:00.000Z`,
+      drawnBy: { userId: "a1", name: "Raena Admin" }, roles: [], status: "done", error: null,
+      imageUrl: `/api/admin/gags/1/renders/j${id}/image`,
+      gag: { ...scene("{NAME} lifts the moon."), bubbles: [{ type: "speech", entity: "subject", text: "Light work." }] } as unknown as VisualPromptStrategyOverride,
+      reference: { identityType: "male", assetVersion: "v3" },
+      engine: { engineId: "gpt-image-2", fallback: null },
+      prompt: { compiled: { scene: "lifts the moon" }, requests: [{ id: id * 10, endpointId: "fal-ai/x", engineId: "gpt-image-2", createdAt: "2026-11-24T12:00:00.000Z", request: { prompt: "moon" }, billedUsd: 0.04 }] },
+      approval: "not_approved", cost: { state: "billed", usd: 0.04, unbilledRequests: 0, unknownRequests: 0 },
+      ...over,
+    });
+
+    it("D3/D4: each gag's history is collapsed until opened, lists every render newest first with its roles, and opens to its full record", async () => {
+      const calls = stubFetch(view([changed()]), {
+        history: (url) => url.includes("before=")
+          ? { gagId: 1, entries: [entry(1, { roles: ["live"], approval: "approved" })], nextBefore: null }
+          : { gagId: 1, entries: [entry(7, { roles: ["working"] }), entry(5, { status: "failed", imageUrl: null, error: "vendor failed", cost: { state: "never_sent" }, approval: "not_recorded" })], nextBefore: "2026-11-25T12:00:00.000Z|5" },
+      });
+      render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+      const history = await screen.findByTestId("gag-history");
+      expect(calls.some((c) => c.url.includes("/gags/1/render-history"))).toBe(false);
+      fireEvent.click(within(history).getByTestId("gag-history-toggle"));
+      await waitFor(() => expect(within(history).getAllByTestId("gag-history-entry")).toHaveLength(2));
+      const rows = within(history).getAllByTestId("gag-history-entry");
+      expect(rows.map((r) => r.getAttribute("data-attempt-id"))).toEqual(["7", "5"]);
+      expect(within(rows[0]!).getByTestId("gag-history-role").textContent).toBe("Working render");
+      expect(within(rows[0]!).getByTestId("gag-history-cost").textContent).toBe("· $0.0400");
+      expect(within(rows[1]!).getByTestId("gag-history-status").textContent).toBe("· Failed: vendor failed");
+      expect(within(rows[1]!).getByTestId("gag-history-cost").textContent).toBe("· Never reached fal; nothing charged");
+
+      fireEvent.click(within(rows[0]!).getByTestId("gag-history-entry-toggle"));
+      const record = within(rows[0]!).getByTestId("gag-history-record");
+      expect(within(record).getByTestId("gag-history-approval").textContent).toBe("Not approved");
+      expect(within(record).getByTestId("gag-history-engine").textContent).toBe("gpt-image-2");
+      expect(within(record).getByTestId("gag-history-gag").textContent).toMatch(/lifts the moon.*Light work\./);
+      expect(within(record).getByTestId("gag-history-requests").textContent).toMatch(/"prompt": "moon"/);
+
+      // "Load older" reads the next page from the cursor, so no paid render is out of reach.
+      fireEvent.click(within(history).getByTestId("gag-history-older"));
+      await waitFor(() => expect(within(history).getAllByTestId("gag-history-entry")).toHaveLength(3));
+      expect(calls.find((c) => c.url.includes("before="))!.url).toContain(`before=${encodeURIComponent("2026-11-25T12:00:00.000Z|5")}`);
+      const oldest = within(history).getAllByTestId("gag-history-entry")[2]!;
+      expect(within(oldest).getByTestId("gag-history-role").textContent).toBe("Live example");
+      expect(within(history).queryByTestId("gag-history-older")).toBeNull();
+    });
+
+    it("D6: an old render is deleted after a confirmation naming the picture and date; an official one offers no delete", async () => {
+      const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+      const calls = stubFetch(view([changed()]), {
+        history: () => ({ gagId: 1, entries: [entry(1, { roles: ["live"] }), entry(3)], nextBefore: null }),
+        deleteAnswer: { status: 200, body: { deleted: true, fileStillBeingRemoved: true } },
+      });
+      render(<GagsPanel factId={5} reviewId={77} rendersEnabled subjectNames={[]} />);
+      const history = await screen.findByTestId("gag-history");
+      fireEvent.click(within(history).getByTestId("gag-history-toggle"));
+      const rows = await within(history).findAllByTestId("gag-history-entry");
+      for (const r of rows) fireEvent.click(within(r).getByTestId("gag-history-entry-toggle"));
+      expect(within(rows[0]!).queryByTestId("gag-history-delete"), "the live example cannot be deleted").toBeNull();
+      fireEvent.click(within(rows[1]!).getByTestId("gag-history-delete"));
+      expect(confirm.mock.calls[0]![0]).toMatch(/^Delete the male render drawn .+ for good\?/);
+      await waitFor(() => expect(calls.some((c) => c.url.endsWith("/gags/1/renders/3/delete"))).toBe(true));
+      expect(calls.find((c) => c.url.endsWith("/delete"))!.body).toEqual({ reviewId: 77 });
+      expect((await within(history).findByTestId("gag-history-notice")).textContent).toBe("Deleted; its picture file is still being removed.");
+      confirm.mockRestore();
+    });
+
+    it("D6: a cancelled confirmation deletes nothing, and a refusal shows the server's reason", async () => {
+      const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+      const calls = stubFetch(view([changed()]), {
+        history: () => ({ gagId: 1, entries: [entry(3)], nextBefore: null }),
+        deleteAnswer: { status: 409, body: { error: "This render is still drawing.", code: "RENDER_RUNNING" } },
+      });
+      render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+      const history = await screen.findByTestId("gag-history");
+      fireEvent.click(within(history).getByTestId("gag-history-toggle"));
+      const row = await within(history).findByTestId("gag-history-entry");
+      fireEvent.click(within(row).getByTestId("gag-history-entry-toggle"));
+      fireEvent.click(within(row).getByTestId("gag-history-delete"));
+      expect(calls.some((c) => c.url.endsWith("/delete"))).toBe(false);
+      confirm.mockReturnValue(true);
+      fireEvent.click(within(row).getByTestId("gag-history-delete"));
+      expect((await within(history).findByTestId("gag-history-error")).textContent).toBe("This render is still drawing.");
+      confirm.mockRestore();
+    });
+
+    it("read-only, the history offers no delete", async () => {
+      stubFetch(view([changed()]), { history: () => ({ gagId: 1, entries: [entry(3)], nextBefore: null }) });
+      render(<GagsPanel factId={5} reviewId={null} rendersEnabled disabled subjectNames={[]} />);
+      const history = await screen.findByTestId("gag-history");
+      fireEvent.click(within(history).getByTestId("gag-history-toggle"));
+      const row = await within(history).findByTestId("gag-history-entry");
+      fireEvent.click(within(row).getByTestId("gag-history-entry-toggle"));
+      expect(within(row).queryByTestId("gag-history-delete")).toBeNull();
+    });
+
+    it("removed gags keep their history, grouped by the gag's own id", async () => {
+      const calls = stubFetch(view([changed()]), {
+        removed: [{ gagId: 41, renders: 2, lastRenderAt: "2026-11-20T12:00:00.000Z" }],
+        history: (url) => ({ gagId: 41, entries: url.includes("/gags/41/") ? [entry(9)] : [], nextBefore: null }),
+      });
+      render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+      const removed = await screen.findByTestId("removed-gags-history");
+      fireEvent.click(within(removed).getByTestId("removed-gags-toggle"));
+      const g = within(removed).getByTestId("removed-gag-history");
+      expect(g.getAttribute("data-gag-id")).toBe("41");
+      expect(g.textContent).toMatch(/Removed gag #41: 2 renders/);
+      fireEvent.click(within(g).getByTestId("gag-history-toggle"));
+      await within(g).findByTestId("gag-history-entry");
+      expect(calls.some((c) => c.url.endsWith("/gags/41/render-history"))).toBe(true);
+    });
+
+    it("the Gags view shows no removed gags' history", async () => {
+      stubFetch(view([changed()]), { removed: [{ gagId: 41, renders: 2, lastRenderAt: "2026-11-20T12:00:00.000Z" }] });
+      render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={[]} />);
+      await screen.findByTestId("gag-card");
+      expect(screen.queryByTestId("removed-gags-history")).toBeNull();
+    });
+
+    it("D5 and D4: cost and approval read in words, never a partial sum as the whole and never \"Never approved\" without evidence", () => {
+      expect(costWords({ state: "billed", usd: 0.08, unbilledRequests: 0, unknownRequests: 0 })).toBe("$0.0800");
+      expect(costWords({ state: "billed", usd: 0.04, unbilledRequests: 1, unknownRequests: 0 })).toBe("$0.0400 so far; 1 request not billed yet");
+      expect(costWords({ state: "billed", usd: 0.04, unbilledRequests: 0, unknownRequests: 2 })).toBe("$0.0400 so far; 2 requests whose charge is not on record");
+      expect(costWords({ state: "not_checked" })).toBe("Cost not checked yet");
+      expect(costWords({ state: "no_bill_found" })).toBe("No bill found at fal yet");
+      expect(costWords({ state: "billing_key_not_set" })).toBe("Cost unknown: the billing key is not set");
+      expect(costWords({ state: "not_recorded" })).toBe("Cost not recorded");
+      expect(costWords({ state: "never_sent" })).toBe("Never reached fal; nothing charged");
+      expect(approvalWords("approved")).toBe("Approved");
+      expect(approvalWords("not_recorded")).toBe("Approval history not recorded");
+      expect(approvalWords("not_approved")).toBe("Not approved");
     });
   });
 

@@ -11,9 +11,14 @@
  * (plan item 11): every render is drawn when the admin asks for it, and none
  * starts by itself (Issue #1282, plan PLAN_RENDERS_MANUAL.md). The Facts editor
  * shows a live fact's gags read-only.
+ *
+ * The two views each earn their place (plan PLAN_RENDER_HISTORY.md, Issue
+ * #1304): the Gags view shows only each picture's official renders, labelled
+ * (D2); the Renders view shows each picture's official renders locked beside
+ * its working render, and each gag's render history below (D3).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, Loader2, Plus, Play, RefreshCw, Save, Trash2, Users } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, Lock, Plus, Play, RefreshCw, Save, Trash2, Users } from "lucide-react";
 import {
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
   GAG_EXAMPLE_KINDS,
@@ -23,6 +28,7 @@ import {
   type FactGagsView,
   type GagExample,
   type GagExampleKind,
+  type GagPictureRoles,
   type GagView,
   type PerKind,
   type RenderScenarioCard,
@@ -33,6 +39,7 @@ import { FactCharactersContext } from "@/components/admin/FactCharactersContext"
 import { VisualConceptCard } from "@/components/admin/VisualConceptCard";
 import { BubbleEditor } from "@/components/admin/BubbleEditor";
 import { castIsCurrent, gagApi, prepareGag, readCast, tokenizeGag, type GagResult } from "./gagApi";
+import { GagHistory, RemovedGagsHistory, roleWords } from "./RenderHistory";
 
 const IN_FLIGHT = new Set(["queued", "rendering"]);
 const POLL_MS = 2000;
@@ -154,7 +161,7 @@ function GagsPanelBody({ factId, reviewId, rendersEnabled, subjectNames, reloadK
   // Poll while a test render someone asked for is still drawing, while ideas
   // are being written, and while a fill is under way. Nothing draws by itself
   // (Issue #1282), so there is no render to wait for that nobody asked for.
-  const drawing = !!view?.gags.some((g) => GAG_EXAMPLE_KINDS.some((k) => IN_FLIGHT.has(g.renders[k]?.status ?? "")));
+  const drawing = !!view?.gags.some((g) => GAG_EXAMPLE_KINDS.some((k) => IN_FLIGHT.has(g.roles[k].working?.status ?? "")));
   // Ideas being written may fill the gags when they land; the view says while
   // a fill is under way (`filling`).
   // The view reads the fill's own job, so this ends when the job does,
@@ -217,9 +224,15 @@ function GagsPanelBody({ factId, reviewId, rendersEnabled, subjectNames, reloadK
           reviewId={reviewId}
           gag={g}
           readOnly={readOnly}
+          factLive={view.isActive}
           onView={accept}
+          onReload={() => void load()}
         />
       ))}
+
+      {rendersEnabled && (
+        <RemovedGagsHistory factId={factId} reviewId={reviewId} readOnly={readOnly} factLive={view.isActive} refreshKey={rendersKey(view)} />
+      )}
 
       {!rendersEnabled && view.gags.map((g) => (
         <GagCard
@@ -229,6 +242,7 @@ function GagsPanelBody({ factId, reviewId, rendersEnabled, subjectNames, reloadK
           gag={g}
           subjectNames={subjectNames}
           readOnly={readOnly}
+          factLive={view.isActive}
           onView={accept}
           reportUnsaved={reportUnsaved}
         />
@@ -512,6 +526,7 @@ function GagCard({
   gag,
   subjectNames,
   readOnly,
+  factLive,
   onView,
   reportUnsaved,
 }: {
@@ -520,6 +535,7 @@ function GagCard({
   gag: GagView;
   subjectNames: string[];
   readOnly: boolean;
+  factLive: boolean;
   onView: (v: FactGagsView) => void;
   reportUnsaved: (key: string, unsaved: boolean) => void;
 }) {
@@ -562,7 +578,6 @@ function GagCard({
   };
 
   const locked = readOnly || s.busy;
-  const building = gag.pendingContent != null;
   const picks = examplePicks(gag);
 
   return (
@@ -594,18 +609,7 @@ function GagCard({
         {`${exampleWords(picks)}.`}
       </p>
 
-      {GAG_EXAMPLE_KINDS.some((k) => gag.approvedExamples[k]?.imageUrl) && (
-        <div className="flex gap-3 flex-wrap" data-testid="gag-approved-examples">
-          {GAG_EXAMPLE_KINDS.map((k) => gag.approvedExamples[k]?.imageUrl ? (
-            <figure key={k} className="space-y-1">
-              <a href={gag.approvedExamples[k]!.imageUrl!} target="_blank" rel="noopener noreferrer" title="Open full size">
-                <img src={gag.approvedExamples[k]!.imageUrl!} alt={`Visual gag ${gag.slot} ${k} example`} className="w-28 rounded-sm border border-border" data-testid="gag-example" data-kind={k} />
-              </a>
-              <figcaption className="text-[11px] text-muted-foreground">{KIND_LABEL[k]} example{building ? " (users see this now)" : ""}</figcaption>
-            </figure>
-          ) : null)}
-        </div>
-      )}
+      <OfficialExamples gag={gag} factLive={factLive} />
 
       <GagEditor value={draft} onChange={setDraft} disabled={locked} fieldErrors={s.fieldErrors} cast={castReading} />
 
@@ -636,38 +640,101 @@ function GagCard({
 }
 
 /**
- * A gag on the Test Renders step (plan PLAN_FACT_LIFECYCLE_REBUILD.md, item
- * 11): its three render windows and nothing else from the gag setup. Every
- * render is drawn when asked (Issue #1282): each window on its own, or the
- * female and pet renders together. A first male render is drawn from its
- * own window.
+ * Each picture's official renders on the Gags view (plan PLAN_RENDER_HISTORY.md
+ * D2): its live example and, when different, the pick approved for the next
+ * publish, each under its label; a picture with neither says so. Nothing else
+ * of a gag's renders shows here: drafts, working renders and history are the
+ * Renders view's.
+ */
+function OfficialExamples({ gag, factLive }: { gag: GagView; factLive: boolean }) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2" data-testid="gag-approved-examples">
+      {GAG_EXAMPLE_KINDS.map((k) => {
+        const r = gag.roles[k];
+        const official = officialOf(r);
+        return (
+          <div key={k} className="space-y-1" data-testid="gag-official" data-kind={k}>
+            <p className="text-xs font-semibold text-foreground">{KIND_LABEL[k]}</p>
+            {official.length === 0 ? (
+              <p className="text-[11px] text-muted-foreground" data-testid="gag-no-official">No approved example yet.</p>
+            ) : official.map(({ role, example }) => (
+              <figure key={role} className="space-y-1">
+                {example.imageUrl ? (
+                  <a href={example.imageUrl} target="_blank" rel="noopener noreferrer" title="Open full size">
+                    <img src={example.imageUrl} alt={`Visual gag ${gag.slot} ${k}: ${roleWords(role, factLive).toLowerCase()}`} className="w-28 rounded-sm border border-border" data-testid="gag-example" data-kind={k} data-role={role} />
+                  </a>
+                ) : <p className="text-[11px] text-muted-foreground">The picture is not available.</p>}
+                <figcaption className="text-[11px] text-muted-foreground" data-testid="gag-example-label">{roleWords(role, factLive)}</figcaption>
+              </figure>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** A picture's official renders (D1): the live example, then the next publish's pick when it differs. */
+function officialOf(r: GagPictureRoles): Array<{ role: "live" | "approved_next"; example: GagExample }> {
+  const out: Array<{ role: "live" | "approved_next"; example: GagExample }> = [];
+  if (r.live) out.push({ role: "live", example: r.live });
+  if (r.approvedNext) out.push({ role: "approved_next", example: r.approvedNext });
+  return out;
+}
+
+/** What changes when a gag's renders change (a draw, its progress, an approval): an open history reloads on it. */
+function gagRendersKey(g: GagView): string {
+  return GAG_EXAMPLE_KINDS.map((k) => {
+    const r = g.roles[k];
+    return `${r.working?.latestAttemptId ?? "-"}:${r.working?.status ?? "-"}:${r.live?.attemptId ?? "-"}:${r.approvedNext?.attemptId ?? "-"}`;
+  }).join("|");
+}
+
+function rendersKey(v: FactGagsView): string {
+  return v.gags.map((g) => `${g.id}=${gagRendersKey(g)}`).join(";");
+}
+
+/**
+ * A gag on the Renders view (the Test Renders step and the fact sheet's
+ * Renders tab; plan PLAN_FACT_LIFECYCLE_REBUILD.md item 11 and
+ * PLAN_RENDER_HISTORY.md D3): per picture, its official renders, locked, beside
+ * its working render with Approve and Draw; below, the gag's history. Every
+ * render is drawn when asked (Issue #1282), and every draw asked for here makes
+ * a new render (D1): "Draw again" keeps the previous one in history.
  */
 function GagRendersCard({
   factId,
   reviewId,
   gag,
   readOnly,
+  factLive,
   onView,
+  onReload,
 }: {
   factId: number;
   reviewId: number | null;
   gag: GagView;
   readOnly: boolean;
+  factLive: boolean;
   onView: (v: FactGagsView) => void;
+  onReload: () => void;
 }) {
   const s = useGagAction();
   const done = (r: GagResult | null) => { if (r?.ok) onView(r.view); };
-  const runRenders = async (kinds: GagExampleKind[], redraw = false) => done(await s.act(() => gagApi.runRenders(factId, gag.id, reviewId, kinds, redraw)));
+  const runRenders = async (kinds: GagExampleKind[]) => done(await s.act(() => gagApi.runRenders(factId, gag.id, reviewId, kinds, true)));
   const approve = async (card: RenderScenarioCard) => {
     if (card.latestAttemptId == null) return;
     done(await s.act(() => gagApi.approve(factId, gag.id, card.latestAttemptId!, reviewId)));
   };
   const locked = readOnly || s.busy;
-  const drawing = GAG_EXAMPLE_KINDS.some((k) => IN_FLIGHT.has(gag.renders[k]?.status ?? ""));
+  const drawing = GAG_EXAMPLE_KINDS.some((k) => IN_FLIGHT.has(gag.roles[k].working?.status ?? ""));
   const picks = examplePicks(gag);
-  // A kind needs drawing with no render of the gag as it is: none at all, or
-  // only an example drawn from an earlier version (Issue #1277).
-  const needsDrawing = (k: GagExampleKind) => gag.renders[k] == null || gag.renders[k]!.status === "missing" || gag.renders[k]!.stale;
+  // A picture needs drawing with no render of the gag as it is: none at all,
+  // or only one drawn from an earlier version (Issue #1277).
+  const needsDrawing = (k: GagExampleKind) => {
+    const w = gag.roles[k].working;
+    return w == null || w.status === "missing" || w.stale;
+  };
   const restMissing = REST_KINDS.filter(needsDrawing);
 
   return (
@@ -675,7 +742,7 @@ function GagRendersCard({
       <div className="flex items-center justify-between gap-2 flex-wrap" data-testid="gag-renders">
         <p className="text-sm font-bold text-foreground">Visual gag {gag.slot}</p>
         {!readOnly && restMissing.length > 0 && (
-          <button type="button" onClick={() => void runRenders([...REST_KINDS])} disabled={locked || drawing} data-testid="gag-render-rest"
+          <button type="button" onClick={() => void runRenders(restMissing)} disabled={locked || drawing} data-testid="gag-render-rest"
             className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-border rounded-sm hover:bg-muted text-foreground disabled:opacity-40">
             <Play className="w-3 h-3" /> Render {joinWithAnd(restMissing)}
           </button>
@@ -683,21 +750,24 @@ function GagRendersCard({
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         {GAG_EXAMPLE_KINDS.map((k) => (
-          <RenderTile
+          <PictureColumn
             key={k}
             kind={k}
-            card={gag.renders[k]}
-            picked={picks[k] != null && picks[k]!.attemptId === gag.renders[k]?.latestAttemptId}
+            roles={gag.roles[k]}
+            pickId={picks[k]?.attemptId ?? null}
+            factLive={factLive}
             canAct={!locked}
             readOnly={readOnly}
             onApprove={(c) => void approve(c)}
-            onDraw={(redraw) => void runRenders([k], redraw)}
+            onDraw={() => void runRenders([k])}
           />
         ))}
       </div>
       {s.error && (
         <p className="text-xs text-destructive flex items-start gap-1.5 break-words" data-testid="gag-error"><AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" /><span className="min-w-0">{s.error}</span></p>
       )}
+      <GagHistory factId={factId} gagId={gag.id} reviewId={reviewId} readOnly={readOnly} factLive={factLive}
+        refreshKey={gagRendersKey(gag)} onDeleted={onReload} />
     </div>
   );
 }
@@ -731,60 +801,96 @@ function statusWords(status: string, message: string | null, progress?: string |
   }
 }
 
-function RenderTile({ kind, card, picked, canAct, readOnly, onApprove, onDraw }: {
+/**
+ * One picture on the Renders view (D3): its official renders, locked, then its
+ * working render. A render holding several roles is shown once, under its
+ * working render, with each role named (D1).
+ */
+function PictureColumn({ kind, roles, pickId, factLive, canAct, readOnly, onApprove, onDraw }: {
   kind: GagExampleKind;
-  card: RenderScenarioCard | null;
-  picked: boolean;
+  roles: GagPictureRoles;
+  /** The draft's pick for this picture: approving the working render makes it this. */
+  pickId: number | null;
+  factLive: boolean;
   canAct: boolean;
   readOnly: boolean;
   onApprove: (card: RenderScenarioCard) => void;
-  onDraw: (redraw: boolean) => void;
+  onDraw: () => void;
 }) {
+  const card = roles.working;
+  const workingId = card?.latestAttemptId ?? null;
+  const official = officialOf(roles);
+  const workingOfficial = official.filter((o) => o.example.attemptId === workingId);
+  const separate = official.filter((o) => o.example.attemptId !== workingId);
   const status = card?.status ?? "missing";
   const inFlight = IN_FLIGHT.has(status);
-  const approvable = !!card && status === "done" && card.latestAttemptId != null && !!card.imageUrl && !picked;
+  const picked = pickId != null && pickId === workingId;
+  const approvable = !!card && status === "done" && workingId != null && !!card.imageUrl && !picked;
   return (
-    <div className="rounded-sm border border-border bg-background p-2 space-y-1.5" data-testid="gag-render" data-kind={kind}>
-      <p className="text-xs font-semibold text-foreground flex items-center justify-between gap-1">
-        {KIND_LABEL[kind]}
-        {picked && (
-          <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-sm bg-green-600/15 text-green-700 dark:text-green-400" data-testid="gag-render-picked">Approved</span>
-        )}
-      </p>
-      {card?.imageUrl ? (
-        <>
-          <a href={card.imageUrl} target="_blank" rel="noopener noreferrer" title="Open full size" data-testid="gag-render-open">
-            <img src={card.imageUrl} alt={`${KIND_LABEL[kind]} render`} className="w-full rounded-sm border border-border" />
-          </a>
-          {card.stale && (
-            <p className="text-[11px] text-amber-700 dark:text-amber-400" data-testid="gag-render-stale">
-              Drawn from an earlier version of this gag. Draw it again to see the gag as it is now.
-            </p>
+    <div className="rounded-sm border border-border bg-background p-2 space-y-2" data-testid="gag-render" data-kind={kind}>
+      <p className="text-xs font-semibold text-foreground">{KIND_LABEL[kind]}</p>
+      {separate.map(({ role, example }) => (
+        <div key={role} className="rounded-sm border border-green-600/30 bg-green-600/5 p-1.5 space-y-1" data-testid="gag-render-official" data-role={role}>
+          <p className="text-[10px] font-bold uppercase tracking-wide text-green-700 dark:text-green-400 flex items-center gap-1">
+            <Lock className="w-3 h-3" /> {roleWords(role, factLive)}
+          </p>
+          {example.imageUrl ? (
+            <a href={example.imageUrl} target="_blank" rel="noopener noreferrer" title="Open full size">
+              <img src={example.imageUrl} alt={`${KIND_LABEL[kind]}: ${roleWords(role, factLive).toLowerCase()}`} className="w-full rounded-sm border border-border" />
+            </a>
+          ) : <p className="text-[11px] text-muted-foreground">The picture is not available.</p>}
+          <p className="text-[10px] text-muted-foreground">Locked. Approving a newer render replaces it.</p>
+        </div>
+      ))}
+      <div className="space-y-1.5" data-testid="gag-render-working">
+        <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground flex items-center justify-between gap-1 flex-wrap">
+          Working render
+          {picked && (
+            <span className="px-1.5 py-0.5 rounded-sm bg-green-600/15 text-green-700 dark:text-green-400" data-testid="gag-render-picked">
+              {workingOfficial.length > 0 ? workingOfficial.map((o) => roleWords(o.role, factLive)).join(" · ") : "Approved"}
+            </span>
           )}
-          {card.engineFallback && (
-            <p className="text-[11px] text-amber-700 dark:text-amber-400" data-testid="gag-render-fallback">
-              GPT Image refused this picture; Nano Banana drew it.
-            </p>
+          {!picked && workingOfficial.length > 0 && (
+            <span className="px-1.5 py-0.5 rounded-sm bg-green-600/15 text-green-700 dark:text-green-400" data-testid="gag-render-official-role">
+              {workingOfficial.map((o) => roleWords(o.role, factLive)).join(" · ")}
+            </span>
           )}
-        </>
-      ) : (
-        <p className={`text-[11px] flex items-center gap-1 ${status === "failed" ? "text-destructive" : "text-muted-foreground"}`} data-testid="gag-render-status" data-refused={card?.engineRefused ? "true" : undefined}>
-          {inFlight && <Loader2 className="w-3 h-3 animate-spin" />}
-          {statusWords(status, card?.message ?? null, card?.progress ?? null, card?.engineRefused ?? false)}
         </p>
-      )}
-      {approvable && (
-        <button type="button" onClick={() => onApprove(card!)} disabled={!canAct} data-testid="gag-approve-render"
-          className="w-full inline-flex items-center justify-center gap-1 px-2 py-1 text-xs font-bold border border-green-600/50 text-green-700 dark:text-green-400 rounded-sm hover:bg-green-600/10 disabled:opacity-40">
-          <CheckCircle2 className="w-3.5 h-3.5" /> Approve this render
-        </button>
-      )}
-      {!readOnly && !inFlight && (
-        <button type="button" onClick={() => onDraw(card != null && status !== "missing")} disabled={!canAct} data-testid="gag-redraw-render"
-          className="w-full inline-flex items-center justify-center gap-1 px-2 py-1 text-[11px] border border-border rounded-sm hover:bg-muted text-foreground disabled:opacity-40">
-          {card != null && status !== "missing" ? <><RefreshCw className="w-3 h-3" /> Draw again</> : <><Play className="w-3 h-3" /> Draw this render</>}
-        </button>
-      )}
+        {card?.imageUrl ? (
+          <>
+            <a href={card.imageUrl} target="_blank" rel="noopener noreferrer" title="Open full size" data-testid="gag-render-open">
+              <img src={card.imageUrl} alt={`${KIND_LABEL[kind]} working render`} className="w-full rounded-sm border border-border" />
+            </a>
+            {card.stale && (
+              <p className="text-[11px] text-amber-700 dark:text-amber-400" data-testid="gag-render-stale">
+                Drawn from an earlier version of this gag. Draw it again to see the gag as it is now.
+              </p>
+            )}
+            {card.engineFallback && (
+              <p className="text-[11px] text-amber-700 dark:text-amber-400" data-testid="gag-render-fallback">
+                GPT Image refused this picture; Nano Banana drew it.
+              </p>
+            )}
+          </>
+        ) : (
+          <p className={`text-[11px] flex items-center gap-1 ${status === "failed" ? "text-destructive" : "text-muted-foreground"}`} data-testid="gag-render-status" data-refused={card?.engineRefused ? "true" : undefined}>
+            {inFlight && <Loader2 className="w-3 h-3 animate-spin" />}
+            {statusWords(status, card?.message ?? null, card?.progress ?? null, card?.engineRefused ?? false)}
+          </p>
+        )}
+        {approvable && (
+          <button type="button" onClick={() => onApprove(card!)} disabled={!canAct} data-testid="gag-approve-render"
+            className="w-full inline-flex items-center justify-center gap-1 px-2 py-1 text-xs font-bold border border-green-600/50 text-green-700 dark:text-green-400 rounded-sm hover:bg-green-600/10 disabled:opacity-40">
+            <CheckCircle2 className="w-3.5 h-3.5" /> Approve this render
+          </button>
+        )}
+        {!readOnly && !inFlight && (
+          <button type="button" onClick={onDraw} disabled={!canAct} data-testid="gag-redraw-render"
+            className="w-full inline-flex items-center justify-center gap-1 px-2 py-1 text-[11px] border border-border rounded-sm hover:bg-muted text-foreground disabled:opacity-40">
+            {card != null && status !== "missing" ? <><RefreshCw className="w-3 h-3" /> Draw again</> : <><Play className="w-3 h-3" /> Draw this render</>}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
