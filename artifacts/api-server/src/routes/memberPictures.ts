@@ -16,9 +16,9 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
 import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
-import { db, imagePromptAttemptsTable, imageGenerationRequestsTable, userAiImagesTable } from "@workspace/db";
+import { creditLedgerTable, db, imagePromptAttemptsTable, imageGenerationRequestsTable, userAiImagesTable } from "@workspace/db";
 import { availableGags } from "../lib/gags/resolver";
-import { creditBalance } from "../lib/credits/ledger";
+import { creditBalance, openLots } from "../lib/credits/ledger";
 import { pictureCreditState } from "../lib/credits/pictures";
 import { MemberPictureError, requestMemberPicture } from "../lib/memberPictures/command";
 import { ENGINE_REFUSED_ERROR_CODE } from "../lib/imagePromptAttempts";
@@ -121,6 +121,13 @@ async function statesFor(userId: string, attemptIds: number[] | null, limit = 20
   return out;
 }
 
+async function nextPictureIsFree(userId: string): Promise<boolean> {
+  const [oldest] = await openLots(userId, db);
+  if (!oldest) return false;
+  const [lot] = await db.select({ kind: creditLedgerTable.kind }).from(creditLedgerTable).where(eq(creditLedgerTable.id, oldest.lotId)).limit(1);
+  return lot?.kind === "free_grant";
+}
+
 router.get("/facts/:factId/picture-options", async (req: Request, res: Response) => {
   setNoStore(res);
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -140,6 +147,8 @@ router.get("/facts/:factId/picture-options", async (req: Request, res: Response)
     // The picker offers a choice only where there is one (plan §2).
     choice: gags.length > 1,
     credits: await creditBalance(req.user.id),
+    // The next picture draws the oldest lot: "your free picture" when that is the free credit.
+    nextIsFree: await nextPictureIsFree(req.user.id),
   });
 });
 

@@ -45,6 +45,9 @@ import { createMemeRecord, CreateMemeError } from "../lib/createMemeRecord.js";
 import { photoBackgrounds } from "./helpers/photoBackground.js";
 import { withCast } from "./helpers/gagCast.js";
 import { giveExampleSet } from "./helpers/gagExampleSets.js";
+import { buildTestApp } from "./helpers/buildTestApp.js";
+import memberPicturesRouter from "../routes/memberPictures.js";
+import request from "supertest";
 
 const RUN = randomUUID().slice(0, 8);
 const GPT = "openai/gpt-image-2.6/sunburst/edit";
@@ -503,5 +506,78 @@ describe("Phase 7 inc 2: only the owner makes a meme from it", () => {
       (e: unknown) => e instanceof CreateMemeError && e.status === 403,
       "a row no member's picture delivered never satisfies the check",
     );
+  });
+});
+
+describe("Phase 7 inc 2: the member's routes", () => {
+  const app = (userId: string | null) => buildTestApp(userId ? { kind: "authenticated", userId } : { kind: "unauthenticated" }, memberPicturesRouter);
+
+  it("picture options list exactly the offered gags, a choice only with more than one, the balance, and whether the next is free", async () => {
+    const userId = await newMember(1);
+    const one = await liveFact();
+    const two = await liveFact(["{NAME} one.", "{NAME} two."]);
+    const a = await request(app(userId)).get(`/api/facts/${one.factId}/picture-options`);
+    assert.equal(a.status, 200);
+    assert.equal(a.body.gags.length, 1);
+    assert.equal(a.body.choice, false);
+    assert.equal(a.body.credits, 1);
+    assert.equal(a.body.nextIsFree, true);
+    const b = await request(app(userId)).get(`/api/facts/${two.factId}/picture-options`);
+    assert.deepEqual(b.body.gags.map((g: { gagId: number }) => g.gagId), two.gagIds);
+    assert.equal(b.body.choice, true);
+    assert.equal((await request(app(null)).get(`/api/facts/${one.factId}/picture-options`)).status, 401);
+  });
+
+  it("an offered gag's approved example is served; one no longer offered is not", async () => {
+    const userId = await newMember(1);
+    const { factId, gagIds } = await liveFact();
+    const examples = await giveExampleSet(factId, gagIds[0]!, {}, "approved");
+    await db.update(imagePromptAttemptsTable).set({ generatedImageObjectPath: await photos.seed(null) }).where(eq(imagePromptAttemptsTable.id, examples.male));
+    assert.equal((await request(app(userId)).get(`/api/member-pictures/examples/${examples.male}/image`)).status, 200);
+    await db.update(factsTable).set({ isActive: false }).where(eq(factsTable.id, factId));
+    assert.equal((await request(app(userId)).get(`/api/member-pictures/examples/${examples.male}/image`)).status, 404);
+  });
+
+  it("the command answers 202 then 200 for the same id, refuses in words, and a failed picture says its credit was returned", async () => {
+    const userId = await newMember(1);
+    const { factId } = await liveFact();
+    const uploadKey = await photos.seed(userId);
+    const body = { requestId: `req-${randomUUID()}`, uploadKey, subject: { kind: "me" } };
+    const first = await request(app(userId)).post(`/api/facts/${factId}/member-pictures`).send(body);
+    assert.equal(first.status, 202, JSON.stringify(first.body));
+    assert.equal(first.body.picture.status, "queued");
+    assert.equal(first.body.credits, 0);
+    const again = await request(app(userId)).post(`/api/facts/${factId}/member-pictures`).send(body);
+    assert.equal(again.status, 200);
+    assert.equal(again.body.picture.attemptId, first.body.picture.attemptId);
+    const broke = await request(app(userId)).post(`/api/facts/${factId}/member-pictures`).send({ ...body, requestId: `req-${randomUUID()}` });
+    assert.equal(broke.status, 402);
+    assert.equal(broke.body.error, "no_credit");
+    assert.match(broke.body.message, /no credits/);
+
+    const attemptId = first.body.picture.attemptId as number;
+    await prompt(attemptId);
+    await draw(attemptId, () => "refuse");
+    const state = await request(app(userId)).get(`/api/member-pictures/${attemptId}`);
+    assert.equal(state.body.picture.status, "failed");
+    assert.equal(state.body.picture.creditReturned, true);
+    assert.match(state.body.picture.reason, /would not draw/);
+    assert.equal(state.body.credits, 1);
+    // Another member sees nothing of it.
+    const other = await newMember(1);
+    assert.equal((await request(app(other)).get(`/api/member-pictures/${attemptId}`)).status, 404);
+  });
+
+  it("a finished picture reads done, with its image", async () => {
+    const userId = await newMember(1);
+    const { factId } = await liveFact();
+    const { attemptId } = await requestMemberPicture(await command(userId, factId));
+    await prompt(attemptId);
+    await draw(attemptId);
+    const list = await request(app(userId)).get("/api/member-pictures");
+    const mine = list.body.pictures.find((p: { attemptId: number }) => p.attemptId === attemptId);
+    assert.equal(mine.status, "done");
+    assert.ok(mine.aiImageId);
+    assert.match(mine.imageUrl, /^\/api\/memes\/ai-user\/image\?storagePath=/);
   });
 });
