@@ -18,6 +18,7 @@ import { memeKey } from "./storageKeys";
 import { backgroundPathOf, finishMeme, memeSnapshot } from "./provenance/meme";
 import { SYSTEM_ACTOR, type ProvenanceActor } from "./provenance/records";
 import type { ImageSourceSchema } from "./validators/memeBuilder";
+import { aiPictureObjectPath } from "./uploadOwnership";
 
 type StoredImageSource = z.infer<typeof ImageSourceSchema>;
 
@@ -32,11 +33,16 @@ export interface MemeRecipe {
   framingTransform: { offsetX: number; offsetY: number } | null | undefined;
 }
 
+/** An `ai_picture` recipe's picture: the stored meme already passed its ownership check when it was saved. */
+async function recipeAiPicturePath(recipe: MemeRecipe): Promise<string | null> {
+  return recipe.imageSource.type === "ai_picture" ? aiPictureObjectPath(recipe.imageSource.aiImageId) : null;
+}
+
 /** Renders a recipe to the JPEG the meme is, resolving its photo through the composer's source table. Throws when the photo cannot be read. */
 export async function renderMemeRecipe(recipe: MemeRecipe, watermarkId?: number): Promise<Buffer> {
   const { factText, textOptions } = resolveStoredMemeCaption(recipe.fact, recipe.creator, recipe.textOptions);
   return generateMemeBuffer(
-    await resolveBackground(recipe.imageSource, {}),
+    await resolveBackground(recipe.imageSource, { aiPictureObjectPath: await recipeAiPicturePath(recipe) }),
     factText,
     textOptions,
     recipe.aspectRatio ?? "landscape",
@@ -64,7 +70,7 @@ export async function renderTracedMeme(
       memeSlug: trace.slug,
       objectPath: trace.kind === "meme_bake" ? `/objects/${memeKey(trace.slug, "jpg")}` : null,
       // An identity meme's profile photo is not part of a stored recipe, so it names no background.
-      backgroundObjectPath: backgroundPathOf(recipe.imageSource),
+      backgroundObjectPath: backgroundPathOf(recipe.imageSource, null, await recipeAiPicturePath(recipe)),
       snapshot: {
         ...memeSnapshot({
           drawn: drawnCaption(factText, textOptions, storedMemeCaption(recipe.fact, recipe.creator, recipe.textOptions)),

@@ -17,8 +17,10 @@
  *     1. Loads the attempt row (compiled_prompt populated).
  *     2. Resolves the engine recorded on the attempt (imageEngineRouting.ts), sizes the call (imageRequestBuilder.ts), then buildEngineInput.
  *     3. Submits to fal, downloads the result, uploads to object storage.
- *     4. Updates attempt row with generated_image_object_path.
- *     5. Updates facts.aiMemeImages + user_ai_images for read compatibility.
+ *     4. Updates attempt row with generated_image_object_path; a member's
+ *        picture is delivered as theirs in the same transaction
+ *        (memberPictures/settlement.ts), and never filed in the fact's
+ *        shared gallery (launch Phase 7, increment 2).
  *
  * Failure semantics: handler returns ok=false to leave the row pending +
  * record last_error (queue retries with backoff). Failed-irretrievably state
@@ -29,10 +31,8 @@
 import { eq } from "drizzle-orm";
 import {
   db,
-  factsTable,
   usersTable,
   imagePromptAttemptsTable,
-  userAiImagesTable,
   type ImagePromptAttempt,
 } from "@workspace/db";
 import type { AsyncJobRow } from "@workspace/db/schema";
@@ -45,7 +45,7 @@ import {
   type GagRenderInput,
 } from "@workspace/api-zod";
 import { registerJobHandler, enqueueJob, terminalFailure, type JobHandler, type HandlerResult } from "./asyncJobs";
-import { assertJobOwnership, fencedTransaction, rethrowIfOwnershipLost } from "./jobFence";
+import { assertJobOwnership, fencedTransaction } from "./jobFence";
 import { drawOrCollect } from "./renderRequestRecovery";
 import { finishAndStore, recordGenerationRequest } from "./provenance/records";
 import { vendorContext } from "./provenance/vendorContext";
@@ -75,6 +75,10 @@ import {
 } from "./engineFallback";
 import type { EngineFallbackRecord } from "@workspace/db";
 import { ObjectStorageService } from "./objectStorage";
+import { deliverMemberPicture, isMemberPicture, returnUndeliveredPicture } from "./memberPictures/settlement";
+import { gateMemberCall, MemberSpendRefusedError, recordEngineRequestCost } from "./memberPictures/spend";
+import { checkMemberPictureOutput } from "./memberPictures/outputCheck";
+import { GENERIC_REJECT_MESSAGE } from "./moderation/types";
 import { logger } from "./logger";
 
 export const IMAGE_PROMPT_QUEUE = "image_prompt_generation";
@@ -95,8 +99,9 @@ export interface ImagePromptJobPayload {
 }
 
 /** True for the review-panel test renders (scenario grid + single render),
- *  which set `renderControls.mirrorToLegacyStorage: false` so they don't pollute
- *  the staging fact's shared image set. */
+ *  which set `renderControls.mirrorToLegacyStorage: false`. The flag's name is
+ *  historical: nothing is mirrored into a fact's shared gallery any more
+ *  (launch Phase 7, increment 2); it now only marks a moderation render. */
 export function isEphemeralModerationRender(renderControls: RenderControls): boolean {
   return (
     (renderControls as RenderControls & { mirrorToLegacyStorage?: boolean }).mirrorToLegacyStorage === false
@@ -105,7 +110,7 @@ export function isEphemeralModerationRender(renderControls: RenderControls): boo
 
 /** Moderation and eval test renders only need to show whether the visual gag
  *  lands, so they ask the request builder for the engine's smallest size
- *  (`preview`); a member's render asks for `final`, about four megapixels. */
+ *  (`preview`); a member's render asks for `final`, about one megapixel. */
 export function requestPurposeForRenderControls(renderControls: RenderControls): ImageRequestPurpose {
   return isEphemeralModerationRender(renderControls) ? "preview" : "final";
 }
@@ -382,13 +387,22 @@ export const imageGenerationHandler: JobHandler = {
     // Draw it, or collect the picture an earlier run already submitted (plan
     // PLAN_JOB_RESUME.md §C): a resumed render reads its request record first
     // and pays again only when that request failed or cannot be found.
-    const drawn = await drawOrCollect({
+    // A member's picture: every new paid submission passes the budget gate
+    // (the first draw, the styled fallback, a redraw recovery makes on
+    // purpose); collecting a request already paid for does not (plan
+    // PLAN_PHASE7_IMAGE_OFFERING.md §2). A refusal ends the picture and
+    // returns its credit.
+    const memberPicture = isMemberPicture(attempt) && attempt.userId != null;
+    let drawn: Awaited<ReturnType<typeof drawOrCollect>>;
+    try {
+    drawn = await drawOrCollect({
       attemptId: p.attemptId,
       endpointId: engine.endpointId,
       input: falInput,
       usable: (data) => Boolean(extractFirstImageUrl(data)),
       unusableError: () => new Error("fal response missing image url"),
       record: async () => {
+        if (memberPicture) await gateMemberCall(attempt.userId!, engine);
         // The picture is paid: check this run still owns its job immediately
         // before recording and submitting it (plan §A).
         await assertJobOwnership();
@@ -403,6 +417,10 @@ export const imageGenerationHandler: JobHandler = {
         });
       },
     });
+    } catch (err) {
+      if (err instanceof MemberSpendRefusedError) return recordTerminalAttemptFailure(p.attemptId, err.code, err.message);
+      throw err;
+    }
     const resultUrl = drawn.ok ? extractFirstImageUrl(drawn.data) : null;
     if (!drawn.ok || !resultUrl) {
       const err = drawn.ok ? new Error("fal response missing image url") : drawn.err;
@@ -455,11 +473,35 @@ export const imageGenerationHandler: JobHandler = {
       return retryRender(p.attemptId, falSubmitErrorMessage(err, engine.label));
     }
     const { generationRequestId, data: vendorData } = drawn;
+    // Its cost is attributed to the engine request and recorded once, however
+    // often the request is collected (the ledger's unique reference).
+    if (memberPicture) {
+      await recordEngineRequestCost({ userId: attempt.userId!, engine, input: falInput, generationRequestId, megapixels: requestSettings.megapixels });
+    }
 
     // Download + persist to object storage.
+    let buf: Buffer;
+    try {
+      buf = await downloadToBuffer(resultUrl);
+    } catch (err) {
+      return retryRender(p.attemptId, `the finished picture could not be downloaded (${err instanceof Error ? err.message : String(err)})`);
+    }
+    // A member's picture passes the output check before it is stored or
+    // delivered; a refused one is quarantined and ends with the generic
+    // rejection, and its credit returns (plan §2).
+    if (memberPicture) {
+      let check;
+      try {
+        check = await checkMemberPictureOutput({ attemptId: p.attemptId, userId: attempt.userId!, imageUrl: resultUrl, bytes: buf, mimeType: sniffImageMime(buf) });
+      } catch (err) {
+        if (err instanceof MemberSpendRefusedError) return recordTerminalAttemptFailure(p.attemptId, err.code, err.message);
+        throw err;
+      }
+      if (check.outcome === "refused") return recordTerminalAttemptFailure(p.attemptId, OUTPUT_REFUSED_ERROR_CODE, GENERIC_REJECT_MESSAGE);
+      if (check.outcome === "unavailable") return retryRender(p.attemptId, check.message);
+    }
     let storedPath: string;
     try {
-      const buf = await downloadToBuffer(resultUrl);
       // Saved under the format the engine actually returned, and recorded,
       // stamped and hashed before it is stored (image tracing).
       const stamp = Date.now();
@@ -494,29 +536,25 @@ export const imageGenerationHandler: JobHandler = {
       return retryRender(p.attemptId, `the finished picture could not be saved (${err instanceof Error ? err.message : String(err)})`);
     }
 
-    // Mark the attempt complete and mirror it, in one fenced transaction (plan
-    // PLAN_JOB_RESUME.md §F): a stop between the two can no longer leave a
-    // picture recorded but unmirrored, and a resumed run that finds the
-    // picture recorded finishes without drawing or mirroring again.
-    //
-    // The mirror copies it to facts.aiMemeImages + user_ai_images for read
-    // compatibility with the legacy GET /memes/ai/:factId/image endpoint —
-    // UNLESS this is an ephemeral moderation review render
-    // (mirrorToLegacyStorage === false), which must verify the pipeline
-    // without polluting the staging fact's shared set.
-    const skipMirror = isEphemeralModerationRender(renderControls);
-    await fencedTransaction(db, async (tx) => {
-      await tx
+    // Mark the attempt complete in one fenced transaction (plan
+    // PLAN_JOB_RESUME.md §F). A member's picture is delivered as theirs in the
+    // same transaction: the stored path, the `user_ai_images` row and the
+    // credit's final state commit together, and a failure fails the whole
+    // commit, so it is retried (the request is collected, never paid again)
+    // and, at the end, failed and returned (plan PLAN_PHASE7_IMAGE_OFFERING.md
+    // §2). Nothing is filed in the fact's shared gallery. A picture whose
+    // credit the recovery pass already returned is not delivered.
+    if (memberPicture) {
+      const outcome = await fencedTransaction(db, (tx) => deliverMemberPicture(p.attemptId, storedPath, tx));
+      if (outcome === "returned") {
+        logger.warn({ attemptId: p.attemptId }, "[imagePromptJobs] member picture finished after its credit was returned; not delivered");
+        return terminalFailure(STRANDED_RETURNED_CODE, "This picture finished after it had been stopped and its credit returned.");
+      }
+    } else {
+      await fencedTransaction(db, (tx) => tx
         .update(imagePromptAttemptsTable)
         .set({ generatedImageObjectPath: storedPath, error: null, errorCode: null, updatedAt: new Date() })
-        .where(eq(imagePromptAttemptsTable.id, p.attemptId));
-      if (!skipMirror) await mirrorToLegacyStorage(attempt, storedPath, tx);
-    });
-    if (skipMirror) {
-      logger.info(
-        { attemptId: p.attemptId, factId: attempt.factId },
-        "[imagePromptJobs] ephemeral review render — skipping legacy mirror",
-      );
+        .where(eq(imagePromptAttemptsTable.id, p.attemptId)));
     }
 
     return { ok: true, result: { attemptId: p.attemptId, generatedImageObjectPath: storedPath } };
@@ -542,6 +580,13 @@ export const imageGenerationHandler: JobHandler = {
  * the attempt is not marked failed while the queue will still retry it
  * (`onAbandon` writes it when it will not).
  */
+/** The picture's type from its first bytes, for the quarantine record. */
+function sniffImageMime(buf: Buffer): string {
+  if (buf.length >= 8 && buf.readUInt32BE(0) === 0x89504e47) return "image/png";
+  if (buf.length >= 12 && buf.toString("ascii", 8, 12) === "WEBP") return "image/webp";
+  return "image/jpeg";
+}
+
 function retryRender(attemptId: number, error: string): HandlerResult {
   logger.warn({ attemptId, error }, "[imagePromptJobs] image_generation failed; the queue will retry it");
   return { ok: false, error };
@@ -667,10 +712,17 @@ async function resolveAttemptIdentity(
 }
 
 async function markAttemptError(attemptId: number, error: string): Promise<void> {
-  await fencedTransaction(db, (tx) => tx
-    .update(imagePromptAttemptsTable)
-    .set({ error, updatedAt: new Date() })
-    .where(eq(imagePromptAttemptsTable.id, attemptId)));
+  // A member's picture that the queue gave up on returns its credit in the
+  // same transaction. This hook is best-effort (it runs after the failure
+  // commits and its errors are swallowed), so the recovery pass settles any
+  // picture it misses (memberPictures/settlement.ts).
+  await fencedTransaction(db, async (tx) => {
+    await tx
+      .update(imagePromptAttemptsTable)
+      .set({ error, updatedAt: new Date() })
+      .where(eq(imagePromptAttemptsTable.id, attemptId));
+    await returnUndeliveredPicture(attemptId, tx);
+  });
 }
 
 /**
@@ -695,6 +747,10 @@ async function markAttemptError(attemptId: number, error: string): Promise<void>
 const RENDER_INPUT_INVALID = "render_input_invalid";
 /** fal rejected the request for a cause a retry cannot change (not a content refusal). */
 const VENDOR_REJECTED_ERROR_CODE = "vendor_request_rejected";
+/** A member's picture the output check refused: quarantined, never delivered, its credit returned. */
+export const OUTPUT_REFUSED_ERROR_CODE = "output_refused";
+/** A member's picture that finished after the recovery pass had stopped it and returned its credit. */
+const STRANDED_RETURNED_CODE = "member_picture_returned";
 
 async function recordTerminalAttemptFailure(
   attemptId: number,
@@ -702,10 +758,15 @@ async function recordTerminalAttemptFailure(
   message: string,
 ): Promise<HandlerResult> {
   try {
-    await fencedTransaction(db, (tx) => tx
-      .update(imagePromptAttemptsTable)
-      .set({ error: message, errorCode: code, updatedAt: new Date() })
-      .where(eq(imagePromptAttemptsTable.id, attemptId)));
+    // A member's picture returns its credit in the same transaction as its
+    // failure, so a failed picture never keeps its spend.
+    await fencedTransaction(db, async (tx) => {
+      await tx
+        .update(imagePromptAttemptsTable)
+        .set({ error: message, errorCode: code, updatedAt: new Date() })
+        .where(eq(imagePromptAttemptsTable.id, attemptId));
+      await returnUndeliveredPicture(attemptId, tx);
+    });
   } catch (persistErr) {
     const detail = persistErr instanceof Error ? persistErr.message : String(persistErr);
     logger.error(
@@ -758,63 +819,6 @@ function extractReferenceImageUrl(attempt: ImagePromptAttempt): string | null {
   );
 }
 
-/**
- * Records a generated fact background where the meme builder reads it:
- * `facts.aiMemeImages`, and `user_ai_images` for the account that asked.
- *
- * It writes no `upload_image_metadata` row. That table holds a member's own
- * uploaded photos, which the meme save and the private-photo read treat as
- * theirs and My content will delete and purge (#806): a background shared by
- * every member of the fact must never be one of them. Exported for its test.
- */
-export async function mirrorToLegacyStorage(attempt: ImagePromptAttempt, storedPath: string, outer?: MirrorTx): Promise<void> {
-  // Append to facts.aiMemeImages.neutral so the legacy GET image endpoint
-  // can serve this background by index. Every picture starts from a photo,
-  // so no render carries a fallback gender to file it under.
-  const gender = "neutral" as const;
-  const write = async (tx: MirrorTx) => {
-    // Row-locked read-modify-write: with the worker now running image_generation
-    // handlers concurrently, two completions for the SAME fact could otherwise
-    // read the same aiMemeImages array and clobber each other on write (last
-    // write drops the other image). `SELECT … FOR UPDATE` serializes the append
-    // on the fact row so both paths survive.
-    const [factRow] = await tx
-      .select({ aiMemeImages: factsTable.aiMemeImages })
-      .from(factsTable)
-      .where(eq(factsTable.id, attempt.factId))
-      .for("update")
-      .limit(1);
-    if (!factRow) return;
-    const current = (factRow.aiMemeImages ?? {}) as Record<string, string[]>;
-    const arr = Array.isArray(current[gender]) ? [...current[gender]!] : [];
-    arr.push(storedPath);
-    const next = { ...current, [gender]: arr };
-    await tx
-      .update(factsTable)
-      .set({ aiMemeImages: next as unknown as Record<string, string[]>, updatedAt: new Date() })
-      .where(eq(factsTable.id, attempt.factId));
-    if (attempt.userId) {
-      await tx.insert(userAiImagesTable).values({
-        userId: attempt.userId,
-        factId: attempt.factId,
-        gender,
-        storagePath: storedPath,
-        imageType: "reference",
-      });
-    }
-  };
-  try {
-    // Inside the caller's transaction, under a savepoint: a mirror failure is
-    // non-fatal and must not undo the attempt's own completion.
-    if (outer) await outer.transaction((sp) => write(sp as MirrorTx));
-    else await fencedTransaction(db, (tx) => write(tx as MirrorTx));
-  } catch (err) {
-    rethrowIfOwnershipLost(err);
-    logger.warn({ err, attemptId: attempt.id }, "[imagePromptJobs] mirror-to-legacy-storage failed (non-fatal)");
-  }
-}
-
-type MirrorTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /**
  * The direct compile's input for a stored attempt: the gag frozen on it, its

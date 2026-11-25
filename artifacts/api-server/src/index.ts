@@ -188,6 +188,25 @@ function scheduleTransientRenderPurger() {
 // that stops on its budget with rows still eligible comes back in a minute,
 // so a backlog drains promptly. Safe on several instances at once: batches
 // take their rows FOR UPDATE SKIP LOCKED.
+// Every minute: settle members' AI pictures that will not be delivered (failed,
+// abandoned or stranded), returning their credits. Settlement never waits on
+// the queue's best-effort abandonment hook (launch Phase 7, increment 2).
+function scheduleMemberPictureSettlement() {
+  scheduleRecurringTask({
+    cadenceMs: 60_000,
+    steps: [
+      {
+        id: "member_picture_settlement",
+        run: async () => {
+          const { runMemberPictureSettlementPass } = await import("./lib/memberPictures/settlement");
+          await runMemberPictureSettlementPass();
+        },
+        failureMessage: "member picture settlement pass failed",
+      },
+    ],
+  });
+}
+
 function scheduleRateLimitCounterPurger() {
   scheduleRecurringTask({
     cadenceMs: HOURLY_MS,
@@ -533,6 +552,7 @@ scheduleFingerprintFill();
 void beginTaskMonitoring();
 scheduleDailyFactJob();
 scheduleTransientRenderPurger();
+scheduleMemberPictureSettlement();
 scheduleRateLimitCounterPurger();
 scheduleContentPurger();
 scheduleAccountDeletionWorker();

@@ -33,6 +33,12 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
   factId: integer("fact_id").notNull().references(() => factsTable.id, { onDelete: "cascade" }),
   userId: varchar("user_id").references(() => usersTable.id, { onDelete: "set null" }),
   requestId: varchar("request_id", { length: 128 }),
+  /**
+   * A member's "make a picture" command identity (migration 0173, launch Phase 7
+   * increment 2): unique per account, so a resent command returns the picture it
+   * already made. Set only on a member's own picture; NULL on every other attempt.
+   */
+  memberRequestId: varchar("member_request_id", { length: 64 }),
   /** Parent client-poll handle (UUID). Set by /generate-v2 before enqueueing the prompt job. */
   renderJobId: varchar("render_job_id", { length: 64 }),
   /** "i2i" | "t2i" — derived from `subjectRenderMode`. */

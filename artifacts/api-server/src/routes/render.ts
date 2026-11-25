@@ -20,7 +20,7 @@
  * and template backgrounds, deleted in launch Phase 4 (removals 5 and 6).
  */
 
-import { userOwnsUpload } from "../lib/uploadOwnership";
+import { aiPictureObjectPath, userOwnsAiPicture, userOwnsUpload } from "../lib/uploadOwnership";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import { factsTable } from "@workspace/db/schema";
@@ -64,6 +64,8 @@ interface RouteContext {
   userId: string | null;
   membershipTier: string;
   profileImageObjectPath: string | null;
+  /** The `ai_picture` source's object path, resolved once its ownership is checked. */
+  aiPictureObjectPath: string | null;
 }
 
 /**
@@ -160,6 +162,27 @@ async function validateAndResolve(
     }
   }
 
+  // An AI picture must be one of the caller's own live pictures of this fact.
+  let aiPicturePath: string | null = null;
+  if (parsed.data.imageSource.type === "ai_picture") {
+    const owned = await userOwnsAiPicture(parsed.data.imageSource.aiImageId, userId, fact.id);
+    aiPicturePath = owned ? await aiPictureObjectPath(parsed.data.imageSource.aiImageId) : null;
+    if (!aiPicturePath) {
+      res.status(403).json({ error: "ai_picture_not_owned" });
+      void logTransientRender({
+        endpoint,
+        factId: fact.id,
+        userId,
+        ip,
+        mode,
+        result: "rejected",
+        rejectionReason: "ai_picture_not_owned",
+        latencyMs: Date.now() - startedAt,
+      });
+      return null;
+    }
+  }
+
   return {
     ctx: {
       endpoint,
@@ -168,6 +191,7 @@ async function validateAndResolve(
       userId,
       membershipTier,
       profileImageObjectPath,
+      aiPictureObjectPath: aiPicturePath,
     },
     fact,
     mode,
@@ -194,7 +218,7 @@ router.post("/render-preview", async (req: Request, res: Response) => {
         framingTransform: ctx.parsed.framingTransform ?? null,
         aspectRatio: ctx.parsed.aspectRatio ?? "landscape",
       },
-      { profileImageObjectPath: ctx.profileImageObjectPath },
+      { profileImageObjectPath: ctx.profileImageObjectPath, aiPictureObjectPath: ctx.aiPictureObjectPath },
       { kind: "preview", actor: ctx.userId ? actorForUser(ctx.userId, "member") : ANONYMOUS_ACTOR, factId: fact.id },
     );
 
@@ -243,7 +267,7 @@ router.post("/render-download", async (req: Request, res: Response) => {
         framingTransform: ctx.parsed.framingTransform ?? null,
         aspectRatio: ctx.parsed.aspectRatio ?? "landscape",
       },
-      { profileImageObjectPath: ctx.profileImageObjectPath },
+      { profileImageObjectPath: ctx.profileImageObjectPath, aiPictureObjectPath: ctx.aiPictureObjectPath },
       { kind: "download", actor: ctx.userId ? actorForUser(ctx.userId, "member") : ANONYMOUS_ACTOR, factId: fact.id },
     );
 

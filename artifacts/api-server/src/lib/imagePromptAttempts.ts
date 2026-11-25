@@ -12,6 +12,7 @@
  * storage — so callers MUST set those two extension fields on `renderControls`.
  */
 import { randomUUID } from "node:crypto";
+import { sql } from "drizzle-orm";
 import { db, imagePromptAttemptsTable, type ImagePromptAttempt } from "@workspace/db";
 import type {
   GagRenderInput,
@@ -27,6 +28,7 @@ import { lookClassOfSelection, resolveImageEngine } from "./imageEngineRouting";
 import { FROZEN_FALLBACK_KEY, freezeFallbackChoice } from "./engineFallback";
 import { isValidRenderStyleSnapshot, resolveAndFreezeRenderStyle, type ResolvedRenderStyleSnapshot } from "./imagePrompt/styleResolution";
 import { engineFamilyOf, liveRecipeVersionIdForFamily } from "./imagePrompt/recipeStore";
+import { assertCanSpendPicture, lockAccountForSpend, spendPictureCredit } from "./credits/pictures";
 
 /** RenderControls plus the route-attached fields `imagePromptJobs` reads. */
 export type RenderControlsWithRefs = RenderControls & {
@@ -110,6 +112,23 @@ export interface BuildImagePromptAttemptArgs {
    * (lib/gags/resolver.ts, `gagRenderInput`).
    */
   gagId?: number | null;
+  /**
+   * A member's own picture (launch Phase 7, increment 2): the command's
+   * identity, stored on the attempt (unique per account), and the cap on
+   * pictures in progress at once. With it the attempt, its first job and its
+   * credit spend commit together, under a lock on the account, or not at all
+   * (plan PLAN_PHASE7_IMAGE_OFFERING.md §2). Requires `userId`.
+   */
+  memberPicture?: { requestId: string; maxInProgress: number };
+}
+
+/** A member already has the most pictures in progress at once that they may. */
+export class TooManyPicturesInProgressError extends Error {
+  readonly code = "too_many_in_progress";
+  constructor(readonly max: number) {
+    super(`You already have ${max} pictures drawing. Wait for one to finish, then try again.`);
+    this.name = "TooManyPicturesInProgressError";
+  }
 }
 
 /**
@@ -157,7 +176,21 @@ export async function buildAndEnqueueImagePromptAttempt(
   // The attempt and its planner job land together, in one transaction that a
   // job calling this fences against its own claim (Issue #1000); a route calls
   // it as a plain transaction.
+  const member = args.memberPicture;
+  if (member && !args.userId) throw new Error("a member's picture needs its member");
   return fencedTransaction(db, async (tx) => {
+  if (member) {
+    // Under the account lock: the in-progress cap and the balance are read and
+    // the credit drawn with no other spend in between, so two requests with
+    // one credit yield one picture.
+    await lockAccountForSpend(args.userId!, tx);
+    const [{ open }] = (await tx.execute(sql`
+      SELECT count(*)::int AS open FROM image_prompt_attempts a
+      WHERE a.user_id = ${args.userId} AND a.member_request_id IS NOT NULL
+        AND a.error IS NULL AND a.generated_image_object_path IS NULL`)).rows as Array<{ open: number }>;
+    if (open >= member.maxInProgress) throw new TooManyPicturesInProgressError(member.maxInProgress);
+    await assertCanSpendPicture(args.userId!, tx);
+  }
   const [attempt] = await tx
     .insert(imagePromptAttemptsTable)
     .values({
@@ -185,6 +218,7 @@ export async function buildAndEnqueueImagePromptAttempt(
       reviewReferenceAssetVersion: args.scenario?.referenceAssetVersion ?? null,
       reviewReferenceIdentityType: args.scenario?.referenceIdentityType ?? null,
       reviewRenderBatchId: args.scenario?.batchId ?? null,
+      memberRequestId: member?.requestId ?? null,
     })
     .returning({ id: imagePromptAttemptsTable.id });
 
@@ -193,6 +227,7 @@ export async function buildAndEnqueueImagePromptAttempt(
     payload: { attemptId: attempt!.id },
     dedupeKey: `image_prompt:attempt:${attempt!.id}`,
   }, tx);
+  if (member) await spendPictureCredit(args.userId!, attempt!.id, tx);
 
   return { renderJobId, attemptId: attempt!.id };
   });

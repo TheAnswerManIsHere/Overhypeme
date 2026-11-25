@@ -25,7 +25,7 @@ import { and, eq, gt, count } from "drizzle-orm";
 import { type ImageSource } from "./validators/memeBuilder";
 import { renderPersonalized } from "./renderCanonical";
 import { getConfigInt } from "./adminConfig";
-import { userOwnsUpload } from "./uploadOwnership";
+import { userOwnsAiPicture, userOwnsUpload } from "./uploadOwnership";
 import { can, type Principal } from "./featureAccess";
 import { getUploadImageMetadata } from "./userImageUpload";
 import { renderTracedMeme, storeMemeFile } from "./memeBake";
@@ -189,6 +189,12 @@ export async function createMemeRecord(
   // own profile photo, so it is checked by construction, not here.
   if (imageSource.type === "upload" && !(await userOwnsUpload(imageSource.uploadKey, userId))) {
     throw new CreateMemeError(403, { error: "upload_not_owned" });
+  }
+  // An AI picture must be one of the saver's own live pictures of this fact,
+  // checked here on its own terms: it never passes as an upload, and an
+  // example or another member's picture never satisfies it.
+  if (imageSource.type === "ai_picture" && !(await userOwnsAiPicture(imageSource.aiImageId, userId, factId))) {
+    throw new CreateMemeError(403, { error: "ai_picture_not_owned" });
   }
 
   // Identity → resolve into upload via the user's profile photo.

@@ -8,9 +8,10 @@
  * accidentally match other test files' rows during parallel runs. See
  * authMiddleware.test.ts for the full convention.
  *
- * The admin_config rows that drive budget limits (budget_period,
- * budget_limit_registered_usd, budget_limit_legendary_usd) are snapshotted in
- * `before` and restored in `after` so tests can override them safely.
+ * The admin_config row that drives the limit (budget_per_credit_ceiling_usd:
+ * dollars per credit ever granted, launch Phase 7) is snapshotted in `before`
+ * and restored in `after` so tests can override it safely. A test user's
+ * credits go with it (the ledger cascades from the account).
  */
 
 import { describe, it, before, after, beforeEach, afterEach } from "node:test";
@@ -22,6 +23,7 @@ import {
   usersTable,
   adminConfigTable,
   userGenerationCostsTable,
+  creditLedgerTable,
 } from "@workspace/db/schema";
 import { eq, like, sql, inArray } from "drizzle-orm";
 
@@ -47,6 +49,8 @@ interface CreateUserOpts {
   tier?: "registered" | "legendary" | "unregistered";
   isAdmin?: boolean;
   overrideUsd?: number | null;
+  /** Credits granted (one admin lot); default 2, so the default limit is 2 × $0.25 = $0.50. */
+  credits?: number;
 }
 
 async function createTestUser(opts: CreateUserOpts = {}): Promise<string> {
@@ -58,6 +62,7 @@ async function createTestUser(opts: CreateUserOpts = {}): Promise<string> {
     monthlyGenerationLimitOverrideUsd:
       opts.overrideUsd != null ? String(opts.overrideUsd) : null,
   });
+  if ((opts.credits ?? 2) > 0) await grantCredits(id, opts.credits ?? 2);
   return id;
 }
 
@@ -97,9 +102,7 @@ interface ConfigSnapshot {
 }
 
 const SNAPSHOTTED_KEYS = [
-  "budget_period",
-  "budget_limit_registered_usd",
-  "budget_limit_legendary_usd",
+  "budget_per_credit_ceiling_usd",
 ];
 
 const snapshot: Map<string, ConfigSnapshot | null> = new Map();
@@ -162,14 +165,17 @@ async function setConfig(
   bustConfigCache();
 }
 
-async function setStandardLimits(opts: {
-  period?: "monthly" | "rolling_30d";
-  registeredUsd?: number;
-  legendaryUsd?: number;
-} = {}): Promise<void> {
-  await setConfig("budget_period", opts.period ?? "monthly", "string");
-  await setConfig("budget_limit_registered_usd", String(opts.registeredUsd ?? 0.5), "float");
-  await setConfig("budget_limit_legendary_usd", String(opts.legendaryUsd ?? 10), "float");
+/** The backstop's one setting: dollars of engine spend per credit ever granted (launch Phase 7). */
+async function setStandardLimits(opts: { perCreditUsd?: number } = {}): Promise<void> {
+  await setConfig("budget_per_credit_ceiling_usd", String(opts.perCreditUsd ?? 0.25), "float");
+}
+
+/** Grant `n` credits as one admin lot (an unverified test user has no free credit). */
+async function grantCredits(userId: string, n: number): Promise<number> {
+  const [lot] = await db.insert(creditLedgerTable).values({
+    userId, kind: "admin_grant", credits: n, ref: `tbg-grant-${randomUUID()}`, note: "test", actorLabel: "test",
+  }).returning({ id: creditLedgerTable.id });
+  return lot!.id;
 }
 
 // ── Lifecycle ──────────────────────────────────────────────────────────────────
@@ -195,7 +201,7 @@ afterEach(async () => {
 
 describe("checkBudget — admin", () => {
   it("admins are exempt and always allowed with infinite limit", async () => {
-    await setStandardLimits({ registeredUsd: 0.5 });
+    await setStandardLimits({ perCreditUsd: 0.25 });
     const userId = await createTestUser({ isAdmin: true });
     const status = await checkBudget(userId, 99999);
     assert.equal(status.allowed, true);
@@ -207,7 +213,7 @@ describe("checkBudget — admin", () => {
   // column alone, so an admin granted only via the ADMIN_USER_IDS env
   // allowlist (no stored flag) was silently billed like a regular user.
   it("an env-allowlisted admin (no stored is_admin flag) is exempt too", async () => {
-    await setStandardLimits({ registeredUsd: 0.5 });
+    await setStandardLimits({ perCreditUsd: 0.25 });
     const userId = await createTestUser({ isAdmin: false, tier: "registered" });
     const prevAdminUserIds = process.env["ADMIN_USER_IDS"];
     process.env["ADMIN_USER_IDS"] = userId;
@@ -229,7 +235,7 @@ describe("checkBudget — admin", () => {
   // ever entered. An admin was therefore refused a generation by a check they
   // are exempt from. The thunk form defers it past the exemption.
   it("an admin is exempt without the cost thunk ever being invoked", async () => {
-    await setStandardLimits({ registeredUsd: 0.5 });
+    await setStandardLimits({ perCreditUsd: 0.25 });
     const userId = await createTestUser({ isAdmin: true });
 
     let thunkCalls = 0;
@@ -246,7 +252,7 @@ describe("checkBudget — admin", () => {
   it("a non-admin still gets a failing cost lookup as BudgetGateError, not as over-limit", async () => {
     // The other half of the same behavior: deferring the lookup must not turn
     // a genuine cost-resolution failure into a silent pass for everyone else.
-    await setStandardLimits({ registeredUsd: 0.5 });
+    await setStandardLimits({ perCreditUsd: 0.25 });
     const userId = await createTestUser({ tier: "registered" });
 
     let thunkCalls = 0;
@@ -269,7 +275,7 @@ describe("checkBudget — admin", () => {
   });
 
   it("a thunk returning a number gates identically to passing that number", async () => {
-    await setStandardLimits({ registeredUsd: 0.5 });
+    await setStandardLimits({ perCreditUsd: 0.25 });
     const userId = await createTestUser({ tier: "registered" });
 
     const viaNumber = await checkBudget(userId, 0.10);
@@ -285,10 +291,10 @@ describe("checkBudget — admin", () => {
   });
 });
 
-describe("checkBudget — registered tier", () => {
-  it("allows a request that fits inside the registered limit", async () => {
-    await setStandardLimits({ registeredUsd: 0.50 });
-    const userId = await createTestUser({ tier: "registered" });
+describe("checkBudget — the backstop follows the credits granted (launch Phase 7)", () => {
+  it("allows a request inside credits granted × the per-credit ceiling", async () => {
+    await setStandardLimits({ perCreditUsd: 0.25 });
+    const userId = await createTestUser({ credits: 2 });
     const status = await checkBudget(userId, 0.10);
     assert.equal(status.allowed, true);
     assert.equal(status.limit, 0.5);
@@ -296,9 +302,9 @@ describe("checkBudget — registered tier", () => {
     assert.equal(status.remainingBudget, 0.5);
   });
 
-  it("denies when current spend + proposed exceeds the registered limit", async () => {
-    await setStandardLimits({ registeredUsd: 0.50 });
-    const userId = await createTestUser({ tier: "registered" });
+  it("denies when current spend + proposed exceeds it", async () => {
+    await setStandardLimits({ perCreditUsd: 0.25 });
+    const userId = await createTestUser({ credits: 2 });
     await insertCost(userId, 0.45);
     const status = await checkBudget(userId, 0.10);
     assert.equal(status.allowed, false);
@@ -307,108 +313,96 @@ describe("checkBudget — registered tier", () => {
   });
 
   it("allows a request that lands exactly at the limit", async () => {
-    await setStandardLimits({ registeredUsd: 0.50 });
-    const userId = await createTestUser({ tier: "registered" });
+    await setStandardLimits({ perCreditUsd: 0.25 });
+    const userId = await createTestUser({ credits: 2 });
     await insertCost(userId, 0.40);
     const status = await checkBudget(userId, 0.10);
     assert.equal(status.allowed, true);
   });
 
   it("reports remainingBudget = 0 (never negative) when already over", async () => {
-    await setStandardLimits({ registeredUsd: 0.50 });
-    const userId = await createTestUser({ tier: "registered" });
+    await setStandardLimits({ perCreditUsd: 0.25 });
+    const userId = await createTestUser({ credits: 2 });
     await insertCost(userId, 0.75);
     const status = await checkBudget(userId, 0.01);
     assert.equal(status.allowed, false);
     assert.equal(status.remainingBudget, 0);
   });
-});
 
-describe("checkBudget — legendary tier", () => {
-  it("uses the legendary limit, not the registered limit", async () => {
-    await setStandardLimits({ registeredUsd: 0.50, legendaryUsd: 10 });
-    const userId = await createTestUser({ tier: "legendary" });
-    const status = await checkBudget(userId, 5);
-    assert.equal(status.allowed, true);
-    assert.equal(status.limit, 10);
+  it("is the same rule for a member: the tier does not change the limit", async () => {
+    await setStandardLimits({ perCreditUsd: 0.25 });
+    const member = await createTestUser({ tier: "legendary", credits: 2 });
+    const registered = await createTestUser({ tier: "registered", credits: 2 });
+    assert.equal((await checkBudget(member, 0.01)).limit, (await checkBudget(registered, 0.01)).limit);
   });
 
-  it("denies a legendary user that exceeds the legendary limit", async () => {
-    await setStandardLimits({ registeredUsd: 0.50, legendaryUsd: 10 });
-    const userId = await createTestUser({ tier: "legendary" });
-    await insertCost(userId, 9.50);
-    const status = await checkBudget(userId, 1);
+  it("grows with every credit granted, however it was granted", async () => {
+    await setStandardLimits({ perCreditUsd: 0.25 });
+    const userId = await createTestUser({ credits: 2 });
+    await grantCredits(userId, 6);
+    assert.equal((await checkBudget(userId, 0.01)).limit, 2);
+  });
+
+  it("a returned credit adds no allowance; spending one takes none away", async () => {
+    await setStandardLimits({ perCreditUsd: 0.25 });
+    const userId = await createTestUser({ credits: 0 });
+    const lot = await grantCredits(userId, 1);
+    await db.insert(creditLedgerTable).values([
+      { userId, kind: "picture_spend", credits: -1, ref: "picture:990000001", lotId: lot },
+      { userId, kind: "picture_return", credits: 1, ref: "picture:990000001", lotId: lot },
+    ]);
+    assert.equal((await checkBudget(userId, 0.01)).limit, 0.25);
+  });
+
+  it("counts spend all time: credits never expire, so neither does what they bought", async () => {
+    await setStandardLimits({ perCreditUsd: 0.25 });
+    const userId = await createTestUser({ credits: 2 });
+    await insertCost(userId, 0.45, new Date(Date.now() - 400 * 24 * 60 * 60 * 1000));
+    const status = await checkBudget(userId, 0.10);
     assert.equal(status.allowed, false);
   });
-});
 
-describe("checkBudget — per-user override", () => {
-  it("a per-user override beats the tier limit (higher)", async () => {
-    await setStandardLimits({ registeredUsd: 0.50 });
-    const userId = await createTestUser({ tier: "registered", overrideUsd: 5 });
-    const status = await checkBudget(userId, 4);
-    assert.equal(status.allowed, true);
-    assert.equal(status.limit, 5);
-  });
-
-  it("a per-user override beats the tier limit (lower than legendary)", async () => {
-    await setStandardLimits({ legendaryUsd: 10 });
-    const userId = await createTestUser({ tier: "legendary", overrideUsd: 1 });
-    const status = await checkBudget(userId, 0.5);
-    assert.equal(status.allowed, true);
-    assert.equal(status.limit, 1);
-  });
-
-  it("a zero override caps the user at zero", async () => {
-    await setStandardLimits({ legendaryUsd: 10 });
-    const userId = await createTestUser({ tier: "legendary", overrideUsd: 0 });
+  it("an account with no credits has no allowance", async () => {
+    await setStandardLimits({ perCreditUsd: 0.25 });
+    const userId = await createTestUser({ credits: 0 });
     const status = await checkBudget(userId, 0.01);
     assert.equal(status.allowed, false);
     assert.equal(status.limit, 0);
   });
 });
 
-describe("checkBudget — period boundaries", () => {
-  it("monthly period: a row from a prior month is not counted", async () => {
-    await setStandardLimits({ period: "monthly", registeredUsd: 0.50 });
-    const userId = await createTestUser({ tier: "registered" });
-    // Row dated to first day of last month — well before the current monthly window
-    const lastMonth = new Date();
-    lastMonth.setUTCDate(1);
-    lastMonth.setUTCMonth(lastMonth.getUTCMonth() - 1);
-    await insertCost(userId, 999, lastMonth);
-    const status = await checkBudget(userId, 0.10);
+describe("checkBudget — per-user override", () => {
+  it("a per-user override replaces the credit allowance (higher)", async () => {
+    await setStandardLimits({ perCreditUsd: 0.25 });
+    const userId = await createTestUser({ overrideUsd: 5 });
+    const status = await checkBudget(userId, 4);
     assert.equal(status.allowed, true);
-    assert.equal(status.currentSpend, 0);
+    assert.equal(status.limit, 5);
   });
 
-  it("rolling_30d period: a row from 40 days ago is not counted", async () => {
-    await setStandardLimits({ period: "rolling_30d", registeredUsd: 0.50 });
-    const userId = await createTestUser({ tier: "registered" });
-    const fortyDaysAgo = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000);
-    await insertCost(userId, 999, fortyDaysAgo);
-    const status = await checkBudget(userId, 0.10);
+  it("a per-user override replaces the credit allowance (lower)", async () => {
+    await setStandardLimits({ perCreditUsd: 0.25 });
+    const userId = await createTestUser({ overrideUsd: 0.1, credits: 40 });
+    const status = await checkBudget(userId, 0.05);
     assert.equal(status.allowed, true);
-    assert.equal(status.currentSpend, 0);
+    assert.equal(status.limit, 0.1);
   });
 
-  it("rolling_30d period: a row from 5 days ago IS counted", async () => {
-    await setStandardLimits({ period: "rolling_30d", registeredUsd: 0.50 });
-    const userId = await createTestUser({ tier: "registered" });
-    const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
-    await insertCost(userId, 0.45, fiveDaysAgo);
-    const status = await checkBudget(userId, 0.10);
+  it("a zero override caps the user at zero", async () => {
+    await setStandardLimits({ perCreditUsd: 0.25 });
+    const userId = await createTestUser({ overrideUsd: 0 });
+    const status = await checkBudget(userId, 0.01);
     assert.equal(status.allowed, false);
+    assert.equal(status.limit, 0);
   });
 });
 
 describe("checkBudget — unknown user", () => {
-  it("treats a user that doesn't exist as 'unregistered' tier (uses registered limit)", async () => {
-    await setStandardLimits({ registeredUsd: 0.50 });
-    const ghostId = uid();
-    const status = await checkBudget(ghostId, 0.10);
-    assert.equal(status.limit, 0.5);
-    assert.equal(status.allowed, true);
+  it("a user that doesn't exist has no credits and so no allowance", async () => {
+    await setStandardLimits({ perCreditUsd: 0.25 });
+    const status = await checkBudget(uid(), 0.10);
+    assert.equal(status.limit, 0);
+    assert.equal(status.allowed, false);
   });
 });
 
@@ -463,8 +457,8 @@ describe("recordCost", () => {
   });
 
   it("recorded cost shows up in subsequent checkBudget call", async () => {
-    await setStandardLimits({ registeredUsd: 0.50 });
-    const userId = await createTestUser({ tier: "registered" });
+    await setStandardLimits({ perCreditUsd: 0.25 });
+    const userId = await createTestUser({ credits: 2 });
     await recordCost({
       userId,
       jobType: "image",
@@ -518,8 +512,8 @@ async function withBrokenLedgerTable<T>(fn: () => Promise<T>): Promise<T> {
 
 describe("checkBudget — fails closed on internal error (#409)", () => {
   it("throws BudgetGateError instead of granting unlimited spend", async () => {
-    await setStandardLimits({ registeredUsd: 0.50 });
-    const userId = await createTestUser({ tier: "registered" });
+    await setStandardLimits({ perCreditUsd: 0.25 });
+    const userId = await createTestUser({ credits: 2 });
 
     await withBrokenLedgerTable(async () => {
       await assert.rejects(
@@ -540,8 +534,8 @@ describe("checkBudget — fails closed on internal error (#409)", () => {
     // true and whose `limit` was Infinity. Asserting on rejection alone would
     // still pass if some future change reintroduced a permissive fallback, so
     // this pins that no allowed status is produced at all.
-    await setStandardLimits({ registeredUsd: 0.50 });
-    const userId = await createTestUser({ tier: "registered" });
+    await setStandardLimits({ perCreditUsd: 0.25 });
+    const userId = await createTestUser({ credits: 2 });
 
     await withBrokenLedgerTable(async () => {
       const outcome = await checkBudget(userId, 0.01).then(
@@ -564,8 +558,8 @@ describe("checkBudget — fails closed on internal error (#409)", () => {
 // `fallback_default` source (read failed) as a gate failure.
 describe("checkBudget — a config-READ failure also fails closed (#409 round 1)", () => {
   it("throws BudgetGateError when admin_config itself is unreadable, not just the ledger", async () => {
-    await setStandardLimits({ registeredUsd: 0.50 });
-    const userId = await createTestUser({ tier: "registered" });
+    await setStandardLimits({ perCreditUsd: 0.25 });
+    const userId = await createTestUser({ credits: 2 });
 
     await db.execute(sql`ALTER TABLE admin_config RENAME TO admin_config_409tmp`);
     // Cleared after the rename, not only before it: the settings cache is
@@ -595,8 +589,8 @@ describe("checkBudget — a config-READ failure also fails closed (#409 round 1)
     // should come out of a config-read failure, computed against the wrong
     // limit or otherwise. A resolved status here — of either polarity —
     // means the failure was silently absorbed rather than denied.
-    await setStandardLimits({ registeredUsd: 0.50 });
-    const userId = await createTestUser({ tier: "registered" });
+    await setStandardLimits({ perCreditUsd: 0.25 });
+    const userId = await createTestUser({ credits: 2 });
 
     await db.execute(sql`ALTER TABLE admin_config RENAME TO admin_config_409tmp`);
     // Cleared after the rename, not only before it: the settings cache is
@@ -720,8 +714,8 @@ describe("recordCost — provenance", () => {
   it("counts estimated rows toward the enforcement ceiling", async () => {
     // The Must-Not-Change invariant: excluding estimated rows from the SUM
     // would reopen the fail-open PR #474 closed.
-    await setStandardLimits({ registeredUsd: 0.1 });
-    const userId = await createTestUser({ tier: "registered" });
+    await setStandardLimits({ perCreditUsd: 0.1 });
+    const userId = await createTestUser({ credits: 1 });
     await recordCost({
       userId,
       jobType: "image",

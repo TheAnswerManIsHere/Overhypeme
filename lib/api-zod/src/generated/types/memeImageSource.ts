@@ -7,7 +7,7 @@
  */
 
 /**
- * The meme's background: an uploaded photo the caller owns, or the caller's profile photo. (Stock photos and the gradient templates were deleted in launch Phase 4, removals 5 and 6.)
+ * The meme's background: an uploaded photo the caller owns, the caller's profile photo, or one of the caller's own AI pictures of the fact (launch Phase 7). (Stock photos and the gradient templates were deleted in launch Phase 4, removals 5 and 6.)
  */
 export type MemeImageSource =
   | {
@@ -20,4 +20,9 @@ export type MemeImageSource =
     }
   | {
       type: "identity";
+    }
+  | {
+      type: "ai_picture";
+      /** @minimum 1 */
+      aiImageId: number;
     };
