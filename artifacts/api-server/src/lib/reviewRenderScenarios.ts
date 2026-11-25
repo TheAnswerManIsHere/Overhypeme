@@ -534,9 +534,6 @@ function cardFor(
       : null,
     engineRefused: status === "failed" && attempt?.errorCode === ENGINE_REFUSED_ERROR_CODE,
     engineFallback: fallbackLineFor(attempt, status),
-    moderatorRating: attempt?.moderatorRating ?? null,
-    failureTag: attempt?.failureTag ?? null,
-    evalNotes: attempt?.evalNotes ?? null,
   };
 }
 

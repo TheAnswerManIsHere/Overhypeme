@@ -161,13 +161,13 @@ describe("the record", () => {
 
 describe("who made it", () => {
   it("a moderation render names its admin; an unattended batch is system; a product render its member", async () => {
-    const asAdmin = await attemptProvenanceContext({ userId: null, evalRunId: null, renderControls: { reviewAudit: { reviewId: 1, adminUserId: adminId } } });
+    const asAdmin = await attemptProvenanceContext({ userId: null, renderControls: { reviewAudit: { reviewId: 1, adminUserId: adminId } } });
     assert.equal(asAdmin.producer, "review_render");
     assert.equal(asAdmin.actor.kind, "admin");
     assert.equal(asAdmin.actor.userId, adminId);
-    const unattended = await attemptProvenanceContext({ userId: null, evalRunId: null, renderControls: { reviewAudit: { reviewId: 1, adminUserId: "system" } } });
+    const unattended = await attemptProvenanceContext({ userId: null, renderControls: { reviewAudit: { reviewId: 1, adminUserId: "system" } } });
     assert.equal(unattended.actor.kind, "system");
-    const product = await attemptProvenanceContext({ userId: memberId, evalRunId: null, renderControls: {} });
+    const product = await attemptProvenanceContext({ userId: memberId, renderControls: {} });
     assert.equal(product.producer, "product_render");
     assert.equal(product.actor.kind, "member");
   });
