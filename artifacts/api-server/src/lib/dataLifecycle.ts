@@ -33,8 +33,9 @@ export const SEARCH_HISTORY_RETENTION_DAYS = 90;
 
 /**
  * What a member's pictures cost, in months (David, Q15, 2026-11-18). The
- * spend limits read the current month or the last 30 days only. Stated in the
- * retention schedule too, and a test holds the two equal.
+ * spend backstop (budgetGate.ts) sums the rows on record, so a row deleted
+ * here stops counting against it. Stated in the retention schedule too, and a
+ * test holds the two equal.
  */
 export const GENERATION_COST_RETENTION_MONTHS = 13;
 

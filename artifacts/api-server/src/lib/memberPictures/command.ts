@@ -7,7 +7,7 @@
  * prompt except the name and pronouns of the subject, which go through the
  * same personalisation and prompt-name reduction every render uses.
  */
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { db, factsTable, imagePromptAttemptsTable, usersTable } from "@workspace/db";
 import { defaultIdentityPolicyForRenderMode, type GagRenderInput, type SourceImageAnalysis } from "@workspace/api-zod";
@@ -132,9 +132,15 @@ export async function requestMemberPicture(cmd: MemberPictureCommand): Promise<M
     throw err;
   }
 
-  // Cheap refusals before any paid call: no credit, nothing to pay with.
+  // Cheap refusals before any paid call: no credit, nothing to pay with. The
+  // credit may be gone because this same command's first copy just spent it,
+  // so its identity is read again before refusing.
   const balance = await creditBalance(cmd.userId);
-  if (balance < 1) throw noCredit(balance);
+  if (balance < 1) {
+    const first = await existingHandle(cmd);
+    if (first) return first;
+    throw noCredit(balance);
+  }
 
   const [member] = await db.select({ displayName: usersTable.displayName, pronouns: usersTable.pronouns })
     .from(usersTable).where(eq(usersTable.id, cmd.userId)).limit(1);
@@ -150,21 +156,21 @@ export async function requestMemberPicture(cmd: MemberPictureCommand): Promise<M
   }
 
   // The person-or-pet check (cached on the upload after its first run). Paid,
-  // so it passes the gate unless its answer is already stored.
+  // so it passes the gate; every call actually made records its own cost (a
+  // per-call reference), and a cache hit records none. Requests that overlap
+  // on an unchecked photo each pay, so each is counted and the backstop sees
+  // them (Codex review, PR #1300).
   let analysis: SourceImageAnalysis;
   try {
     await gateMemberCall(cmd.userId, PHOTO_CHECK_ENDPOINT);
-    analysis = await analyzeSourceImage({ uploadedObjectPath: cmd.uploadKey, imageUrl: referenceImageUrl });
-    // Recorded once per photo (the ledger's unique reference), as the
-    // analysis itself runs once per photo and is cached on the upload.
-    if (analysis.classificationMethod === "ai_vision_fallback") {
-      await recordCost({
+    analysis = await analyzeSourceImage({ uploadedObjectPath: cmd.uploadKey, imageUrl: referenceImageUrl }, {
+      onPaidCheck: () => recordCost({
         userId: cmd.userId, jobType: "image", endpointId: PHOTO_CHECK_ENDPOINT.endpointId,
         unitPriceAtCreation: PHOTO_CHECK_ENDPOINT.estimatedCostUsdPerCall, billingUnits: 1,
         computedCostUsd: PHOTO_CHECK_ENDPOINT.estimatedCostUsdPerCall, pricingFetchedAt: new Date(),
-        jobReferenceId: `check:photo:${createHash("sha256").update(cmd.uploadKey).digest("hex")}`, isEstimated: true,
-      });
-    }
+        jobReferenceId: `check:photo:${createHash("sha256").update(cmd.uploadKey).digest("hex")}:${randomUUID()}`, isEstimated: true,
+      }),
+    });
   } catch (err) {
     if (err instanceof MemberSpendRefusedError) throw new MemberPictureError("temporarily_unavailable", "Pictures are temporarily unavailable for this account.", 503);
     throw err;
@@ -215,14 +221,19 @@ export async function requestMemberPicture(cmd: MemberPictureCommand): Promise<M
     });
     return { attemptId, renderJobId, created: true };
   } catch (err) {
-    if (err instanceof NoCreditError) throw noCredit(err.balance);
-    if (err instanceof TooManyPicturesInProgressError) throw new MemberPictureError("too_many_in_progress", err.message, 429);
-    // The same command sent twice at once: the second insert meets the first's
-    // unique (account, request id), and gets the first's picture.
-    if ((err as { code?: string }).code === "23505" || /UQ_ipa_member_request/.test(String((err as Error).message))) {
+    // The same command sent twice at once: the second is refused for the
+    // credit or the place its own first copy just took, or its insert meets
+    // the first's unique (account, request id). Either way it re-reads its
+    // identity first and answers with the first's picture (Codex review,
+    // PR #1300); a different command still gets the refusal.
+    const sameCommand = err instanceof NoCreditError || err instanceof TooManyPicturesInProgressError
+      || (err as { code?: string }).code === "23505" || /UQ_ipa_member_request/.test(String((err as Error).message));
+    if (sameCommand) {
       const first = await existingHandle(cmd);
       if (first) return first;
     }
+    if (err instanceof NoCreditError) throw noCredit(err.balance);
+    if (err instanceof TooManyPicturesInProgressError) throw new MemberPictureError("too_many_in_progress", err.message, 429);
     throw err;
   }
 }

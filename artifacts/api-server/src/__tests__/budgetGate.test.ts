@@ -354,7 +354,7 @@ describe("checkBudget — the backstop follows the credits granted (launch Phase
     assert.equal((await checkBudget(userId, 0.01)).limit, 0.25);
   });
 
-  it("counts spend all time: credits never expire, so neither does what they bought", async () => {
+  it("counts all spend on record, not a month: credits never expire, so neither does what they bought", async () => {
     await setStandardLimits({ perCreditUsd: 0.25 });
     const userId = await createTestUser({ credits: 2 });
     await insertCost(userId, 0.45, new Date(Date.now() - 400 * 24 * 60 * 60 * 1000));

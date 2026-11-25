@@ -316,7 +316,7 @@ export async function ensureSchema(): Promise<void> {
       label: "admin_config seed budget_per_credit_ceiling_usd",
       ddl: `INSERT INTO admin_config (key, value, data_type, label, description, min_value, max_value, is_public)
             VALUES ('budget_per_credit_ceiling_usd', '0.30', 'float', 'Engine spend allowed per credit granted (USD)',
-                    'The backstop on what one account can cost in AI engine charges, all time: this many dollars for every credit the account has ever been granted. Leaves room for a fallback and a redraw; a returned credit adds nothing.',
+                    'The backstop on what one account can cost in AI engine charges on record (cost records are kept 13 months): this many dollars for every credit the account has ever been granted. Leaves room for a fallback and a redraw; a returned credit adds nothing.',
                     0, 100, false)
             ON CONFLICT (key) DO NOTHING`,
     },

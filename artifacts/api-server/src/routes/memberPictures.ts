@@ -96,7 +96,8 @@ async function statesFor(userId: string, attemptIds: number[] | null, limit = 20
     const base = { attemptId: r.id, factId: r.factId, createdAt: r.createdAt.toISOString(), aiImageId: null, imageUrl: null, reason: null, creditReturned: false };
     if (d) {
       out.push({ ...base, status: "done", aiImageId: d.id, imageUrl: d.isLive ? `/api/memes/ai-user/image?storagePath=${encodeURIComponent(d.storagePath)}` : null });
-    } else if (r.error) {
+    } else if (r.error || returned.has(r.id)) {
+      // A returned picture reads failed whatever its error column holds.
       out.push({ ...base, status: "failed", reason: memberFailureWords(r.errorCode), creditReturned: returned.has(r.id) });
     } else {
       out.push({ ...base, status: r.compiledPrompt && drawing.has(r.id) ? "drawing" : "queued" });

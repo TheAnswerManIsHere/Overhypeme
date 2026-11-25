@@ -195,7 +195,8 @@ export async function buildAndEnqueueImagePromptAttempt(
     const [{ open }] = (await tx.execute(sql`
       SELECT count(*)::int AS open FROM image_prompt_attempts a
       WHERE a.user_id = ${args.userId} AND a.member_request_id IS NOT NULL
-        AND a.error IS NULL AND a.generated_image_object_path IS NULL`)).rows as Array<{ open: number }>;
+        AND a.error IS NULL AND a.generated_image_object_path IS NULL
+        AND NOT EXISTS (SELECT 1 FROM credit_ledger c WHERE c.kind = 'picture_return' AND c.ref = 'picture:' || a.id::text)`)).rows as Array<{ open: number }>;
     if (open >= member.maxInProgress) throw new TooManyPicturesInProgressError(member.maxInProgress);
     await assertCanSpendPicture(args.userId!, tx);
   }

@@ -2,6 +2,7 @@
  * @purpose The output check on a member's finished AI picture, before it is stored or delivered (launch Phase 7, increment 2; plan PLAN_PHASE7_IMAGE_OFFERING.md §2): the same NSFW classifier and quarantine an upload passes. A refused picture is quarantined, never becomes a background, and returns its credit (the caller ends it).
  * @subsystem visual-pipeline
  */
+import { randomUUID } from "node:crypto";
 import { classifyAndDecide, DEFAULT_NSFW_ENDPOINT, isNsfwClassifierFailOpen } from "../moderation/nsfwClassifier";
 import { quarantineImage } from "../moderation/quarantine";
 import { getFalApiKey } from "../falClient";
@@ -48,7 +49,7 @@ export async function checkMemberPictureOutput(args: {
     await recordCost({
       userId: args.userId, jobType: "image", endpointId: DEFAULT_NSFW_ENDPOINT,
       unitPriceAtCreation: CLASSIFIER_CALL_USD, billingUnits: 1, computedCostUsd: CLASSIFIER_CALL_USD,
-      pricingFetchedAt: new Date(), jobReferenceId: `check:output:${args.attemptId}`, isEstimated: true,
+      pricingFetchedAt: new Date(), jobReferenceId: `check:output:${args.attemptId}:${randomUUID()}`, isEstimated: true,
     });
   }
   if (decision.outcome === "accept") return { outcome: "pass" };

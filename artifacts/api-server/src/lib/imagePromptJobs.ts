@@ -75,7 +75,7 @@ import {
 } from "./engineFallback";
 import type { EngineFallbackRecord } from "@workspace/db";
 import { ObjectStorageService } from "./objectStorage";
-import { deliverMemberPicture, isMemberPicture, returnUndeliveredPicture } from "./memberPictures/settlement";
+import { deliverMemberPicture, isMemberPicture, isReturnedPicture, markReturnedPictureFailed, PictureReturnedError, RETURNED_MESSAGE, returnUndeliveredPicture } from "./memberPictures/settlement";
 import { gateMemberCall, MemberSpendRefusedError, recordEngineRequestCost } from "./memberPictures/spend";
 import { LATE_AFTER_RETURN_ERROR_CODE, OUTPUT_REFUSED_ERROR_CODE } from "./memberPictures/failures";
 import { sniffImage } from "./provenance/imageFile";
@@ -133,6 +133,7 @@ export const imagePromptGenerationHandler: JobHandler = {
     if (!attempt) {
       return { ok: false, error: `image_prompt_generation: attempt ${p.attemptId} not found` };
     }
+    if (isMemberPicture(attempt) && await isReturnedPicture(p.attemptId)) return endReturned(p.attemptId);
 
     // Checkpoint (plan PLAN_JOB_RESUME.md §F): the compiled prompt for this
     // attempt is already saved — an earlier run stopped after saving it and
@@ -255,6 +256,15 @@ export async function persistCompiledPromptAndEnqueueGeneration(args: {
   // One fenced transaction (Issue #1000): the prompt and its image job land
   // together, and only while this run still owns its job.
   await fencedTransaction(db, async (tx) => {
+    // A member's picture returned meanwhile is finished: its failure is not
+    // cleared and no image job is queued. Decided under the attempt lock the
+    // return takes, so the two cannot interleave (Codex review, PR #1300).
+    const [locked] = await tx.select({ memberRequestId: imagePromptAttemptsTable.memberRequestId })
+      .from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.id, args.attemptId)).for("update").limit(1);
+    if (locked?.memberRequestId != null && await isReturnedPicture(args.attemptId, tx)) {
+      await markReturnedPictureFailed(args.attemptId, tx);
+      return;
+    }
     await tx
       .update(imagePromptAttemptsTable)
       .set({
@@ -295,6 +305,8 @@ export const imageGenerationHandler: JobHandler = {
     if (!attempt) {
       return { ok: false, error: `image_generation: attempt ${p.attemptId} not found` };
     }
+    // A returned picture is finished: nothing more is drawn or paid for it.
+    if (isMemberPicture(attempt) && !attempt.generatedImageObjectPath && await isReturnedPicture(p.attemptId)) return endReturned(p.attemptId);
     // The picture is already stored and recorded (an earlier run stopped
     // after its completion committed, before the job finished): finish
     // without drawing again (plan PLAN_JOB_RESUME.md §C).
@@ -405,7 +417,10 @@ export const imageGenerationHandler: JobHandler = {
       usable: (data) => Boolean(extractFirstImageUrl(data)),
       unusableError: () => new Error("fal response missing image url"),
       record: async () => {
-        if (memberPicture) await gateMemberCall(attempt.userId!, engine);
+        if (memberPicture) {
+          if (await isReturnedPicture(p.attemptId)) throw new PictureReturnedError(p.attemptId);
+          await gateMemberCall(attempt.userId!, engine);
+        }
         // The picture is paid: check this run still owns its job immediately
         // before recording and submitting it (plan §A).
         await assertJobOwnership();
@@ -492,6 +507,7 @@ export const imageGenerationHandler: JobHandler = {
     // delivered; a refused one is quarantined and ends with the generic
     // rejection, and its credit returns (plan §2).
     if (memberPicture) {
+      if (await isReturnedPicture(p.attemptId)) return endReturned(p.attemptId);
       let check;
       try {
         check = await checkMemberPictureOutput({ attemptId: p.attemptId, userId: attempt.userId!, imageUrl: resultUrl, bytes: buf, mimeType: sniffImage(buf).mime });
@@ -549,7 +565,7 @@ export const imageGenerationHandler: JobHandler = {
       const outcome = await fencedTransaction(db, (tx) => deliverMemberPicture(p.attemptId, storedPath, tx));
       if (outcome === "returned") {
         logger.warn({ attemptId: p.attemptId }, "[imagePromptJobs] member picture finished after its credit was returned; not delivered");
-        return terminalFailure(LATE_AFTER_RETURN_ERROR_CODE, "This picture finished after it had been stopped and its credit returned.");
+        return terminalFailure(LATE_AFTER_RETURN_ERROR_CODE, RETURNED_MESSAGE);
       }
     } else {
       await fencedTransaction(db, (tx) => tx
@@ -745,7 +761,18 @@ const VENDOR_REJECTED_ERROR_CODE = "vendor_request_rejected";
 /** The spend backstop refused a member's paid call: the picture ends and its credit returns. Anything else is rethrown. */
 async function endIfSpendRefused(attemptId: number, err: unknown): Promise<HandlerResult> {
   if (err instanceof MemberSpendRefusedError) return recordTerminalAttemptFailure(attemptId, err.code, err.message);
+  if (err instanceof PictureReturnedError) return endReturned(attemptId);
   throw err;
+}
+
+/**
+ * A member's picture found returned: it is finished, left reading failed,
+ * and its job ends with no further work and nothing more paid for it.
+ */
+async function endReturned(attemptId: number): Promise<HandlerResult> {
+  logger.info({ attemptId }, "[imagePromptJobs] member picture was stopped and its credit returned; doing no more for it");
+  await fencedTransaction(db, (tx) => markReturnedPictureFailed(attemptId, tx));
+  return terminalFailure(LATE_AFTER_RETURN_ERROR_CODE, RETURNED_MESSAGE);
 }
 
 async function recordTerminalAttemptFailure(
