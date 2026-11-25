@@ -1,35 +1,32 @@
 /**
  * Security regression for C1 — the dev-admin-login backdoor is fail-closed.
  *
- * `POST/GET /api/auth/dev-admin-login` mints a bootstrap-admin session for any
+ * `POST /api/auth/dev-admin-login` mints a bootstrap-admin session for any
  * caller, so it MUST be inert unless explicitly enabled for a non-production
  * preview (`ENABLE_DEV_ADMIN_LOGIN=true` AND not production). These tests prove:
  *   - the gate predicate's env matrix (default off; prod always off);
- *   - the returnTo sanitizer (open-redirect / script-injection);
+ *   - the returnTo sanitizer (open-redirect / script-injection), which the
+ *     OAuth routes still use;
  *   - end-to-end: when DISABLED the route mints NO session and 404s; when
- *     ENABLED it grants and the redirect target is sanitized.
+ *     ENABLED a POST grants and returns the token in its body, and no GET
+ *     mints a session (launch Phase 15, increment 2).
  *
  * The route registration is unconditional; `handleDevAdminLogin` guards at
  * request time, so toggling the env var per request is sufficient (no module
- * re-import needed). App-level CORS/origin-exemption gating (app.ts) is
- * additional defense-in-depth and is not exercised here.
+ * re-import needed). The app-level origin and CSRF checks, which this route no
+ * longer escapes, are proven in `devAdminLogin.origin.security.test.ts`.
  */
 import { describe, it, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
 
 import request from "supertest";
-
-import { db } from "@workspace/db";
-import { usersTable } from "@workspace/db/schema";
-import { eq } from "drizzle-orm";
 
 import localAuthRouter from "../routes/localAuth.js";
 import { isDevAdminLoginEnabled } from "../lib/devAdminLogin.js";
 import { getSafeReturnTo } from "../lib/safeReturnTo.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
+import { BOOTSTRAP_ADMIN_EMAIL as ADMIN_EMAIL, seedBootstrapAdmin, sessionIdFromResponse } from "./helpers/devAdminFixture.js";
 
-const ADMIN_EMAIL = "overhypeme+admin@gmail.com";
 const ENV_KEYS = ["ENABLE_DEV_ADMIN_LOGIN", "NODE_ENV", "REPLIT_DEPLOYMENT", "REPLIT_DEV_DOMAIN", "DEV_PREVIEW_KEY"] as const;
 let savedEnv: Record<string, string | undefined>;
 
@@ -100,14 +97,6 @@ describe("getSafeReturnTo — open-redirect / injection guard", () => {
 describe("dev-admin-login route — inert when disabled", () => {
   const app = () => buildTestApp({ kind: "unauthenticated" }, localAuthRouter);
 
-  it("GET 404s and mints NO session cookie when disabled (default)", async () => {
-    disable();
-    const res = await request(app()).get("/api/auth/dev-admin-login");
-    assert.equal(res.status, 404);
-    assert.equal(res.body.error, "Not found");
-    assert.equal(res.headers["set-cookie"], undefined, "must not set a session cookie when disabled");
-  });
-
   it("POST 404s and mints NO session cookie when disabled (default)", async () => {
     disable();
     const res = await request(app()).post("/api/auth/dev-admin-login").send({});
@@ -128,30 +117,11 @@ describe("dev-admin-login route — inert when disabled", () => {
 
 describe("dev-admin-login route — grants when enabled (non-prod preview)", () => {
   const app = () => buildTestApp({ kind: "unauthenticated" }, localAuthRouter);
-  let adminPreexisted = false;
-  let originalActive = false;
-  let originalIsAdmin = false;
+  let restoreAdmin: () => Promise<void>;
+  before(async () => { restoreAdmin = await seedBootstrapAdmin(); });
+  after(async () => { await restoreAdmin(); });
 
-  before(async () => {
-    const [existing] = await db.select().from(usersTable).where(eq(usersTable.email, ADMIN_EMAIL)).limit(1);
-    if (existing) {
-      adminPreexisted = true;
-      originalActive = existing.isActive;
-      originalIsAdmin = existing.isAdmin;
-      await db.update(usersTable).set({ isActive: true, isAdmin: true }).where(eq(usersTable.id, existing.id));
-    } else {
-      await db.insert(usersTable).values({ id: `t_c1_${randomUUID()}`, email: ADMIN_EMAIL, isActive: true, isAdmin: true });
-    }
-  });
-  after(async () => {
-    if (adminPreexisted) {
-      await db.update(usersTable).set({ isActive: originalActive, isAdmin: originalIsAdmin }).where(eq(usersTable.email, ADMIN_EMAIL));
-    } else {
-      await db.delete(usersTable).where(eq(usersTable.email, ADMIN_EMAIL));
-    }
-  });
-
-  it("POST grants an admin session (200) and issues a fresh session cookie", async () => {
+  it("POST grants an admin session (200), issues a fresh session cookie, and returns that token in its body", async () => {
     enable();
     const res = await request(app()).post("/api/auth/dev-admin-login").send({});
     assert.equal(res.status, 200);
@@ -159,16 +129,26 @@ describe("dev-admin-login route — grants when enabled (non-prod preview)", () 
     assert.equal(res.body.email, ADMIN_EMAIL);
     // The e2e admin-login flow asserts on `user.email` — lock that shape.
     assert.equal(res.body.user?.email, ADMIN_EMAIL);
-    assert.ok(res.headers["set-cookie"], "a fresh session cookie must be issued");
+    const sid = sessionIdFromResponse(res);
+    assert.ok(sid, "a fresh session cookie must be issued");
+    // The canvas iframe's Bearer fallback: the body's token is the same fresh session.
+    assert.equal(res.body.token, sid);
+    assert.match(String(res.headers["content-type"]), /application\/json/);
   });
 
-  it("GET sanitizes returnTo — an off-site target collapses to '/'", async () => {
+  // Launch Phase 15, increment 2: no GET mints a session, and no server-written
+  // page carries a session token.
+  it("no GET or HEAD mints a session, with or without returnTo", async () => {
     enable();
-    const res = await request(app()).get("/api/auth/dev-admin-login?returnTo=//evil.com/x");
-    assert.equal(res.status, 200);
-    const html = res.text;
-    assert.match(html, /window\.location\.replace\("\/"\)/, "off-site returnTo must be sanitized to '/'");
-    assert.doesNotMatch(html, /evil\.com/, "the off-site host must never appear in the redirect");
+    for (const path of ["/api/auth/dev-admin-login", "/api/auth/dev-admin-login?returnTo=/admin"]) {
+      for (const method of ["get", "head"] as const) {
+        const res = await request(app())[method](path);
+        assert.equal(res.status, 404, `${method.toUpperCase()} ${path}`);
+        assert.equal(sessionIdFromResponse(res), undefined, `${method.toUpperCase()} ${path} must not set a session cookie`);
+        // Express's own 404 text is the only body; it runs no script and carries no token.
+        assert.doesNotMatch(res.text ?? "", /<script|auth_token/i, `${method.toUpperCase()} ${path} must not return an executable page`);
+      }
+    }
   });
 
   // PR #1072 round 1: a literal address comparison ahead of the router let
@@ -191,14 +171,12 @@ describe("dev-admin-login route — grants when enabled (non-prod preview)", () 
     }
     const via = (r: request.Test) => r.set("Host", PREVIEW).set("X-Forwarded-For", "203.0.113.9");
 
-    it("refuses GET, POST and HEAD without the key, with no session cookie", async () => {
+    it("refuses POST without the key, with no session cookie", async () => {
       onPreview();
       for (const p of SPELLINGS) {
-        for (const method of ["get", "post", "head"] as const) {
-          const res = await via(request(app())[method](p));
-          assert.equal(res.status, 403, `${method.toUpperCase()} ${p}`);
-          assert.equal(res.headers["set-cookie"], undefined, `${method.toUpperCase()} ${p} must not set a cookie`);
-        }
+        const res = await via(request(app()).post(p));
+        assert.equal(res.status, 403, `POST ${p}`);
+        assert.equal(res.headers["set-cookie"], undefined, `POST ${p} must not set a cookie`);
       }
     });
 
@@ -217,7 +195,7 @@ describe("dev-admin-login route — grants when enabled (non-prod preview)", () 
       onPreview();
       for (const p of SPELLINGS) {
         assert.equal((await via(request(app()).post(p)).set("X-Dev-Preview-Key", KEY).send({})).status, 200, `header ${p}`);
-        assert.equal((await via(request(app()).get(p)).set("Cookie", `dev_preview_key=${KEY}`)).status, 200, `cookie ${p}`);
+        assert.equal((await via(request(app()).post(p)).set("Cookie", `dev_preview_key=${KEY}`).send({})).status, 200, `cookie ${p}`);
       }
     });
 
@@ -225,12 +203,5 @@ describe("dev-admin-login route — grants when enabled (non-prod preview)", () 
       onPreview();
       assert.equal((await request(app()).post("/api/auth/dev-admin-login").set("Host", "localhost:8080").send({})).status, 200);
     });
-  });
-
-  it("GET honors a safe same-origin returnTo", async () => {
-    enable();
-    const res = await request(app()).get("/api/auth/dev-admin-login?returnTo=/admin");
-    assert.equal(res.status, 200);
-    assert.match(res.text, /window\.location\.replace\("\/admin"\)/);
   });
 });

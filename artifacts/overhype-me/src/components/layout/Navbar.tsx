@@ -10,9 +10,9 @@ import { AccountMenuAvatarTrigger } from "@/components/layout/AccountMenu";
 import { usePersonName } from "@/hooks/use-person-name";
 import { useAskBefore } from "@/hooks/use-identity-gate";
 import { useGetMyProfile, getGetMyProfileQueryKey } from "@workspace/api-client-react";
-import { devPreviewKey, DEV_PREVIEW_HEADER } from "@/lib/devPreviewUnlock";
+import { storeBearerToken } from "@/lib/bearerToken";
 
-const DEV_ADMIN_LOGIN_URL = "/api/auth/dev-admin-login?returnTo=/admin";
+const DEV_ADMIN_LOGIN_URL = "/api/auth/dev-admin-login";
 
 // Module-level tap counter — intentionally outside the component so it survives
 // Navbar remounts. Each page renders its own <Layout><Navbar />, meaning a click
@@ -64,39 +64,22 @@ export function Navbar() {
     // want to surface that it exists. `import.meta.env.DEV` is true under the
     // Vite dev server (the Replit preview) and false in the built artifact.
     if (!import.meta.env.DEV) return;
-    // Use top-level navigation to the GET endpoint instead of fetch().
-    //
-    // Why: in Chrome (esp. on Windows) when the app is viewed inside an
-    // iframe (e.g. Replit canvas preview) or when storage partitioning /
-    // tracking-protection is active, Set-Cookie responses to fetch() inside
-    // the iframe are silently dropped — the POST returns 200 but the new
-    // session sid never lands in the cookie jar, so subsequent admin
-    // requests come back 401 and the AdminLayout renders "Access Denied".
-    //
-    // Top-level navigation responses go through a different (more permissive)
-    // cookie path in every modern browser, so the sid actually persists.
-    // The GET handler returns an HTML page that JS-redirects to `returnTo`
-    // *after* the Set-Cookie has been committed, then admin requests work.
-    //
-    // In the dev preview with its key stored (launch Phase 14, increment 3;
-    // lib/devPreviewUnlock.ts), a bare navigation cannot carry the key header,
-    // and the gate's cookie may be dropped in the embedded pane. So the same
-    // GET is fetched with the key, and the page it returns — which writes the
-    // session token to localStorage and redirects — is run in place.
-    const previewKey = devPreviewKey();
-    if (previewKey) {
-      void fetch(DEV_ADMIN_LOGIN_URL, { credentials: "include", headers: { [DEV_PREVIEW_HEADER]: previewKey } })
-        .then(async (res) => {
-          if (!res.ok) return;
-          const page = await res.text();
-          document.open();
-          document.write(page);
-          document.close();
-        })
-        .catch(() => {});
-      return;
-    }
-    window.location.href = DEV_ADMIN_LOGIN_URL;
+    // Launch Phase 15, increment 2: the session is minted only by a POST, made
+    // through the app's own fetch so it passes the server's origin and CSRF
+    // checks like any other write (main.tsx adds the CSRF token, the dev
+    // preview key and any stored Bearer token). The Replit canvas iframe can
+    // drop the new cookie, so this one development route also returns the
+    // session token in its body, stored in the existing Bearer slot
+    // (lib/bearerToken.ts). A full load of /admin then starts the app with the
+    // admin session.
+    void fetch(DEV_ADMIN_LOGIN_URL, { method: "POST", credentials: "include" })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const body = (await res.json()) as { token?: unknown };
+        if (typeof body.token === "string" && body.token) storeBearerToken(body.token);
+        window.location.assign("/admin");
+      })
+      .catch(() => {});
   }
 
   // Mobile: onTouchEnd fires on every tap reliably (onClick is suppressed by

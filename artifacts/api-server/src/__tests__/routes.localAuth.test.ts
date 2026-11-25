@@ -450,6 +450,11 @@ describe("POST /auth/local-login", () => {
     const rawCookies2 = res.headers["set-cookie"];
     const setCookie2: string[] = Array.isArray(rawCookies2) ? rawCookies2 : rawCookies2 ? [rawCookies2] : [];
     assert.ok(setCookie2.some((c) => c.startsWith("sid=")), "sid cookie should be set");
+    // Launch Phase 15, increment 2: normal sign-in never returns the session
+    // token in its body; only the gated development shortcut does.
+    assert.equal("token" in res.body, false);
+    const sid = setCookie2.find((c) => c.startsWith("sid="))!.split(";")[0].slice("sid=".length);
+    assert.equal(res.text.includes(sid), false, "the session token must not appear anywhere in the body");
   });
 });
 
