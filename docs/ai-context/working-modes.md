@@ -664,8 +664,7 @@ says which declaration it rides on, on a line of its own in its body —
 gate reads to exempt it, so no agent infers a class (David, 2026-11-11,
 KITT #293; the gate's rule is `claude-core.md`, *Shared judgement on a
 review round*). No
-review of any kind is requested: no Codex round, no assessment, and no
-build report at close-out — a stalled automatic pass gets one bare
+review of any kind is requested: no Codex round and no assessment — a stalled automatic pass gets one bare
 re-request, which restarts it rather than requesting a round (`claude-core.md`,
 *Waiting, and scheduled check-ins*, item 4). The change merges on green CI. Codex's automatic pass on PR-open
 still runs; it is read for one thing, **a P1, which the builder judges and reports** —

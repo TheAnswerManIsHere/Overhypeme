@@ -1,23 +1,23 @@
 #!/usr/bin/env node
 // SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead.
 /**
- * The build report: one independent, plain-English account per unit of work
- * (David, 2026-10-21, replacing the per-round translation of #36).
+ * The build report: one independent, plain-English account of a unit of work,
+ * ON DEMAND ONLY (David, 2026-11-25: it runs when he types `/buildreport`, never
+ * at close-out; it replaced, on 2026-10-21, the per-round translation of #36).
  *
- * WHAT IT IS. At the close of a unit of work -- a pull request's merge, or a
+ * WHAT IT IS. For a unit of work -- one or more merged pull requests, or a
  * prototype version delivered on its own branch -- the Fable role
- * `fable-build-report` reads the whole unit from GitHub itself (the workstream
- * issue, every pull request and its review rounds, the commits) and writes an
- * answer in fixed sections, in a fixed order, so David can scan it: what was
- * built, the decisions taken on the builder's recommendation with their undo,
- * what ships unfixed, and where the plan stands.
+ * `fable-build-report` reads the unit from GitHub itself (the workstream issue,
+ * every pull request and its review rounds, the commits) and writes a short
+ * answer: what was built, whether it agrees with the builder's account, and,
+ * only when they hold something, the decisions it questions, what should not
+ * have shipped unfixed, what was overbuilt and what it could not check; then
+ * one sentence on what is next.
  *
- * WHAT SURVIVES FROM THE TRANSLATION, AND WHY IT IS MACHINERY. One property:
- * the role's account reaches David unedited. `chatReport` composes the message
- * from the validated answer's own fields, and the builder pastes it, in chat
- * and as a comment on the workstream issue. The only words in it that are not
- * the role's are the labels and the session line, which is printed under its
- * own label because only the builder's session can see its own context.
+ * WHY IT IS MACHINERY. One property: the role's account reaches David
+ * unedited. `chatReport` composes the message from the validated answer's own
+ * fields, and the builder pastes it in chat. The only words in it that are not
+ * the role's are the labels.
  *
  * THE BRIEF TRAVELS IN THE DISPATCH, NEVER AS A FILE. The role holds no tool
  * that can open a file -- measured on #222's interim account, which was
@@ -30,10 +30,10 @@
  * head) or derivable from GitHub. The answer path is derived from the unit's
  * name, never supplied.
  *
- * "AGREES" IS NEVER PRINTED OVER AN UNASSESSED ITEM. The one rule the verdict
- * line carries over from the translation: could-not-observe is not the
- * favourable answer, and every place the report asserts a fact reads the same
- * fact (`facts`).
+ * "AGREES" IS NEVER PRINTED PLAINLY OVER AN UNASSESSED ITEM. The one rule
+ * carried over from the translation: could-not-observe is not the favourable
+ * answer, and every place the report asserts a fact reads the same fact
+ * (`facts`).
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -78,10 +78,9 @@ export const answerPath = (root, unit) => {
 
 /**
  * Where `brief` records the unit's coordinates for `report` to read, so the
- * posted report names the evidence it covered from the values the brief
- * carried rather than from a second typing (#224 round 1: a branch unit's
- * range ends must survive into the issue comment, where the next version's
- * dispatch reads its lower bound).
+ * report names the unit from the values the brief carried rather than from a
+ * second typing -- both ends of a branch range included, since the head is the
+ * next version's `--since` (#224 round 1).
  */
 export const unitPath = (root, unit) => {
   assertUnit(unit);
@@ -201,7 +200,7 @@ export function buildBrief({
   if (!Array.isArray(prs)) throw new Error("build-report: prs must be an array of pull request numbers.");
   for (const n of prs) assertPositiveInt("each pull request number", n);
   // EVERY NUMBER CARRIES ITS TITLE, OR THE BRIEF REFUSES. The coordinates
-  // recorded here are printed back to David as the report's *Evidence* line,
+  // recorded here name the unit to David at the head of the report,
   // and a bare number tells him nothing (claude-core.md, interaction rule 14;
   // KITT #241's build report named this line as the one bare-number
   // line nobody in the loop writes). The script fetches nothing from GitHub,
@@ -211,14 +210,14 @@ export function buildBrief({
   const okTitle = (t) => typeof t === "string" && t.trim() !== "";
   if (!noIssue && !okTitle(issueTitle)) {
     throw new Error(
-      "build-report: --issue was given without --issue-title. The report's *Evidence* line names the workstream " +
+      "build-report: --issue was given without --issue-title. The report names the workstream " +
         "issue to David, and a number alone is never sufficient (interaction rule 14): pass the issue's title as read " +
         "from GitHub.",
     );
   }
   if (!Array.isArray(prTitles) || prTitles.length !== prs.length || !prTitles.every(okTitle)) {
     throw new Error(
-      "build-report: every --pr needs its --pr-title, in the same order. The report's *Evidence* line names each " +
+      "build-report: every --pr needs its --pr-title, in the same order. The report names each " +
         "pull request to David, and a number alone is never sufficient (interaction rule 14): pass each title as " +
         "read from GitHub.",
     );
@@ -385,24 +384,6 @@ const titled = (kind, n, title) =>
 export const issueRef = (n, title) => titled("Issue", n, title);
 export const prRef = (n, title) => titled("PR", n, title);
 
-/**
- * The evidence line, from the brief's own coordinates. For a branch unit it
- * names both ends of the range, which is what the next version's dispatch
- * reads its `since` from.
- */
-export function evidenceLine(coords) {
-  if (!coords) return "*Evidence:* *not recorded — this report was read without its brief's coordinates.*";
-  const parts = [
-    coords.issue ? `workstream ${issueRef(coords.issue, coords.issueTitle)}` : `private workstream${coords.privateRef ? ` (${coords.privateRef})` : ""}`,
-  ];
-  if (coords.privateSource) parts.push("plan and decisions from the private source David relayed");
-  if (Array.isArray(coords.prs) && coords.prs.length) {
-    parts.push(coords.prs.map((n, i) => prRef(n, Array.isArray(coords.prTitles) ? coords.prTitles[i] : undefined)).join(" · "));
-  }
-  if (coords.branch) parts.push(`branch \`${coords.branch.name}\` from after \`${coords.branch.since}\` through \`${coords.branch.head}\``);
-  return `*Evidence:* ${parts.join(" · ")}`;
-}
-
 /** The facts the verdict, the headings and the empty labels all read. */
 export function facts(report) {
   if (report.failed) return { failed: true, reason: report.reason ?? "the report could not be produced" };
@@ -434,52 +415,32 @@ export function unitLabel(unit, coords) {
   if (Array.isArray(coords.prs) && coords.prs.length) {
     return coords.prs.map((n, i) => prRef(n, Array.isArray(coords.prTitles) ? coords.prTitles[i] : undefined)).join(" · ");
   }
-  if (coords.branch) return `branch \`${coords.branch.name}\` through \`${coords.branch.head}\``;
+  // A BRANCH UNIT IS NAMED BY BOTH ENDS OF ITS RANGE: the head is what the
+  // next version's `--since` is read from.
+  if (coords.branch) return `branch \`${coords.branch.name}\` from after \`${coords.branch.since}\` through \`${coords.branch.head}\``;
   return unit;
 }
 
 /**
- * The verdict line. "Agrees" is last and only reachable when nothing differs,
- * nothing shipping unfixed is called unreasonable, no decision drew a concern
- * and everything reachable was assessed. With coordinates the unit is named in
- * its titled form and the verdict follows a middle dot, since a title may
- * itself carry a colon; without them the slug keeps the colon.
+ * THE DELIVERABLE: what the builder pastes in chat, and the only thing it says
+ * about the unit (David, 2026-11-25, section by section). What was built; then
+ * "Agrees", or each disagreement; then the decisions it questions, what should
+ * not have shipped unfixed, what was overbuilt and its caveats, each only when
+ * it holds something; then one sentence on what is next. Every word is the
+ * role's except the labels.
+ *
+ * "AGREES" IS NEVER PRINTED OVER AN UNASSESSED ITEM: when something could not
+ * be checked, the line says how far the agreement reaches.
  */
-export function chatLine(report, coords = undefined) {
+export function chatReport(report, { askedModel = null, coords = undefined } = {}) {
   const f = facts(report);
-  const u = unitLabel(report.unit, coords);
-  const sep = coords ? " · " : ": ";
-  if (f.failed) return `${u}${sep}report failed — ${f.reason}`;
-  const flags = [];
-  if (f.disagreements) flags.push(`differs on ${plural(f.disagreements, "point")}`);
-  if (f.notReasonable) flags.push(`${f.notReasonable} not reasonable to ship`);
-  if (f.concerns) flags.push(`${plural(f.concerns, "decision")} questioned`);
-  if (f.overbuilt) flags.push(`${f.overbuilt} overbuilt`);
-  if (f.unassessed) flags.push("partial — something could not be assessed");
-  return flags.length ? `${u}${sep}${flags.join("; ")}` : `${u}${sep}agrees with the builder's account`;
-}
-
-const SESSION_VERDICTS = ["continue", "hand off", "archive"];
-
-/**
- * THE DELIVERABLE: what the builder pastes, in chat and on the issue, and the
- * only thing it says about the unit. Fixed sections in a fixed order (David,
- * 2026-10-21). Every word is the role's except the labels and `session`, the
- * builder's own call, printed under a label saying so.
- */
-export function chatReport(report, { askedModel = null, session = null, coords = undefined } = {}) {
-  const f = facts(report);
-  const out = [`**Build report — ${chatLine(report, coords ?? undefined)}**`, ""];
-  // A PRIVATE-PATH UNIT IS DELIVERED IN CHAT ONLY. The role writes a plain
-  // account of the diff, and on a workstream whose plan took the private path
-  // that is the content the canonical disclosure check keeps off GitHub
-  // wherever it appears (workstream-tracking.md). So the report says so at its
-  // top, where the builder pasting it cannot miss it (#224 round 1).
+  // A FAILURE SAYS SO IN THE HEADER, so it can never be skimmed as a quiet unit.
+  const out = [`**Build report — ${unitLabel(report.unit, coords)}${f.failed ? " · report failed" : ""}**`, ""];
+  // A PRIVATE-PATH UNIT IS KEPT BY DAVID, in the workstream's private item:
+  // the report is a plain account of the diff, and from a relayed source the
+  // restricted plan too (workstream-tracking.md).
   if (coords && coords.private === true) {
-    out.push(
-      "*Private-path workstream: this report is delivered in chat only, never as an issue comment. David: paste it into the workstream's private item to keep it.*",
-      "",
-    );
+    out.push("*Private-path workstream: David, paste this into its private item to keep it.*", "");
   }
   if (f.failed) {
     out.push(
@@ -487,67 +448,35 @@ export function chatReport(report, { askedModel = null, session = null, coords =
     );
     return out.join("\n");
   }
-  // SHORT BY DESIGN (David, 2026-11-25: the report was "extremely wordy" and
-  // "overbuilt as far as detail that I care about"). Four sections always;
-  // the rest appear only when they hold something, so an empty one costs
-  // nothing to read. The verdict line already says when they are empty.
   const a = report.answer;
-  if (coords !== undefined) out.push(evidenceLine(coords), "");
-  out.push(`**Needs you:** ${a.needs_you}`, "", "**What was built**", "", a.what_was_built);
-
-  out.push("", "**Decisions taken on my recommendation**", "");
-  if (a.decisions.length) {
-    for (const d of a.decisions) out.push(`- **${d.choice}** — undo: ${d.undo}${d.concern ? ` · *Concern:* ${d.concern}` : ""}`);
-  } else out.push("*None.*");
-
+  out.push(a.what_was_built, "");
   if (a.disagreements.length) {
-    out.push("", `**Where it disagrees with the builder** (${f.disagreements})`, "");
+    out.push("**Where it disagrees with the builder**", "");
     for (const d of a.disagreements) out.push(`- **${d.what}** — ${d.why_it_matters}`);
+  } else {
+    out.push(f.unassessed ? "**Agrees, as far as it could check** (see the caveat below)." : "**Agrees** with the builder's account.");
   }
-
-  if (a.shipping_unfixed.length) {
-    out.push("", "**Shipping unfixed**", "");
-    for (const g of a.shipping_unfixed) out.push(`- ${g.reasonable ? "Reasonable" : "**Not reasonable**"}: ${g.what} — ${g.why}`);
+  const questioned = a.decisions.filter((d) => d && typeof d.concern === "string");
+  if (questioned.length) {
+    out.push("", "**Decisions it questions**", "");
+    for (const d of questioned) out.push(`- **${d.choice}** — ${d.concern} · undo: ${d.undo}`);
   }
-
+  const unfixed = a.shipping_unfixed.filter((g) => g && g.reasonable !== true);
+  if (unfixed.length) {
+    out.push("", "**Should not have shipped unfixed**", "");
+    for (const g of unfixed) out.push(`- **${g.what}** — ${g.why}`);
+  }
   if (a.overbuilt.length) {
     out.push("", "**Overbuilt**", "");
     for (const o of a.overbuilt) out.push(`- ${o}`);
   }
-
-  out.push(
-    "",
-    "**Where we are**",
-    "",
-    `- *Planned:* ${a.where_we_are.planned}`,
-    `- *Done:* ${a.where_we_are.done}`,
-    `- *Next:* ${a.where_we_are.next}`,
-  );
-
-  // THE SESSION LINE IS THE BUILDER'S, AND SAYS SO. Only the builder's session
-  // can see its own context, so the role cannot judge continue, hand off or
-  // archive; printing the builder's call under the role's voice would be the
-  // builder's words reaching David as the independent account.
-  if (session && SESSION_VERDICTS.includes(session.verdict)) {
-    out.push("", `**Session** (the builder's call): ${session.verdict}${session.why ? ` — ${session.why}` : ""}`);
-  } else {
-    out.push("", "**Session** (the builder's call): *not stated.*");
-  }
-
-  if (f.unassessed) out.push("", `*Could not assess:* ${a.could_not_assess}`);
-
+  const caveats = [];
+  if (f.unassessed) caveats.push(`It could not check everything: ${a.could_not_assess}`);
   const got = a.model ?? null;
-  const alias = askedModel ? claudeAlias(askedModel) : null;
-  if (!got) out.push("", `*This report did not say which model wrote it${askedModel ? `; this repository pins ${askedModel}` : ""}.*`);
-  else if (askedModel && got.trim() !== askedModel.trim()) {
-    const sameFamily = alias !== null && claudeAlias(got) === alias;
-    const why = !alias
-      ? ""
-      : sameFamily
-        ? ` The dispatch sends the family alias \`${alias}\`, not a version, so one likely explanation is that the pin and the version that alias resolves to have drifted apart.`
-        : ` The alias \`${alias}\` cannot resolve to ${got}, so a different model answered. The one cause on record is a content refusal, which falls Claude back to Opus.`;
-    out.push("", `*Written by ${got}; this repository pins ${askedModel}.${why} The dispatch cannot enforce the model, only report what answered.*`);
-  }
+  if (!got) caveats.push(`It did not say which model wrote it${askedModel ? `; this repository asks for ${askedModel}` : ""}.`);
+  else if (askedModel && got.trim() !== askedModel.trim()) caveats.push(`It was written by ${got}, not the ${askedModel} this repository asks for.`);
+  for (const c of caveats) out.push("", `*Caveat:* ${c}`);
+  out.push("", `**Next:** ${a.next}`);
   return out.join("\n");
 }
 
@@ -578,7 +507,7 @@ export function readPrivateSource(root, file) {
  *
  *   node build-report.mjs brief  --unit <slug> (--issue <n> --issue-title <title> | --private-source <file> [--private-ref <ref>]) [--pr <n> --pr-title <title> ...] [--branch <name> --since <sha> --head <sha>] [--private yes]
  *   node build-report.mjs prepare --unit <slug>
- *   node build-report.mjs report --unit <slug> [--session continue|"hand off"|archive] [--session-why <text>]
+ *   node build-report.mjs report --unit <slug>
  *
  * `brief` prints the dispatch prompt (it also prepares the answer path, so the
  * two cannot be done out of order); `report` prints what is pasted.
@@ -623,8 +552,7 @@ export function main({ argv = process.argv.slice(2), root = process.cwd(), io = 
     return 0;
   }
   if (cmd === "report") {
-    const session = opts.session ? { verdict: opts.session, why: opts["session-why"] ?? null } : null;
-    stdout.write(chatReport(readAnswer(root, opts.unit), { askedModel: dispatchModel(io).id, session, coords: readUnit(root, opts.unit) }) + "\n");
+    stdout.write(chatReport(readAnswer(root, opts.unit), { askedModel: dispatchModel(io).id, coords: readUnit(root, opts.unit) }) + "\n");
     return 0;
   }
   throw new Error(`build-report: unknown command ${JSON.stringify(cmd)}; expected brief, prepare or report.`);

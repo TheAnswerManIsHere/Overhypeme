@@ -11,9 +11,7 @@ description: Use after opening or being re-engaged on any PR, and whenever a git
 `prototype/<feature>` branch, there is no PR; on `main` its body carries
 `Review class: prototype` for the review gate, `claude-core.md`, *Shared
 judgement on a review round*), so nothing here fires for it:
-no subscription, no labels, no rounds — save step 7's build report, which
-the `prototype` skill dispatches at each version's close-out, whichever
-regime the version ships under. **Nor one of the phase's one-line
+no subscription, no labels, no rounds. **Nor one of the phase's one-line
 registry PRs** — at a prototype's start under the branch regime, at its flip
 and at its abandonment — which are Trivial by David's phase declaration,
 carry `Refs #N` rather than `Workstream: #N`, carry `Review class: registry`
@@ -64,7 +62,7 @@ thread is still resolved, because the ruleset requires it.
   thread as review rule 6 answers any finding — fixed in a named commit, or
   declined with the reason and the assessment it rests on — resolve it, and
   merge on green CI. No second pass. The merge report says what the batch
-  changed, in my words, and the build report follows it (step 7).
+  changed, in my words.
 
 ## The loop
 
@@ -130,205 +128,12 @@ thread is still resolved, because the ruleset requires it.
    without one. **Reaching round 1 with no agreed oracle is a 🛑 to David, not
    a package I write myself.**
 
-   1. **Collect this round's findings** from the live state read in step 2,
-      bounded to this round by the reviewer's own markers — the same
-      inclusive-current, exclusive-next window, and for this reason:
-      `get_review_comments` returns every thread on the pull request, so an
-      unbounded read on round 2 hands the assessors round 1's findings again
-      and collects fresh advice on settled work. Write them as
-      `[{ id, body, path, line }]`, with GitHub's own comment id.
-   2. **Write the oracle and the labelled history to files, in the session
-      scratchpad — never inside the repository.** The dispatch refuses on an
-      unclean tree and `git status --porcelain` lists untracked files, so an
-      input written at a repo-relative path refuses both assessments before
-      either starts. Under `.agents/reviews/` is not a safe answer either: that
-      directory is only made ignored by `prepareAssessmentPath`, which runs
-      *after* the checkout guard, so on a consumer that has never run this
-      script the first dispatch would still refuse. Labels are `David`,
-      `oracle`, `reviewer`, `builder`, `astra`, `fable`. Provenance is what lets
-      an assessor weigh them: mine and the reviewer's are claims to check,
-      **David's are authority**.
-   3. **Dispatch both, on the same package.** Astra through the script; the
-      Fable assessor as the **`fable-review-assessor`** subagent, given the
-      package `--prompt-only` emits with `--source fable`, and **dispatched
-      with `model: dispatchModel().agentModel`** the way the build report
-      (step 7) is.
-
-      **Pass the argument even though the definition now declares the tier.**
-      `fable-review-assessor` carries `model:` and `effort:` in its frontmatter,
-      held equal to `strongestClaude` by `scripts/check-agent-models.mjs` — but
-      an argument outranks frontmatter, an edited definition can be served
-      stale, and a consumer's own pin reaches the dispatch only this way. The
-      two together are the belt and the braces; `model-routing` has the measured
-      resolution order and why neither alone is enough. What is at stake if both
-      are missed: on an ordinary Opus session the second assessment is Opus
-      wearing the Fable label while holding the tie-break, and the post does not
-      say so. **One brief serves both** — it says "the other assessor"
-      throughout — and the only difference between the two packages is the
-      identity block the script adds, which names who each reader is and which
-      of them holds the tie-break. A brief that named a role would be wrong for
-      exactly one of them, silently. **Neither sees the other's answer** — that
-      is what makes the readings independent rather than merely separate, so do
-      not pass one into the other.
-
-      ```
-      P=core/scripts/review-proxy.mjs; [ -f "$P" ] || P=scripts/review-proxy.mjs
-      node "$P" --pr <n> --round <n> --commit <reviewed sha> --tier <product|sensitive|internal> \
-        --oracle-file <path> --findings-file <path> [--history-file <path>] [--note "<where we are>"]
-      node "$P" --source fable --prompt-only --pr <n> --round <n> --commit <reviewed sha> --tier <…> \
-        --oracle-file <path> --findings-file <path> [--history-file <path>] [--note "<where we are>"]
-      ```
-
-      The dispatch **refuses unless the checkout is at that commit and clean**,
-      because both assessors read the live tree. Retry once on a transient
-      failure; a second failure is reported to David in plain English and the
-      round stops (a sign-in is his to supply), and one assessment alone is
-      not permission to proceed.
-   4. **Post both on the PR verbatim**, each under the header `prComment`
-      renders. Never summarise one away, and never drop the one I disagree
-      with. Astra's comment is printed by the dispatch itself; the Fable
-      assessment is written by a subagent this script does not run, so render
-      its comment rather than assembling one:
-
-      ```
-      # an ordinary round — the scope comes from the round's findings file
-      node "$P" --render --source fable --pr <n> --round <n> \
-        --commit <reviewed sha> --findings-file <path>
-
-      # a follow-up — the scope is the subset the follow-up actually addressed
-      node "$P" --render --source fable --pr <n> --round <n> --follow-up <k> \
-        --commit <reviewed sha> --findings <id,id>
-
-      # a documentation pass — the header carries the derived range, and the
-      # Codex findings it weighed when its automatic pass returned any
-      node "$P" --render --source fable --pr <n> --round 1 \
-        --commit <reviewed sha> --documentation (--findings-file <path> | --codex-clean)
-      ```
-
-      **Three commands, and each one's scope flag is mandatory for it.** A
-      follow-up never reads `--findings-file`, an ordinary round never reads
-      `--findings`, and a documentation pass takes whichever of `--findings-file`
-      and `--codex-clean` it composed with, so the header names what the
-      assessment covered. The script refuses a follow-up header naming no
-      findings.
-
-      **The header says what was asked for and the assessment's own
-      `_Running as:_` line says what it is running as** — line 2, under the ship
-      gate, which is line 1 for both assessors. Nothing here claims they match:
-      this reads a file and cannot interrogate what wrote it, and a control
-      reporting success having evaluated nothing is the worst available
-      failure. When the two lines disagree, that is an 👀 FYI to David naming
-      both, not a blocker and not a reason to discard the assessment.
-
-      **The Fable header carries three facts and labels each one**, because the
-      assessor is reached by an alias and not by a version: `expected` is the
-      pin, which is what the self-report is compared against; `instructed alias` is
-      the family alias the recipe sends, derived from the pin — an instruction,
-      not an observation, since this script never makes the call; `definition …`
-      is what the role's file declares, as read at render time. Only Astra's
-      header says `requested`, because only Astra is handed a full id and an
-      effort per call.
-
-      **Which of the two causes a model disagreement has is decided by the
-      answer's family, not by judgement.** Same family as the pin — the alias
-      resolves to a different version — is a drift between the pin and the
-      alias, which is David's one-line edit. A **different** family rules that
-      out entirely: `fable` cannot resolve to an Opus model, so the platform
-      served something else, which `model-routing` records as a content refusal.
-      The build report's `chatReport` applies exactly this test, so the FYI
-      follows the line rather than second-guessing it. And `definition …` never
-      means "what ran": definitions are cached, so the file on disk may not be
-      the one that answered, and the assessor's own line is the only
-      observation there is.
-
-      **Effort is the weaker half of that comparison.** It has no argument at
-      all, so the header can only report what the definition declares. On the
-      reporting side, an assessor may not be able to name its effort at all
-      (its context may show reasoning effort as a number, not one of the pin's
-      named levels). **So an effort the assessor could not name is not a
-      mismatch**; report it once as the limit it is and do not raise it every
-      round. A **model** it could not name, or one that disagrees, is the FYI
-      that matters.
-   5. **Decide, and say what I decided.** Investigate disputed facts myself in
-      the repository and the tests — an assessor should not be asked to settle
-      what a few tool calls answer. Where a real question of reasoning remains,
-      put it to both. **This costs no commit and no Codex round.**
-
-      **They are two different mechanisms.** Astra's follow-up is a **cold
-      re-dispatch**: a fresh `codex exec` that remembers nothing, so the script
-      rebuilds the whole package —
-      `--follow-up <n> --question … --findings <ids> --findings-file …
-      --oracle-file … --tier … --prior-file … [--fable-file …]`. The Fable
-      assessor's is a **transcript continuation**: the harness resumes the same
-      subagent, which still holds its own assessment and the evidence behind it,
-      so it is sent the question and nothing else — **plus the path to write to,
-      which is the one thing the continuation must be told.** Its retained
-      instruction still names the base assessment's file, so a continuation sent
-      without a new path would overwrite the assessment it is supposed to
-      supplement, and a continuation that then wrote nothing would leave the
-      base assessment looking like the follow-up. Name
-      `round-<n>.fable.followup-<k>.md` explicitly.
-
-      **`k` counts attempts, not questions, so it is never reused.** List the
-      round's directory first and take the next unused number: a second attempt
-      at follow-up 1 is `followup-2`. Nothing can clear the old file for me —
-      `prepareAssessmentPath` is reached only through the CLI, and a Fable
-      continuation invokes no CLI at all — and `readAssessment` accepts any
-      non-empty file as an answer. The case that matters is not a plain retry,
-      where a stale answer is at least an answer to the same question: it is a
-      **corrected question landing on the answer to the old one**, which reads
-      as a reply to what I just asked and is not. Counting up eliminates the
-      state instead of clearing it, and the file name then says which attempt
-      produced it. The Fable side needs no such guard, so a package guard is
-      written on the Astra side only.
-
-      **The question carries the evidence**, in the form
-      `claude-core.md`'s *A load-bearing claim is quoted, or it is marked
-      unverified* already requires: command output and source lines quoted with
-      their origin, never paraphrased into my own assertion, and my inference
-      from them labelled as mine. There is no separate evidence input.
-
-      A purely technical disagreement that survives is the Fable assessor's to
-      settle, with its reasoning recorded. **Intended behaviour and any accepted
-      user-facing shortfall go to David** as a 🛑 with a push notification —
-      where no settled decision already covers them; a consequence a settled
-      decision reaches is settled with it, and the thread reply names the
-      decision (`agent-working-rules.md`, *A reversible choice proceeds on the recommendation*) — and
-      stay open until he answers — a later clean round never clears them, and
-      **neither does a default of mine.** A question of his that goes unanswered
-      stays **open** — `PushNotification` re-fired (the alert hook rings it only once) and pointed back to, reprinted only when
-      the ask itself changes (`claude-core.md` interaction preference 6) — not
-      resolved by whatever I pre-registered as the fallback. A pre-registered
-      default is for what *I* do while waiting, never for what *he* decided.
-   6. **State the next action explicitly** in a `review-action` block
-      (`proceed`, `investigate`, `follow-up`, `ask-david`, `conclude`) with the
-      finding ids it covers. Nothing parses an assessment, so this block is
-      what says what happens; there is no `merge` action and agent agreement is
-      never David's approval. **When the action is `proceed`, the block is
-      posted before the batch is pushed and carries, per finding, the class
-      the finding belongs to and the sweep of that class** — every member
-      found, with the command that found them — or, where the class is design
-      judgement or naming and no command can enumerate it, saying so, as
-      `working-modes.md`'s class-sweep step 2 allows (`claude-core.md`,
-      *Shared judgement* item 6). The thread reply after the push cites this
-      block for the class and the pre-fix sweep, names the commit, and carries
-      the post-fix re-run of the oracle to zero, which the block cannot hold
-      because it is posted before the batch is written (class-sweep step 3).
-      **A push that landed after the round's review and before both
-      assessments is disclosed in this block**, whatever the action: the
-      commit, what it contained, and whether it touched a line a finding
-      names. An early push of a fix is named as a breach of the write-gate
-      rule; the build report carries it, and it asks David for nothing
-      (`claude-core.md`, *Shared judgement* item 6).
-
-   **Sign-in is the session's first action** (`claude-core.md`, *Astra*); a
-   dispatch only re-checks it, so a restarted container is caught before a
-   round starts rather than mid-round. `$CODEX_BIN login status` decides; the
-   steps are in `claude-core.md`'s *Astra* section, and the device code
-   expires in about fifteen minutes, so the ask and the code go to David in
-   the same turn.
-
-   **No clock stops a loop.**
+   **The six sub-steps** — collect the findings (3.1), write the oracle and
+   history files (3.2), dispatch both assessors on one package (3.3), post
+   both verbatim (3.4), decide and say so (3.5), and state the next action in
+   a `review-action` block (3.6) — are [`assessments.md`](assessments.md).
+   **Read it when a round returns findings, before anything is written for
+   them.**
 
 4. **Decide what is worth writing, then batch the fixes.** No count ends
    iteration and no round sends findings to David: the two-review limit, its
@@ -421,9 +226,8 @@ thread is still resolved, because the ruleset requires it.
      the findings**: two assessments at roughly a hundred and fifty thousand
      tokens each **only if the round returns findings**, since step 3
      dispatches neither on a clean round — save the one clean round of a PR
-     whose plan took the private path, which step 3 assesses anyway; the
-     build report the close-out owes, once per unit of work; and my own
-     turns either way. Then what is downstream if this round finds nothing.
+     whose plan took the private path, which step 3 assesses anyway; and my
+     own turns either way. Then what is downstream if this round finds nothing.
      When that reads "a sentence in a comment two agents read", the
      disproportion is legible to both of us *before* it is spent rather than
      after. The token counts are already reported to me on every dispatch;
@@ -468,111 +272,11 @@ thread is still resolved, because the ruleset requires it.
      at. `get_check_runs` returning `total_count: 0` means checks have not
      reported yet, which is not green and must never be reported as green.
 
-7. **The build report: one independent account per unit of work, at
-   close-out** (`claude-core.md`, *Watching the PRs I open*). Nothing runs
-   per round. A unit is a PR's merge, or a prototype version delivered on its
-   own `prototype/<feature>` branch, which opens no PR. A Trivial PR gets
-   none. It is dispatched **after** the merge report hands back, never before
-   a merge, and never holds one: it is off the critical path by design.
-
-   **The deliverable is a message in chat and the same text as a comment on
-   the workstream issue — chat only on the private path (step 4). There is
-   no page. Do not rebuild one** — not an Artifact, not an HTML file, not a
-   receipt store, not a link.
-
-   **How it runs** (`core/scripts/build-report.mjs` here, `scripts/` in a
-   consumer):
-
-   1. **Write the brief and prepare the answer path in one call**:
-      `node <dir>/build-report.mjs brief --unit <slug> --issue <n> --issue-title "<title>" --pr <n> --pr-title "<title>" [--pr <n> --pr-title "<title>" …]`,
-      or for a branch-regime prototype version
-      `--branch prototype/<feature> --since <sha> --head <sha>` in place of
-      the PRs: `--since` is the previous version's head, read off the
-      *Evidence* line of that version's build report — on the issue, or,
-      on the private path, in the private item, which David relays — or
-      the branch's base for the first version. The unit's slug names the
-      answer file (`pr-231`, `ingest-v2`). **Every number carries its
-      title, as read from GitHub**: the coordinates come back to David as
-      the report's *Evidence* line, and a bare number tells him nothing
-      (`claude-core.md`, interaction rule 14), so `brief` refuses an
-      `--issue` without `--issue-title` and a `--pr` without its
-      `--pr-title`, in order. Preparing clears any earlier
-      attempt's answer and coordinates, so a re-dispatch that writes nothing
-      reads as a failure, never as its predecessor. **A workstream whose
-      plan is on a private draft Project item** — no public issue at all, or
-      one that turned sensitive and keeps only sanitized tracking — is
-      reported from **the item's text, relayed by David**: the item
-      is write-only to agents, so I ask him to paste it (the plan and the
-      decisions taken on recommendation), write it
-      to the scratchpad, never the repository, and pass `--private-source
-      <file>` with `--private-ref <the item's reference>`, in place of
-      `--issue` or beside a sanitized one. `brief` refuses a source inside
-      the checkout, quotes it inline under its provenance, and marks the
-      unit private; `--private yes` without a source is refused, since the
-      flag alone would point the role at a sanitized issue for the plan. The role still reads the PRs or branch from GitHub
-      itself; only the plan side is relayed. With no issue and no source,
-      `brief` refuses by name and says to ask for the relay.
-   2. **Dispatch `fable-build-report`** with `model:` set to the pin's alias
-      (`dispatchModel().agentModel`, which is `fable` today), and **the
-      printed brief as the whole prompt**. The role holds no file-reading
-      tool, so a brief handed to it as a path is unreachable. The brief
-      carries the schema for the same reason. Announce the dispatch in one
-      line.
-   3. **Read only after the harness reports the dispatch complete**, in the
-      tool result or a later task notification. The completion signal is the
-      synchronisation; `run_in_background: false` is not
-      ([`backgrounded-subagent-answer-is-in-its-own-transcript.md`](../../../.agents/memory/backgrounded-subagent-answer-is-in-its-own-transcript.md)).
-      The answer is the file, never the role's closing message. When no
-      signal ever arrives, read once at the next event: no file is a failed
-      report, never a quiet one.
-   4. **Paste the report verbatim**:
-      `node <dir>/build-report.mjs report --unit <slug> --session continue|"hand off"|archive --session-why "<one clause>"`,
-      in chat and as a comment on the workstream issue, and say nothing else
-      about the unit. **A private-path unit's report goes in chat only**,
-      never as an issue comment, and the report says so at its top, asking
-      David to paste it into the private item, which is where it is kept:
-      the role writes a plain account of the diff, and from a relayed
-      source the restricted plan too, which is what the canonical
-      disclosure check keeps off GitHub (`workstream-tracking.md`,
-      *Sensitive / disclosure-carve-out workstreams*). The report's
-      *Evidence* line names what it covered from the brief's own
-      coordinates, and for a branch unit both ends of the range — the next
-      version's `--since`. The **session** line is mine and printed under a label
-      saying so, because only this session can see its own context: the
-      `archive` skill's verdict, run here without being asked, and when it
-      says hand off, the `handoff` skill runs after the report and starts
-      the new session itself, or hands David the prompt and a 🛑 where it
-      cannot (the `handoff` skill, Step 5). An *archive*
-      line here archives nothing; only an explicit `/archive` does.
-
-   - **The report is the role's words, not my summary of them.** `chatReport`
-     composes it from the validated answer's own fields; the only text in it
-     that is not the role's is the labels and my labelled session line. My
-     own account is welcome beside it, labelled as mine; editing the role's
-     account, or presenting mine as it, is not.
-   - **A failure is honest and never blocks.** No file, unparseable JSON and
-     a schema-invalid answer are each a visible **failed** report, never
-     "nothing to report". If the dispatch itself is refused — a newly added
-     agent type is not dispatchable for some minutes, and an edited one may
-     be served stale — say so in plain English, write the unit up myself
-     labelled as my own account, and try again at the next unit.
-   - **"Agrees" prints only when nothing differs, nothing shipping unfixed is
-     called unreasonable, no decision drew a concern and everything reachable
-     was assessed.** The model is disclosed, not observed: the role reports
-     its own and the report mentions it only on a mismatch or an absence.
-   - **`Write` is not path-scoped, and this role reads every comment on the
-     pull request, from anyone.** A path specifier in a `tools:` list removes
-     the tool rather than narrowing it, so the bare grant ships and the
-     exposure is named: an injected instruction could direct the one write
-     tool at any path in the checkout. What bounds it: the answer directory is
-     `*`-gitignored; the container is ephemeral; and the only route to `main`
-     is a commit I make. **So after every dispatch, read `git status
-     --porcelain`**: an untracked file inside `.agents/reviews/` is the one
-     kind of noise, and anything else — a tracked file modified anywhere,
-     `.agents/reviews/.gitignore` included — is a finding.
+7. **No build report.** It is on demand only: the `buildreport` skill, when
+   David types `/buildreport` (David, 2026-11-25). Nothing here dispatches it.
 
 8. **Merge, sync, report**, per `claude-core.md`'s *Close-out is mine, end to
-   end*: re-verify live state with a fresh `pull_request_read` — not cached
+   end*, with the `close-out` skill loaded for each step's mechanics: re-verify live state with a fresh `pull_request_read` — not cached
    green — then, for each `scripted` step in the body's `## UAT` section,
    make sure its output is recorded on the PR at this head, running and
    posting any that is missing in the shape `pr-docs` gives (a proof that
@@ -583,8 +287,7 @@ thread is still resolved, because the ruleset requires it.
    the merge report with both SHAs, the latitude line, the PR's **Decisions
    taken on my recommendation** entries, the UAT handoff and, last, its
    plain-English summary — on the `✅ **PLAN DONE** —` line when this merge
-   finished the approved work (`claude-core.md`, *A reversible choice proceeds, and every hand-back says what it did*, rule 2) — then
-   dispatch the build report (step 7). In KITT, finished work whose merges
+   finished the approved work (`claude-core.md`, *A reversible choice proceeds, and every hand-back says what it did*, rule 2). In KITT, finished work whose merges
    changed `core/` runs `sync-fleet` before that line is written (KITT's
    `CLAUDE.md`, *Delivering the payload*).
    **No readiness receipt is minted or quoted** (`pr-ready.mjs` is gone); the three-item bar is read
@@ -602,178 +305,7 @@ them; a prototype-phase PR owes Codex nothing and is not (`claude-core.md`,
 
 ## Keeping the workstream issue's labels current
 
-Per [`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md),
-`pr-watch` owns `stage:code-review` and everything downstream of it for the
-PR's workstream issue (found via `Workstream: #N` in the PR body — if it's
-missing, that PR skipped the tracking convention; flag it rather than
-silently leaving the workstream unlabeled — unless it is one of the phase's
-registry PRs, which carry `Refs #N` by design and are never subscribed, top
-of this file, or one of David's display-only Replit tweaks, which carries no
-issue by design and is its own record (`agents-core.md`, *Workstream
-tracking*), so it has no labels to keep, or a sync PR delivering KITT's
-payload, which delivers fleet machinery rather than a workstream (the
-`sync-fleet` skill)):
-
-- **PR opens / round 1 triggers** → `stage:code-review`, `waiting:codex` — on
-  a Documentation-class PR too, while its one pass waits for Codex's
-  automatic pass; `waiting:claude` once that pass reports Completed, since the
-  assessed pass and its batch are mine to run.
-- **Codex posts findings, I start responding** → `waiting:claude`.
-- **I post the next round's `@codex review` trigger** → `waiting:codex`.
-- **Intended behaviour or an accepted user-facing shortfall goes to David**
-  (step 3.5 above — a purely technical fork is settled in the loop, never
-  escalated) → `waiting:david`; `stage:code-review` stays put — the stage
-  hasn't moved, but the turn has. **The review gate's waiver is asked** (step
-  3: the assessors cannot run) → `waiting:david` the same way. A push that
-  came before a round's assessments asks him nothing.
-- **The close-out bar is met** (CLAUDE.md's *Close-out*, all three items) →
-  the ready bar is met and **I merge it myself per CLAUDE.md's close-out
-  contract** — re-verify live state, squash-merge, check and sync the Repl,
-  verify, report — so `stage:merge` is normally a moment, not a resting
-  state. A guardrail- or authority-widening PR merges the same way, with the
-  latitude it grants named in the report. The PRs that do not are the ones
-  whose shortfall is a product decision (step 3.5), and one whose review gate
-  waits on his waiver because the assessors cannot run (step 3); no count
-  and no class sends one to him.
-- **The PR merges with a Post-merge verification section that has real
-  content** → `stage:test-run`, `waiting:replit` — or `waiting:david` while
-  a step in it that would start a paid AI run above his budget waits for his
-  go-ahead (`uat-doc-format.md`, *Lanes*) — the lifecycle's own
-  Test-run stage, between Merge and UAT, not a step to skip past. Per the
-  `pr-docs` contract this stage is **executed inside close-out**: I
-  drive the section through the connector, read the results, and on a
-  clean pass move the label myself to `stage:uat`/`stage:close-out` per
-  the next bullet's check, in the same close-out sequence. A failure
-  keeps the workstream here while it routes through the normal channel.
-  A **legacy** `docs/tests/Replit/PR<N>_..._TEST_RUN.md` doc still on `main`
-  follows this same flow, plus deleting the doc on a full pass — a tiny
-  deletion PR, self-merged; the label move is likewise mine, since the
-  `test-run-completion.yml` Action that once made it is retired.
-- **The PR merges with "none needed" verification** → `stage:uat` **only
-  after the close-out sync checks pass, and only if the PR body carries a
-  `## UAT` section ([`uat-doc-format.md`](../../../docs/tests/uat-doc-format.md);
-  or a legacy UAT doc still under `docs/tests/UAT/` on `main`) or one is
-  actually due**. The transition moment is the verified Repl
-  sync (matching SHA + clean worktree, per CLAUDE.md's close-out
-  sequence), not the merge click — a failed sync would otherwise put a
-  David-held UAT gate on the board for a build he can't actually reach;
-  until the checks pass the workstream stays agent-held in close-out.
-  On the UAT-section test: pure-docs/pure-devops PRs never have one,
-  and neither does a Tier A bugfix or a Tier B bugfix whose only surface is
-  internal (per `working-modes.md`'s Tier B exception): all three go
-  straight to `stage:close-out` instead, since holding them at `uat` would
-  be a gate with nothing to run against it (a prototype-phase PR ships none
-  either, and never reaches this step — top of this file). "Has product-visible behavior"
-  is *not* the test by itself — a Tier A fix can be product-visible and
-  still ship no UAT section, which is what makes checking for the section
-  the right test, not the behavior. **The straight-to-close-out case does not
-  stop at close-out**: with no UAT owed there is nothing left to verify, so
-  in the same pass I finish whatever close-out items remain, set
-  `stage:done`, and close the issue as completed with a comment naming the
-  PR, per
-  [`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md#closing-an-issue)'s
-  *Closing an issue*. **When it is a product-visible fix that shipped no
-  UAT section (the Tier A case), the closing comment aims David**: one line —
-  where in the app to glance next time he's there, and to reopen the issue if
-  the symptom persists. Still never `stage:done` at the merge click: the
-  verified sync comes first, the same reason the Project's built-in
-  `PR merged → Done` workflow is off.
-- **Any other issue this PR completes** — named with `Closes #N` in the
-  body, so GitHub closes it at merge. If the PR completes an issue whose
-  number the body left out, I close it by hand at close-out, naming the PR.
-
-**If this PR is one phase of a phased feature, every `waiting:` toggle
-updates the parent too — not just close-out.** Per
-[`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md)'s
-*Phased features* section, the parent's `waiting:` is supposed to mirror
-whoever holds the active phase at all times. Touching it only at close-out
-leaves the parent showing a stale holder for the entire review-and-merge
-cycle of every phase — so **each time this section moves the phase issue's
-`waiting:`** (round-by-round toggling, escalation, merge), mirror the same
-value onto the parent, in the same edit, State of Play included.
-
-**The parent's Phases checklist moves when the phase issue itself reaches
-`stage:close-out` — never at merge.** This is the same distinction the
-general flow above already makes for an ordinary workstream (merge is not
-verified work; David's UAT is) — a phase is no different. A product-visible
-phase merges into `stage:test-run`/`stage:uat` like any workstream and sits
-there through David's UAT before reaching `stage:close-out`; a phase with
-no UAT reaches `stage:close-out` sooner, immediately after its verification
-checks, but through the same transition, not a merge-time shortcut. Ticking
-the checklist at merge instead would let `/next` treat a phase as done —
-and surface the next phase, or close the parent — while its own UAT is
-still outstanding.
-
-**Keep mirroring the parent's `waiting:` through this entire span**, per
-the toggle rule above — that already covers the phase's `stage:uat`/
-`waiting:david` transition, so the parent correctly shows "waiting on
-David's UAT" for exactly as long as that's true.
-
-**When the phase issue reaches `stage:close-out`, move the parent's
-checklist**, in the same edit as the phase's own transition:
-
-- **Tick this phase's checkbox** in the parent's checklist, replacing
-  `(active)` with the merged PR number.
-- **Re-point the parent's `waiting:`** at whoever holds the next phase — or
-  `waiting:claude` when the next phase hasn't been opened yet, since an
-  unstarted next phase is work owed, not a resting state.
-- **If this was the last phase**, move the parent straight to
-  `stage:close-out` and close it out in the same pass, per
-  `workstream-tracking.md`'s *Closing an issue*: finish what its State of
-  Play lists, set `stage:done`, and close it as completed with a comment
-  naming the phase PRs. It holds at close-out only with a named remaining
-  item. There is no separate whole-feature UAT gate — every
-  phase already ran its own UAT wherever it was product-visible, per
-  `workstream-tracking.md`'s *Phased features* section, so a UAT stage here
-  would be a gate with nothing left to run against it.
-- **If a phase's own UAT surfaced a bug**, that's the UAT-descent case —
-  see `workstream-tracking.md`'s *When UAT finds a bug* section for the
-  `Blocked by:` marker that records the way back up. The phase stays open
-  (not `stage:close-out`) until that descent resolves, so the checklist
-  correctly doesn't tick early.
-
-**At the close-out of any workstream, check whether it was the target of a
-`Blocked by:` marker** — one `search_issues` call, `"Blocked by: #<this
-issue>" in:body`, trusted-issue filtered the same way every other marker
-lookup here is. If a match comes back, that match is a parent this closure
-just unblocked — but what to do about its `waiting:` depends on whether
-this is the UAT-descent shape:
-
-- **If the matched issue's State of Play records a stashed prior
-  `waiting:` value** (only `bugfix`'s UAT-descent intake writes one, per
-  `workstream-tracking.md`'s *When UAT finds a bug*) — **restore it**
-  (normally back to `david`) and remove the now-stale `Blocked by:` line.
-  Skipping this leaves the unblocked parent sitting at `waiting:claude`
-  indefinitely — mechanically releasable per the `Blocked by:` contract,
-  but with no open question left for anyone to notice needs restoring.
-  **If that matched issue is itself a phase sub-issue, restore its
-  parent's `waiting:` the same way, in the same edit** — `bugfix` mirrors
-  the descent flip onto the parent at intake, so the restore has to mirror
-  back the same way, or the parent is left stuck at `waiting:claude` after
-  the phase itself has already recovered.
-- **Otherwise** — an ordinary workstream-to-workstream dependency, or a
-  blocked backlog item — **only remove the stale `Blocked by:` line.**
-  Nothing stashed a prior value for these, so guessing a `waiting:` (or
-  adding one to a `queue:`-only item that shouldn't carry the label at
-  all) would fabricate state instead of restoring it. Their own next
-  `waiting:`-touching moment sets the right value normally.
-
-**Every transition above lands with a State of Play update in the same
-edit** — the block's `Stage`/`Waiting on`/`Last movement` fields at minimum,
-and `Where it actually stands`/`What's blocking` whenever there's real
-narrative to add (a round's findings, an escalation's actual question, what
-shipped at merge), all of it under the canonical disclosure check — on a
-workstream that turned sensitive after its issue opened, the issue gets the
-sanitized tracking only and the narrative goes in the draft item
-(`workstream-tracking.md`). Per `workstream-tracking.md`'s ownership rule: the skill
-that moves the label moves the block, in the same edit, every time.
-
-An echo of my own comment bouncing back as a webhook event still needs the
-silent live-state check like any other event, but never a label change on
-its own — only real state (a new commit, a new finding, an actual merge)
-moves a label.
-
-Codex (and other AI reviewers) remain the independent reviewers; my job while
-watching is to *respond* — judge every finding under the Worth rule with both
-assessments in hand, and take to David only what is his.
-
+Every stage and `waiting:` transition of the workstream issue, its phased
+parent and anything this PR completes or unblocks is
+[`labels.md`](labels.md). **Read it at each transition: the PR opening, a
+round starting or returning, the close-out bar met, the merge.**

@@ -143,8 +143,7 @@ free-standing comment leaves the block's resumable-state claim stale, which
 is the drift `workstream-tracking.md` warns about and a mistake an earlier
 handoff actually made (PR #424). `/status-all` and any cold reader check
 the block, not the comment stream; `/status` reads both — the block for
-state, the 👀 FYI and build-report comments for what happened since David
-last looked (the `status` skill, *Where it is collected from*).
+state, the 👀 FYI comments for what happened since David last looked (the `status` skill, *Where it is collected from*).
 
 **If none exists** — the Discovery gap `/status-all` names — open one. First
 apply the [backlog promotion rule](../../../docs/ai-context/workstream-tracking.md#the-backlog-work-thats-queued-but-hasnt-started):
@@ -315,11 +314,9 @@ item 8). **Where Step 5 fell back** to a pasted
 prompt, the hand-off waits on him, and the hand-back is a 🛑 banner —
 opening the new session with the prompt above — as before.
 
-Step 1's verdict also runs unasked at every unit of work's close, inside the
-build report's *Session* section (`claude-core.md`, *Watching the PRs I
-open*), as the *hand off* branch of the `archive` skill's three-valued
-verdict; a *hand off* there runs Steps 2–6, starting the session, after the
-report.
+Step 1 never runs unasked at a unit's close: I raise a hand-off only when one
+is actually needed (`claude-core.md`, *Watching the PRs I open*), and then run
+this skill from Step 1.
 
 ## Model tier
 

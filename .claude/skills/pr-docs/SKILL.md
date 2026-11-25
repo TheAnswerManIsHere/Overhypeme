@@ -53,7 +53,7 @@ the mandatory live check had no recorded command for close-out to run).
 
    **Execution is part of close-out, not a separate ceremony.** After
    merge + sync, I drive the section through the Replit connector (the
-   two-call sequence in `CLAUDE.md`'s connector policy, read-only scoping
+   two-call sequence in the `close-out` skill, read-only scoping
    stated in the prompt), read the results back with `ask_question`, and
    report them — pass or fail — in the close-out merge report. A step that
    would start a paid AI run is not read-only: it runs within David's monthly paid-run budget — $100 a calendar month across every product, no per-run cap — and asks him only for a run that would take the month past it (`uat-doc-format.md`, *Lanes*). A failure

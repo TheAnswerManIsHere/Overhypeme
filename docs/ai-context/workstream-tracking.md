@@ -40,8 +40,7 @@ glyph used for the mid-task interruption banner in chat, deliberately: one
 symbol means "David," everywhere, not only in conversation. **Merge stopped
 being a David-gate on 2026-08-15** (the agent driving the PR merges it once
 the close-out bar in CLAUDE.md is met — for the standard loop, CI green, the
-reviewer's pass returned for the head commit, every thread resolved, with the
-build report dispatched at close-out; the two classes and the prototype phase
+reviewer's pass returned for the head commit, every thread resolved; the two classes and the prototype phase
 carry their own bars there),
 and the **scope-of-work gate** was added
 the same day at the front of Planning (see
@@ -561,10 +560,10 @@ set" `stage:done`, and nothing ever asked him to.)
   private path, and nothing it holds), and any text already on the issue that
   fails the check is edited out and named to David in one line, since an
   edit does not unpublish what was already read. **Its 👀 FYIs stay in
-  chat**, like its build report: the one-line FYI comment every other
+  chat**, like any build report David asks for (the `buildreport` skill): the one-line FYI comment every other
   workstream's issue receives (`claude-core.md` interaction rule 7, David,
   2026-10-23) is an account of the work, which is what the check keeps off
-  GitHub. They reach the private item the way the report does — David
+  GitHub. They reach the private item the way such a report does — David
   pastes them in — so `/status` on such a unit reads the chat and what he
   has relayed, and names the gap when the chat has compacted rather than
   asserting the item holds what he never pasted (the `status` skill, *The
@@ -636,5 +635,5 @@ the skill.)
 turn it is shown (interaction rule 7, David, 2026-10-23), so `/status` can
 recover from the issue what a compacted chat no longer holds (the `status`
 skill, *The anchor*) — except on the private path, where the FYI stays in
-chat like the build report (*Sensitive / disclosure-carve-out workstreams*,
+chat (*Sensitive / disclosure-carve-out workstreams*,
 above).

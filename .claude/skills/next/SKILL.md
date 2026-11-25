@@ -182,9 +182,7 @@ scoped to the active repository (see *Scope* above):
   - **The plan gives the sequence; the record gives the position.** The
     sequence is the plan's increments in order (its phases, where it has
     them) and, inside the current one, its *Implementation Steps*. The
-    position is read from, newest first: the latest build report on the
-    workstream issue (a private-path workstream's are in its private item,
-    which only David's relay brings back; its **Where we are** section), the State of Play's
+    position is read from, newest first: the State of Play's
     **Where it actually stands** and **What you need to do**, the scope line
     of each merged increment's PR, and the commits on the open branch. Only
     an `author_association: OWNER` comment counts, the same filter as the
@@ -436,7 +434,7 @@ THEN
   2. Issue #310 — NCMEC reporting, Phase 4 — provenance capture. Parent at
      coding, phase not yet opened. Unblocks phases 5–8.
      Plan: PLAN_NCMEC.md, increment 4 of 8, step 1 — the quarantine.ts
-     capture hook. Position from the 2026-10-20 build report.
+     capture hook. Position from the State of Play.
   3. Stripe livemode column — queue:now, pre-launch hardening. Needs your
      call on backfill semantics before it can start.
 

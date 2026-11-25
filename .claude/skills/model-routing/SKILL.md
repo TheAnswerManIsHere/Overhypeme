@@ -441,3 +441,50 @@ than dispatch law: announce every dispatch out loud (the assessors' tier
 spends well above Opus); a dispatch that reuses my own reasoning is not rescued
 by the tier; and the assessments run on the round's findings before anything is
 written for them, so a decline can still prevent unnecessary fix work.
+
+### Dispatching a role: the tier check, the double binding, package limits, effort, and the Fable definition
+
+The reference half of `claude-core.md`, *Model, cost, and routing*, whose
+rules govern on any conflict.
+
+- **Verify the active tier before Opus-reserved execution** (migration, Tier B
+  fix, security review, dev-infra) rather than inferring it. The `opus` pin in
+  `.claude/settings.json` is **not proof of the running tier**; in-Repl
+  sessions run Sonnet by local settings, and a session started under the old
+  `opusplan` stays there until restart.
+  **A Claude role is bound twice, and needs both**: its definition declares
+  `model:` and `effort:`, derived from the pin and held equal to it by
+  `scripts/check-agent-models.mjs`, and the dispatch also passes `model:` on
+  the call; the frontmatter is the only route there is for effort. Measured order and evidence: the sections above.
+  Three package limits: a dispatch that reuses my own reasoning isn't rescued
+  by the stronger tier; an incomplete enumeration is invisible to the
+  assessor; and a **false premise produces a confidently wrong assessment** —
+  so pin the commit the question is about, check my working tree matches it
+  when the question is about a tree, and tell the assessor to verify
+  load-bearing premises rather than taking them from me. **Every factual
+  premise I supply in a brief** — oracle, lens, priors, pinned commit — **is
+  written under *A load-bearing claim is quoted, or it is marked
+  unverified***. A lens is a judgement; only the facts it rests on are
+  premises. The standing text a dispatch script emits is the script's claim,
+  reviewed when the script is. When an assessment rests on a false premise I
+  supplied, I correct the *input* and re-ask, rather than arguing with the
+  conclusion — a rule about where the error is, never about authority.
+- **`effortLevel`** in `.claude/settings.json` (`low`–`xhigh`) is a real cost
+  dial needing no ask; `max` is session-only. For settings questions the
+  **JSON schema is the source of truth, not the docs page**.
+- **Fable dispatches as a subagent whose instructions I do not write.** The
+  role is an agent definition under `core/.claude/agents/`, loaded by the
+  harness; I pass only the round's package or the unit's brief. **A `tools:`
+  list there is a hard upper bound** on which tools a role holds. **It bounds
+  which tools, never where they reach**: a path specifier in a `tools:` list
+  is not honoured and may remove the tool or grant nothing, so a tool list is
+  never described as read-only while a write tool is on it. **The role
+  discloses its model rather than the dispatch observing it** — the role
+  reports what it runs as, the dispatch what it requested, and a mismatch
+  prints. I do not build a real observation. **So no
+  disclosure of mine is ever worded as an observation.**
+  **Agent definitions are cached, two ways**: a newly added type may fail
+  with `Agent type not found` for a while (wait; the definition is not
+  wrong), and an edit to a loaded definition may not be served. So **a probe
+  of a definition change carries a freshness token planted in the same
+  edit**.

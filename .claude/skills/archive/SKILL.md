@@ -53,8 +53,9 @@ do not stop at the first hit, since David wants the whole list once.
    or a review round requested and not yet landed.
 5. **Close-out this session owes and has not paid** (`claude-core.md`,
    *Close-out is mine, end to end*): a merge without its Repl sync, an unrun
-   Post-merge verification, the harvest-notes comment, the merge report or
-   build report not delivered, in KITT finished work that changed `core/`
+   Post-merge verification, the harvest-notes comment, the merge report not
+   delivered (a build report is never owed: it runs only when David asks,
+   the `buildreport` skill), in KITT finished work that changed `core/`
    and has not been delivered by `sync-fleet` (KITT's `CLAUDE.md`,
    *Delivering the payload*), or a workstream issue whose State of Play,
    or labels no longer match what happened. Enumerated
@@ -100,16 +101,14 @@ Exactly one, first match wins:
 | Verdict | When |
 | --- | --- |
 | **continue** | Any checklist hit, or approved work in this session's plan is still startable here. Name each hit and the action that clears it. |
-| **hand off** | No hit, the next work is in a different workstream, and this session holds context worth carrying (the `handoff` skill's Step 1 test). Under `/archive`, run the `handoff` skill, which starts the new session itself, or hands David the prompt where it cannot (the `handoff` skill, Step 5); on a build report's **Session** line, it runs after the report (`claude-core.md`, *Watching the PRs I open*). |
+| **hand off** | No hit, the next work is in a different workstream, and this session holds context worth carrying (the `handoff` skill's Step 1 test). Under `/archive`, run the `handoff` skill, which starts the new session itself, or hands David the prompt where it cannot (the `handoff` skill, Step 5). |
 | **archive** | No hit, and nothing worth carrying: the work is done, or the next work starts cold just as well. |
 
 **A UAT owed is a *continue* that starts the run** (item 8): under an
 explicit `/archive` I do not archive and do not stop on the verdict — once
 every other hit I can clear is cleared, I start the `uat` skill in the same
 turn, which finishes any close-out of mine still short of `stage:uat`
-before the walkthrough's first step (its section 1, item 0). On a build report's **Session**
-line, where the merge report already hands the UAT to David, it is stated
-as *continue* and starts nothing, like every verdict there.
+before the walkthrough's first step (its section 1, item 0).
 
 A *continue* whose every hit I can clear myself is not a verdict to stop on:
 clear them (push, post the comment, persist the note), say so, and re-run
@@ -182,6 +181,7 @@ not start one and he must paste the prompt (the `handoff` skill, Steps 5–6).
   Step 5).
 - **Recommend the next task.** That is `/next`; *archive* means only that
   nothing here needs this session.
-- **Run unasked.** The build report's **Session** line states the same
-  verdict at every unit's close (`claude-core.md`, *Watching the PRs I
-  open*), but only an explicit `/archive` archives.
+- **Run unasked.** No check runs after a merge or at a unit's close; I
+  raise a hand-off or an archive only when one is actually needed
+  (`claude-core.md`, *Watching the PRs I open*), and only an explicit
+  `/archive` archives.

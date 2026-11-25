@@ -50,4 +50,4 @@ there is no exemption.
   repository's rulesets, never an inference from who is pushing.
 - **The one place on GitHub direct commits still land** is a branch-regime
   `prototype/<feature>` branch, which opens no PR; its sweep is in the same
-  home, `claude-core.md`, *This environment's git constraints*.
+  home's reference half, `git-constraints.md`.

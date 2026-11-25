@@ -3,7 +3,7 @@
  * The build report's tests. The deliverable is a chat message, so these assert
  * on text. The rule under test throughout: **"agrees" is never printed over an
  * unassessed item**, and the report never says anything the role did not --
- * except the labels and the builder's own, labelled, session line. The
+ * except the labels. The
  * boundary between the module's functions is exercised with real results
  * (`readAnswer` feeding `chatReport`), never with a report shape built by hand.
  */
@@ -21,10 +21,8 @@ import {
   prepareAnswerPath,
   dispatchModel,
   buildBrief,
-  evidenceLine,
   validateAnswer,
   readAnswer,
-  chatLine,
   chatReport,
   readUnit,
   unitPath,
@@ -33,13 +31,12 @@ import {
 } from "../build-report.mjs";
 
 const answer = (over = {}) => ({
-  needs_you: "Nothing needed from you.",
   what_was_built: "A worker that downloads a session video, probes it and writes a proxy.",
   decisions: [{ choice: "The CI runner is pinned to ubuntu-24.04.", undo: "Revert the pin and bump Playwright.", concern: null }],
   shipping_unfixed: [],
   overbuilt: [],
   disagreements: [],
-  where_we_are: { planned: "Five steps to a usable ingest.", done: "Step 1 is finished.", next: "Step 2, the logging viewer." },
+  next: "Step 2, the logging viewer.",
   took_on_trust: "That CI ran the worker tests; I did not read the logs.",
   could_not_assess: null,
   model: "claude-fable-5-1",
@@ -109,7 +106,7 @@ test("a unit with no evidence, no issue, or a half-stated branch is refused", ()
   assert.throws(() => buildBrief({ root, unit: "x", issue: 1, issueTitle: "T", prs: ["7"], prTitles: ["t"], io }), /pull request number/);
 });
 
-test("a number without its title is refused: the Evidence line names the unit to David (interaction rule 14)", () => {
+test("a number without its title is refused: the report names the unit to David (interaction rule 14)", () => {
   const root = tmp();
   assert.throws(() => buildBrief({ root, unit: "x", issue: 1, prs: [7], prTitles: ["t"], io }), /--issue-title/);
   assert.throws(() => buildBrief({ root, unit: "x", issue: 1, issueTitle: " ", prs: [7], prTitles: ["t"], io }), /--issue-title/, "whitespace is not a title");
@@ -119,22 +116,11 @@ test("a number without its title is refused: the Evidence line names the unit to
   assert.equal(fs.existsSync(unitPath(root, "x")), false, "a refused brief records no coordinates");
 });
 
-test("the evidence line names each PR and the issue by number and title, and says when a title was not recorded", () => {
-  assert.equal(
-    evidenceLine({ issue: 4, issueTitle: "Ingest v2", prs: [7, 8], prTitles: ["Ingest: the parser", "Ingest: the worker"], branch: null, private: false, privateSource: false, privateRef: null }),
-    "*Evidence:* workstream Issue #4 — Ingest v2 · PR #7 — Ingest: the parser · PR #8 — Ingest: the worker",
-  );
-  assert.equal(
-    evidenceLine({ issue: 4, prs: [7], branch: null, private: false, privateSource: false, privateRef: null }),
-    "*Evidence:* workstream Issue #4 (title not recorded) · PR #7 (title not recorded)",
-    "coordinates an older brief wrote say the title is missing rather than dropping to a bare number",
-  );
-});
-
 test("a valid answer validates, and a missing section does not", () => {
   assert.deepEqual(validateAnswer(answer()), []);
-  const { where_we_are, ...noWhere } = answer();
-  assert.ok(validateAnswer(noWhere).length > 0);
+  const { next, ...noNext } = answer();
+  assert.ok(validateAnswer(noNext).length > 0);
+  assert.ok(validateAnswer(answer({ needs_you: "x" })).length > 0, "the retired Needs you line is refused");
   assert.ok(validateAnswer({ ...answer(), spend: { build_total: "$1", paid_runs_this_week: null } }).length > 0, "a retired spend section is refused");
   assert.ok(validateAnswer(answer({ could_not_assess: "   " })).some((p) => /blank/.test(p)));
 });
@@ -148,82 +134,75 @@ test("no file, bad JSON and a schema-invalid answer are each a visible failure",
   assert.match(chatReport(none), /not a sign that the work was quiet/);
   fs.writeFileSync(answerPath(root, "u"), "{");
   assert.match(readAnswer(root, "u").reason, /not valid JSON/);
-  fs.writeFileSync(answerPath(root, "u"), JSON.stringify({ needs_you: "x" }));
+  fs.writeFileSync(answerPath(root, "u"), JSON.stringify({ what_was_built: "x" }));
   assert.match(readAnswer(root, "u").reason, /expected shape/);
 });
 
-test("agrees only when nothing differs, nothing is unreasonable, no decision is questioned and all was assessed", () => {
+test("agrees only when nothing differs, and never plainly over something it could not check", () => {
   const root = tmp();
   write(root, "a", answer());
-  assert.equal(chatLine(readAnswer(root, "a")), "a: agrees with the builder's account");
-  const cases = [
-    [{ could_not_assess: "The branch's last commit could not be fetched." }, /partial/],
-    [{ disagreements: [{ what: "Said fixed; is not.", why_it_matters: "It still breaks." }] }, /differs on 1 point/],
-    [{ shipping_unfixed: [{ what: "A crash on empty video.", reasonable: false, why: "Users hit it." }] }, /1 not reasonable to ship/],
-    [{ decisions: [{ choice: "c", undo: "u", concern: "It locks in the URL shape." }] }, /1 decision questioned/],
-    [{ overbuilt: ["A config key for a constant."] }, /1 overbuilt/],
-  ];
-  for (const [over, re] of cases) {
-    write(root, "b", answer(over));
-    const line = chatLine(readAnswer(root, "b"));
-    assert.match(line, re);
-    assert.doesNotMatch(line, /agrees/);
-  }
+  assert.match(chatReport(readAnswer(root, "a")), /\*\*Agrees\*\* with the builder's account\./);
+  write(root, "b", answer({ could_not_assess: "The branch's last commit could not be fetched." }));
+  const partial = chatReport(readAnswer(root, "b"));
+  assert.match(partial, /Agrees, as far as it could check/);
+  assert.match(partial, /\*Caveat:\* It could not check everything: The branch's last commit/);
+  write(root, "c", answer({ disagreements: [{ what: "Said fixed; is not.", why_it_matters: "It still breaks." }] }));
+  const differs = chatReport(readAnswer(root, "c"));
+  assert.match(differs, /\*\*Where it disagrees with the builder\*\*\n\n- \*\*Said fixed; is not\.\*\* — It still breaks\./);
+  assert.doesNotMatch(differs, /Agrees/);
 });
 
-test("the report prints the fixed sections in order, in the role's words", () => {
+test("the report is short: what was built, the verdict and the next step, with nothing else when nothing else holds", () => {
   const root = tmp();
-  write(root, "c", answer());
-  const text = chatReport(readAnswer(root, "c"), { askedModel: "claude-fable-5-1" });
-  const order = ["**Needs you:**", "**What was built**", "**Decisions taken on my recommendation**", "**Where we are**", "**Session**"];
-  let at = -1;
-  for (const h of order) {
-    const i = text.indexOf(h);
-    assert.ok(i > at, `${h} out of order`);
-    at = i;
-  }
-  assert.ok(text.includes("Revert the pin and bump Playwright."));
-  assert.doesNotMatch(text, /\*\*Spend\*\*/);
-  assert.doesNotMatch(text, /took_on_trust|did not read the logs/, "took_on_trust is collected, not shown");
-  assert.doesNotMatch(text, /Written by/, "a matching model prints nothing");
+  write(root, "q", answer());
+  const text = chatReport(readAnswer(root, "q"), { askedModel: "claude-fable-5-1" });
+  assert.equal(text, [
+    "**Build report — q**",
+    "",
+    "A worker that downloads a session video, probes it and writes a proxy.",
+    "",
+    "**Agrees** with the builder's account.",
+    "",
+    "**Next:** Step 2, the logging viewer.",
+  ].join("\n"));
+  assert.doesNotMatch(text, /Needs you|Session|Evidence|Where we are|Revert the pin|did not read the logs/, "retired sections, unquestioned decisions and took_on_trust are not shown");
 });
 
-test("an empty optional section is omitted, and a filled one appears in order", () => {
+test("only questioned decisions, unreasonable unfixed items and overbuilt work appear, in order", () => {
   const root = tmp();
-  write(root, "e0", answer());
-  const quiet = chatReport(readAnswer(root, "e0"));
-  for (const h of ["**Shipping unfixed**", "**Where it disagrees with the builder**", "**Overbuilt**"]) assert.ok(!quiet.includes(h), `${h} printed while empty`);
   write(root, "e1", answer({
-    disagreements: [{ what: "The reply says fixed; the diff does not.", why_it_matters: "The bug ships." }],
-    shipping_unfixed: [{ what: "A slow page.", reasonable: true, why: "Rare." }],
+    decisions: [
+      { choice: "Quiet choice.", undo: "u0", concern: null },
+      { choice: "The URL shape is fixed.", undo: "Revert it.", concern: "It locks in the URL shape." },
+    ],
+    shipping_unfixed: [
+      { what: "A slow page.", reasonable: true, why: "Rare." },
+      { what: "A crash on empty video.", reasonable: false, why: "Users hit it." },
+    ],
     overbuilt: ["A config key for a constant."],
+    could_not_assess: "One commit could not be fetched.",
   }));
   const loud = chatReport(readAnswer(root, "e1"));
-  const order = ["**Decisions taken on my recommendation**", "**Where it disagrees with the builder** (1)", "**Shipping unfixed**", "**Overbuilt**", "**Where we are**"];
+  const order = ["**Decisions it questions**", "**Should not have shipped unfixed**", "**Overbuilt**", "*Caveat:*", "**Next:**"];
   let at = -1;
   for (const h of order) {
     const i = loud.indexOf(h);
     assert.ok(i > at, `${h} out of order`);
     at = i;
   }
+  assert.match(loud, /- \*\*The URL shape is fixed\.\*\* — It locks in the URL shape\. · undo: Revert it\./);
+  assert.match(loud, /- \*\*A crash on empty video\.\*\* — Users hit it\./);
+  assert.doesNotMatch(loud, /Quiet choice|A slow page/);
 });
 
-test("the session line is the builder's and is labelled so, or says it was not stated", () => {
-  const root = tmp();
-  write(root, "d", answer());
-  const r = readAnswer(root, "d");
-  assert.match(chatReport(r, { session: { verdict: "hand off", why: "the next unit is a different area" } }), /\*\*Session\*\* \(the builder's call\): hand off — the next unit is a different area/);
-  assert.match(chatReport(r, { session: { verdict: "archive", why: "nothing left here" } }), /\(the builder's call\): archive — nothing left here/);
-  assert.match(chatReport(r), /\(the builder's call\): \*not stated\.\*/);
-  assert.match(chatReport(r, { session: { verdict: "sure" } }), /not stated/);
-});
-
-test("a model mismatch is named, with the family-aware explanation", () => {
+test("a model mismatch or absence is a caveat, and a match prints nothing", () => {
   const root = tmp();
   write(root, "e", answer({ model: "claude-opus-5-5" }));
-  assert.match(chatReport(readAnswer(root, "e"), { askedModel: "claude-fable-5-1" }), /a different model answered/);
+  assert.match(chatReport(readAnswer(root, "e"), { askedModel: "claude-fable-5-1" }), /\*Caveat:\* It was written by claude-opus-5-5, not the claude-fable-5-1 this repository asks for\./);
   write(root, "e", answer({ model: null }));
   assert.match(chatReport(readAnswer(root, "e"), { askedModel: "claude-fable-5-1" }), /did not say which model/);
+  write(root, "e", answer());
+  assert.doesNotMatch(chatReport(readAnswer(root, "e"), { askedModel: "claude-fable-5-1" }), /Caveat/);
 });
 
 test("the dispatch model resolves to an Agent alias", () => {
@@ -242,13 +221,13 @@ test("the command line prints a brief after preparing, and a report from what wa
   // Written where the brief prepared it, not through `write`, whose prepare step would clear the coordinates.
   fs.writeFileSync(answerPath(root, "f"), JSON.stringify(answer()));
   out = "";
-  main({ argv: ["report", "--unit", "f", "--session", "continue"], root, io, stdout });
-  assert.match(out, /^\*\*Build report — PR #9 — The change · agrees with the builder's account\*\*/, "the header names the unit by number and title, from the brief's coordinates");
-  assert.match(out, /\(the builder's call\): continue/);
+  main({ argv: ["report", "--unit", "f"], root, io, stdout });
+  assert.match(out, /^\*\*Build report — PR #9 — The change\*\*/, "the header names the unit by number and title, from the brief's coordinates");
+  assert.match(out, /\*\*Agrees\*\*/);
   assert.throws(() => main({ argv: ["nope"], root, io, stdout }), /unknown command/);
 });
 
-test("the report names the evidence the brief carried, both ends of a branch range included", () => {
+test("a branch unit is named by both ends of its range", () => {
   const root = tmp();
   let out = "";
   const stdout = { write: (s) => (out += s) };
@@ -257,9 +236,8 @@ test("the report names the evidence the brief carried, both ends of a branch ran
   fs.writeFileSync(answerPath(root, "v3"), JSON.stringify(answer()));
   out = "";
   main({ argv: ["report", "--unit", "v3"], root, io, stdout });
-  assert.match(out, /\*Evidence:\* workstream Issue #4 — Ingest prototype · branch `prototype\/ingest` from after `0ld0001` through `abc1234`/);
-  assert.match(out, /^\*\*Build report — branch `prototype\/ingest` through `abc1234` · agrees/, "a branch unit is named by its branch, which has no number to leave bare");
-  assert.doesNotMatch(out, /chat only/);
+  assert.match(out, /^\*\*Build report — branch `prototype\/ingest` from after `0ld0001` through `abc1234`\*\*/, "both ends: the head is the next version's --since");
+  assert.doesNotMatch(out, /private item/);
 });
 
 test("the private flag without the relayed source is refused, since the sanitized issue holds no plan", () => {
@@ -270,7 +248,7 @@ test("the private flag without the relayed source is refused, since the sanitize
   );
 });
 
-test("a private-path unit is marked for chat-only delivery, and preparing clears stale coordinates", () => {
+test("a private-path unit tells David to keep it in the private item, and preparing clears stale coordinates", () => {
   const root = tmp();
   const stdout = { write: () => {} };
   const src = path.join(os.tmpdir(), `relay-p1-${process.pid}.md`);
@@ -279,21 +257,13 @@ test("a private-path unit is marked for chat-only delivery, and preparing clears
   assert.equal(readUnit(root, "p1").private, true);
   fs.writeFileSync(answerPath(root, "p1"), JSON.stringify(answer()));
   const text = chatReport(readAnswer(root, "p1"), { coords: readUnit(root, "p1") });
-  assert.ok(text.indexOf("chat only, never as an issue comment") < text.indexOf("**Needs you:**"), "the delivery warning leads");
+  assert.ok(text.indexOf("paste this into its private item") > -1 && text.indexOf("paste this into its private item") < text.indexOf("A worker"), "the keeping note leads");
   prepareAnswerPath(root, "p1");
   assert.equal(fs.existsSync(unitPath(root, "p1")), false);
   assert.match(chatReport(readAnswer(root, "p1"), { coords: null }), /report failed/);
 });
 
-test("a report read without its brief's coordinates says so", () => {
-  const root = tmp();
-  write(root, "q", answer());
-  const text = chatReport(readAnswer(root, "q"), { coords: null });
-  assert.match(text, /Evidence:\* \*not recorded/);
-  assert.match(text, /^\*\*Build report — q: agrees/, "with no coordinates the slug is all there is, and the Evidence line says why");
-});
-
-test("a workstream private from the start is reported from the relayed source, delivered in chat only", () => {
+test("a workstream private from the start is reported from the relayed source", () => {
   const root = tmp();
   const src = "Plan: rotate the payment keys. Decisions: none yet. Spend so far: $1.20";
   const brief = buildBrief({ root, unit: "priv", prs: [31], prTitles: ["Rotate the keys"], privateSource: src, privateRef: "SEC-7", io });
@@ -307,9 +277,8 @@ test("a workstream private from the start is reported from the relayed source, d
   assert.doesNotMatch(fs.readFileSync(unitPath(root, "priv"), "utf8"), /rotate/, "the relayed text is never written to disk by the script");
   fs.writeFileSync(answerPath(root, "priv"), JSON.stringify(answer()));
   const text = chatReport(readAnswer(root, "priv"), { coords });
-  assert.match(text, /chat only, never as an issue comment\. David: paste it into the workstream's private item/);
-  assert.match(text, /\*Evidence:\* private workstream \(SEC-7\) · plan and decisions from the private source David relayed · PR #31 — Rotate the keys/);
-  assert.match(text, /^\*\*Build report — PR #31 — Rotate the keys · agrees/);
+  assert.match(text, /David, paste this into its private item to keep it/);
+  assert.match(text, /^\*\*Build report — PR #31 — Rotate the keys\*\*/);
 });
 
 test("a workstream that turned sensitive keeps its sanitized issue and reads the plan from the relay", () => {
