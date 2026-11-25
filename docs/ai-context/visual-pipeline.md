@@ -182,7 +182,8 @@ beside the eval run rather than inside it (plan
   seed and the cell id, the seed never leaving the server — and served by
   `GET /api/admin/comparison/panels/:id/images/:token` with only its content
   type, so neither the payload nor the image names an engine, endpoint, cell
-  or storage path. **Every image is scored 1 to 5** (David, 2026-11-10,
+  or storage path. **In the first judging edition (sets made before
+  2026-11-12; see below), every image is scored 1 to 5** (David, 2026-11-10,
   `decisions.md`, in place of picking the best one). A reference panel shows
   its source photo beside the pictures (`BlindPanel.reference`, the panel's
   stored `reference_image_url`, the same for every engine), so a likeness is
