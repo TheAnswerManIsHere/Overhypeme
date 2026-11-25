@@ -193,7 +193,7 @@ slider's reported value rose.
 
 **Lane:** capture
 
-**Check:** `artifacts/overhype-me/src/components/meme-builder/wizard/step2-image/__tests__/splitLogic.test.ts:clamps maxTopY below the bottom-block boundary`; `artifacts/overhype-me/e2e/capture/memeCaption.capture.spec.ts:the caption at two position-slider settings (R2)`
+**Check:** `artifacts/overhype-me/src/components/meme-builder/__tests__/captionSliders.test.tsx:stops the top slider where the top block meets the bottom block`; `artifacts/overhype-me/e2e/capture/memeCaption.capture.spec.ts:the caption at two position-slider settings (R2)`
 
 ### R3. Photo framing and image quality are unchanged
 

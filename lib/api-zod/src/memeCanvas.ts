@@ -222,6 +222,155 @@ export function captionWords(segments: CaptionSegment[], allCaps: boolean): Capt
   return words;
 }
 
+/** One caption block as it is drawn: its lines and where they sit, in logical canvas units. */
+export interface CaptionBlockLayout {
+  role: "top" | "bottom" | "single";
+  lines: CaptionWord[][];
+  /** The alphabetic baseline of the first line; each later line is one `lineHeight` lower. */
+  firstBaseline: number;
+  /** The top and bottom of the block's ink, outline included. */
+  inkTop: number;
+  inkBottom: number;
+  /** The block's vertical midpoint as drawn, as a percentage of the height: what a position slider shows. */
+  yPct: number;
+  /**
+   * The positions (same unit as `yPct`) the block can take with the other
+   * block where it is: from touching the top margin, or the block above, to
+   * touching the bottom margin, or the block below. A position inside the
+   * range is drawn exactly there.
+   */
+  minPct: number;
+  maxPct: number;
+}
+
+/** Where a meme's caption is drawn (`captionLayout`). */
+export interface CaptionLayout {
+  /** The size the caption is drawn at: the recipe's, or smaller when the caption would not fit the picture at it. */
+  fontSize: number;
+  lineHeight: number;
+  blocks: CaptionBlockLayout[];
+}
+
+/**
+ * Where a caption is drawn: the one place its geometry is decided, used by
+ * `drawMeme` (so by the preview and the saved file) and by the builder's
+ * position sliders, which take their limits from it. Three rules always hold
+ * (#1254, #1260): no line crosses the top edge, none crosses the bottom edge,
+ * and the top and bottom blocks never overlap.
+ *
+ * Each block's midpoint sits at its position (`topY` / `bottomY`, 50% for a
+ * single block) whenever the rules allow, exactly as before they existed.
+ * Otherwise: a block that would cross an edge slides in to the margin; two
+ * blocks that would overlap move apart equally, as far as the edges allow;
+ * and a caption too tall for the picture at its font size (both blocks and
+ * the gap between them) is drawn smaller, both blocks alike, until it fits.
+ *
+ * `measure` gives the width of a string at a font size, in the caption's face.
+ */
+export function captionLayout(
+  measure: (text: string, fontSize: number) => number,
+  input: { aspectRatio: MemeCanvasAspectRatio; caption: MemeCaption; style: MemeCaptionStyle },
+): CaptionLayout {
+  const dims = MEME_CANVAS_DIMS[input.aspectRatio];
+  const { caption, style } = input;
+  const allCaps = style.allCaps !== false;
+  const wanted: { role: CaptionBlockLayout["role"]; words: CaptionWord[]; yPct: number }[] = (
+    caption.mode === "split"
+      ? [
+          { role: "top" as const, words: captionWords(caption.top, allCaps), yPct: style.topY ?? DEFAULT_CAPTION_TOP_Y },
+          { role: "bottom" as const, words: captionWords(caption.bottom, allCaps), yPct: style.bottomY ?? DEFAULT_CAPTION_BOTTOM_Y },
+        ]
+      : [{ role: "single" as const, words: captionWords(caption.text, allCaps), yPct: 50 }]
+  ).filter((b) => b.words.length > 0);
+
+  const wrap = (words: CaptionWord[], size: number): CaptionWord[][] => {
+    const maxWidth = dims.w * 0.92;
+    const lines: CaptionWord[][] = [];
+    let current: CaptionWord[] = [];
+    for (const word of words) {
+      const candidate = [...current, word];
+      if (measure(candidate.map((w) => w.text).join(" "), size) > maxWidth && current.length > 0) {
+        lines.push(current);
+        current = [word];
+      } else {
+        current = candidate;
+      }
+    }
+    if (current.length > 0) lines.push(current);
+    return lines;
+  };
+
+  const margin = Math.round(Math.min(dims.w, dims.h) * CAPTION_EDGE_MARGIN);
+  const room = dims.h - 2 * margin;
+  // The ink a block of n lines spans, top of the first line's capitals to the foot of the last line's descenders.
+  const inkHeight = (n: number, s: number) => (n - 1) * s * CAPTION_LINE_EM + s * (GLYPH_ASCENT_EM + GLYPH_DESCENT_EM) + 2 * CAPTION_INK_PAD;
+  const gapAt = (s: number) => Math.round(s * CAPTION_BLOCK_GAP_EM);
+
+  let size = captionFontSize(style, input.aspectRatio);
+  let wrapped = wanted.map((b) => wrap(b.words, size));
+  const total = () => wrapped.reduce((sum, lines) => sum + inkHeight(lines.length, size), 0) + gapAt(size) * (wrapped.length - 1);
+  while (wanted.length > 0 && total() > room && size > MIN_CAPTION_FONT_SIZE) {
+    size = Math.max(MIN_CAPTION_FONT_SIZE, Math.floor(size * 0.95));
+    wrapped = wanted.map((b) => wrap(b.words, size));
+  }
+  const lineHeight = size * CAPTION_LINE_EM;
+  const gap = gapAt(size);
+
+  // Everything below works on block midpoints (y), so a block nothing moves keeps its position exactly.
+  const h = wrapped.map((lines) => inkHeight(lines.length, size));
+  // From a block's midpoint to the top of its ink: the first line's centre is half a block up and half a
+  // font size down, its baseline CAPTION_BASELINE_EM below that, the ink GLYPH_ASCENT_EM above the baseline.
+  const k = wrapped.map((lines) => -(lines.length * lineHeight) / 2 + size / 2 + size * (CAPTION_BASELINE_EM - GLYPH_ASCENT_EM) - CAPTION_INK_PAD);
+  const y = wanted.map((b) => (b.yPct / 100) * dims.h);
+  const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
+  const top = margin;
+  const bottom = dims.h - margin;
+
+  if (wanted.length === 1) {
+    // Centred when even the smallest size is too tall (unreachable for a caption the save validator accepts).
+    if (h[0]! > room) y[0] = (dims.h - h[0]!) / 2 - k[0]!;
+    else y[0] = clamp(y[0]!, top - k[0]!, bottom - h[0]! - k[0]!);
+  } else if (wanted.length === 2) {
+    if (h[0]! + gap + h[1]! > room) {
+      // Stacked and centred when even the smallest size is too tall (unreachable, as above).
+      const start = (dims.h - (h[0]! + gap + h[1]!)) / 2;
+      y[0] = start - k[0]!;
+      y[1] = start + h[0]! + gap - k[1]!;
+    } else {
+      // Each block inside the picture, leaving room for the other...
+      y[0] = clamp(y[0]!, top - k[0]!, bottom - h[1]! - gap - h[0]! - k[0]!);
+      y[1] = clamp(y[1]!, top + h[0]! + gap - k[1]!, bottom - h[1]! - k[1]!);
+      // ...then apart, equally, when they would overlap, and back inside if that pushed one out.
+      const overlap = y[0]! + k[0]! + h[0]! + gap - (y[1]! + k[1]!);
+      if (overlap > 0) {
+        y[0] = y[0]! - overlap / 2;
+        y[1] = y[1]! + overlap / 2;
+        const over = Math.max(0, top - (y[0]! + k[0]!)) - Math.max(0, y[1]! + k[1]! + h[1]! - bottom);
+        y[0] = y[0]! + over;
+        y[1] = y[1]! + over;
+      }
+    }
+  }
+
+  const pct = (ink: number, i: number) => ((ink - k[i]!) / dims.h) * 100;
+  const blocks = wanted.map((b, i): CaptionBlockLayout => {
+    const inkTop = y[i]! + k[i]!;
+    const above = i === 1 ? y[0]! + k[0]! + h[0]! + gap : top;
+    const below = i === 0 && wanted.length === 2 ? y[1]! + k[1]! - gap : bottom;
+    return {
+      role: b.role,
+      lines: wrapped[i]!,
+      firstBaseline: y[i]! - (wrapped[i]!.length * lineHeight) / 2 + size / 2 + size * CAPTION_BASELINE_EM,
+      inkTop,
+      inkBottom: inkTop + h[i]!,
+      yPct: (y[i]! / dims.h) * 100,
+      minPct: pct(above, i),
+      maxPct: pct(below - h[i]!, i),
+    };
+  });
+  return { fontSize: size, lineHeight, blocks };
+}
+
 /** Draws a meme into `ctx`, in the logical canvas of `input.aspectRatio`. */
 export function drawMeme<Img extends { width: number; height: number }>(
   ctx: MemeCanvasContext,
@@ -239,15 +388,23 @@ export function drawMeme<Img extends { width: number; height: number }>(
   }
 
   const style = input.style;
-  const fontSize = captionFontSize(style, input.aspectRatio);
-  const allCaps = style.allCaps !== false;
   const textColor = style.textColor ?? style.color ?? "#ffffff";
   const effect = style.textEffect ?? "outline";
 
   ctx.save();
+  let fontAt = NaN;
+  const measure = (text: string, size: number) => {
+    if (size !== fontAt) {
+      ctx.font = input.captionFont(size);
+      fontAt = size;
+    }
+    return ctx.measureText(text).width;
+  };
+  const layout = captionLayout(measure, { aspectRatio: input.aspectRatio, caption: input.caption, style });
+  const fontSize = layout.fontSize;
   ctx.font = input.captionFont(fontSize);
   ctx.strokeStyle = style.outlineColor ?? "#000000";
-  ctx.lineWidth = 6;
+  ctx.lineWidth = 2 * CAPTION_INK_PAD;
   // Round joins: the default mitre join shoots spikes past the outline at the
   // sharp corners of condensed faces (seen under Anton's V, 2026-11-06).
   ctx.lineJoin = "round";
@@ -264,63 +421,19 @@ export function drawMeme<Img extends { width: number; height: number }>(
     ctx.shadowOffsetY = 0;
   }
 
-  const wrap = (words: CaptionWord[], maxWidth: number): CaptionWord[][] => {
-    const lines: CaptionWord[][] = [];
-    let current: CaptionWord[] = [];
-    for (const word of words) {
-      const candidate = [...current, word];
-      if (ctx.measureText(candidate.map((w) => w.text).join(" ")).width > maxWidth && current.length > 0) {
-        lines.push(current);
-        current = [word];
-      } else {
-        current = candidate;
-      }
-    }
-    if (current.length > 0) lines.push(current);
-    return lines;
-  };
-
   // Where the caption's ink sits, line by line, so the watermark can keep clear of it.
   const captionBoxes: Box[] = [];
-  const inkPad = 3; // half the outline width
-
-  // Each block is centred horizontally, its vertical midpoint at yPct% of the
-  // height — unless that would put a line across an edge (#1254: a five-line
-  // top caption in portrait lost its first line off the top). Then the block
-  // slides in just far enough to clear the edge, and a block too tall for the
-  // picture at its font size is drawn smaller until it fits.
-  const edgeMargin = Math.round(Math.min(dims.w, dims.h) * CAPTION_EDGE_MARGIN);
-  const drawBlock = (segments: CaptionSegment[], yPct: number) => {
-    const words = captionWords(segments, allCaps);
-    let size = fontSize;
-    ctx.font = input.captionFont(size); // a block before this one may have been drawn smaller
-    let lines = wrap(words, dims.w * 0.92);
-    if (lines.length === 0) return;
-    // The ink a block of n lines spans, top of the first line's capitals to the foot of the last line's descenders.
-    const inkHeight = (n: number, s: number) => (n - 1) * s * 1.1 + s * (GLYPH_ASCENT_EM + GLYPH_DESCENT_EM) + 2 * inkPad;
-    const room = dims.h - 2 * edgeMargin;
-    while (inkHeight(lines.length, size) > room && size > MIN_CAPTION_FONT_SIZE) {
-      size = Math.max(MIN_CAPTION_FONT_SIZE, Math.floor(size * 0.95));
-      ctx.font = input.captionFont(size);
-      lines = wrap(words, dims.w * 0.92);
-    }
-    const lineH = size * 1.1;
-    let firstCentre = (yPct / 100) * dims.h - (lines.length * lineH) / 2 + size / 2;
-    // Line centre to the top of its ink: the baseline sits CAPTION_BASELINE_EM below the centre, the ink GLYPH_ASCENT_EM above that.
-    const inkTop = firstCentre + size * (CAPTION_BASELINE_EM - GLYPH_ASCENT_EM) - inkPad;
-    const inkBottom = inkTop + inkHeight(lines.length, size);
-    if (inkBottom - inkTop > room) firstCentre += (dims.h - inkTop - inkBottom) / 2;
-    else if (inkTop < edgeMargin) firstCentre += edgeMargin - inkTop;
-    else if (inkBottom > dims.h - edgeMargin) firstCentre -= inkBottom - (dims.h - edgeMargin);
-    ctx.textBaseline = "alphabetic";
-    ctx.textAlign = "left";
-    lines.forEach((line, li) => {
-      const y = firstCentre + li * lineH + size * CAPTION_BASELINE_EM;
+  ctx.textBaseline = "alphabetic";
+  ctx.textAlign = "left";
+  // Each block is centred horizontally; `captionLayout` decides where it sits vertically.
+  for (const block of layout.blocks) {
+    block.lines.forEach((line, li) => {
+      const y = block.firstBaseline + li * layout.lineHeight;
       const lineWidth = ctx.measureText(line.map((w) => w.text).join(" ")).width;
       let x = (dims.w - lineWidth) / 2;
       captionBoxes.push({
-        x0: x - inkPad, x1: x + lineWidth + inkPad,
-        y0: y - size * GLYPH_ASCENT_EM - inkPad, y1: y + size * GLYPH_DESCENT_EM + inkPad,
+        x0: x - CAPTION_INK_PAD, x1: x + lineWidth + CAPTION_INK_PAD,
+        y0: y - fontSize * GLYPH_ASCENT_EM - CAPTION_INK_PAD, y1: y + fontSize * GLYPH_DESCENT_EM + CAPTION_INK_PAD,
       });
       line.forEach((word, wi) => {
         word.pieces.forEach((piece, pi) => {
@@ -333,14 +446,6 @@ export function drawMeme<Img extends { width: number; height: number }>(
         });
       });
     });
-  };
-
-  const caption = input.caption;
-  if (caption.mode === "split") {
-    drawBlock(caption.top, style.topY ?? DEFAULT_CAPTION_TOP_Y);
-    drawBlock(caption.bottom, style.bottomY ?? DEFAULT_CAPTION_BOTTOM_Y);
-  } else {
-    drawBlock(caption.text, 50);
   }
   ctx.restore();
 
@@ -381,8 +486,18 @@ export type Box = { x0: number; y0: number; x1: number; y1: number };
 
 /** The clear band a caption keeps from the top and bottom edges, as a fraction of the canvas's shorter side. */
 const CAPTION_EDGE_MARGIN = 0.03;
-/** The smallest a caption block is drawn when shrinking it to fit the picture: the builder's own font-size minimum. */
-const MIN_CAPTION_FONT_SIZE = 32;
+/** The clear band between the top and bottom blocks, as a fraction of the font size. */
+const CAPTION_BLOCK_GAP_EM = 0.25;
+/** From one line's baseline to the next, as a fraction of the font size. */
+const CAPTION_LINE_EM = 1.1;
+/** How far the outline reaches past a glyph: half the outline's width. */
+const CAPTION_INK_PAD = 3;
+/**
+ * The smallest a caption is drawn when shrinking it to fit the picture: the
+ * save validator's own font-size minimum. Two 500-character halves, the
+ * longest the validator accepts, fit every ratio well above it.
+ */
+const MIN_CAPTION_FONT_SIZE = 14;
 
 /** How far a line of text reaches above and below its alphabetic baseline, as fractions of the font size (fixed, so both canvases agree). */
 const GLYPH_ASCENT_EM = 0.85;

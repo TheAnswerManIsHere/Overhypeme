@@ -14,6 +14,7 @@ import { AspectRatioToggle } from "./AspectRatioToggle";
 import { SelfUploadSourcePanel } from "./SelfUploadSourcePanel";
 import { GuestPhotoSignupPanel } from "./GuestPhotoSignupPanel";
 import { AdjustTextSheet } from "./AdjustTextSheet";
+import { useCaptionLayout } from "../../captionLayout";
 import { AdvancedOptionsSheet } from "./AdvancedOptionsSheet";
 import { intelligentSplit } from "./sliders/splitLogic";
 import { buildSaveMemePayload } from "../util/saveMemePayload";
@@ -153,6 +154,9 @@ export function Step2Image({
     };
   }, [textOptions, factText, splitIndex]);
 
+  // The layout the preview is drawing, for the position sliders (#1260).
+  const captionLayout = useCaptionLayout({ factText, name, pronouns, textOptions: memeTextOptions, aspectRatio });
+
   const sourceSelected = !!selfUploadImage;
   // The tier comes from the live auth state on every render (the builder's
   // host passes `roleToIdentity(role)`), and the builder mounts only once auth
@@ -271,6 +275,7 @@ export function Step2Image({
         onSplitChange={setSplitIndex}
         textOptions={textOptions}
         onTextOptionsChange={setTextOptions}
+        captionLayout={captionLayout}
       />
 
       <AdvancedOptionsSheet value={textOptions} onChange={setTextOptions} />
