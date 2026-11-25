@@ -39,6 +39,15 @@ async function hasColumn(c: pg.ClientBase, table: string, column: string): Promi
   return rows.length > 0;
 }
 
+/** Whether a table exists in the connection's schema. A losses step reads only tables the counted database has: the frozen snapshot predates later tables (Issue #1294). */
+async function hasTable(c: pg.ClientBase, table: string): Promise<boolean> {
+  const { rows } = await c.query(
+    `SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1`,
+    [table],
+  );
+  return rows.length > 0;
+}
+
 async function cascadingFks(c: pg.ClientBase): Promise<CascadeFk[]> {
   const { rows } = await c.query<{ child: string; parent: string; child_cols: string[]; parent_cols: string[] }>(`
     SELECT ch.relname AS child, pa.relname AS parent,
@@ -144,9 +153,12 @@ export async function refreshRetirementLosses(c: pg.ClientBase): Promise<Retirem
   const reviewIds = [...refreshIds, ...resubmitIds];
 
   // 0151's order: pending picks, jobs, versions, then the reviews (with their cascades).
-  await cascade("fact_gag_examples", await ctidsWhere("fact_gag_examples",
-    `stage = 'pending' AND gag_id IN (SELECT id FROM fact_gags WHERE removed_at IS NULL AND pending_review_id = ANY($1))`,
-    [refreshIds]));
+  // A database older than 0139/0143 (the frozen snapshot) has no gags, so no picks to count.
+  if (await hasTable(c, "fact_gag_examples") && await hasTable(c, "fact_gags")) {
+    await cascade("fact_gag_examples", await ctidsWhere("fact_gag_examples",
+      `stage = 'pending' AND gag_id IN (SELECT id FROM fact_gags WHERE removed_at IS NULL AND pending_review_id = ANY($1))`,
+      [refreshIds]));
+  }
   await cascade("async_jobs", await ctidsWhere("async_jobs",
     `queue = 'fact_send_back'
       OR (status IN ('pending', 'recovering', 'processing') AND (
