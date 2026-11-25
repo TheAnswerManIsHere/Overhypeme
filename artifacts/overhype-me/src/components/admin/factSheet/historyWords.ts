@@ -18,6 +18,10 @@ export interface FactHistoryEntry {
   actorId: string | null;
   actorName: string | null;
   detail: Record<string, unknown>;
+  /** The slot (1–3) of the gag the record acted on, or null (Issue #1284). */
+  gagSlot?: number | null;
+  /** The picture a render record is about, or null (Issue #1284). */
+  picture?: "male" | "female" | "pet" | null;
   createdAt: string;
 }
 
@@ -113,9 +117,83 @@ export const HISTORY_WORDS: Record<AdminAction, { title: string; detail?: (d: De
   stripe_event_replayed: { title: "Missed Stripe event replayed" },
 };
 
+/** What the record acted on, in words: "Gag 2 · pet picture" (Issue #1284). */
+export function historySubject(entry: Pick<FactHistoryEntry, "gagSlot" | "picture">): string | null {
+  const parts = [entry.gagSlot != null ? `Gag ${entry.gagSlot}` : null, entry.picture ? `${entry.picture} picture` : null];
+  return parts.filter(Boolean).join(" · ") || null;
+}
+
 /** One record in words; an action this build does not know is shown by its name. */
-export function describeHistory(entry: FactHistoryEntry): { title: string; detail: string | null } {
+export function describeHistory(entry: FactHistoryEntry): { title: string; subject: string | null; detail: string | null } {
+  const subject = historySubject(entry);
   const words = (HISTORY_WORDS as Record<string, (typeof HISTORY_WORDS)[AdminAction] | undefined>)[entry.action];
-  if (!words) return { title: entry.action, detail: null };
-  return { title: words.title, detail: words.detail?.(entry.detail ?? {}) ?? null };
+  if (!words) return { title: entry.action, subject, detail: null };
+  return { title: words.title, subject, detail: words.detail?.(entry.detail ?? {}) ?? null };
+}
+
+/** One labelled part of a record's full detail; `lines` are shown one per line. */
+export interface HistoryField { label: string; lines: string[] }
+
+const BUBBLE_WORD: Record<string, string> = { speech: "Speech bubble", thought: "Thought bubble" };
+
+/** A gag's content in full: its scene, every bubble, and the lists an admin wrote (Issue #1284). */
+function gagFields(content: unknown): HistoryField[] {
+  if (!content || typeof content !== "object") return [];
+  const c = content as Record<string, unknown>;
+  const out: HistoryField[] = [];
+  const sceneText = str(c["coreSceneOverride"]);
+  out.push({ label: "Scene", lines: [sceneText ?? "No scene written"] });
+  const bubbles = Array.isArray(c["bubbles"]) ? (c["bubbles"] as Record<string, unknown>[]) : [];
+  out.push({
+    label: "Bubbles",
+    lines: bubbles.length
+      ? bubbles.map((b) => `${BUBBLE_WORD[String(b?.["type"])] ?? "Bubble"}${str(b?.["entity"]) ? ` (${str(b?.["entity"])})` : ""}: “${str(b?.["text"]) ?? ""}”`)
+      : ["None"],
+  });
+  const cast = Array.isArray(c["cast"])
+    ? (c["cast"] as Record<string, unknown>[]).map((e) => [str(e?.["label"]), str(e?.["description"])].filter(Boolean).join(": ")).filter(Boolean)
+    : [];
+  if (cast.length) out.push({ label: "Also in the scene", lines: cast });
+  for (const [key, label] of [["requiredVisualDetails", "Must show"], ["forbiddenVisualDetails", "Must not show"], ["compositionGuidance", "Composition"]] as const) {
+    const items = list(c[key]);
+    if (items.length) out.push({ label, lines: items });
+  }
+  return out;
+}
+
+/** The plain words for a stored detail field; anything else is shown by its own name. */
+const FIELD_LABEL: Record<string, string> = {
+  text: "Text", from: "Before", original: "Original wording", adminNote: "Admin note", reason: "Reason",
+  outcome: "Outcome", hashtags: "Hashtags", added: "Added", removed: "Removed", kinds: "Pictures",
+  redraw: "Redraw", stage: "Step", gagsDiscarded: "Gags discarded", published: "Gags published",
+  reverted: "Gags put back", edited: "Edited", withDraft: "With a draft", noteChanged: "After the Humor Note changed",
+  referenceIdentityType: "Picture", lookStyleId: "Look", readingId: "Reading", attemptId: "Picture id",
+  gagId: "Gag id", changed: "Changed", after: "After", factId: "Fact",
+};
+
+function valueLines(v: unknown): string[] {
+  if (v == null || v === "") return [];
+  if (typeof v === "boolean") return [v ? "Yes" : "No"];
+  if (typeof v === "string" || typeof v === "number") return [String(v)];
+  if (Array.isArray(v)) return v.map((x) => (typeof x === "string" || typeof x === "number" ? String(x) : JSON.stringify(x)));
+  if (typeof v === "object") return Object.keys(v as object).length ? [Object.keys(v as object).join(", ")] : [];
+  return [String(v)];
+}
+
+/**
+ * Everything a record stores, in words, for the line's opened view (Issue
+ * #1284): what it acted on, a gag's full content, then every other field.
+ */
+export function historyFields(entry: FactHistoryEntry): HistoryField[] {
+  const out: HistoryField[] = [];
+  const subject = historySubject(entry);
+  if (subject) out.push({ label: "About", lines: [subject] });
+  const d = entry.detail ?? {};
+  out.push(...gagFields(d["content"]));
+  for (const [key, v] of Object.entries(d)) {
+    if (key === "content") continue;
+    const lines = valueLines(v);
+    if (lines.length) out.push({ label: FIELD_LABEL[key] ?? key, lines });
+  }
+  return out;
 }
