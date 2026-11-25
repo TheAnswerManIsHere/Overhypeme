@@ -18,6 +18,7 @@ import {
   FileText, ImageIcon, Images, Lock, Plus, RotateCcw, ThumbsUp, Trash2,
 } from "lucide-react";
 import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
+import { MemberPicturesSection } from "@/components/library/MemberPicturesSection";
 import { CACHED_COPY_NOTICE } from "@/lib/cachedCopyNotice";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
@@ -422,56 +423,29 @@ export default function Library() {
                 </div>
               )}
 
-              {(drawing.length > 0 || recentlyFailed.length > 0 || memberPictures.isLoading || (memberPictures.items && memberPictures.items.length > 0)) && (
-                <div className="mt-10" data-testid="my-ai-pictures">
-                  <h3 className="text-lg font-display uppercase tracking-wider text-foreground mb-1">Your AI Pictures</h3>
-                  <p className="text-sm text-muted-foreground mb-6">Pictures drawn from your photos. Use one as a meme background from that fact's meme builder.</p>
-                  {(drawing.length > 0 || recentlyFailed.length > 0) && (
-                    <ul className="mb-6 space-y-2" aria-live="polite">
-                      {drawing.map((p) => (
-                        <li key={p.attemptId} className="rounded-sm border-2 border-border bg-card px-3 py-2 text-sm">
-                          {p.status === "queued" ? "Waiting to start drawing…" : "Drawing…"}{" "}
-                          <Link href={`/facts/${p.factId}`} className="underline text-muted-foreground">this fact</Link>
-                        </li>
-                      ))}
-                      {recentlyFailed.map((p) => (
-                        <li key={p.attemptId} className="rounded-sm border-2 border-border bg-card px-3 py-2 text-sm">
-                          {p.reason} {p.creditReturned ? "Your credit was returned." : "Your credit will be returned shortly."}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  {memberPictures.isLoading ? (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                      {Array.from({ length: 4 }).map((_, i) => (
-                        <div key={i} className="aspect-[3/4] bg-card border-2 border-border rounded-sm animate-pulse" />
-                      ))}
-                    </div>
-                  ) : (
-                    <>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                      {memberPictures.items!.map((img) => {
-                        const imgUrl = `${BASE_URL}api/memes/ai-user/image?storagePath=${encodeURIComponent(img.storagePath)}`;
-                        return (
-                          <ImageCard
-                            key={img.id}
-                            src={imgUrl}
-                            alt="Your AI picture"
-                            isAuthProtected
-                            aspectRatio="aspect-[3/4]"
-                            actions={["delete", "openFull"]}
-                            onDelete={() => deleteAiImage(img.id)}
-                            deleteConfirmMessage={`Delete this picture? It moves to Recently deleted, where you can restore it for ${windowDays} days. Its credit is not returned.`}
-                            footer={<AdminMediaInfoForUrl url={imgUrl} fileName={getFileNameFromUrl(img.storagePath)} mimeType={getMimeTypeFromUrl(img.storagePath)} />}
-                          />
-                        );
-                      })}
-                    </div>
-                    <LoadMore list={memberPictures} />
-                    </>
-                  )}
+              <MemberPicturesSection drawing={drawing} recentlyFailed={recentlyFailed} list={memberPictures}>
+                <>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                  {(memberPictures.items ?? []).map((img) => {
+                    const imgUrl = `${BASE_URL}api/memes/ai-user/image?storagePath=${encodeURIComponent(img.storagePath)}`;
+                    return (
+                      <ImageCard
+                        key={img.id}
+                        src={imgUrl}
+                        alt="Your AI picture"
+                        isAuthProtected
+                        aspectRatio="aspect-[3/4]"
+                        actions={["delete", "openFull"]}
+                        onDelete={() => deleteAiImage(img.id)}
+                        deleteConfirmMessage={`Delete this picture? It moves to Recently deleted, where you can restore it for ${windowDays} days. Its credit is not returned.`}
+                        footer={<AdminMediaInfoForUrl url={imgUrl} fileName={getFileNameFromUrl(img.storagePath)} mimeType={getMimeTypeFromUrl(img.storagePath)} />}
+                      />
+                    );
+                  })}
                 </div>
-              )}
+                <LoadMore list={memberPictures} />
+                </>
+              </MemberPicturesSection>
 
               {(aiImages.isLoading || (aiImages.items && aiImages.items.length > 0)) && (
                 <div className="mt-10">

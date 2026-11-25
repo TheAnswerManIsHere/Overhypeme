@@ -32,6 +32,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 function base(url: string) {
   if (url === "/api/member-pictures") return { pictures: [] };
+  if (url.startsWith("/api/users/me/ai-images")) return { images: [], nextCursor: null };
   if (url === "/api/look-styles") return [200, [{ id: "comic", label: "Comic", description: "" }]];
   return undefined;
 }
@@ -118,5 +119,104 @@ describe("AiPicturePanel", () => {
     fireEvent.click(screen.getByTestId("ai-picture-open"));
     await waitFor(() => expect(screen.getByText("You have no credits left for a picture.")).toBeTruthy());
     expect(screen.getByTestId("ai-picture-confirm").hasAttribute("disabled")).toBe(true);
+  });
+
+  it("offers the member's finished pictures of this fact, and uses one only when tapped (PR #1313, round 1)", async () => {
+    const onPicture = vi.fn();
+    const calls = stubFetch((url) => {
+      if (url.startsWith("/api/users/me/ai-images")) {
+        return url.includes("cursor=c1")
+          ? { images: [{ id: 8, storagePath: "b.png" }], nextCursor: null }
+          : { images: [{ id: 7, storagePath: "a.png" }], nextCursor: "c1" };
+      }
+      return base(url) ?? options(1);
+    });
+    render(<AiPicturePanel factId="3" photoUploadKey="/objects/uploads/p.jpg" onPicture={onPicture} selectedAiImageId={null} />);
+    await waitFor(() => expect(screen.getByTestId("ai-picture-finished")).toBeTruthy());
+    expect(calls.find((c) => c.url.startsWith("/api/users/me/ai-images"))!.url).toBe("/api/users/me/ai-images?imageType=member_picture&factId=3");
+    expect(onPicture).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText("Show more"));
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Use this picture" })).toHaveLength(2));
+    fireEvent.click(screen.getAllByRole("button", { name: "Use this picture" })[1]!);
+    expect(onPicture).toHaveBeenCalledWith({ aiImageId: 8, imageUrl: "/api/memes/ai-user/image?storagePath=b.png" });
+  });
+
+  it("a server error or an unreadable answer keeps the request, choices included; a refusal starts a new one (PR #1313, round 1)", async () => {
+    const answers: Array<() => Response> = [
+      () => new Response("{}", { status: 500 }),
+      () => new Response("not json", { status: 202 }),
+      () => new Response(JSON.stringify({ message: "No credit." }), { status: 402 }),
+      () => new Response(JSON.stringify({ picture: picture("queued"), credits: 0 }), { status: 202 }),
+    ];
+    const posts: Array<Record<string, unknown>> = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/facts/3/member-pictures") {
+        posts.push(JSON.parse(String(init!.body)));
+        return answers.shift()!();
+      }
+      const out = base(url) ?? options(2, { credits: 3, nextIsFree: false });
+      const [status, body] = Array.isArray(out) ? out : [200, out];
+      return new Response(JSON.stringify(body), { status: status as number });
+    }));
+    render(<AiPicturePanel factId="3" photoUploadKey="/objects/uploads/p.jpg" onPicture={() => {}} selectedAiImageId={null} />);
+    fireEvent.click(screen.getByTestId("ai-picture-open"));
+    await waitFor(() => expect(screen.getAllByTestId("ai-picture-gag")).toHaveLength(2));
+    fireEvent.click(screen.getAllByTestId("ai-picture-gag")[1]!);
+    fireEvent.click(screen.getByTestId("ai-picture-confirm"));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("won't be charged twice"));
+    // The member changes the gag before retrying: the retry is still the first request.
+    fireEvent.click(screen.getAllByTestId("ai-picture-gag")[0]!);
+    fireEvent.click(screen.getByTestId("ai-picture-confirm"));
+    await waitFor(() => expect(posts).toHaveLength(2));
+    await waitFor(() => expect(screen.getByTestId("ai-picture-confirm").textContent).not.toContain("Starting"));
+    fireEvent.click(screen.getByTestId("ai-picture-confirm"));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("No credit."));
+    fireEvent.click(screen.getByTestId("ai-picture-confirm"));
+    await waitFor(() => expect(screen.getByTestId("ai-picture-status")).toBeTruthy());
+    expect(posts[1]).toEqual(posts[0]);
+    expect(posts[2]).toEqual(posts[0]);
+    expect(posts[0]!.gagId).toBe(11);
+    expect(posts[3]!.requestId).not.toBe(posts[0]!.requestId);
+    expect(posts[3]!.gagId).toBe(10);
+  });
+
+  it("a failed status check keeps following the picture until it is done (PR #1313, round 1)", async () => {
+    const onPicture = vi.fn();
+    let polls = 0;
+    stubFetch((url) => {
+      if (url === "/api/member-pictures") return { pictures: [picture("drawing")] };
+      if (url === "/api/member-pictures/5") {
+        polls++;
+        if (polls === 1) return new Error("network");
+        if (polls === 2) return [503, {}];
+        return { picture: picture("done", { aiImageId: 9, imageUrl: "/x" }), credits: 0 };
+      }
+      return base(url) ?? options(1);
+    });
+    render(<AiPicturePanel factId="3" photoUploadKey="/objects/uploads/p.jpg" onPicture={onPicture} selectedAiImageId={null} />);
+    await waitFor(() => expect(onPicture).toHaveBeenCalledWith({ aiImageId: 9, imageUrl: "/x" }), { timeout: 10_000 });
+    expect(polls).toBe(3);
+  }, 15_000);
+
+  it("\"Make another\" reads the cost again, so a spent free picture is not offered twice (PR #1313, round 1)", async () => {
+    let optionReads = 0;
+    stubFetch((url) => {
+      const b = base(url); if (b !== undefined) return b;
+      if (url === "/api/facts/3/member-pictures") return [202, { picture: picture("failed", { reason: "No.", creditReturned: false }), credits: 2 }];
+      optionReads++;
+      return optionReads === 1 ? options(2, { credits: 3, nextIsFree: true }) : options(2, { credits: 2, nextIsFree: false });
+    });
+    render(<AiPicturePanel factId="3" photoUploadKey="/objects/uploads/p.jpg" onPicture={() => {}} selectedAiImageId={null} />);
+    fireEvent.click(screen.getByTestId("ai-picture-open"));
+    await waitFor(() => expect(screen.getByTestId("ai-picture-confirm").textContent).toContain("your free picture"));
+    fireEvent.click(screen.getAllByTestId("ai-picture-gag")[1]!);
+    fireEvent.click(screen.getByTestId("ai-picture-confirm"));
+    await waitFor(() => expect(screen.getByText("Make another")).toBeTruthy());
+    fireEvent.click(screen.getByText("Make another"));
+    await waitFor(() => expect(screen.getByTestId("ai-picture-confirm").textContent).toContain("Make it: 1 credit"));
+    expect(screen.getByTestId("ai-picture-confirm").textContent).toContain("1 credit left after");
+    expect(optionReads).toBe(2);
+    // The member's gag survives the re-read.
+    expect(screen.getAllByTestId("ai-picture-gag")[1]!.getAttribute("aria-pressed")).toBe("true");
   });
 });

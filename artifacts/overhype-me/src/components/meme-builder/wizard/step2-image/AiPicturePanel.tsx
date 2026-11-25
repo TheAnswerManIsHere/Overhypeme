@@ -48,6 +48,12 @@ export interface MemberPictureState {
   createdAt: string;
 }
 
+/** One of the member's finished pictures of this fact (`GET /users/me/ai-images`). */
+interface FinishedPicture {
+  id: number;
+  storagePath: string;
+}
+
 interface Props {
   factId: string;
   /** The member's own photo chosen above (`/objects/...`), or null. */
@@ -92,9 +98,31 @@ export function AiPicturePanel({ factId, photoUploadKey, onPicture, selectedAiIm
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [picture, setPicture] = useState<MemberPictureState | null>(null);
-  // One id per confirmation: a retried request is the same picture, never a second credit.
-  const requestId = useRef<string | null>(null);
+  const [finished, setFinished] = useState<FinishedPicture[]>([]);
+  const [finishedCursor, setFinishedCursor] = useState<string | null>(null);
+  const [pollTick, setPollTick] = useState(0);
+  // One request per confirmation, id and parameters together: a retried request
+  // is the same picture, never a second credit, until the server has answered.
+  const pending = useRef<{ requestId: string; body: Record<string, unknown> } | null>(null);
   const delivered = useRef<number | null>(null);
+
+  // The member's finished pictures of this fact, offered as backgrounds (never applied on their own).
+  const loadFinished = useCallback((cursor: string | null) => {
+    const q = new URLSearchParams({ imageType: "member_picture", factId });
+    if (cursor) q.set("cursor", cursor);
+    return fetch(`/api/users/me/ai-images?${q}`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { images: FinishedPicture[]; nextCursor: string | null } | null) => {
+        if (!body || !Array.isArray(body.images)) return;
+        setFinished((prev) => {
+          const seen = new Set(cursor ? prev.map((f) => f.id) : []);
+          return [...(cursor ? prev : []), ...body.images.filter((f) => !seen.has(f.id))];
+        });
+        setFinishedCursor(body.nextCursor ?? null);
+      })
+      .catch(() => undefined);
+  }, [factId]);
+  useEffect(() => { void loadFinished(null); }, [loadFinished]);
 
   // Coming back to the builder shows the latest picture of this fact still in flight.
   useEffect(() => {
@@ -125,70 +153,85 @@ export function AiPicturePanel({ factId, photoUploadKey, onPicture, selectedAiIm
         if (cancelled) return;
         setOptions(o);
         setLooks(l);
-        setGagId(o.gags[0]?.gagId ?? null);
+        // A re-read keeps the member's gag while the fact still offers it.
+        setGagId((prev) => (o.gags.some((g) => g.gagId === prev) ? prev : o.gags[0]?.gagId ?? null));
       })
       .catch(() => { if (!cancelled) setLoadError("We couldn't load this fact's pictures. Try again in a moment."); });
     return () => { cancelled = true; };
   }, [open, options, factId]);
 
-  // Follow a picture while it draws.
+  // Follow a picture while it draws. A failed check schedules the next one: only
+  // done or failed ends the follow.
   const inFlight = !!picture && isInFlight(picture);
+  const followId = inFlight ? picture.attemptId : null;
   useEffect(() => {
-    if (!picture || !inFlight) return;
+    if (followId === null) return;
+    let cancelled = false;
     const t = setTimeout(() => {
-      void fetch(`/api/member-pictures/${picture.attemptId}`, { credentials: "include" })
+      void fetch(`/api/member-pictures/${followId}`, { credentials: "include" })
         .then((r) => (r.ok ? r.json() : null))
         .then((body: { picture: MemberPictureState; credits: number } | null) => {
-          if (!body) return;
+          if (cancelled || !body?.picture) return;
           setPicture(body.picture);
           setOptions((o) => (o ? { ...o, credits: body.credits } : o));
         })
-        .catch(() => undefined);
+        .catch(() => undefined)
+        .finally(() => { if (!cancelled) setPollTick((n) => n + 1); });
     }, POLL_MS);
-    return () => clearTimeout(t);
-  }, [picture, inFlight]);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [followId, pollTick]);
 
   // A finished picture becomes the background, once.
   useEffect(() => {
     if (picture?.status === "done" && picture.aiImageId && picture.imageUrl && delivered.current !== picture.aiImageId) {
       delivered.current = picture.aiImageId;
       onPicture({ aiImageId: picture.aiImageId, imageUrl: picture.imageUrl });
+      void loadFinished(null);
     }
-  }, [picture, onPicture]);
+  }, [picture, onPicture, loadFinished]);
 
   const confirm = useCallback(async () => {
     if (!photoUploadKey || submitting) return;
     if (subject === "pet" && !petName.trim()) { setSubmitError("Give your pet's name, for the picture."); return; }
     setSubmitting(true);
     setSubmitError(null);
-    requestId.current ??= newRequestId();
+    // Until the server answers for certain, a retry sends the same request: same id, same choices.
+    pending.current ??= {
+      requestId: newRequestId(),
+      body: {
+        gagId: options?.choice ? gagId : null,
+        uploadKey: photoUploadKey,
+        lookStyleId,
+        subject: subject === "pet" ? { kind: "pet", name: petName.trim(), pronouns: petPronouns } : { kind: "me" },
+        aspectRatio: "portrait",
+      },
+    };
+    const unsure = "We couldn't tell whether this picture started. Try again; you won't be charged twice.";
     try {
       const res = await fetch(`/api/facts/${encodeURIComponent(factId)}/member-pictures`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          requestId: requestId.current,
-          gagId: options?.choice ? gagId : null,
-          uploadKey: photoUploadKey,
-          lookStyleId,
-          subject: subject === "pet" ? { kind: "pet", name: petName.trim(), pronouns: petPronouns } : { kind: "me" },
-          aspectRatio: "portrait",
-        }),
+        body: JSON.stringify({ requestId: pending.current.requestId, ...pending.current.body }),
       });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      if (res.status >= 400 && res.status < 500) {
         // A refusal is final for this confirmation: the next try is a new request.
-        requestId.current = null;
-        setSubmitError(body.message ?? "We couldn't start this picture. Try again.");
+        pending.current = null;
+        setSubmitError(body?.message ?? "We couldn't start this picture. Try again.");
         return;
       }
-      requestId.current = null;
+      if (!res.ok || !body?.picture) {
+        // A server error or an unreadable answer may still have started the picture: keep the request.
+        setSubmitError(unsure);
+        return;
+      }
+      pending.current = null;
       setPicture(body.picture as MemberPictureState);
       setOptions((o) => (o ? { ...o, credits: body.credits } : o));
     } catch {
-      // A lost response keeps the same id: trying again cannot spend twice.
-      setSubmitError("We lost the connection. Try again; you won't be charged twice.");
+      // A lost response keeps the same request: trying again cannot spend twice.
+      setSubmitError(unsure);
     } finally {
       setSubmitting(false);
     }
@@ -197,17 +240,49 @@ export function AiPicturePanel({ factId, photoUploadKey, onPicture, selectedAiIm
   const cost = options?.nextIsFree ? "your free picture" : "1 credit";
   const canAfford = (options?.credits ?? 0) >= 1;
 
+  const finishedSection = finished.length > 0 && (
+    <div className="space-y-2" data-testid="ai-picture-finished">
+      <p className="text-sm font-medium">Your pictures of this fact</p>
+      <div className="flex flex-wrap gap-2">
+        {finished.map((f) => {
+          const url = `/api/memes/ai-user/image?storagePath=${encodeURIComponent(f.storagePath)}`;
+          const used = f.id === selectedAiImageId;
+          return (
+            <button
+              key={f.id}
+              type="button"
+              aria-pressed={used}
+              aria-label={used ? "Used as your background" : "Use this picture"}
+              onClick={() => onPicture({ aiImageId: f.id, imageUrl: url })}
+              className={`rounded border-2 ${used ? "border-primary" : "border-transparent"}`}
+            >
+              <img src={url} alt="" className="h-20 w-16 rounded object-cover" loading="lazy" />
+            </button>
+          );
+        })}
+      </div>
+      {finishedCursor && (
+        <button type="button" className="text-xs underline text-muted-foreground" onClick={() => void loadFinished(finishedCursor)}>
+          Show more
+        </button>
+      )}
+    </div>
+  );
+
   if (!open) {
     return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="w-full rounded-md border border-primary/40 bg-primary/10 px-4 py-3 text-left text-sm font-medium text-foreground hover:bg-primary/20"
-        data-testid="ai-picture-open"
-      >
-        Make an AI picture of you in this fact
-        <span className="block text-xs font-normal text-muted-foreground">From your photo, drawn into the joke. One credit.</span>
-      </button>
+      <div className="space-y-3">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="w-full rounded-md border border-primary/40 bg-primary/10 px-4 py-3 text-left text-sm font-medium text-foreground hover:bg-primary/20"
+          data-testid="ai-picture-open"
+        >
+          Make an AI picture of you in this fact
+          <span className="block text-xs font-normal text-muted-foreground">From your photo, drawn into the joke. One credit.</span>
+        </button>
+        {finishedSection}
+      </div>
     );
   }
 
@@ -251,12 +326,23 @@ export function AiPicturePanel({ factId, photoUploadKey, onPicture, selectedAiIm
             <p className="text-sm text-muted-foreground">This picture was deleted, so there is nothing to show.</p>
           )}
           {(picture.status === "done" || picture.status === "failed") && (
-            <button type="button" className="text-xs underline text-muted-foreground" onClick={() => setPicture(null)}>
+            <button
+              type="button"
+              className="text-xs underline text-muted-foreground"
+              onClick={() => {
+                // The cost, the balance and the gags are read again: the last picture changed them.
+                setPicture(null);
+                setOptions(null);
+                setLoadError(null);
+              }}
+            >
               Make another
             </button>
           )}
         </div>
       )}
+
+      {finishedSection}
 
       {!picture && (
         <>

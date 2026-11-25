@@ -185,6 +185,11 @@ export function Step2Image({
     setAiPicture(null);
     setSelfUploadImage(next);
   };
+  // The picker's own default pick fills the photo an AI picture is drawn from,
+  // but never replaces an AI picture already used as the background.
+  const handleSelfUploadImageAutoSelect = (next: MyImageSource) => {
+    setSelfUploadImage(next);
+  };
 
   const save = async () => {
     // The create request carries the visitor's name and pronouns, so it goes
@@ -280,6 +285,7 @@ export function Step2Image({
           <SelfUploadSourcePanel
             selected={selfUploadImage}
             onSelect={handleSelfUploadImageSelect}
+            onAutoSelect={handleSelfUploadImageAutoSelect}
           />
           <AiPicturePanel
             factId={factId}
