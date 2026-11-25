@@ -20,7 +20,7 @@ import { sql } from "drizzle-orm";
 import { db, pool } from "@workspace/db";
 import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
-import { isRetiredSettingValue, mergeLosses, retiredSettingLosses, variantRetirementLosses } from "../lib/retirementLosses.js";
+import { isIntendedSettingChange, isRetiredSettingValue, mergeLosses, refreshRetirementLosses, retiredSettingLosses, rowRetirementLosses, variantRetirementLosses } from "../lib/retirementLosses.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATION_SQL = readFileSync(path.resolve(__dirname, "../../../../lib/db/migrations/0142_retire_variants.sql"), "utf8");
@@ -185,5 +185,108 @@ describe("a retired setting is an intended deletion (0149)", () => {
     assert.equal(isRetiredSettingValue("admin_config/review_duplicate_threshold_other/value"), false);
     assert.equal(isRetiredSettingValue("admin_config/email_max_attempts/value"), false);
     assert.deepEqual([...mergeLosses(new Map([["facts", 2]]), new Map([["facts", 1], ["admin_config", 1]]))], [["facts", 3], ["admin_config", 1]]);
+  });
+});
+
+// Issue #1294: the rehearsal counts on the frozen snapshot, which predates
+// 0139 and 0143, so fact_gags and fact_gag_examples do not exist there. A
+// counting step that reads a table the database lacks must skip it, never throw.
+describe("refreshRetirementLosses on a database older than the gag tables (#1294)", () => {
+  const schema = `t_rl_old_${randomUUID().slice(0, 8)}`;
+
+  after(async () => {
+    await db.execute(sql.raw(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`));
+  });
+
+  it("counts the refresh reviews and skips the gag examples it cannot have", async () => {
+    // The shape the snapshot gives the tables this step reads; no fact_gags, no fact_gag_examples.
+    await db.execute(sql.raw(`
+      CREATE SCHEMA "${schema}";
+      CREATE TABLE "${schema}".facts (id serial PRIMARY KEY, created_at timestamptz NOT NULL DEFAULT now());
+      CREATE TABLE "${schema}".pending_reviews (
+        id serial PRIMARY KEY, staging_fact_id integer REFERENCES "${schema}".facts(id),
+        candidate_version_id integer, status varchar NOT NULL DEFAULT 'pending',
+        created_at timestamptz NOT NULL DEFAULT now());
+      CREATE TABLE "${schema}".async_jobs (id serial PRIMARY KEY, queue varchar NOT NULL, status varchar NOT NULL, payload jsonb NOT NULL DEFAULT '{}');
+      CREATE TABLE "${schema}".fact_enrichment_versions (id serial PRIMARY KEY, status varchar NOT NULL);
+      INSERT INTO "${schema}".facts DEFAULT VALUES;
+      INSERT INTO "${schema}".pending_reviews (staging_fact_id, candidate_version_id) VALUES (1, 7);
+      INSERT INTO "${schema}".fact_enrichment_versions (status) VALUES ('candidate'), ('current');
+    `));
+    const client = await pool.connect();
+    try {
+      await client.query(`SET search_path TO "${schema}"`);
+      const losses = await refreshRetirementLosses(client);
+      assert.deepEqual(Object.fromEntries(losses), { fact_enrichment_versions: 1, pending_reviews: 1 });
+    } finally {
+      await client.query("RESET search_path");
+      client.release();
+    }
+  });
+});
+
+// Issue #1302: on the frozen snapshot the rehearsal's first full run failed on
+// deletions and changes migrations made on purpose but never declared, and it
+// over-counted pending_reviews because 0142's and 0151's counts were summed.
+describe("every intended deletion is declared once (#1302)", () => {
+  const schema = `t_rl_rows_${randomUUID().slice(0, 8)}`;
+
+  after(async () => {
+    await db.execute(sql.raw(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`));
+  });
+
+  it("counts a row two migrations would delete once: 0142 and 0151 share a review, 0142 and 0145 an attempt", async () => {
+    // The snapshot's shape for what these steps read; no comparison or gag tables.
+    await db.execute(sql.raw(`
+      CREATE SCHEMA "${schema}";
+      CREATE TABLE "${schema}".facts (id serial PRIMARY KEY, parent_id integer, created_at timestamptz NOT NULL DEFAULT now() - interval '1 day');
+      CREATE TABLE "${schema}".memes (id serial PRIMARY KEY, fact_id integer);
+      CREATE TABLE "${schema}".comments (id serial PRIMARY KEY, fact_id integer);
+      CREATE TABLE "${schema}".pending_reviews (
+        id serial PRIMARY KEY, staging_fact_id integer, approved_fact_id integer,
+        candidate_version_id integer, status varchar NOT NULL DEFAULT 'pending',
+        created_at timestamptz NOT NULL DEFAULT now());
+      CREATE TABLE "${schema}".image_prompt_attempts (
+        id serial PRIMARY KEY, fact_id integer REFERENCES "${schema}".facts(id) ON DELETE CASCADE,
+        source_image_analysis jsonb NOT NULL DEFAULT '{}', visual_plan jsonb,
+        review_render_scenario_key varchar(40), eval_scenario_key varchar(40), review_reference_identity_type varchar(32));
+      CREATE TABLE "${schema}".async_jobs (id serial PRIMARY KEY, queue varchar NOT NULL, status varchar NOT NULL, payload jsonb NOT NULL DEFAULT '{}');
+      CREATE TABLE "${schema}".fact_enrichment_versions (id serial PRIMARY KEY, status varchar NOT NULL);
+      -- fact 1: an ordinary fact; fact 2: a variant of it.
+      INSERT INTO "${schema}".facts (parent_id) VALUES (NULL), (1);
+      -- A pending review of the variant, newer than its fact: 0142 deletes it with the
+      -- variant, and 0151's resubmission rule would also select it.
+      INSERT INTO "${schema}".pending_reviews (staging_fact_id) VALUES (2);
+      -- A vehicle render of the variant (0142 cascades it, 0145 would select it),
+      -- an object render of the ordinary fact (0145 only), and a person render (kept).
+      INSERT INTO "${schema}".image_prompt_attempts (fact_id, source_image_analysis) VALUES
+        (2, '{"subjectKind":"vehicle_subject"}'), (1, '{"subjectKind":"object_subject"}'), (1, '{"subjectKind":"human_face"}');
+    `));
+    const client = await pool.connect();
+    try {
+      await client.query(`SET search_path TO "${schema}"`);
+      const losses = await rowRetirementLosses(client);
+      assert.deepEqual(Object.fromEntries(losses), { facts: 1, pending_reviews: 1, image_prompt_attempts: 2 });
+      // The old way, each step counted on its own and the counts summed, counts the shared rows twice.
+      const { peopleAndPetsLosses } = await import("../lib/retirementLosses.js");
+      const summed = mergeLosses(await variantRetirementLosses(client), await peopleAndPetsLosses(client), await refreshRetirementLosses(client));
+      assert.deepEqual(Object.fromEntries(summed), { facts: 1, pending_reviews: 2, image_prompt_attempts: 3 });
+    } finally {
+      await client.query("RESET search_path");
+      client.release();
+    }
+  });
+
+  it("declares 0138's AI settings and 0163's custom_avatar permissions retired, and 0156's reply-to change intended", () => {
+    assert.equal(isRetiredSettingValue("admin_config/fact_enrichment_system/value"), true);
+    assert.equal(isRetiredSettingValue("admin_config/image_engine_t2i/value_label"), true);
+    assert.equal(isRetiredSettingValue("tier_feature_permissions/legendary/custom_avatar/enabled"), true);
+    assert.equal(isRetiredSettingValue("tier_feature_permissions/legendary/custom_photo/enabled"), false);
+    assert.equal(isRetiredSettingValue("admin_config/email_reply_to/value"), false);
+    const key = "admin_config/email_reply_to/value";
+    assert.equal(isIntendedSettingChange(key, JSON.stringify("overhypeme+support@gmail.com"), JSON.stringify("support@overhype.me")), true);
+    assert.equal(isIntendedSettingChange(key, JSON.stringify("someone@else.test"), JSON.stringify("support@overhype.me")), false, "only from the retired alias");
+    assert.equal(isIntendedSettingChange(key, JSON.stringify("overhypeme+support@gmail.com"), undefined), false, "never to absent");
+    assert.equal(isIntendedSettingChange("admin_config/site_name/value", "\"a\"", "\"b\""), false);
   });
 });

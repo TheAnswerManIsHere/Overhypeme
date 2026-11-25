@@ -3,8 +3,8 @@
  *
  * Pre-generation budget check and post-generation cost ledger recording.
  * The limit is a backstop that follows the credits an account has been
- * granted (`budget_per_credit_ceiling_usd` per credit, all time; launch Phase
- * 7), the same rule for every account; an admin is exempt and a per-user
+ * granted (`budget_per_credit_ceiling_usd` per credit, against the spend on
+ * record, kept 13 months; launch Phase 7), the same rule for every account; an admin is exempt and a per-user
  * override replaces it. Its figure comes from admin_config.
  *
  * `checkBudget` FAILS CLOSED: if the check itself cannot complete, it throws
@@ -179,7 +179,9 @@ export async function checkBudget(
         .select({ granted: sql<string>`COALESCE(SUM(${creditLedgerTable.credits}), 0)` })
         .from(creditLedgerTable)
         .where(sql`${creditLedgerTable.userId} = ${userId} AND ${creditLedgerTable.lotId} IS NULL`),
-      // This account's recorded spend, all time.
+      // This account's recorded spend: every cost row on record, which the
+      // retention job keeps 13 months (dataLifecycle.ts). Not a lifetime total
+      // once rows age out; whether it should be is open (PR #1300).
       db
         .select({ total: sql<string>`COALESCE(SUM(${userGenerationCostsTable.computedCostUsd}), 0)` })
         .from(userGenerationCostsTable)

@@ -61,6 +61,12 @@ export interface AnalyzeSourceImageOptions {
   skipAiFallback?: boolean;
   /** Force a fresh analysis even when a cached one exists. */
   bypassCache?: boolean;
+  /**
+   * Called once each time this analysis actually asks the paid vision check
+   * and gets an answer (never on a cache hit), so a caller can record that
+   * call's cost: a cached result does not say whether this request paid.
+   */
+  onPaidCheck?: () => Promise<void>;
 }
 
 export interface AnalyzeSourceImageRef {
@@ -110,6 +116,7 @@ export async function analyzeSourceImage(
     logger.warn({ err, expected: err instanceof Tier3VisionError }, "[analyzeSourceImage] AI vision check failed; the photo is not classified");
     return notAnalyzed(sha256, "The AI vision check is unavailable right now, so this photo could not be classified. Try again shortly.");
   }
+  await opts.onPaidCheck?.();
 
   // 5. Cache write-through.
   if (meta) {

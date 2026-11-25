@@ -34,7 +34,7 @@ import {
 import { EMPTY_VISUAL_STRATEGY_OVERRIDE, buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 
 import { requestMemberPicture, MemberPictureError, type MemberPictureCommand } from "../lib/memberPictures/command.js";
-import { runMemberPictureSettlementPass, PICTURE_DEADLINE_MS } from "../lib/memberPictures/settlement.js";
+import { runMemberPictureSettlementPass, PICTURE_DEADLINE_MS, returnUndeliveredPicture } from "../lib/memberPictures/settlement.js";
 import { __setOutputClassifierForTest } from "../lib/memberPictures/outputCheck.js";
 import { __setReferenceFalUploadForTest } from "../lib/defaultReferenceResolver.js";
 import { imagePromptGenerationHandler, imageGenerationHandler } from "../lib/imagePromptJobs.js";
@@ -42,6 +42,8 @@ import { __setRenderFalForTest } from "../lib/renderFalTransport.js";
 import { __setTier3ForTest } from "../lib/sourceImageAnalysis/index.js";
 import { creditBalance } from "../lib/credits/ledger.js";
 import { createMemeRecord, CreateMemeError } from "../lib/createMemeRecord.js";
+import { deleteFact, attachedContent } from "../lib/factLifecycle.js";
+import { runContentPurger } from "../jobs/contentPurger.js";
 import { photoBackgrounds } from "./helpers/photoBackground.js";
 import { withCast } from "./helpers/gagCast.js";
 import { giveExampleSet } from "./helpers/gagExampleSets.js";
@@ -258,6 +260,62 @@ describe("Phase 7 inc 2: one command, one picture", () => {
     assert.equal(await creditBalance(userId), 0);
   });
 
+  it("the same command sent twice at once with one credit: both answers name one picture, one spend (Codex review, PR #1300)", async () => {
+    const userId = await newMember(1);
+    const { factId } = await liveFact();
+    const cmd = await command(userId, factId);
+    const [a, b] = await Promise.all([requestMemberPicture(cmd), requestMemberPicture(cmd)]);
+    assert.equal(a.attemptId, b.attemptId);
+    assert.equal([a, b].filter((h) => h.created).length, 1);
+    assert.equal(await creditBalance(userId), 0);
+    assert.equal((await ledgerFor(a.attemptId)).filter((r) => r.kind === "picture_spend").length, 1);
+  });
+
+  it("the same command sent twice at once with one place left under the in-progress cap: both answers name one picture", async () => {
+    const userId = await newMember(4);
+    const { factId } = await liveFact();
+    await requestMemberPicture(await command(userId, factId));
+    await requestMemberPicture(await command(userId, factId));
+    const cmd = await command(userId, factId);
+    const [a, b] = await Promise.all([requestMemberPicture(cmd), requestMemberPicture(cmd)]);
+    assert.equal(a.attemptId, b.attemptId);
+    assert.equal([a, b].filter((h) => h.created).length, 1);
+    assert.equal(await creditBalance(userId), 1);
+    // A different command is still refused at the cap.
+    await assert.rejects(requestMemberPicture(await command(userId, factId)), (e: unknown) => e instanceof MemberPictureError && e.code === "too_many_in_progress");
+  });
+
+  it("photo checks made at once on an unchecked photo each record their cost; a later cached one records none (Codex review, PR #1300)", async () => {
+    const userId = await newMember(4);
+    const { factId } = await liveFact();
+    const key = await photos.seed(userId);
+    let checks = 0;
+    __setTier3ForTest(async () => { checks++; await new Promise((r) => setTimeout(r, 50)); return { ...PERSON } as never; });
+    const costRows = async () => (await db.select().from(userGenerationCostsTable)
+      .where(and(eq(userGenerationCostsTable.userId, userId), like(userGenerationCostsTable.jobReferenceId, "check:photo:%")))).length;
+    await Promise.all([1, 2].map(async () => requestMemberPicture(await command(userId, factId, { uploadKey: key }))));
+    assert.ok(checks >= 1);
+    assert.equal(await costRows(), checks, "one cost row per vision check actually made");
+    const before = checks;
+    await requestMemberPicture(await command(userId, factId, { uploadKey: key }));
+    assert.equal(checks, before, "a cached photo is not checked again");
+    assert.equal(await costRows(), before, "and records no cost");
+  });
+
+  it("once recorded spend reaches the allowance, the next command is refused before the vision check runs", async () => {
+    const userId = await newMember(1);
+    const { factId } = await liveFact();
+    await db.insert(userGenerationCostsTable).values({
+      userId, jobType: "image", endpointId: "t", unitPriceAtCreation: "0.30", billingUnits: 1, computedCostUsd: "0.30",
+      pricingFetchedAt: new Date(), jobReferenceId: `t-spent-${userId}`, isEstimated: true,
+    } as never);
+    let checks = 0;
+    __setTier3ForTest(async () => { checks++; return { ...PERSON } as never; });
+    await assert.rejects(requestMemberPicture(await command(userId, factId)), (e: unknown) => e instanceof MemberPictureError && e.code === "temporarily_unavailable");
+    assert.equal(checks, 0);
+    assert.equal(await creditBalance(userId), 1, "nothing spent");
+  });
+
   it("the photo check passes the gate and its cost is recorded once per photo", async () => {
     const userId = await newMember(3);
     const { factId } = await liveFact();
@@ -462,9 +520,105 @@ describe("Phase 7 inc 2: every failure returns the credit", () => {
     const { attemptId } = await requestMemberPicture(await command(userId, factId));
     await prompt(attemptId);
     await runMemberPictureSettlementPass(Date.now() + PICTURE_DEADLINE_MS + 60_000);
-    const { out } = await draw(attemptId);
+    let outputChecks = 0;
+    __setOutputClassifierForTest(async () => { outputChecks++; return { outcome: "accept", score: 0.01, model: "t", raw: {}, isNsfwTag: false }; });
+    const { out, calls } = await draw(attemptId);
     assert.equal(out.ok, false);
+    assert.deepEqual(calls, [], "no engine submission after the return (Codex review, PR #1300)");
+    assert.equal(outputChecks, 0, "and no output check");
     await assertSettled(attemptId, "returned");
+  });
+
+  it("a picture returned before its prompt job runs stays failed, queues no image job, and frees its in-progress place", async () => {
+    const userId = await newMember(1);
+    const { factId } = await liveFact();
+    const { attemptId } = await requestMemberPicture(await command(userId, factId));
+    // Returned with no failure of its own written (the worst case for "reads failed").
+    await db.transaction((tx) => returnUndeliveredPicture(attemptId, tx));
+    await deleteJobs(attemptId);
+    await prompt(attemptId);
+    const row = await attempt(attemptId);
+    assert.ok(row.error, "reads failed");
+    const jobs = await db.select().from(asyncJobsTable).where(eq(asyncJobsTable.dedupeKey, `image_generation:attempt:${attemptId}`));
+    assert.equal(jobs.length, 0, "no image job");
+    await assertSettled(attemptId, "returned");
+  });
+
+  it("the prompt stage never clears a returned picture's failure", async () => {
+    const userId = await newMember(1);
+    const { factId } = await liveFact();
+    const { attemptId } = await requestMemberPicture(await command(userId, factId));
+    await runMemberPictureSettlementPass(Date.now() + PICTURE_DEADLINE_MS + 60_000);
+    const failedWith = (await attempt(attemptId)).error;
+    assert.ok(failedWith);
+    await prompt(attemptId);
+    assert.equal((await attempt(attemptId)).error, failedWith);
+  });
+
+  it("a failed picture older than seven days is still returned, once", async () => {
+    const userId = await newMember(1);
+    const { factId } = await liveFact();
+    const { attemptId } = await requestMemberPicture(await command(userId, factId));
+    await db.update(imagePromptAttemptsTable)
+      .set({ error: "boom", errorCode: "x", updatedAt: new Date(Date.now() - 30 * 24 * 60 * 60_000) })
+      .where(eq(imagePromptAttemptsTable.id, attemptId));
+    await runMemberPictureSettlementPass();
+    await runMemberPictureSettlementPass();
+    await assertSettled(attemptId, "returned");
+  });
+
+  it("a fact is not permanently deleted while a member's picture on it is owed its outcome (Codex review, PR #1300)", async () => {
+    const userId = await newMember(1);
+    const adminId = await newMember(0);
+    await db.update(usersTable).set({ isAdmin: true }).where(eq(usersTable.id, adminId));
+    const { factId } = await liveFact();
+    const { attemptId } = await requestMemberPicture(await command(userId, factId));
+    await db.update(factsTable).set({ isActive: false }).where(eq(factsTable.id, factId));
+    const refused = await deleteFact(factId, adminId);
+    assert.equal(refused.kind, "attached");
+    assert.equal((refused as { attached: { aiPictures: number } }).attached.aiPictures, 1, "names an AI picture");
+    assert.deepEqual(await attachedContent(factId), (refused as { attached: unknown }).attached, "the fact sheet reads the same count");
+    assert.ok(await attempt(attemptId), "the attempt is untouched");
+    assert.equal((await ledgerFor(attemptId)).length, 1, "the spend is untouched");
+    // Once it has failed and its credit is back, the delete goes through.
+    await runMemberPictureSettlementPass(Date.now() + PICTURE_DEADLINE_MS + 60_000);
+    assert.equal(await creditBalance(userId), 1, "the balance is what it was before the picture");
+    assert.equal((await deleteFact(factId, adminId)).kind, "done");
+  });
+
+  it("a delivered picture stays finished after the member deletes it and it is purged (Codex review, PR #1300)", async () => {
+    const userId = await newMember(1);
+    const adminId = await newMember(0);
+    await db.update(usersTable).set({ isAdmin: true }).where(eq(usersTable.id, adminId));
+    const { factId } = await liveFact();
+    const { attemptId } = await requestMemberPicture(await command(userId, factId));
+    await prompt(attemptId);
+    await draw(attemptId);
+    const [row] = await delivered(attemptId);
+    assert.ok(row, "delivered");
+    // "Delete now": the restore window is over, and the purger removes the member's copy.
+    await db.update(userAiImagesTable).set({ deletedAt: new Date(Date.now() - 60_000), purgeAfter: new Date(Date.now() - 1_000) }).where(eq(userAiImagesTable.id, row!.id));
+    await runContentPurger({ generatedIds: [row!.id] });
+    assert.equal((await delivered(attemptId)).length, 0, "the member's copy is gone");
+
+    // Both picture routes read finished, with nothing to show.
+    const appFor = buildTestApp({ kind: "authenticated", userId }, memberPicturesRouter);
+    const one = await request(appFor).get(`/api/member-pictures/${attemptId}`);
+    assert.equal(one.status, 200);
+    assert.equal(one.body.picture.status, "done");
+    assert.equal(one.body.picture.imageUrl, null);
+    const list = await request(appFor).get(`/api/member-pictures`);
+    const listed = (list.body.pictures as Array<{ attemptId: number; status: string }>).find((p) => p.attemptId === attemptId);
+    assert.ok(!listed || listed.status === "done", "never queued or drawing");
+
+    // No credit moves, and the fact can be permanently deleted.
+    await runMemberPictureSettlementPass(Date.now() + PICTURE_DEADLINE_MS + 60_000);
+    assert.equal(await db.transaction((tx) => returnUndeliveredPicture(attemptId, tx)), false);
+    assert.equal(await creditBalance(userId), 0, "the spend stands");
+    assert.equal((await ledgerFor(attemptId)).filter((r) => r.kind === "picture_return").length, 0);
+    await db.update(factsTable).set({ isActive: false }).where(eq(factsTable.id, factId));
+    assert.equal((await attachedContent(factId)).aiPictures, 0);
+    assert.equal((await deleteFact(factId, adminId)).kind, "done");
   });
 
   it("a delivered picture is never returned by the recovery pass", async () => {

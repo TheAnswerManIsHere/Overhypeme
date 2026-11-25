@@ -10,13 +10,13 @@
  * The invariant the tests hold: no member picture ends failed with its spend
  * standing and no return, and none is delivered with a return.
  */
-import { and, eq, gt, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { asyncJobsTable, db, imagePromptAttemptsTable, userAiImagesTable, type ImagePromptAttempt } from "@workspace/db";
-import { pictureCreditState, returnPictureCredit } from "../credits/pictures";
+import { pictureCreditState, returnedPictures, returnPictureCredit } from "../credits/pictures";
 import type { Executor } from "../visualConceptOwner";
 import { logger } from "../logger";
 import { IMAGE_GENERATION_QUEUE, IMAGE_PROMPT_QUEUE, imageJobDedupeKey, promptJobDedupeKey } from "../imagePromptAttempts";
-import { STRANDED_ERROR_CODE } from "./failures";
+import { LATE_AFTER_RETURN_ERROR_CODE, STRANDED_ERROR_CODE } from "./failures";
 
 
 /** What a member's picture row in My content records it as. */
@@ -43,9 +43,51 @@ async function lockAttempt(attemptId: number, tx: Executor): Promise<LockedAttem
   return row ?? null;
 }
 
-async function isDelivered(attemptId: number, tx: Executor): Promise<boolean> {
-  const [row] = await tx.select({ id: userAiImagesTable.id }).from(userAiImagesTable).where(eq(userAiImagesTable.attemptId, attemptId)).limit(1);
+/**
+ * Delivered is the attempt's own record: delivery writes the stored path in
+ * the same transaction as the member's `user_ai_images` row, and nothing
+ * clears it. The row is the member's copy, which they may delete and the
+ * purger then removes, so its absence never means "not delivered" (Codex
+ * review, PR #1300).
+ */
+async function isDelivered(attempt: Pick<LockedAttempt, "id" | "generatedImageObjectPath">, tx: Executor): Promise<boolean> {
+  if (attempt.generatedImageObjectPath) return true;
+  const [row] = await tx.select({ id: userAiImagesTable.id }).from(userAiImagesTable).where(eq(userAiImagesTable.attemptId, attempt.id)).limit(1);
   return !!row;
+}
+
+/**
+ * A returned picture is finished: no stage does more work for it (Codex
+ * review, PR #1300). Read before each new paid call and at each stage's start;
+ * delivery re-reads it under the attempt lock, so a return that lands after
+ * this read still stops the picture reaching the member.
+ */
+export async function isReturnedPicture(attemptId: number, tx: Executor = db): Promise<boolean> {
+  return (await returnedPictures([attemptId], tx)).has(attemptId);
+}
+
+/** Thrown inside a paid call's authorisation when the picture's credit was already returned. */
+export class PictureReturnedError extends Error {
+  constructor(readonly attemptId: number) {
+    super(`member picture ${attemptId} was stopped and its credit returned`);
+    this.name = "PictureReturnedError";
+  }
+}
+
+/** The words a returned picture that had no failure of its own is left with. */
+export const RETURNED_MESSAGE = "This picture finished after it had been stopped and its credit returned.";
+
+/**
+ * Leave a returned picture reading failed, whatever its error column held:
+ * a stage that found it returned writes this and stops. Under the attempt
+ * lock, and a no-op for a picture that already has its failure.
+ */
+export async function markReturnedPictureFailed(attemptId: number, tx: Executor): Promise<void> {
+  const attempt = await lockAttempt(attemptId, tx);
+  if (!attempt || attempt.error) return;
+  await tx.update(imagePromptAttemptsTable)
+    .set({ error: RETURNED_MESSAGE, errorCode: LATE_AFTER_RETURN_ERROR_CODE, updatedAt: new Date() })
+    .where(eq(imagePromptAttemptsTable.id, attemptId));
 }
 
 export function isMemberPicture(attempt: Pick<ImagePromptAttempt, "memberRequestId">): boolean {
@@ -66,8 +108,15 @@ type DeliveryOutcome = "delivered" | "already_delivered" | "returned";
 export async function deliverMemberPicture(attemptId: number, storedPath: string, tx: Executor): Promise<DeliveryOutcome> {
   const attempt = await lockAttempt(attemptId, tx);
   if (!attempt || !attempt.userId) throw new Error(`member picture ${attemptId} has no owner to deliver to`);
-  if (await isDelivered(attemptId, tx)) return "already_delivered";
-  if ((await pictureCreditState(attemptId, tx)).returned) return "returned";
+  if (await isDelivered(attempt, tx)) return "already_delivered";
+  if ((await pictureCreditState(attemptId, tx)).returned) {
+    if (!attempt.error) {
+      await tx.update(imagePromptAttemptsTable)
+        .set({ error: RETURNED_MESSAGE, errorCode: LATE_AFTER_RETURN_ERROR_CODE, updatedAt: new Date() })
+        .where(eq(imagePromptAttemptsTable.id, attemptId));
+    }
+    return "returned";
+  }
   await tx.update(imagePromptAttemptsTable)
     .set({ generatedImageObjectPath: storedPath, error: null, errorCode: null, updatedAt: new Date() })
     .where(eq(imagePromptAttemptsTable.id, attemptId));
@@ -96,7 +145,7 @@ export async function deliverMemberPicture(attemptId: number, storedPath: string
 export async function returnUndeliveredPicture(attemptId: number, tx: Executor, failWith?: { code: string; message: string }): Promise<boolean> {
   const attempt = await lockAttempt(attemptId, tx);
   if (!attempt || !isMemberPicture(attempt)) return false;
-  if (await isDelivered(attemptId, tx)) return false;
+  if (await isDelivered(attempt, tx)) return false;
   if (failWith && !attempt.error) {
     await tx.update(imagePromptAttemptsTable)
       .set({ error: failWith.message, errorCode: failWith.code, updatedAt: new Date() })
@@ -106,13 +155,25 @@ export async function returnUndeliveredPicture(attemptId: number, tx: Executor, 
 }
 
 const LIVE_JOB_STATUSES = ["pending", "processing", "recovering"];
+
 /**
- * A failed picture is normally returned in its failure's own transaction, so
- * the pass only ever finds recent ones unsettled (the hook was skipped, or the
- * process stopped between the two). It looks back this far, which bounds its
- * scan as history grows.
+ * The one statement of "spent, not returned, not delivered" over
+ * `image_prompt_attempts`: a member picture whose credit is still owed an
+ * outcome. The recovery pass finds its candidates with it, and a fact's
+ * permanent delete counts it as attached (factLifecycle.ts), since deleting
+ * the fact would delete the attempt and leave the spend with nothing that
+ * can return it (Codex review, PR #1300).
  */
-const FAILED_LOOKBACK_MS = 7 * 24 * 60 * 60_000;
+const UNSETTLED = sql`NOT EXISTS (SELECT 1 FROM credit_ledger c WHERE c.kind = 'picture_return' AND c.ref = 'picture:' || ${imagePromptAttemptsTable.id}::text)
+    AND ${imagePromptAttemptsTable.generatedImageObjectPath} IS NULL
+    AND EXISTS (SELECT 1 FROM credit_ledger s WHERE s.kind = 'picture_spend' AND s.ref = 'picture:' || ${imagePromptAttemptsTable.id}::text)`;
+
+/** How many member pictures of this fact still owe their member an outcome (delivered or returned). */
+export async function unsettledPicturesOnFact(factId: number, executor: Executor = db): Promise<number> {
+  const [row] = await executor.select({ n: sql<number>`count(*)::int` }).from(imagePromptAttemptsTable)
+    .where(and(eq(imagePromptAttemptsTable.factId, factId), isNotNull(imagePromptAttemptsTable.memberRequestId), UNSETTLED));
+  return row?.n ?? 0;
+}
 
 interface SettlementPassResult { failedReturned: number; strandedReturned: number; deadlineReturned: number }
 
@@ -134,15 +195,14 @@ interface SettlementPassResult { failedReturned: number; strandedReturned: numbe
  */
 export async function runMemberPictureSettlementPass(now = Date.now(), limit = 200): Promise<SettlementPassResult> {
   const result: SettlementPassResult = { failedReturned: 0, strandedReturned: 0, deadlineReturned: 0 };
-  const unsettled = sql`NOT EXISTS (SELECT 1 FROM credit_ledger c WHERE c.kind = 'picture_return' AND c.ref = 'picture:' || ${imagePromptAttemptsTable.id}::text)
-    AND NOT EXISTS (SELECT 1 FROM user_ai_images u WHERE u.attempt_id = ${imagePromptAttemptsTable.id})
-    AND EXISTS (SELECT 1 FROM credit_ledger s WHERE s.kind = 'picture_spend' AND s.ref = 'picture:' || ${imagePromptAttemptsTable.id}::text)`;
+  const unsettled = UNSETTLED;
 
   const failed = await db.select({ id: imagePromptAttemptsTable.id }).from(imagePromptAttemptsTable)
     .where(and(
       isNotNull(imagePromptAttemptsTable.memberRequestId),
+      // No age limit: a failed picture keeps its claim to a return however
+      // long it waits (Codex review, PR #1300); the pass takes `limit` a run.
       isNotNull(imagePromptAttemptsTable.error),
-      gt(imagePromptAttemptsTable.updatedAt, new Date(now - FAILED_LOOKBACK_MS)),
       unsettled,
     ))
     .limit(limit);

@@ -22,6 +22,7 @@ import type { Executor } from "./visualConceptOwner";
 import { clearPendingExamples } from "./gags/examples";
 import { checkGoLive, describeGoLive, GoLiveError, type GoLiveCheck } from "./gags/goLive";
 import { publishDraft, type PublishResult } from "./gags/publish";
+import { unsettledPicturesOnFact } from "./memberPictures/settlement";
 
 
 /** Why a lifecycle action was refused. */
@@ -166,18 +167,23 @@ export interface AttachedContent {
 
 /**
  * What members have attached to a fact: every meme, AI picture and comment
- * row, whatever a comment's review status. One definition, read by the delete
+ * row, whatever a comment's review status, and every member picture still
+ * owed its outcome (its credit spent, neither delivered nor returned). One definition, read by the delete
  * and by the fact sheet, so the sheet offers the delete exactly when the
  * server would allow it. (The public comment counter counts approved comments
  * only, so it cannot be this.)
  */
 export async function attachedContent(factId: number, executor: Executor = db): Promise<AttachedContent> {
-  const [[memes], [aiPictures], [comments]] = await Promise.all([
+  const [[memes], [aiPictures], [comments], inFlight] = await Promise.all([
     executor.select({ n: sql<number>`count(*)::int` }).from(memesTable).where(eq(memesTable.factId, factId)),
     executor.select({ n: sql<number>`count(*)::int` }).from(userAiImagesTable).where(eq(userAiImagesTable.factId, factId)),
     executor.select({ n: sql<number>`count(*)::int` }).from(commentsTable).where(eq(commentsTable.factId, factId)),
+    // A member's picture still owed an outcome (its credit spent, neither
+    // delivered nor returned) counts as an attached AI picture: deleting the
+    // fact would delete it and strand the credit (Codex review, PR #1300).
+    unsettledPicturesOnFact(factId, executor),
   ]);
-  return { memes: memes?.n ?? 0, aiPictures: aiPictures?.n ?? 0, comments: comments?.n ?? 0 };
+  return { memes: memes?.n ?? 0, aiPictures: (aiPictures?.n ?? 0) + inFlight, comments: comments?.n ?? 0 };
 }
 
 /**
