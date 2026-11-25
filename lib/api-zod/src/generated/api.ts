@@ -93,11 +93,11 @@ export const GetCurrentAuthUserResponse = zod.object({
     zod.string(),
     zod.object({
       allowed: zod.boolean(),
-      limit: zod.number().int().nullable(),
+      limit: zod.int().nullable(),
     }),
   ),
   entitlementVersion: zod.object({
-    gridRevision: zod.number().int(),
+    gridRevision: zod.int(),
     principalFingerprint: zod.string(),
   }),
 });
@@ -122,7 +122,7 @@ export const GetEntitlementVersionHeader = zod.object({
 });
 
 export const GetEntitlementVersionResponse = zod.object({
-  gridRevision: zod.number().int(),
+  gridRevision: zod.int(),
   principalFingerprint: zod.string(),
 });
 
@@ -141,7 +141,7 @@ export const BeginBrowserLoginResponse = zod.void();
 export const HandleBrowserLoginCallbackQueryParams = zod.object({
   code: zod.coerce.string().optional(),
   state: zod.coerce.string().optional(),
-  iss: zod.coerce.string().url().optional(),
+  iss: zod.url().optional(),
 });
 
 export const HandleBrowserLoginCallbackResponse = zod.void();
@@ -192,16 +192,13 @@ export const listFactsResponseFactsItemShareCountMin = 0;
 export const ListFactsResponse = zod.object({
   facts: zod.array(
     zod.object({
-      id: zod.number().int(),
+      id: zod.int(),
       text: zod.string(),
-      upvotes: zod.number().int(),
-      downvotes: zod.number().int(),
-      score: zod.number().int().optional(),
-      commentCount: zod.number().int(),
-      shareCount: zod
-        .number()
-        .int()
-        .min(listFactsResponseFactsItemShareCountMin),
+      upvotes: zod.int(),
+      downvotes: zod.int(),
+      score: zod.int().optional(),
+      commentCount: zod.int(),
+      shareCount: zod.int().min(listFactsResponseFactsItemShareCountMin),
       hashtags: zod.array(zod.string()),
       submittedBy: zod.string().nullish(),
       submittedByImage: zod.string().nullish(),
@@ -211,7 +208,7 @@ export const ListFactsResponse = zod.object({
       createdAt: zod.coerce.date(),
     }),
   ),
-  total: zod.number().int(),
+  total: zod.int(),
 });
 
 /**
@@ -228,13 +225,13 @@ export const getHeroFactResponseFactShareCountMin = 0;
 
 export const GetHeroFactResponse = zod.object({
   fact: zod.object({
-    id: zod.number().int(),
+    id: zod.int(),
     text: zod.string(),
-    upvotes: zod.number().int(),
-    downvotes: zod.number().int(),
-    score: zod.number().int().optional(),
-    commentCount: zod.number().int(),
-    shareCount: zod.number().int().min(getHeroFactResponseFactShareCountMin),
+    upvotes: zod.int(),
+    downvotes: zod.int(),
+    score: zod.int().optional(),
+    commentCount: zod.int(),
+    shareCount: zod.int().min(getHeroFactResponseFactShareCountMin),
     hashtags: zod.array(zod.string()),
     submittedBy: zod.string().nullish(),
     submittedByImage: zod.string().nullish(),
@@ -244,7 +241,6 @@ export const GetHeroFactResponse = zod.object({
     createdAt: zod.coerce.date(),
   }),
   poolSize: zod
-    .number()
     .int()
     .describe("Size of the candidate pool the pick was drawn from."),
 });
@@ -260,13 +256,13 @@ export const getFactResponseOneShareCountMin = 0;
 
 export const GetFactResponse = zod
   .object({
-    id: zod.number().int(),
+    id: zod.int(),
     text: zod.string(),
-    upvotes: zod.number().int(),
-    downvotes: zod.number().int(),
-    score: zod.number().int().optional(),
-    commentCount: zod.number().int(),
-    shareCount: zod.number().int().min(getFactResponseOneShareCountMin),
+    upvotes: zod.int(),
+    downvotes: zod.int(),
+    score: zod.int().optional(),
+    commentCount: zod.int(),
+    shareCount: zod.int().min(getFactResponseOneShareCountMin),
     hashtags: zod.array(zod.string()),
     submittedBy: zod.string().nullish(),
     submittedByImage: zod.string().nullish(),
@@ -280,8 +276,8 @@ export const GetFactResponse = zod
       links: zod
         .array(
           zod.object({
-            id: zod.number().int(),
-            factId: zod.number().int(),
+            id: zod.int(),
+            factId: zod.int(),
             url: zod.string(),
             title: zod.string().nullish(),
             platform: zod.string().nullish(),
@@ -322,16 +318,13 @@ export const listRelatedFactsResponseFactsItemShareCountMin = 0;
 export const ListRelatedFactsResponse = zod.object({
   facts: zod.array(
     zod.object({
-      id: zod.number().int(),
+      id: zod.int(),
       text: zod.string(),
-      upvotes: zod.number().int(),
-      downvotes: zod.number().int(),
-      score: zod.number().int().optional(),
-      commentCount: zod.number().int(),
-      shareCount: zod
-        .number()
-        .int()
-        .min(listRelatedFactsResponseFactsItemShareCountMin),
+      upvotes: zod.int(),
+      downvotes: zod.int(),
+      score: zod.int().optional(),
+      commentCount: zod.int(),
+      shareCount: zod.int().min(listRelatedFactsResponseFactsItemShareCountMin),
       hashtags: zod.array(zod.string()),
       submittedBy: zod.string().nullish(),
       submittedByImage: zod.string().nullish(),
@@ -357,7 +350,7 @@ export const RecordFactShareParams = zod.object({
 export const recordFactShareResponseShareCountMin = 0;
 
 export const RecordFactShareResponse = zod.object({
-  shareCount: zod.number().int().min(recordFactShareResponseShareCountMin),
+  shareCount: zod.int().min(recordFactShareResponseShareCountMin),
 });
 
 /**
@@ -372,8 +365,8 @@ export const RateFactBody = zod.object({
 });
 
 export const RateFactResponse = zod.object({
-  upvotes: zod.number().int(),
-  downvotes: zod.number().int(),
+  upvotes: zod.int(),
+  downvotes: zod.int(),
   userRating: zod
     .union([zod.literal("up"), zod.literal("down"), zod.literal(null)])
     .nullable(),
@@ -406,21 +399,18 @@ export const listCommentsResponseCommentsItemHeartCountMin = 0;
 export const ListCommentsResponse = zod.object({
   comments: zod.array(
     zod.object({
-      id: zod.number().int(),
-      factId: zod.number().int(),
+      id: zod.int(),
+      factId: zod.int(),
       text: zod.string(),
       authorId: zod.string().nullish(),
       authorName: zod.string().nullish(),
       authorImage: zod.string().nullish(),
       createdAt: zod.coerce.date(),
-      heartCount: zod
-        .number()
-        .int()
-        .min(listCommentsResponseCommentsItemHeartCountMin),
+      heartCount: zod.int().min(listCommentsResponseCommentsItemHeartCountMin),
       viewerHasHearted: zod.boolean(),
     }),
   ),
-  total: zod.number().int(),
+  total: zod.int(),
 });
 
 /**
@@ -440,14 +430,14 @@ export const AddCommentBody = zod.object({
 export const addCommentResponseHeartCountMin = 0;
 
 export const AddCommentResponse = zod.object({
-  id: zod.number().int(),
-  factId: zod.number().int(),
+  id: zod.int(),
+  factId: zod.int(),
   text: zod.string(),
   authorId: zod.string().nullish(),
   authorName: zod.string().nullish(),
   authorImage: zod.string().nullish(),
   createdAt: zod.coerce.date(),
-  heartCount: zod.number().int().min(addCommentResponseHeartCountMin),
+  heartCount: zod.int().min(addCommentResponseHeartCountMin),
   viewerHasHearted: zod.boolean(),
 });
 
@@ -461,7 +451,7 @@ export const HeartCommentParams = zod.object({
 export const heartCommentResponseHeartCountMin = 0;
 
 export const HeartCommentResponse = zod.object({
-  heartCount: zod.number().int().min(heartCommentResponseHeartCountMin),
+  heartCount: zod.int().min(heartCommentResponseHeartCountMin),
   viewerHasHearted: zod.boolean(),
 });
 
@@ -475,7 +465,7 @@ export const HeartMemeParams = zod.object({
 export const heartMemeResponseHeartCountMin = 0;
 
 export const HeartMemeResponse = zod.object({
-  heartCount: zod.number().int().min(heartMemeResponseHeartCountMin),
+  heartCount: zod.int().min(heartMemeResponseHeartCountMin),
   viewerHasHearted: zod.boolean(),
 });
 
@@ -492,9 +482,9 @@ export const ListHashtagsQueryParams = zod.object({
 export const ListHashtagsResponse = zod.object({
   hashtags: zod.array(
     zod.object({
-      id: zod.number().int(),
+      id: zod.int(),
       name: zod.string(),
-      factCount: zod.number().int(),
+      factCount: zod.int(),
     }),
   ),
 });
@@ -551,14 +541,13 @@ export const GetMyProfileResponse = zod.object({
     ),
   likedFacts: zod.array(
     zod.object({
-      id: zod.number().int(),
+      id: zod.int(),
       text: zod.string(),
-      upvotes: zod.number().int(),
-      downvotes: zod.number().int(),
-      score: zod.number().int().optional(),
-      commentCount: zod.number().int(),
+      upvotes: zod.int(),
+      downvotes: zod.int(),
+      score: zod.int().optional(),
+      commentCount: zod.int(),
       shareCount: zod
-        .number()
         .int()
         .min(getMyProfileResponseLikedFactsItemShareCountMin),
       hashtags: zod.array(zod.string()),
@@ -644,32 +633,32 @@ export const GetMySubmissionCountsQueryParams = zod.object({
 export const GetMySubmissionCountsResponse = zod.object({
   totals: zod.object({
     facts: zod.object({
-      review: zod.number().int(),
-      live: zod.number().int(),
-      declined: zod.number().int(),
-      gone: zod.number().int(),
+      review: zod.int(),
+      live: zod.int(),
+      declined: zod.int(),
+      gone: zod.int(),
     }),
     comments: zod.object({
-      review: zod.number().int(),
-      live: zod.number().int(),
-      declined: zod.number().int(),
-      gone: zod.number().int(),
+      review: zod.int(),
+      live: zod.int(),
+      declined: zod.int(),
+      gone: zod.int(),
     }),
   }),
   matches: zod
     .union([
       zod.object({
         facts: zod.object({
-          review: zod.number().int(),
-          live: zod.number().int(),
-          declined: zod.number().int(),
-          gone: zod.number().int(),
+          review: zod.int(),
+          live: zod.int(),
+          declined: zod.int(),
+          gone: zod.int(),
         }),
         comments: zod.object({
-          review: zod.number().int(),
-          live: zod.number().int(),
-          declined: zod.number().int(),
-          gone: zod.number().int(),
+          review: zod.int(),
+          live: zod.int(),
+          declined: zod.int(),
+          gone: zod.int(),
         }),
       }),
       zod.null(),
@@ -701,7 +690,7 @@ export const ListMySubmissionsResponse = zod.object({
     zod
       .object({
         kind: zod.enum(["review", "fact", "fact_gone", "comment"]),
-        id: zod.number().int(),
+        id: zod.int(),
         text: zod.string(),
         hashtags: zod.array(zod.string()),
         createdAt: zod.string(),
@@ -728,14 +717,13 @@ export const ListMySubmissionsResponse = zod.object({
         fact: zod
           .union([
             zod.object({
-              id: zod.number().int(),
+              id: zod.int(),
               text: zod.string(),
-              upvotes: zod.number().int(),
-              downvotes: zod.number().int(),
-              score: zod.number().int().optional(),
-              commentCount: zod.number().int(),
+              upvotes: zod.int(),
+              downvotes: zod.int(),
+              score: zod.int().optional(),
+              commentCount: zod.int(),
               shareCount: zod
-                .number()
                 .int()
                 .min(listMySubmissionsResponseItemsItemFactOneShareCountMin),
               hashtags: zod.array(zod.string()),
@@ -754,11 +742,7 @@ export const ListMySubmissionsResponse = zod.object({
           ])
           .optional()
           .describe('The live fact, for kind "fact".'),
-        factId: zod
-          .number()
-          .int()
-          .nullish()
-          .describe("The fact a comment is on."),
+        factId: zod.int().nullish().describe("The fact a comment is on."),
         factText: zod
           .string()
           .nullish()
@@ -805,18 +789,16 @@ export const CheckDuplicateResponse = zod.object({
     .boolean()
     .describe('outcome == "duplicate"; kept for older clients.'),
   confidence: zod
-    .number()
     .int()
     .min(checkDuplicateResponseConfidenceMin)
     .max(checkDuplicateResponseConfidenceMax)
     .describe(
       "Cosine similarity of the matched (or nearest) fact, as a percentage. A detail, not a likelihood; no screen shows it.",
     ),
-  matchingFactId: zod.number().int().nullish(),
+  matchingFactId: zod.int().nullish(),
   matchingFactText: zod.string().nullish(),
   matchingCanonicalText: zod.string().nullish(),
   matchingReviewId: zod
-    .number()
     .int()
     .nullish()
     .describe("The other pending review an exact match found."),
@@ -828,8 +810,8 @@ export const CheckDuplicateResponse = zod.object({
 export const GetAdminFlaggedCommentsResponse = zod.object({
   comments: zod.array(
     zod.object({
-      id: zod.number().int(),
-      factId: zod.number().int(),
+      id: zod.int(),
+      factId: zod.int(),
       text: zod.string(),
       authorId: zod.string().nullish(),
       flagReason: zod.string().nullish(),
@@ -877,7 +859,7 @@ export const createMemeBodyTextOptionsFontSizeMin = 14;
 export const createMemeBodyTextOptionsFontSizeMax = 48;
 
 export const CreateMemeBody = zod.object({
-  factId: zod.number().int(),
+  factId: zod.int(),
   imageSource: zod
     .union([
       zod.object({
@@ -897,7 +879,6 @@ export const CreateMemeBody = zod.object({
   textOptions: zod
     .object({
       fontSize: zod
-        .number()
         .int()
         .min(createMemeBodyTextOptionsFontSizeMin)
         .max(createMemeBodyTextOptionsFontSizeMax)
@@ -912,13 +893,13 @@ export const CreateMemeBody = zod.object({
 export const createMemeResponseHeartCountMin = 0;
 
 export const CreateMemeResponse = zod.object({
-  id: zod.number().int(),
-  factId: zod.number().int(),
+  id: zod.int(),
+  factId: zod.int(),
   templateId: zod.string(),
   imageUrl: zod.string(),
   permalinkSlug: zod.string(),
   createdAt: zod.coerce.date(),
-  heartCount: zod.number().int().min(createMemeResponseHeartCountMin),
+  heartCount: zod.int().min(createMemeResponseHeartCountMin),
   viewerHasHearted: zod.boolean(),
 });
 
@@ -932,15 +913,15 @@ export const GetMemeBySlugParams = zod.object({
 export const getMemeBySlugResponseHeartCountMin = 0;
 
 export const GetMemeBySlugResponse = zod.object({
-  id: zod.number().int(),
-  factId: zod.number().int(),
+  id: zod.int(),
+  factId: zod.int(),
   templateId: zod.string(),
   imageUrl: zod.string(),
   permalinkSlug: zod.string(),
   factText: zod.string(),
   createdAt: zod.coerce.date(),
   createdByName: zod.string().nullish(),
-  heartCount: zod.number().int().min(getMemeBySlugResponseHeartCountMin),
+  heartCount: zod.int().min(getMemeBySlugResponseHeartCountMin),
   viewerHasHearted: zod.boolean(),
 });
 
@@ -967,16 +948,13 @@ export const listFactMemesResponseMemesItemHeartCountMin = 0;
 export const ListFactMemesResponse = zod.object({
   memes: zod.array(
     zod.object({
-      id: zod.number().int(),
-      factId: zod.number().int(),
+      id: zod.int(),
+      factId: zod.int(),
       templateId: zod.string(),
       imageUrl: zod.string(),
       permalinkSlug: zod.string(),
       createdAt: zod.coerce.date(),
-      heartCount: zod
-        .number()
-        .int()
-        .min(listFactMemesResponseMemesItemHeartCountMin),
+      heartCount: zod.int().min(listFactMemesResponseMemesItemHeartCountMin),
       viewerHasHearted: zod.boolean(),
     }),
   ),

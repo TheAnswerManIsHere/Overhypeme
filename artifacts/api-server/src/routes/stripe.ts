@@ -452,7 +452,7 @@ router.post("/stripe/checkout/confirm", async (req: Request, res: Response) => {
 
   const parsed = confirmBodySchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.errors[0]?.message ?? "Invalid sessionId" });
+    res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid sessionId" });
     return;
   }
   const { sessionId } = parsed.data;

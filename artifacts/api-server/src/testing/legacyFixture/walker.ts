@@ -75,31 +75,44 @@ interface Def {
   typeName: string;
   [k: string]: unknown;
 }
-const def = (s: ZodTypeAny): Def => (s as unknown as { _def: Def })._def;
+// zod 4 keeps a schema's definition at `_zod.def`, typed by a lower-case
+// `type`; a discriminated union is a `union` carrying a `discriminator`. This
+// maps it back to the v3-style `ZodX` names the walker switches on, so the
+// walk itself reads the same as before the zod 4 upgrade.
+interface V4Def {
+  type: string;
+  discriminator?: string;
+  [k: string]: unknown;
+}
+const v4def = (s: ZodTypeAny): V4Def => (s as unknown as { _zod: { def: V4Def } })._zod.def;
+const def = (s: ZodTypeAny): Def => {
+  const d = v4def(s);
+  const typeName =
+    d.type === "union" && d.discriminator !== undefined
+      ? "ZodDiscriminatedUnion"
+      : `Zod${d.type.charAt(0).toUpperCase()}${d.type.slice(1)}`;
+  return { ...d, typeName };
+};
 
 /** Strip wrappers that do not change the stored value's shape. */
 export function unwrap(schema: ZodTypeAny): ZodTypeAny {
   let s = schema;
   for (let i = 0; i < 32; i++) {
-    const d = def(s);
-    switch (d.typeName) {
-      case "ZodOptional":
-      case "ZodNullable":
-      case "ZodDefault":
-      case "ZodCatch":
-      case "ZodReadonly":
+    const d = v4def(s);
+    switch (d.type) {
+      case "optional":
+      case "nullable":
+      case "default":
+      case "prefault":
+      case "catch":
+      case "readonly":
+      case "nonoptional":
         s = d.innerType as ZodTypeAny;
         continue;
-      case "ZodEffects":
-        s = d.schema as ZodTypeAny;
-        continue;
-      case "ZodPipeline":
+      case "pipe":
         s = d.in as ZodTypeAny;
         continue;
-      case "ZodBranded":
-        s = d.type as ZodTypeAny;
-        continue;
-      case "ZodLazy":
+      case "lazy":
         s = (d.getter as () => ZodTypeAny)();
         continue;
       default:
@@ -109,16 +122,19 @@ export function unwrap(schema: ZodTypeAny): ZodTypeAny {
   return s;
 }
 
+// A string check that pins the value to a format (email, url, regex, a
+// datetime, a prefix…) makes the string something prose scrubbing would break;
+// `custom` (a refine) and `overwrite` (trim, case) do not.
 function stringBound(schema: ZodTypeAny): { max?: number; formatted: boolean } {
-  const checks = (def(schema).checks as Array<{ kind: string; value?: number }> | undefined) ?? [];
+  const checks = (v4def(schema).checks as Array<{ _zod: { def: { check: string; maximum?: number; length?: number } } }> | undefined) ?? [];
   let max: number | undefined;
   let formatted = false;
-  for (const c of checks) {
-    if (c.kind === "max" || c.kind === "length") max = Math.min(max ?? Infinity, c.value ?? Infinity);
-    if (["email", "url", "uuid", "cuid", "cuid2", "ulid", "regex", "emoji", "ip", "datetime", "base64", "startsWith", "endsWith", "includes"].includes(c.kind)) {
-      formatted = true;
-    }
+  for (const { _zod: { def: c } } of checks) {
+    if (c.check === "max_length") max = Math.min(max ?? Infinity, c.maximum ?? Infinity);
+    if (c.check === "length_equals") max = Math.min(max ?? Infinity, c.length ?? Infinity);
+    if (c.check === "string_format") formatted = true;
   }
+  if (typeof v4def(schema).format === "string") formatted = true;
   return { max, formatted };
 }
 
@@ -244,7 +260,7 @@ export function walk(value: unknown, schema: ZodTypeAny, rules: PathRules, ctx: 
     }
     case "ZodArray": {
       if (!Array.isArray(value)) throw new ShapeStop(ctx.where, path, "expected an array");
-      const el = d.type as ZodTypeAny;
+      const el = d.element as ZodTypeAny;
       return value.map((v) => walk(v, el, rules, ctx, `${path}[*]`));
     }
     case "ZodTuple": {
@@ -258,8 +274,8 @@ export function walk(value: unknown, schema: ZodTypeAny, rules: PathRules, ctx: 
     case "ZodDiscriminatedUnion": {
       if (!isPlainObject(value)) throw new ShapeStop(ctx.where, path, "expected an object");
       const disc = d.discriminator as string;
-      const options = (s as unknown as { optionsMap: Map<unknown, ZodTypeAny> }).optionsMap;
-      const opt = options.get(value[disc]);
+      const options = d.options as Array<ZodTypeAny & { shape: Record<string, ZodTypeAny> }>;
+      const opt = options.find((o) => o.shape[disc]?.safeParse(value[disc]).success);
       if (!opt) throw new ShapeStop(ctx.where, `${path}.${disc}`, "a discriminator value the shape does not describe");
       return walk(value, opt, rules, ctx, path);
     }
@@ -270,7 +286,6 @@ export function walk(value: unknown, schema: ZodTypeAny, rules: PathRules, ctx: 
       return walk(value, fit, rules, ctx, path);
     }
     case "ZodEnum":
-    case "ZodNativeEnum":
     case "ZodLiteral": {
       if (typeof value === "object") throw new ShapeStop(ctx.where, path, "an object where an enum was expected");
       return value;
