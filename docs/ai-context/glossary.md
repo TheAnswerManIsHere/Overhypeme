@@ -488,7 +488,8 @@ categories; [enrichment](#enrichment) is one fact's filled-in values.
 ### Enrichment
 
 The AI **classification** layer: durable structured taxonomy metadata for a
-fact (archetype, subtype, entities, references, adult suitability, hashtags).
+fact (archetype, subtype, entities, references, adult suitability). It
+makes no hashtags: those are suggested once, on the submit form.
 It is **not** an image prompt — what the picture looks like belongs to the
 [Visual Concept](#visual-concept).
 → [taxonomy-and-enrichment](./taxonomy-and-enrichment.md)

@@ -90,9 +90,10 @@ entirely.
 
 ## Hashtags
 
-Enrichment produces the tags themselves — see
-[`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md); not
-re-derived here.
+The tags themselves are suggested once, by AI on the submit form, where the
+submitter reviews them, and are edited by hand at moderation; enrichment
+makes none (David, 2026-11-24) — see the glossary's
+[Hashtags](./glossary.md#hashtags) entry.
 
 Two live browsing surfaces: `GET /hashtags` (`hashtags.ts:9-20`, ordered
 `desc(hashtagsTable.factCount)`, optional `?search=` via `ilike`) feeds
@@ -289,5 +290,5 @@ the link."
   `phase5.og.routes.test.ts`, `memes.privacy-cache.test.ts`,
   `routes.shareCopy.test.ts`, `routes.shareIntents.test.ts`,
   `routes.share.test.ts`.
-- For what enrichment produces (hashtags, classification):
+- For what enrichment produces (classification):
   [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md).

@@ -242,7 +242,7 @@ export const HELP_SEARCH_INDEX: HelpSearchEntry[] = [
     "doc": "4-taxonomy-and-enrichment",
     "section": "for-the-reader--user",
     "sectionTitle": "For the reader / user",
-    "text": "For the reader / user Nothing about enrichment is directly visible to a reader — it's the metadata that lets Overhype.me filter, tag, and reason about facts (suggested hashtags, content-safety gating, archetype-based curation). A user only feels its effects indirectly: an accurately classified fact renders the right kind of joke."
+    "text": "For the reader / user Nothing about enrichment is directly visible to a reader — it's the metadata that lets Overhype.me filter and reason about facts (content-safety gating, archetype-based curation). It does not suggest hashtags: those are made once, on the submit form. A user only feels its effects indirectly: an accurately classified fact renders the right kind of joke."
   },
   {
     "doc": "4-taxonomy-and-enrichment",
@@ -410,7 +410,7 @@ export const HELP_SEARCH_INDEX: HelpSearchEntry[] = [
     "doc": "7-public-site-and-sharing",
     "section": "chapter-7--public-site-and-sharing",
     "sectionTitle": "Chapter 7 · Public Site and Sharing",
-    "text": "Chapter 7 · Public Site and Sharing Home, search, the leaderboard, your own library , and sharing — the surfaces where the loop actually closes: a visitor becomes a reader, a reader becomes a sharer, and a share pulls the next visitor in. Deep spec: public-site-and-sharing.md . Related: 4-taxonomy-and-enrichment.md (where hashtags come from), 6-meme-and-video-studio.md (where a shareable meme comes from)."
+    "text": "Chapter 7 · Public Site and Sharing Home, search, the leaderboard, your own library , and sharing — the surfaces where the loop actually closes: a visitor becomes a reader, a reader becomes a sharer, and a share pulls the next visitor in. Deep spec: public-site-and-sharing.md . Related: 2-content-lifecycle.md (where hashtags come from), 6-meme-and-video-studio.md (where a shareable meme comes from)."
   },
   {
     "doc": "7-public-site-and-sharing",
@@ -476,7 +476,7 @@ export const HELP_SEARCH_INDEX: HelpSearchEntry[] = [
     "doc": "7-public-site-and-sharing",
     "section": "going-deeper",
     "sectionTitle": "Going deeper",
-    "text": "Going deeper Spec: public-site-and-sharing.md — the exact routes, ranking logic, the OG-card pipeline, and the specific share/tracking endpoints. Related: 4-taxonomy-and-enrichment.md (where a fact's hashtags come from), 6-meme-and-video-studio.md (how a shareable meme gets made in the first place). Rationale: the public-site and sharing entries in decisions.md . Next: chapter 8 — 8-community-and-engagement.md , ratings, comments, comment hearts, meme hearts, and the activity feed . Verified against d7a6847 (2026-08-09) · claim inventory in PR #373."
+    "text": "Going deeper Spec: public-site-and-sharing.md — the exact routes, ranking logic, the OG-card pipeline, and the specific share/tracking endpoints. Related: 2-content-lifecycle.md (where a fact's hashtags come from), 6-meme-and-video-studio.md (how a shareable meme gets made in the first place). Rationale: the public-site and sharing entries in decisions.md . Next: chapter 8 — 8-community-and-engagement.md , ratings, comments, comment hearts, meme hearts, and the activity feed . Verified against d7a6847 (2026-08-09) · claim inventory in PR #373."
   },
   {
     "doc": "8-community-and-engagement",
