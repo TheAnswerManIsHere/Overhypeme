@@ -222,6 +222,28 @@ describe("GagsPanel", () => {
     expect(within(tiles[0]!).getByTestId("gag-approve-render")).toBeTruthy();
   });
 
+  it("a published gag's examples drawn from an earlier version show on its tiles, approved and out of date, and can be drawn again (Issue #1277)", async () => {
+    stubFetch(view([gag({
+      id: 1, slot: 1, isDefault: true,
+      approvedExamples: { male: ex(11), female: ex(12), pet: ex(13) },
+      renders: {
+        male: card("i2i_male_default", { latestAttemptId: 11, stale: true }),
+        female: card("i2i_female_default", { latestAttemptId: 12, stale: true }),
+        pet: card("i2i_nonhuman_animal", { latestAttemptId: 13, stale: true }),
+      },
+    })]));
+    render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+    const tiles = await screen.findAllByTestId("gag-render");
+    for (const t of tiles) {
+      expect(within(t).getByRole("img")).toBeTruthy();
+      expect(within(t).queryByTestId("gag-render-status")).toBeNull();
+      expect(within(t).getByTestId("gag-render-picked")).toBeTruthy();
+      expect(within(t).getByTestId("gag-render-stale").textContent).toMatch(/earlier version of this gag/);
+      expect(within(t).getByTestId("gag-redraw-render").textContent).toMatch(/Draw again/);
+    }
+    expect(screen.getByTestId("gag-render-rest").textContent).toMatch(/Render female and pet/);
+  });
+
   it("\"Render female and pet\" draws only those kinds; a tile draws its own again on request", async () => {
     const calls = stubFetch(view([gag({ id: 1, slot: 1, isDefault: true, renders: { ...NONE, male: card("i2i_male_default") } })]));
     render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);

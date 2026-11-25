@@ -216,6 +216,47 @@ describe("renders, counted per action", () => {
     assert.equal(drawn(await drawGagKinds(gagId, ["male"], { adminUserId: adminId })).length, 0, "the render is still reused");
   });
 
+  it("a published example drawn from an earlier version of the content shows on its tile, out of date, until it is drawn again (Issue #1277)", async () => {
+    // The published set was drawn before the cast fill wrote a cast into the
+    // approved content (PLAN_GAG_DIRECT_RENDER.md, E): no render matches the
+    // content as it is now, but the gag has a picture of every kind.
+    const withACobra = withCast({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "{NAME} is bitten by a king cobra." }, [{ label: "cobra", description: "a king cobra" }]);
+    const f = await insertLiveFact({ text: `{NAME} example sets ${RUN} ${randomUUID().slice(0, 6)}`, enrichment: buildPlaceholderFactEnrichment() }, withACobra);
+    factIds.push(f.id);
+    const factId = f.id;
+    const gagId = f.gags[0]!.id;
+    const { cast: _cast, castExtraction: _ext, ...beforeCastFill } = withACobra;
+    const ids = {} as Record<GagExampleKind, number>;
+    for (const k of GAG_EXAMPLE_KINDS) ids[k] = await render(factId, gagId, beforeCastFill as VisualPromptStrategyOverride, k);
+    await db.transaction(async (tx) => {
+      for (const k of GAG_EXAMPLE_KINDS) {
+        await tx.insert(factGagExamplesTable).values({ gagId, subjectKind: k, stage: "approved", attemptId: ids[k], approvedBy: adminId });
+      }
+    });
+
+    const cards = await buildGagKindCards(gagId);
+    for (const k of GAG_EXAMPLE_KINDS) {
+      assert.equal(cards[k]!.latestAttemptId, ids[k], `the ${k} tile shows the published ${k} example`);
+      assert.equal(cards[k]!.status, "done");
+      assert.ok(cards[k]!.imageUrl, `the ${k} tile has the picture`);
+      assert.equal(cards[k]!.stale, true, `the ${k} tile reads out of date`);
+    }
+
+    // Drawn again for the content as it is: the new render takes the tile, current.
+    const male = drawn(await drawGagKinds(gagId, ["male"], { adminUserId: adminId, redraw: true }));
+    assert.equal(male.length, 1);
+    const after = await buildGagKindCards(gagId);
+    assert.equal(after.male!.latestAttemptId, male[0]!.attemptId);
+    assert.equal(after.male!.stale, false);
+    assert.equal(after.female!.latestAttemptId, ids.female, "the other kinds keep their example");
+
+    // A change in the draft has no picks yet: its tiles are its own, so the
+    // published pictures of the earlier content do not stand in for it.
+    await save(factId, gagId, scene("{NAME} lifts the sun (a change)."));
+    const changed = await buildGagKindCards(gagId);
+    assert.equal(changed.female!.status, "missing", "a changed gag with no render of the change reads not drawn");
+  });
+
   it("overlapping requests for the same content draw one render", async () => {
     const { gagId } = await liveFact();
     const [a, b] = await Promise.all([
