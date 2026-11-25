@@ -1,0 +1,23 @@
+{
+  "_README": "Owned exceptions to the dependency gate (scripts/check-prod-audit.mjs, launch Phase 15 increment 4). Each names one GHSA on one package, why it is excepted, and who clears it. Delete an entry the day its upgrade lands; the gate reports any entry that no longer matches.",
+  "exceptions": [
+    {
+      "ghsa": "GHSA-f88m-g3jw-g9cj",
+      "package": "sharp",
+      "reason": "sharp 0.34.5's bundled libvips; the upgrade to the current release is Launch Phase 7's upkeep item (docs/plans/PLAN_PHASE7_IMAGE_OFFERING.md)",
+      "owner": "Launch Phase 7 (#1299)"
+    },
+    {
+      "ghsa": "GHSA-rgj7-g3m4-5g8c",
+      "package": "sharp",
+      "reason": "sharp 0.34.5's bundled libheif; the upgrade to the current release is Launch Phase 7's upkeep item (docs/plans/PLAN_PHASE7_IMAGE_OFFERING.md)",
+      "owner": "Launch Phase 7 (#1299)"
+    },
+    {
+      "ghsa": "GHSA-wq5f-xc86-pv6w",
+      "package": "sharp",
+      "reason": "sharp 0.34.5's bundled librsvg; the upgrade to the current release is Launch Phase 7's upkeep item (docs/plans/PLAN_PHASE7_IMAGE_OFFERING.md)",
+      "owner": "Launch Phase 7 (#1299)"
+    }
+  ]
+}
