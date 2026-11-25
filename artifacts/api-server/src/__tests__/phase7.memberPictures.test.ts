@@ -621,6 +621,30 @@ describe("Phase 7 inc 2: every failure returns the credit", () => {
     assert.equal((await deleteFact(factId, adminId)).kind, "done");
   });
 
+  it("the member's list keeps an unfinished picture behind 20 newer ones, then shows its late failure (Issue #1299)", async () => {
+    const userId = await newMember(1);
+    const other = await newMember(0);
+    const { factId } = await liveFact();
+    const { attemptId } = await requestMemberPicture(await command(userId, factId));
+    // 21 newer pictures of the same member, all finished.
+    const { id: _id, createdAt: _c, updatedAt: _u, renderJobId: _r, memberRequestId: _m, memberRequestFingerprint: _f, ...base } = await attempt(attemptId);
+    await db.insert(imagePromptAttemptsTable).values(Array.from({ length: 21 }, (_, i) => ({
+      ...base, renderJobId: randomUUID(), memberRequestId: `newer-${randomUUID()}`, memberRequestFingerprint: "x",
+      generatedImageObjectPath: `/objects/ai-bg-v2/${factId}/newer-${i}.png`,
+    })) as never);
+    const listFor = async (who: string) => (await request(buildTestApp({ kind: "authenticated", userId: who }, memberPicturesRouter)).get("/api/member-pictures"))
+      .body.pictures as Array<{ attemptId: number; status: string; creditReturned: boolean }>;
+    const before = (await listFor(userId)).find((p) => p.attemptId === attemptId);
+    assert.ok(before, "still listed behind 21 newer pictures");
+    assert.ok(["queued", "drawing"].includes(before!.status));
+    // Stopped at its deadline: the list shows how it ended.
+    await runMemberPictureSettlementPass(Date.now() + PICTURE_DEADLINE_MS + 60_000);
+    const after = (await listFor(userId)).find((p) => p.attemptId === attemptId);
+    assert.equal(after?.status, "failed");
+    assert.equal(after?.creditReturned, true);
+    assert.equal((await listFor(other)).some((p) => p.attemptId === attemptId), false, "never another member's");
+  });
+
   it("a delivered picture is never returned by the recovery pass", async () => {
     const userId = await newMember(1);
     const { factId } = await liveFact();

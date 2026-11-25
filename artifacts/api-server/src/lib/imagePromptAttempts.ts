@@ -12,7 +12,7 @@
  * storage — so callers MUST set those two extension fields on `renderControls`.
  */
 import { randomUUID } from "node:crypto";
-import { sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db, imagePromptAttemptsTable, type ImagePromptAttempt } from "@workspace/db";
 import type {
   GagRenderInput,
@@ -28,7 +28,7 @@ import { lookClassOfSelection, resolveImageEngine } from "./imageEngineRouting";
 import { FROZEN_FALLBACK_KEY, freezeFallbackChoice } from "./engineFallback";
 import { isValidRenderStyleSnapshot, resolveAndFreezeRenderStyle, type ResolvedRenderStyleSnapshot } from "./imagePrompt/styleResolution";
 import { engineFamilyOf, liveRecipeVersionIdForFamily } from "./imagePrompt/recipeStore";
-import { assertCanSpendPicture, lockAccountForSpend, spendPictureCredit } from "./credits/pictures";
+import { assertCanSpendPicture, lockAccountForSpend, pictureHasLedgerRow, spendPictureCredit } from "./credits/pictures";
 
 /** RenderControls plus the route-attached fields `imagePromptJobs` reads. */
 export type RenderControlsWithRefs = RenderControls & {
@@ -157,6 +157,16 @@ export class NoPhotoRenderRefusedError extends Error {
   }
 }
 
+/**
+ * The one statement of a member's picture "in progress": asked for, not
+ * finished, not failed and not returned. The in-progress cap counts it, and
+ * the member's picture list always shows it, however many newer pictures
+ * there are (Issue #1299).
+ */
+export const MEMBER_PICTURE_IN_PROGRESS = sql`${imagePromptAttemptsTable.memberRequestId} IS NOT NULL
+  AND ${imagePromptAttemptsTable.error} IS NULL AND ${imagePromptAttemptsTable.generatedImageObjectPath} IS NULL
+  AND NOT ${pictureHasLedgerRow("picture_return", imagePromptAttemptsTable.id)}`;
+
 export async function buildAndEnqueueImagePromptAttempt(
   args: BuildImagePromptAttemptArgs,
 ): Promise<{ renderJobId: string; attemptId: number }> {
@@ -192,11 +202,8 @@ export async function buildAndEnqueueImagePromptAttempt(
     // the credit drawn with no other spend in between, so two requests with
     // one credit yield one picture.
     await lockAccountForSpend(args.userId!, tx);
-    const [{ open }] = (await tx.execute(sql`
-      SELECT count(*)::int AS open FROM image_prompt_attempts a
-      WHERE a.user_id = ${args.userId} AND a.member_request_id IS NOT NULL
-        AND a.error IS NULL AND a.generated_image_object_path IS NULL
-        AND NOT EXISTS (SELECT 1 FROM credit_ledger c WHERE c.kind = 'picture_return' AND c.ref = 'picture:' || a.id::text)`)).rows as Array<{ open: number }>;
+    const [{ open }] = await tx.select({ open: sql<number>`count(*)::int` }).from(imagePromptAttemptsTable)
+      .where(and(eq(imagePromptAttemptsTable.userId, args.userId!), MEMBER_PICTURE_IN_PROGRESS));
     if (open >= member.maxInProgress) throw new TooManyPicturesInProgressError(member.maxInProgress);
     await assertCanSpendPicture(args.userId!, tx);
   }
