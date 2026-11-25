@@ -9,7 +9,7 @@ import { VisibilityToggle } from "../../parts/VisibilityToggle";
 import { WizardPrimaryAction } from "../WizardPrimaryAction";
 import type { PendingWizardState } from "../state/wizardStorage";
 import type { WizardAction, WizardRuntimeState } from "../state/useWizardState";
-import { LockedPreview } from "./LockedPreview";
+import { LockedPreview, stackedPreviewMaxHeight } from "./LockedPreview";
 import { AspectRatioToggle } from "./AspectRatioToggle";
 import { SelfUploadSourcePanel } from "./SelfUploadSourcePanel";
 import { GuestPhotoSignupPanel } from "./GuestPhotoSignupPanel";
@@ -22,7 +22,7 @@ import { captionFontOf } from "../../captionFont";
 import { CaptionFontStatus } from "../../parts/CaptionFontPicker";
 import { useCaptionFont } from "@/lib/captionFontLoader";
 import { track } from "@/lib/analytics";
-import { useWideBuilderLayout } from "../../hooks/useWideBuilderLayout";
+import { useBuilderLayout } from "../../hooks/useWideBuilderLayout";
 
 interface Props {
   factId: string;
@@ -68,7 +68,6 @@ export function Step2Image({
 }: Props) {
   const [, navigate] = useLocation();
   const tier = viewerContext.tier;
-  const wide = useWideBuilderLayout();
   // Told, not derived — the same answer createMemeRecord will apply.
   const canSetPrivate = viewerContext.entitlements?.["meme_private_visibility"]?.allowed === true;
 
@@ -76,6 +75,9 @@ export function Step2Image({
   const [upgradeContext, setUpgradeContext] = useState<UpgradeModalContext>("private-meme");
   const [isPublic, setIsPublic] = useState(state.isPublic ?? true);
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(state.aspectRatio ?? "landscape");
+  // Issue #850, amendment 1 (Q31: 1): whichever arrangement shows the picture
+  // larger wins, for this screen and this shape.
+  const wide = useBuilderLayout(aspectRatio, stackedPreviewMaxHeight) === "wide";
   const [framingOffset, setFramingOffset] = useState<{ x: number; y: number }>(
     state.framingOffset ?? { x: 0, y: 0 },
   );
