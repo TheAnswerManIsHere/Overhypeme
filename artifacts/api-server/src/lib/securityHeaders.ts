@@ -11,11 +11,12 @@
  *
  * Design decisions (each is a deliberate divergence from helmet's defaults):
  *
- *  - **CSP is Report-Only first.** We emit `Content-Security-Policy-Report-Only`
- *    so a mis-scoped directive surfaces as a browser-console violation during
- *    UAT instead of breaking a response. Flip to enforcing (rename the header)
- *    once UAT confirms zero violations. Route-class aware: strict
- *    `default-src 'none'` for JSON; the OG shell additionally allows images.
+ *  - **CSP is enforced, in three route classes** (launch Phase 15, increment
+ *    3d; it was report-only until then). Strict `default-src 'none'` for JSON;
+ *    the OG shell additionally allows images; the OAuth popup callback, the one
+ *    response here that runs script, gets its own policy admitting only its
+ *    own inline script by a per-response nonce ({@link setOAuthCallbackCsp}).
+ *    Every class reports violations to lib/cspReport.ts.
  *  - **Frame policy is env-aware.** In production nothing frames the app, so
  *    `X-Frame-Options: DENY` + `frame-ancestors 'none'`. In Replit dev the app
  *    (SPA *and* API) runs inside the Replit "webview" iframe, so we OMIT the
@@ -38,11 +39,12 @@
  *    on a JSON/redirect surface. COEP stays off (helmet default) — requiring it
  *    would break cross-origin embeds.
  *
- * @purpose The security-header chain app.ts mounts first on every response: helmet baselines, a route-class-aware report-only CSP that reports to lib/cspReport.ts, an env-aware frame policy and production-only HSTS; the public cross-origin relaxation lives in cacheHeaders instead.
+ * @purpose The security-header chain app.ts mounts first on every response: helmet baselines, a route-class-aware enforced CSP (JSON, OG shell, and the OAuth popup callback's nonce policy) that reports to lib/cspReport.ts, an env-aware frame policy and production-only HSTS; the public cross-origin relaxation lives in cacheHeaders instead.
  * @subsystem security
  */
+import { randomBytes } from "node:crypto";
 import helmet from "helmet";
-import type { Request, RequestHandler } from "express";
+import type { Request, RequestHandler, Response } from "express";
 import { isProductionEnv } from "./env";
 import { CSP_REPORT_PATH } from "./cspReport";
 
@@ -64,11 +66,26 @@ const API_REPORT_URL = `${CSP_REPORT_PATH}/api`;
 // themselves via setPublicCors, not here.)
 const OG_SHELL_PATTERN = /^\/api\/og\//;
 
-/** Build the route-class CSP string once per boot (env is fixed for the process). */
-function buildCsp(kind: "json" | "og", isProduction: boolean): string {
+/** The enforced header every class uses (launch Phase 15, increment 3d). */
+const CSP_HEADER = "Content-Security-Policy";
+
+/** Build a route-class CSP string; the json and og classes are built once per boot (env is fixed for the process). */
+function buildCsp(kind: "json" | "og" | { oauthCallbackNonce: string }, isProduction: boolean): string {
   // `base-uri` and `form-action` have NO fallback to default-src, so list them
   // explicitly. script-src/style-src/etc. inherit 'none' from default-src.
   const directives = ["default-src 'none'", "base-uri 'none'", "form-action 'none'"];
+  if (typeof kind === "object") {
+    // The callback page's single inline script, and nothing else: no script
+    // file, no other inline script, no eval.
+    directives.push(`script-src 'nonce-${kind.oauthCallbackNonce}'`);
+  } else {
+    // An image, video or JSON response opened directly in a tab (ImageCard's
+    // "open image" does) is shown in the browser's own viewer, which styles
+    // itself with inline style attributes. Without this, enforcement would
+    // strip that styling and file a report on every view (measured in
+    // Chromium, 2026-11-25). Style attributes run no script.
+    directives.push("style-src-attr 'unsafe-inline'");
+  }
   if (kind === "og") {
     // Allow the card image from self or any https CDN (legacy R2/Cloudinary/GCS)
     // plus data: for any inline preview. Crawlers ignore CSP; this only governs
@@ -92,7 +109,7 @@ export function securityHeaders(): RequestHandler[] {
   const cspOg = buildCsp("og", isProduction);
 
   const base = helmet({
-    // We emit CSP ourselves (Report-Only + route-class aware) below.
+    // We emit CSP ourselves (enforced, route-class aware) below.
     contentSecurityPolicy: false,
     // Disabled deliberately — see file header (OAuth popup opener; low value here).
     crossOriginOpenerPolicy: false,
@@ -115,13 +132,23 @@ export function securityHeaders(): RequestHandler[] {
     // CORP is intentionally NOT set here — it's decided by visibility in
     // setPublicCors() (see file header). helmet's `same-origin` default stands
     // for everything until a route confirms the response is public.
-    // Report-Only first — flip the header name to enforce after UAT.
-    res.setHeader(
-      "Content-Security-Policy-Report-Only",
-      OG_SHELL_PATTERN.test(req.path) ? cspOg : cspJson,
-    );
+    res.setHeader(CSP_HEADER, OG_SHELL_PATTERN.test(req.path) ? cspOg : cspJson);
     next();
   };
 
   return [base, perRoute];
+}
+
+/**
+ * Replaces this response's policy with the OAuth popup callback's (launch
+ * Phase 15, increment 3d) and returns the nonce its inline script must carry.
+ * The nonce is fresh per response, 128 bits from the CSPRNG, so a script
+ * injected into the page could not guess it. Called only by the popup branch
+ * of the OAuth callback (routes/auth.ts), the one response this server sends
+ * that runs script.
+ */
+export function setOAuthCallbackCsp(res: Response): string {
+  const nonce = randomBytes(16).toString("base64");
+  res.setHeader(CSP_HEADER, buildCsp({ oauthCallbackNonce: nonce }, isProductionEnv()));
+  return nonce;
 }

@@ -41,10 +41,17 @@ async function signInWith(page: Page, provider: "Google" | "Apple", email: strin
   await expect(popup.getByRole("heading", { name: new RegExp(`fake ${provider}`, "i") })).toBeVisible();
   await popup.getByLabel("Email", { exact: true }).fill(email);
   await popup.getByLabel("Provider vouches for the email").selectOption({ label: vouched });
-  await popup.getByRole("button", { name: "Approve" }).click();
   // On success the callback page sends the opener on and closes the popup; a
-  // refusal is a redirect, so it lands in the popup itself.
-  if (expectClose) await popup.waitForEvent("close", { timeout: 30_000 });
+  // refusal is a redirect, so it lands in the popup itself. The close listener
+  // is attached before the click: the callback can close the popup before the
+  // click resolves, and a close that already happened is never seen
+  // (launch Phase 15, increment 3d's CI run, trace: pageClosed ahead of the wait).
+  const closed = expectClose ? popup.waitForEvent("close", { timeout: 30_000 }) : null;
+  await popup.getByRole("button", { name: "Approve" }).click().catch((err: unknown) => {
+    // The popup closing under the click is the success being waited for.
+    if (!(closed && popup.isClosed())) throw err;
+  });
+  if (closed) await closed;
   return popup;
 }
 

@@ -39,6 +39,7 @@ import { recordTaskCompleted } from "../lib/recurringTasks";
 import { copyProviderPictureIn } from "../lib/providerPicture";
 import { effectiveTierForRow } from "../lib/membershipState";
 import { isReadOnly } from "../lib/readOnlyMode";
+import { setOAuthCallbackCsp } from "../lib/securityHeaders";
 
 // Re-exported for back-compat with other route modules that import from "./auth".
 // Canonical home is `lib/auth.ts` so the auth middleware can use it without a
@@ -474,8 +475,14 @@ async function handleOAuthCallback(
     const target = isNewUser
       ? `${basePath}/onboard?returnTo=${encodeURIComponent(returnTo)}&signup=${provider}`
       : basePath + returnTo;
-    const safeTarget = JSON.stringify(target);
-    res.send(`<!DOCTYPE html><html><body><script>
+    // `<` escaped so no value can close the script element early. The target
+    // is already a same-origin path (safeReturnTo), whose serialization
+    // percent-encodes `<`; this keeps the page safe whatever reaches it.
+    const safeTarget = JSON.stringify(target).replace(/</g, "\\u003c");
+    // The API's enforced CSP admits this page's one inline script by a
+    // per-response nonce, and nothing else (lib/securityHeaders.ts).
+    const nonce = setOAuthCallbackCsp(res);
+    res.send(`<!DOCTYPE html><html><body><script nonce="${nonce}">
       var t = ${safeTarget};
       if (window.opener) { window.opener.location.href = t; window.close(); }
       else { window.location.href = t; }

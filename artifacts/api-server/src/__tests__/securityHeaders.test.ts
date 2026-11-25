@@ -68,20 +68,22 @@ describe("securityHeaders — baseline (all responses)", () => {
     assert.equal(res.headers["x-powered-by"], undefined, "x-powered-by must be removed");
   });
 
-  it("emits CSP as Report-Only, never enforcing", async () => {
-    const res = await request(makeApp("prod")).get("/api/foo");
-    assert.ok(res.headers["content-security-policy-report-only"], "expected report-only CSP");
-    assert.equal(res.headers["content-security-policy"], undefined, "must NOT enforce CSP yet");
+  it("enforces CSP, and sends no report-only copy (launch Phase 15, increment 3d)", async () => {
+    for (const mode of ["prod", "dev"] as const) {
+      const res = await request(makeApp(mode)).get("/api/foo");
+      assert.ok(res.headers["content-security-policy"], `${mode}: expected an enforced CSP`);
+      assert.equal(res.headers["content-security-policy-report-only"], undefined, `${mode}: no report-only header`);
+    }
   });
 });
 
 describe("securityHeaders — production env", () => {
   it("JSON: strict default-src 'none' + frame-ancestors, DENY frame, HSTS", async () => {
     const res = await request(makeApp("prod")).get("/api/foo");
-    const csp = res.headers["content-security-policy-report-only"];
+    const csp = res.headers["content-security-policy"];
     assert.equal(
       csp,
-      "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; report-uri /api/csp-report/api",
+      "default-src 'none'; base-uri 'none'; form-action 'none'; style-src-attr 'unsafe-inline'; frame-ancestors 'none'; report-uri /api/csp-report/api",
     );
     assert.equal(res.headers["x-frame-options"], "DENY");
     assert.match(res.headers["strict-transport-security"] ?? "", /max-age=\d+/);
@@ -96,7 +98,7 @@ describe("securityHeaders — production env", () => {
 
   it("OG shell: adds img-src for the card image", async () => {
     const res = await request(makeApp("prod")).get("/api/og/m/abc");
-    const csp = res.headers["content-security-policy-report-only"];
+    const csp = res.headers["content-security-policy"];
     assert.match(csp, /img-src 'self' https: data:/);
     assert.match(csp, /default-src 'none'/);
     assert.match(csp, /frame-ancestors 'none'/);
@@ -108,7 +110,7 @@ describe("securityHeaders — Replit dev preview env", () => {
     const res = await request(makeApp("dev")).get("/api/foo");
     assert.equal(res.headers["strict-transport-security"], undefined, "no HSTS in dev");
     assert.equal(res.headers["x-frame-options"], undefined, "no X-Frame-Options in dev preview");
-    const csp = res.headers["content-security-policy-report-only"];
+    const csp = res.headers["content-security-policy"];
     assert.doesNotMatch(csp, /frame-ancestors/, "no frame-ancestors in dev preview");
     assert.match(csp, /default-src 'none'/);
   });
@@ -139,7 +141,7 @@ describe("securityHeaders — CSP reporting (launch Phase 15, increment 3b)", ()
     for (const mode of ["prod", "dev"] as const) {
       for (const path of ["/api/foo", "/api/og/m/abc"]) {
         const res = await request(makeApp(mode)).get(path);
-        const csp = res.headers["content-security-policy-report-only"] ?? "";
+        const csp = res.headers["content-security-policy"] ?? "";
         assert.match(csp, /(^|; )report-uri \/api\/csp-report\/api(;|$)/, `${mode} ${path}`);
         // report-to would make Chromium ignore report-uri (lib/securityHeaders.ts).
         assert.doesNotMatch(csp, /report-to/, `${mode} ${path}`);
@@ -149,7 +151,7 @@ describe("securityHeaders — CSP reporting (launch Phase 15, increment 3b)", ()
 
   it("JSON and OG stay script-free", async () => {
     for (const path of ["/api/foo", "/api/og/m/abc"]) {
-      const csp = (await request(makeApp("prod")).get(path)).headers["content-security-policy-report-only"] ?? "";
+      const csp = (await request(makeApp("prod")).get(path)).headers["content-security-policy"] ?? "";
       assert.doesNotMatch(csp, /script-src/, path);
       assert.match(csp, /default-src 'none'/, path);
     }

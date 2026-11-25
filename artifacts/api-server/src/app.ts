@@ -104,7 +104,7 @@ export function createApp(options: { limiterOverrides?: GlobalRateLimiterOverrid
 
   // Application security headers (C5). Mounted first so EVERY response — including
   // the Stripe webhook, /api/config, and error responses — carries the baseline
-  // headers. CSP is Report-Only and the frame/HSTS policy is env-aware; see
+  // headers. CSP is enforced per route class and the frame/HSTS policy is env-aware; see
   // lib/securityHeaders.ts for the full rationale.
   app.disable("x-powered-by");
   app.use(...securityHeaders());

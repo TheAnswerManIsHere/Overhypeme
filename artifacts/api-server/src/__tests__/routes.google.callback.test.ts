@@ -388,36 +388,62 @@ describe("GET /api/callback/google", () => {
     }
   });
 
-  it("renders popup HTML without a 500 when isPopup is true", async () => {
+  async function popupCallback(returnTo: string) {
     const restoreEnv = applyFakeGoogleEnv();
     _setClientDiscoveryForTest(makeFakeDiscovery());
-
     const testEmail = `${USER_PREFIX}${randomUUID()}@test.local`;
     _setAuthCodeGrantForTest(async () => makeFakeTokens(testEmail));
-
     const state = randomUUID();
+    // Stored directly, so this bypasses safeReturnTo: the page's own escaping
+    // is what is under test when the value carries markup.
     await _storePendingStateForTest(state, {
       codeVerifier: "test-verifier-popup",
       nonce:        "test-nonce-popup",
-      returnTo:     "/",
+      returnTo,
       isPopup:      true,
     });
-
     try {
-      const app = makeApp();
-      const res = await request(app)
-        .get("/api/callback/google")
-        .query({ code: "fake-google-code-popup", state });
-
-      assert.notEqual(res.status, 500, `Expected no 500, got ${res.status}`);
-      assert.equal(res.status, 200, `Expected 200 HTML for popup flow, got ${res.status}`);
-      assert.ok(
-        res.text.includes("<script>"),
-        "Popup response should contain an inline <script> to redirect the opener",
-      );
+      return await request(makeApp()).get("/api/callback/google").query({ code: "fake-google-code-popup", state });
     } finally {
       restoreEnv();
     }
+  }
+
+  /** The nonce named in a policy's script-src, which must be the policy's only script source. */
+  function policyNonce(policy: string | undefined): string {
+    const scriptSrc = (policy ?? "").split(";").map((d) => d.trim()).find((d) => d.startsWith("script-src "));
+    const match = scriptSrc?.match(/^script-src 'nonce-([A-Za-z0-9+/=]+)'$/);
+    assert.ok(match, `expected script-src to be exactly one nonce, got: ${scriptSrc}`);
+    return match![1]!;
+  }
+
+  it("renders popup HTML whose one script runs under an enforced, nonce-only policy (launch Phase 15, increment 3d)", async () => {
+    const res = await popupCallback("/");
+    assert.equal(res.status, 200, `Expected 200 HTML for popup flow, got ${res.status}`);
+    const policy = res.headers["content-security-policy"];
+    assert.equal(res.headers["content-security-policy-report-only"], undefined);
+    const nonce = policyNonce(policy);
+    assert.match(policy!, /(^|; )default-src 'none'(;|$)/);
+    assert.match(policy!, /(^|; )base-uri 'none'(;|$)/);
+    assert.match(policy!, /(^|; )form-action 'none'(;|$)/);
+    assert.match(policy!, /(^|; )report-uri \/api\/csp-report\/api(;|$)/);
+    const scripts = res.text.match(/<script\b[^>]*>/gi) ?? [];
+    assert.deepEqual(scripts, [`<script nonce="${nonce}">`], "exactly one script, carrying the policy's nonce");
+  });
+
+  it("issues a fresh nonce on every callback", async () => {
+    const a = policyNonce((await popupCallback("/")).headers["content-security-policy"]);
+    const b = policyNonce((await popupCallback("/")).headers["content-security-policy"]);
+    assert.notEqual(a, b);
+    assert.ok(Buffer.from(a, "base64").length >= 16, "a nonce of at least 128 bits");
+  });
+
+  it("cannot be broken out of: a destination carrying markup never closes the script early", async () => {
+    const res = await popupCallback("/x</script><script>alert(1)</script>");
+    assert.equal(res.status, 200);
+    assert.equal((res.text.match(/<\/script>/gi) ?? []).length, 1, "only the page's own closing tag");
+    assert.equal((res.text.match(/<script\b/gi) ?? []).length, 1, "no second script element");
+    assert.ok(!res.text.includes("</script><script>"), "the injected markup never appears raw");
   });
 });
 
