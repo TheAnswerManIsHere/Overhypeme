@@ -54,7 +54,7 @@ by every modality) — see *Launch-critical vs deferrable work* below.
   one AI picture per verified account. AI pictures cost credits; membership
   adds credits and carries the perks. Templates, stock photos and user-facing
   text-to-image stay gone. The engine follows the look: GPT Image 2.6 for
-  photoreal, Nano Banana 2.1 for styles, settled (the planner/compiler split
+  photoreal, Nano Banana 2.1 for styles, settled ([decisions.md](./decisions.md#2026-11-11--the-engines-are-settled-prompts-are-tuned-not-engines-re-run); the planner/compiler split
   stays). All of this is the
   [product strategy](./product-strategy.md).
 
@@ -199,8 +199,8 @@ loop are launch-critical** (sharing polish was deferrable).
   gate of male, female and pet examples per gag, up to three gags per fact, and finished speech
   bubbles.
 - Render/enrichment quality (memes that land the joke; robust versioned
-  refresh; clean stale-render handling); the engine evaluation, finished as
-  the [product strategy](./product-strategy.md#pictures-and-engines) sets out.
+  refresh; clean stale-render handling); prompt tuning on the two settled
+  engines ([decisions.md](./decisions.md#2026-11-11--the-engines-are-settled-prompts-are-tuned-not-engines-re-run)).
 - The safety, legal and compliance package; spend controls; security
   hardening with every key rotated — all gates for Seed.
 - Pipeline stability / regression reduction across the board.

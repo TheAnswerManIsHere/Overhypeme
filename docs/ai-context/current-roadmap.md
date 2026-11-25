@@ -768,7 +768,8 @@ KITT work a launch phase needs and a second app would need identically;
   visual-review flow; the moderation UI/UX is rebuilt once the pipeline
   changes (bubbles, hero options, comment rebuild) land (#628 Phase 13).
 - **Render/enrichment quality** — robustness of versioned refresh and stale-render
-  handling; the engine evaluation (#628 Phase 8).
+  handling; prompt tuning on the settled engines (#628 Phase 8;
+  [decisions.md](./decisions.md#2026-11-11--the-engines-are-settled-prompts-are-tuned-not-engines-re-run)).
 - ~~**Video meme pipeline** — maturity + user-facing status/experience.~~
   Deferred past launch (David, 2026-10-05) and deleted in launch Phase 4,
   removal 2; see [`launch-definition.md`](./launch-definition.md) and the ledger

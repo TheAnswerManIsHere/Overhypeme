@@ -167,7 +167,7 @@ section.
   fields exist ahead of what they control. They look like any other
   setting in the list; nothing currently marks them as different.
 - **One screen's `?` points at a neighbouring chapter rather than its
-  own.** The render-quality eval dashboard has no chapter of its own yet,
+  own.** The Eval page (the prompt tuner) has no chapter of its own yet,
   so its `?` opens the [visual pipeline](./5-visual-pipeline.md)
   chapter — the nearest relevant explanation, but not a description of
   that screen. A real gap in this manual, recorded rather than papered

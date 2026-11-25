@@ -76,9 +76,10 @@ gag writer too.
 
 ## The engine comparison (launch Phase 8)
 
-The comparison that informs the launch engines is its own small model (its
-outcome, GPT Image 2.6 for photoreal and Nano Banana 2.1 for styles,
-settled, is the [product strategy](./product-strategy.md#pictures-and-engines)),
+The comparison that informed the launch engines is its own small model (its
+outcome, GPT Image 2.6 for photoreal and Nano Banana 2.1 for styles, is
+settled with no further engine rounds:
+[decisions.md](./decisions.md#2026-11-11--the-engines-are-settled-prompts-are-tuned-not-engines-re-run)),
 beside the eval run rather than inside it (plan
 `docs/plans/PLAN_PHASE8_ENGINE_EVALUATION.md`, *Proposed Design* C and D).
 

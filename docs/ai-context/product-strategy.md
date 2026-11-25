@@ -65,7 +65,8 @@ credits, or $34.99 a year with 400.
 
 ## Quality
 
-Quality is judged on four things (David, 2026-11-11):
+Quality means four things (David, 2026-11-11); the blind judging categories
+below are how pictures are scored against them:
 
 1. **Scene fidelity.** Does the engine draw the scene as described: the
    details, the nuance, camera position, framing and where each character is
@@ -82,7 +83,8 @@ engine's job is to draw that gag faithfully.
 
 A blind judging panel scores each picture 1–5 on five categories: visual
 quality, gag fidelity (against the gag, not the prompt), realism, style
-interpretation (skipped on unstyled pictures) and facial fidelity; picks the
+interpretation (skipped on unstyled pictures) and likeness (on any picture
+drawn from a photo); picks the
 one picture it would send; and flags any picture that is broken (David,
 2026-11-11).
 
