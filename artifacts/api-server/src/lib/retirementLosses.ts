@@ -11,6 +11,14 @@
  * and 0170 (the eval harness's data, launch Phase 8 part 4: eval_runs declared in
  * RETIRED_TABLES; it deletes no rows), and 0171 (the automatic-render queue's
  * jobs, plan PLAN_RENDERS_MANUAL.md D2, counted by reviewRenderPrepareDropLosses).
+ * Issue #1302 added the five that had gone undeclared: 0138 (the AI settings and
+ * the engines table, RETIRED_AI_SETTING_KEYS and RETIRED_TABLES), 0145 (render
+ * attempts of retired subject kinds, peopleAndPetsLosses), 0156 (the reply-to
+ * address, INTENDED_SETTING_CHANGES), 0163 (the custom_avatar permissions,
+ * isRetiredSettingValue) and 0153 (which repeats 0151's pass and finds nothing
+ * after it). The row-deleting steps of 0142, 0145 and 0151 count through one
+ * shared counter, in migration order (rowRetirementLosses), so a row two of
+ * them would delete is counted once.
  *
  * For 0142:
  * Read on the restored snapshot while `facts.parent_id` still exists, using
@@ -22,7 +30,7 @@
  * column, or without a variant, gets an empty map: no allowance at all. Tables
  * resolve in the connection's own schema, as 0142's do.
  *
- * @purpose Count, per table, the rows a retiring migration (0142, 0151, 0160, 0167, 0169, 0170) will delete, before it runs, for the upgrade rehearsal's expected counts.
+ * @purpose Count, per table, the rows a retiring migration (0138, 0142, 0145, 0151, 0160, 0163, 0167, 0169, 0170, 0171) will delete or change, before it runs, for the upgrade rehearsal's expected counts.
  * @subsystem upgrade-rehearsal
  */
 import type pg from "pg";
@@ -64,7 +72,9 @@ async function cascadingFks(c: pg.ClientBase): Promise<CascadeFk[]> {
 
 const q = (ident: string) => `"${ident.replace(/"/g, '""')}"`;
 
-/** Deletion bookkeeping: each row counted once (by ctid), cascades followed through the catalogue. */
+/** Deletion bookkeeping: each row counted once (by ctid), cascades followed through the catalogue. Shared across migrations by rowRetirementLosses. */
+export type DeletionCounter = Awaited<ReturnType<typeof deletionCounter>>;
+
 async function deletionCounter(c: pg.ClientBase) {
   // table → set of ctids that go.
   const gone = new Map<string, Set<string>>();
@@ -101,13 +111,12 @@ async function deletionCounter(c: pg.ClientBase) {
   return { cascade, ctidsWhere, losses };
 }
 
-export async function variantRetirementLosses(c: pg.ClientBase): Promise<RetirementLosses> {
-  const out: RetirementLosses = new Map();
-  if (!(await hasColumn(c, "facts", "parent_id"))) return out;
-  const { cascade, ctidsWhere, losses } = await deletionCounter(c);
+export async function variantRetirementLosses(c: pg.ClientBase, counter?: DeletionCounter): Promise<RetirementLosses> {
+  const { cascade, ctidsWhere, losses } = counter ?? await deletionCounter(c);
+  if (!(await hasColumn(c, "facts", "parent_id"))) return losses();
 
   const variantIds = (await c.query<{ id: number }>(`SELECT id FROM facts WHERE parent_id IS NOT NULL`)).rows.map((r) => r.id);
-  if (variantIds.length === 0) return out;
+  if (variantIds.length === 0) return losses();
   const memeIds = (await c.query<{ id: number }>(`SELECT id FROM memes WHERE fact_id = ANY($1)`, [variantIds])).rows.map((r) => r.id);
   const commentIds = (await c.query<{ id: number }>(`SELECT id FROM comments WHERE fact_id = ANY($1)`, [variantIds])).rows.map((r) => r.id);
   const reviewIds = (await c.query<{ id: number }>(
@@ -140,9 +149,9 @@ export async function variantRetirementLosses(c: pg.ClientBase): Promise<Retirem
  * (candidate, rejected); and the queued work that only served those reviews.
  * A database without the column gets an empty map: no allowance at all.
  */
-export async function refreshRetirementLosses(c: pg.ClientBase): Promise<RetirementLosses> {
-  if (!(await hasColumn(c, "pending_reviews", "candidate_version_id"))) return new Map();
-  const { cascade, ctidsWhere, losses } = await deletionCounter(c);
+export async function refreshRetirementLosses(c: pg.ClientBase, counter?: DeletionCounter): Promise<RetirementLosses> {
+  const { cascade, ctidsWhere, losses } = counter ?? await deletionCounter(c);
+  if (!(await hasColumn(c, "pending_reviews", "candidate_version_id"))) return losses();
 
   const refreshIds = (await c.query<{ id: number }>(
     `SELECT id FROM pending_reviews WHERE candidate_version_id IS NOT NULL`,
@@ -172,6 +181,50 @@ export async function refreshRetirementLosses(c: pg.ClientBase): Promise<Retirem
 }
 
 /**
+ * The rows migration 0145 will delete, by its own rule (plan
+ * docs/plans/PLAN_GAG_EXAMPLES.md, increment 2; Issue #964): render attempts that
+ * only the vehicle, object and mascot subject kinds produced, with what cascades
+ * from them, and comparison panels drawn from the object/vehicle reference. A
+ * table the database lacks (the frozen snapshot has no comparison tables) has
+ * nothing to count.
+ */
+export async function peopleAndPetsLosses(c: pg.ClientBase, counter?: DeletionCounter): Promise<RetirementLosses> {
+  const { cascade, ctidsWhere, losses } = counter ?? await deletionCounter(c);
+  if (await hasTable(c, "comparison_panels")) {
+    await cascade("comparison_panels", await ctidsWhere("comparison_panels",
+      `scenario_key = 'i2i_nonhuman_object_vehicle' OR reference_identity_type = 'nonhuman_object_vehicle'`, []));
+  }
+  const kinds = `('object_subject', 'vehicle_subject', 'mascot_or_character_subject')`;
+  const conditions = [
+    `source_image_analysis ->> 'subjectKind' IN ${kinds}`,
+    `visual_plan #>> '{subjectTreatment,nonhumanSubjectTreatment,subjectKind}' IN ${kinds}`,
+  ];
+  for (const [column, value] of [
+    ["review_render_scenario_key", "i2i_nonhuman_object_vehicle"],
+    ["eval_scenario_key", "i2i_nonhuman_object_vehicle"],
+    ["review_reference_identity_type", "nonhuman_object_vehicle"],
+  ] as const) {
+    if (await hasColumn(c, "image_prompt_attempts", column)) conditions.push(`${column} = '${value}'`);
+  }
+  await cascade("image_prompt_attempts", await ctidsWhere("image_prompt_attempts", conditions.join(" OR "), []));
+  return losses();
+}
+
+/**
+ * Every row-deleting retirement, counted through one counter in migration order
+ * (0142, 0145, 0151), so a row two migrations would delete is counted once: a
+ * review 0142 deletes with a variant fact is not 0151's to delete again, and an
+ * attempt on a variant fact is not 0145's (Issue #1302, where summing them over-
+ * counted pending_reviews by 10).
+ */
+export async function rowRetirementLosses(c: pg.ClientBase): Promise<RetirementLosses> {
+  const counter = await deletionCounter(c);
+  await variantRetirementLosses(c, counter);
+  await peopleAndPetsLosses(c, counter);
+  return refreshRetirementLosses(c, counter);
+}
+
+/**
  * Settings retired by a migration, by admin_config key: each such row is deleted
  * on upgrade, so the rehearsal expects it gone rather than kept. Declared by
  * name; every other setting stays protected.
@@ -181,6 +234,40 @@ export async function refreshRetirementLosses(c: pg.ClientBase): Promise<Retirem
  *     engine revision went with Taxonomy Health.
  */
 export const RETIRED_ADMIN_CONFIG_KEYS: readonly string[] = ["review_duplicate_threshold", "engine_revision"];
+
+/**
+ * The AI settings migration 0138 deletes (decisions.md 2026-11-14: AI settings
+ * live in code), its own key list. Kept apart from RETIRED_ADMIN_CONFIG_KEYS,
+ * which the legacy fixture loader also reads, so declaring them to the rehearsal
+ * changes nothing the fixture loads.
+ */
+export const RETIRED_AI_SETTING_KEYS: readonly string[] = [
+  "fact_enrichment_engine_id", "fact_visual_concepts_engine_id", "fact_visual_concepts_engine_id_before_0137",
+  "fact_image_prompt_engine_id", "fact_source_classifier_engine_id", "image_engine_t2i", "image_engine_i2i",
+  "nsfw_classifier_endpoint", "fal_safety_tolerance_pulid", "fact_enrichment_system", "fact_visual_concepts_system",
+  "fact_image_prompt_system", "fact_source_classifier_system", "scene_prompt_system", "reference_research_system",
+];
+
+/**
+ * Feature permissions a migration deletes: 0163 retires the custom_avatar
+ * feature (the generated-avatar system), with its row for every tier.
+ */
+export const RETIRED_FEATURE_KEYS: readonly string[] = ["custom_avatar"];
+
+/**
+ * Setting values a migration changes on purpose, by adminValues key: the change
+ * is accepted only from the stated value to the stated value; any other change
+ * still fails. 0156 moves the reply-to address off the retired alias.
+ */
+export const INTENDED_SETTING_CHANGES: Readonly<Record<string, { from: string; to: string }>> = {
+  "admin_config/email_reply_to/value": { from: JSON.stringify("overhypeme+support@gmail.com"), to: JSON.stringify("support@overhype.me") },
+};
+
+/** Whether a setting's change from `before` to `after` is one a migration makes on purpose. */
+export function isIntendedSettingChange(valueKey: string, before: string, after: string | undefined): boolean {
+  const change = INTENDED_SETTING_CHANGES[valueKey];
+  return !!change && before === change.from && after === change.to;
+}
 
 /**
  * Tables a migration drops whole, by name: the rehearsal expects each one gone
@@ -196,7 +283,7 @@ export const RETIRED_ADMIN_CONFIG_KEYS: readonly string[] = ["review_duplicate_t
  */
 export const RETIRED_TABLES: readonly string[] = [
   "fact_enrichment_versions", "enrichment_override_history", "engine_revision_bumps", "fact_text_edit_history",
-  "eval_runs",
+  "eval_runs", "engines",
 ];
 
 /**
@@ -244,15 +331,17 @@ export async function reviewRenderPrepareDropLosses(c: pg.ClientBase): Promise<R
 export async function retiredSettingLosses(c: pg.ClientBase): Promise<RetirementLosses> {
   const { rows } = await c.query<{ n: string }>(
     `SELECT count(*)::text AS n FROM admin_config WHERE key = ANY($1::text[])`,
-    [RETIRED_ADMIN_CONFIG_KEYS],
+    [[...RETIRED_ADMIN_CONFIG_KEYS, ...RETIRED_AI_SETTING_KEYS]],
   );
   const n = Number(rows[0]?.n ?? 0);
   return n > 0 ? new Map([["admin_config", n]]) : new Map();
 }
 
-/** Whether an adminValues key ("admin_config/<key>/<column>") belongs to a retired setting. */
+/** Whether an adminValues key belongs to a retired setting: "admin_config/<key>/<column>", or a retired feature's "tier_feature_permissions/<tier>/<feature>/<column>". */
 export function isRetiredSettingValue(valueKey: string): boolean {
-  return RETIRED_ADMIN_CONFIG_KEYS.some((k) => valueKey.startsWith(`admin_config/${k}/`));
+  if ([...RETIRED_ADMIN_CONFIG_KEYS, ...RETIRED_AI_SETTING_KEYS].some((k) => valueKey.startsWith(`admin_config/${k}/`))) return true;
+  const [table, , feature] = valueKey.split("/");
+  return table === "tier_feature_permissions" && feature !== undefined && RETIRED_FEATURE_KEYS.includes(feature);
 }
 
 /** Merge per-table loss maps by summing. */
