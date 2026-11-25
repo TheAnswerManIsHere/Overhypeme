@@ -58,6 +58,10 @@ describe("inlineScriptHashes", () => {
     expect(inlineScriptHashes(INDEX)).toEqual([sha(HISTORY), sha(ADSENSE)]);
   });
 
+  it("reads an end tag written with whitespace before its bracket", () => {
+    expect(inlineScriptHashes(`<script>${HISTORY}</script >`)).toEqual([sha(HISTORY)]);
+  });
+
   it("finds none in a script-free page", () => {
     expect(inlineScriptHashes("<!doctype html><title>x</title>")).toEqual([]);
   });
