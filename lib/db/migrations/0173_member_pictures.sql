@@ -16,6 +16,9 @@
 --    command finds the picture it already made instead of making another.
 --    A row with it set is a member's picture; every other attempt
 --    (moderation, comparison) has it NULL and is untouched.
+--    member_request_fingerprint is a hash of everything the command asked
+--    for, so the same request id sent with a different fact, gag, photo, look
+--    or subject is refused instead of answered with the first picture.
 --
 -- 3. user_ai_images gains attempt_id (the picture it delivers; unique, so a
 --    picture is delivered once), gag_id and look_style_id (what it drew).
@@ -65,6 +68,7 @@ DO $$ BEGIN
 END $$;
 
 ALTER TABLE "image_prompt_attempts" ADD COLUMN IF NOT EXISTS "member_request_id" varchar(64);
+ALTER TABLE "image_prompt_attempts" ADD COLUMN IF NOT EXISTS "member_request_fingerprint" varchar(64);
 CREATE UNIQUE INDEX IF NOT EXISTS "UQ_ipa_member_request" ON "image_prompt_attempts" ("user_id", "member_request_id")
   WHERE "member_request_id" IS NOT NULL;
 

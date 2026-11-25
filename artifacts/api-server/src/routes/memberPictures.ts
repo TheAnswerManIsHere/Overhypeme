@@ -19,13 +19,11 @@ import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { creditLedgerTable, db, imagePromptAttemptsTable, imageGenerationRequestsTable, userAiImagesTable } from "@workspace/db";
 import { availableGags } from "../lib/gags/resolver";
 import { creditBalance, openLots } from "../lib/credits/ledger";
-import { pictureCreditState } from "../lib/credits/pictures";
+import { returnedPictures } from "../lib/credits/pictures";
 import { MemberPictureError, requestMemberPicture } from "../lib/memberPictures/command";
-import { ENGINE_REFUSED_ERROR_CODE } from "../lib/imagePromptAttempts";
-import { OUTPUT_REFUSED_ERROR_CODE } from "../lib/imagePromptJobs";
-import { STRANDED_ERROR_CODE } from "../lib/memberPictures/settlement";
+import { memberFailureWords } from "../lib/memberPictures/failures";
 import { liveContent } from "../lib/contentVisibility";
-import { ObjectStorageService } from "../lib/objectStorage";
+import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
 import { sendStorageBody } from "../lib/sendStorageBody";
 import { setNoStore } from "../lib/cacheHeaders";
 
@@ -65,23 +63,6 @@ export interface MemberPictureState {
   createdAt: string;
 }
 
-/** A failure in words a member can act on; never an engine's internals. */
-function reasonFor(code: string | null, error: string | null): string {
-  switch (code) {
-    case ENGINE_REFUSED_ERROR_CODE:
-      return "The image engine would not draw this scene from this photo. Try another photo, look or gag.";
-    case OUTPUT_REFUSED_ERROR_CODE:
-      // The moderation rejection, in words that fit a picture we drew.
-      return "This picture didn't pass our content check, so it can't be used.";
-    case "spend_backstop":
-      return "Pictures are temporarily unavailable for this account.";
-    case STRANDED_ERROR_CODE:
-      return error ?? "This picture stopped before it was drawn.";
-    default:
-      return "Something went wrong while drawing this picture.";
-  }
-}
-
 async function statesFor(userId: string, attemptIds: number[] | null, limit = 20): Promise<MemberPictureState[]> {
   const rows = await db.select({
     id: imagePromptAttemptsTable.id,
@@ -100,20 +81,23 @@ async function statesFor(userId: string, attemptIds: number[] | null, limit = 20
     .limit(limit);
   if (rows.length === 0) return [];
   const ids = rows.map((r) => r.id);
-  const delivered = await db.select({ id: userAiImagesTable.id, attemptId: userAiImagesTable.attemptId, storagePath: userAiImagesTable.storagePath, isLive: liveContent(userAiImagesTable) })
-    .from(userAiImagesTable).where(inArray(userAiImagesTable.attemptId, ids));
-  const submitted = await db.select({ attemptId: imageGenerationRequestsTable.attemptId })
-    .from(imageGenerationRequestsTable).where(inArray(imageGenerationRequestsTable.attemptId, ids));
+  const [delivered, submitted, returned] = await Promise.all([
+    db.select({ id: userAiImagesTable.id, attemptId: userAiImagesTable.attemptId, storagePath: userAiImagesTable.storagePath, isLive: liveContent(userAiImagesTable) })
+      .from(userAiImagesTable).where(inArray(userAiImagesTable.attemptId, ids)),
+    db.select({ attemptId: imageGenerationRequestsTable.attemptId })
+      .from(imageGenerationRequestsTable).where(inArray(imageGenerationRequestsTable.attemptId, ids)),
+    returnedPictures(ids, db),
+  ]);
+  const deliveredBy = new Map(delivered.map((d) => [d.attemptId, d]));
   const drawing = new Set(submitted.map((s) => s.attemptId));
   const out: MemberPictureState[] = [];
   for (const r of rows) {
-    const d = delivered.find((x) => x.attemptId === r.id);
+    const d = deliveredBy.get(r.id);
     const base = { attemptId: r.id, factId: r.factId, createdAt: r.createdAt.toISOString(), aiImageId: null, imageUrl: null, reason: null, creditReturned: false };
     if (d) {
       out.push({ ...base, status: "done", aiImageId: d.id, imageUrl: d.isLive ? `/api/memes/ai-user/image?storagePath=${encodeURIComponent(d.storagePath)}` : null });
     } else if (r.error) {
-      const { returned } = await pictureCreditState(r.id, db);
-      out.push({ ...base, status: "failed", reason: reasonFor(r.errorCode, r.error), creditReturned: returned });
+      out.push({ ...base, status: "failed", reason: memberFailureWords(r.errorCode), creditReturned: returned.has(r.id) });
     } else {
       out.push({ ...base, status: r.compiledPrompt && drawing.has(r.id) ? "drawing" : "queued" });
     }
@@ -133,7 +117,7 @@ router.get("/facts/:factId/picture-options", async (req: Request, res: Response)
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   const factId = idParam.safeParse(req.params["factId"]);
   if (!factId.success) { res.status(400).json({ error: "Invalid fact" }); return; }
-  const gags = await availableGags(factId.data);
+  const [gags, credits, nextIsFree] = await Promise.all([availableGags(factId.data), creditBalance(req.user.id), nextPictureIsFree(req.user.id)]);
   res.json({
     gags: gags.map((g) => ({
       gagId: g.gagId,
@@ -146,9 +130,9 @@ router.get("/facts/:factId/picture-options", async (req: Request, res: Response)
     })),
     // The picker offers a choice only where there is one (plan §2).
     choice: gags.length > 1,
-    credits: await creditBalance(req.user.id),
+    credits,
     // The next picture draws the oldest lot: "your free picture" when that is the free credit.
-    nextIsFree: await nextPictureIsFree(req.user.id),
+    nextIsFree,
   });
 });
 
@@ -169,8 +153,9 @@ router.get("/member-pictures/examples/:attemptId/image", async (req: Request, re
     res.status(200);
     await sendStorageBody(res, response.body, { storagePath: attempt.path });
   } catch (err) {
-    req.log.warn({ err, attemptId: attemptId.data }, "[memberPictures] example image unavailable");
-    res.status(404).json({ error: "Example not found" });
+    if (err instanceof ObjectNotFoundError) { res.status(404).json({ error: "Example not found" }); return; }
+    req.log.error({ err, attemptId: attemptId.data }, "[memberPictures] example image could not be read");
+    res.status(503).json({ error: "Example unavailable" });
   }
 });
 
@@ -210,7 +195,8 @@ router.post("/facts/:factId/member-pictures", async (req: Request, res: Response
 router.get("/member-pictures", async (req: Request, res: Response) => {
   setNoStore(res);
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
-  res.json({ pictures: await statesFor(req.user.id, null), credits: await creditBalance(req.user.id) });
+  const [pictures, credits] = await Promise.all([statesFor(req.user.id, null), creditBalance(req.user.id)]);
+  res.json({ pictures, credits });
 });
 
 router.get("/member-pictures/:attemptId", async (req: Request, res: Response) => {
@@ -218,9 +204,9 @@ router.get("/member-pictures/:attemptId", async (req: Request, res: Response) =>
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   const attemptId = idParam.safeParse(req.params["attemptId"]);
   if (!attemptId.success) { res.status(400).json({ error: "Invalid picture" }); return; }
-  const [state] = await statesFor(req.user.id, [attemptId.data]);
+  const [[state], credits] = await Promise.all([statesFor(req.user.id, [attemptId.data]), creditBalance(req.user.id)]);
   if (!state) { res.status(404).json({ error: "Picture not found" }); return; }
-  res.json({ picture: state, credits: await creditBalance(req.user.id) });
+  res.json({ picture: state, credits });
 });
 
 export default router;

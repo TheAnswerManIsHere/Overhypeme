@@ -10,14 +10,15 @@
 import { eq } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { falPricingCacheTable } from "@workspace/db/schema";
-import { BudgetExceededError, checkBudget, recordCost } from "../budgetGate";
+import { checkBudget, recordCost } from "../budgetGate";
+import { SPEND_BACKSTOP_ERROR_CODE } from "./failures";
 import { falCallPrice } from "../falClient";
 import { perCallBoundUsd, perImagePrice, type PriceModel } from "../engines";
 import { logger } from "../logger";
 
 /** The gate refused a paid call for this account: the picture ends "temporarily unavailable" and its credit returns. */
 export class MemberSpendRefusedError extends Error {
-  readonly code = "spend_backstop";
+  readonly code = SPEND_BACKSTOP_ERROR_CODE;
   constructor(readonly endpointId: string) {
     super("Pictures are temporarily unavailable for this account. Your credit was returned.");
     this.name = "MemberSpendRefusedError";
@@ -25,7 +26,7 @@ export class MemberSpendRefusedError extends Error {
 }
 
 /** The fields of an engine this needs. */
-export interface PricedEngine {
+interface PricedEngine {
   endpointId: string;
   priceModel?: unknown;
   estimatedCostUsdPerCall?: string | number | null;
@@ -39,7 +40,7 @@ export interface PricedEngine {
  * gating on the ceiling would refuse a free account's styled picture before
  * anything was spent. Null when nothing prices it.
  */
-export function expectedCallUsd(engine: PricedEngine): number | null {
+function expectedCallUsd(engine: PricedEngine): number | null {
   const typical = engine.priceModel ? perImagePrice(engine.priceModel as PriceModel)?.usd ?? null : null;
   if (typical != null) return typical;
   const est = engine.estimatedCostUsdPerCall != null ? Number(engine.estimatedCostUsdPerCall) : NaN;
@@ -64,11 +65,8 @@ export async function gateMemberCall(userId: string, engine: PricedEngine): Prom
   }
 }
 
-/** Re-export for callers that tell the two refusals apart. */
-export { BudgetExceededError };
-
 /** The ledger reference for one engine request: unique, so a request is recorded once. */
-export const generationRequestCostRef = (generationRequestId: number): string => `genreq:${generationRequestId}`;
+const generationRequestCostRef = (generationRequestId: number): string => `genreq:${generationRequestId}`;
 
 const PRICE_FRESH_MS = 60 * 60_000;
 
@@ -97,18 +95,11 @@ export async function recordEngineRequestCost(args: {
   const published = cached && Date.now() - cached.fetchedAt.getTime() <= PRICE_FRESH_MS
     ? falCallPrice({ prices: [{ endpoint_id: args.engine.endpointId, unit_price: Number(cached.unitPrice), unit: cached.unit }] }, args.engine.endpointId, args.input)
     : null;
-  if (published != null) {
-    await recordCost({
-      userId: args.userId, jobType: "image", endpointId: args.engine.endpointId,
-      unitPriceAtCreation: Number(cached!.unitPrice), billingUnits: /megapixel/i.test(cached!.unit) ? Math.ceil(args.megapixels) : 1,
-      computedCostUsd: published, pricingFetchedAt: cached!.fetchedAt, jobReferenceId: ref, isEstimated: false,
-    });
-  } else {
-    const usd = expectedCallUsd(args.engine) ?? UNPRICED_CALL_BOUND_USD;
-    await recordCost({
-      userId: args.userId, jobType: "image", endpointId: args.engine.endpointId,
-      unitPriceAtCreation: usd, billingUnits: 1, computedCostUsd: usd,
-      pricingFetchedAt: new Date(), jobReferenceId: ref, isEstimated: true,
-    });
-  }
+  const priced = published != null && cached
+    ? { unitPriceAtCreation: Number(cached.unitPrice), billingUnits: /megapixel/i.test(cached.unit) ? Math.ceil(args.megapixels) : 1, computedCostUsd: published, pricingFetchedAt: cached.fetchedAt, isEstimated: false }
+    : (() => {
+        const usd = expectedCallUsd(args.engine) ?? UNPRICED_CALL_BOUND_USD;
+        return { unitPriceAtCreation: usd, billingUnits: 1, computedCostUsd: usd, pricingFetchedAt: new Date(), isEstimated: true };
+      })();
+  await recordCost({ userId: args.userId, jobType: "image", endpointId: args.engine.endpointId, jobReferenceId: ref, ...priced });
 }

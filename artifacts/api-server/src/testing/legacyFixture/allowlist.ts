@@ -303,6 +303,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     requestId: "synthetic:opaque-id",
     // 0173: a member's picture command identity; the fixture predates member pictures.
     memberRequestId: "drop",
+    memberRequestFingerprint: "drop",
     renderJobId: "synthetic:opaque-id",
     generationMode: "keep",
     subjectRenderMode: "keep",

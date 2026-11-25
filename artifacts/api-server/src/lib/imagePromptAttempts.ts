@@ -119,8 +119,16 @@ export interface BuildImagePromptAttemptArgs {
    * credit spend commit together, under a lock on the account, or not at all
    * (plan PLAN_PHASE7_IMAGE_OFFERING.md §2). Requires `userId`.
    */
-  memberPicture?: { requestId: string; maxInProgress: number };
+  memberPicture?: { requestId: string; fingerprint: string; maxInProgress: number };
 }
+
+/** The render's two queues. */
+export const IMAGE_PROMPT_QUEUE = "image_prompt_generation";
+export const IMAGE_GENERATION_QUEUE = "image_generation";
+
+/** A render's two job keys, spelled once: the recovery pass's "no live job" check reads them too. */
+export const promptJobDedupeKey = (attemptId: number): string => `image_prompt:attempt:${attemptId}`;
+export const imageJobDedupeKey = (attemptId: number): string => `image_generation:attempt:${attemptId}`;
 
 /** A member already has the most pictures in progress at once that they may. */
 export class TooManyPicturesInProgressError extends Error {
@@ -219,13 +227,14 @@ export async function buildAndEnqueueImagePromptAttempt(
       reviewReferenceIdentityType: args.scenario?.referenceIdentityType ?? null,
       reviewRenderBatchId: args.scenario?.batchId ?? null,
       memberRequestId: member?.requestId ?? null,
+      memberRequestFingerprint: member?.fingerprint ?? null,
     })
     .returning({ id: imagePromptAttemptsTable.id });
 
   await enqueueJob({
-    queue: "image_prompt_generation",
+    queue: IMAGE_PROMPT_QUEUE,
     payload: { attemptId: attempt!.id },
-    dedupeKey: `image_prompt:attempt:${attempt!.id}`,
+    dedupeKey: promptJobDedupeKey(attempt!.id),
   }, tx);
   if (member) await spendPictureCredit(args.userId!, attempt!.id, tx);
 

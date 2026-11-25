@@ -7,6 +7,7 @@
  * prompt except the name and pronouns of the subject, which go through the
  * same personalisation and prompt-name reduction every render uses.
  */
+import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { db, factsTable, imagePromptAttemptsTable, usersTable } from "@workspace/db";
 import { defaultIdentityPolicyForRenderMode, type GagRenderInput, type SourceImageAnalysis } from "@workspace/api-zod";
@@ -24,7 +25,7 @@ import { gateMemberCall, MemberSpendRefusedError } from "./spend";
 import { uploadMemberReference } from "./reference";
 import { logger } from "../logger";
 
-export type MemberPictureErrorCode =
+type MemberPictureErrorCode =
   | "request_reused"
   | "upload_not_owned"
   | "fact_unavailable"
@@ -72,23 +73,28 @@ const DEFAULT_MAX_IN_PROGRESS = 3;
 /** The photo check's cost per call, for the gate: a vision call, a fraction of a cent. */
 const PHOTO_CHECK_ENDPOINT = { endpointId: "openai/vision-photo-check", estimatedCostUsdPerCall: 0.002 };
 
+/** A hash of everything the command asks for, so a reused request id is recognised as the same picture or refused. */
+function fingerprintOf(cmd: MemberPictureCommand): string {
+  const { userId: _u, requestId: _r, ...asked } = cmd;
+  return createHash("sha256").update(JSON.stringify([asked.factId, asked.gagId, asked.uploadKey, asked.lookStyleId, asked.subject, asked.aspectRatio])).digest("hex");
+}
+
 async function existingHandle(cmd: MemberPictureCommand): Promise<MemberPictureHandle | null> {
   const [row] = await db.select({
     id: imagePromptAttemptsTable.id,
     renderJobId: imagePromptAttemptsTable.renderJobId,
-    factId: imagePromptAttemptsTable.factId,
-    sourceImageAnalysis: imagePromptAttemptsTable.sourceImageAnalysis,
-    renderControls: imagePromptAttemptsTable.renderControls,
+    fingerprint: imagePromptAttemptsTable.memberRequestFingerprint,
   }).from(imagePromptAttemptsTable)
     .where(and(eq(imagePromptAttemptsTable.userId, cmd.userId), eq(imagePromptAttemptsTable.memberRequestId, cmd.requestId)))
     .limit(1);
   if (!row) return null;
-  const uploadKey = (row.renderControls as { memberUploadKey?: string } | null)?.memberUploadKey;
-  if (row.factId !== cmd.factId || (uploadKey && uploadKey !== cmd.uploadKey)) {
+  if (row.fingerprint !== fingerprintOf(cmd)) {
     throw new MemberPictureError("request_reused", "This request id was already used for a different picture.", 409);
   }
   return { attemptId: row.id, renderJobId: row.renderJobId ?? "", created: false };
 }
+
+const noCredit = (balance: number) => new MemberPictureError("no_credit", new NoCreditError(balance).message, 402);
 
 function identityFor(cmd: MemberPictureCommand, member: { displayName: string | null; pronouns: string | null }): PromptIdentitySnapshot {
   const name = cmd.subject.kind === "pet" ? cmd.subject.name : (member.displayName ?? "");
@@ -127,10 +133,7 @@ export async function requestMemberPicture(cmd: MemberPictureCommand): Promise<M
 
   // Cheap refusals before any paid call: no credit, nothing to pay with.
   const balance = await creditBalance(cmd.userId);
-  if (balance < 1) {
-    const e = new NoCreditError(balance);
-    throw new MemberPictureError("no_credit", e.message, 402);
-  }
+  if (balance < 1) throw noCredit(balance);
 
   const [member] = await db.select({ displayName: usersTable.displayName, pronouns: usersTable.pronouns })
     .from(usersTable).where(eq(usersTable.id, cmd.userId)).limit(1);
@@ -194,14 +197,14 @@ export async function requestMemberPicture(cmd: MemberPictureCommand): Promise<M
       analysis: resolved.analysis,
       subjectRenderMode: resolved.subjectRenderMode,
       identityPolicy: resolved.identityPolicy ?? defaultIdentityPolicyForRenderMode(resolved.subjectRenderMode),
-      renderControls: { ...resolved.renderControls, promptIdentity: identity, memberUploadKey: cmd.uploadKey } as never,
+      renderControls: { ...resolved.renderControls, promptIdentity: identity } as never,
       requestId: `member-picture:${cmd.userId}:${cmd.requestId}`,
       gagId: gag.gagId,
-      memberPicture: { requestId: cmd.requestId, maxInProgress },
+      memberPicture: { requestId: cmd.requestId, fingerprint: fingerprintOf(cmd), maxInProgress },
     });
     return { attemptId, renderJobId, created: true };
   } catch (err) {
-    if (err instanceof NoCreditError) throw new MemberPictureError("no_credit", err.message, 402);
+    if (err instanceof NoCreditError) throw noCredit(err.balance);
     if (err instanceof TooManyPicturesInProgressError) throw new MemberPictureError("too_many_in_progress", err.message, 429);
     // The same command sent twice at once: the second insert meets the first's
     // unique (account, request id), and gets the first's picture.

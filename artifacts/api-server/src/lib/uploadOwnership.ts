@@ -25,16 +25,16 @@ export async function userOwnsUpload(uploadKey: string, userId: string | null): 
 }
 
 /**
- * True when `aiImageId` is one of `userId`'s own live AI pictures of this fact
- * (launch Phase 7, increment 2): a `user_ai_images` row a member's picture
- * delivered (`attempt_id` set), owned by the caller, not deleted, drawn for
- * `factId`. An example, another member's picture, or a picture a fact's shared
- * gallery serves can never satisfy it.
+ * The object path of `aiImageId` when it is one of `userId`'s own live AI
+ * pictures of this fact (launch Phase 7, increment 2): a `user_ai_images` row a
+ * member's picture delivered (`attempt_id` set), owned by the caller, not
+ * deleted, drawn for `factId`. Null otherwise: an example, another member's
+ * picture, or a picture a fact's shared gallery serves never satisfies it.
  */
-export async function userOwnsAiPicture(aiImageId: number, userId: string | null, factId: number): Promise<boolean> {
-  if (!userId) return false;
+export async function ownedAiPicturePath(aiImageId: number, userId: string | null, factId: number): Promise<string | null> {
+  if (!userId) return null;
   const [row] = await db
-    .select({ id: userAiImagesTable.id })
+    .select({ storagePath: userAiImagesTable.storagePath })
     .from(userAiImagesTable)
     .where(and(
       eq(userAiImagesTable.id, aiImageId),
@@ -44,10 +44,10 @@ export async function userOwnsAiPicture(aiImageId: number, userId: string | null
       liveContent(userAiImagesTable),
     ))
     .limit(1);
-  return !!row;
+  return row?.storagePath ?? null;
 }
 
-/** The object path of an AI picture, for a caller that has already checked it is the requester's own (or a saved meme's recipe). */
+/** A saved meme's AI picture path, read for its stored recipe: the ownership check ran when the meme was saved. */
 export async function aiPictureObjectPath(aiImageId: number): Promise<string | null> {
   const [row] = await db.select({ storagePath: userAiImagesTable.storagePath })
     .from(userAiImagesTable).where(eq(userAiImagesTable.id, aiImageId)).limit(1);

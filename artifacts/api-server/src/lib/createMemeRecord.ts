@@ -25,7 +25,7 @@ import { and, eq, gt, count } from "drizzle-orm";
 import { type ImageSource } from "./validators/memeBuilder";
 import { renderPersonalized } from "./renderCanonical";
 import { getConfigInt } from "./adminConfig";
-import { userOwnsAiPicture, userOwnsUpload } from "./uploadOwnership";
+import { ownedAiPicturePath, userOwnsUpload } from "./uploadOwnership";
 import { can, type Principal } from "./featureAccess";
 import { getUploadImageMetadata } from "./userImageUpload";
 import { renderTracedMeme, storeMemeFile } from "./memeBake";
@@ -193,7 +193,7 @@ export async function createMemeRecord(
   // An AI picture must be one of the saver's own live pictures of this fact,
   // checked here on its own terms: it never passes as an upload, and an
   // example or another member's picture never satisfies it.
-  if (imageSource.type === "ai_picture" && !(await userOwnsAiPicture(imageSource.aiImageId, userId, factId))) {
+  if (imageSource.type === "ai_picture" && !(await ownedAiPicturePath(imageSource.aiImageId, userId, factId))) {
     throw new CreateMemeError(403, { error: "ai_picture_not_owned" });
   }
 

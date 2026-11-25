@@ -7,12 +7,12 @@
  * 0173's triggers refuse a return for a delivered picture and a delivery for a
  * returned one; the caller serialises the two on a lock of the attempt row.
  */
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { creditLedgerTable, usersTable } from "@workspace/db";
 import type { Executor } from "../visualConceptOwner";
 import { creditBalance, openLots } from "./ledger";
 
-export const pictureRef = (attemptId: number): string => `picture:${attemptId}`;
+const pictureRef = (attemptId: number): string => `picture:${attemptId}`;
 
 /** The account cannot pay for a picture: no credit, or a balance at or below zero after a reversal. */
 export class NoCreditError extends Error {
@@ -79,7 +79,16 @@ export async function returnPictureCredit(attemptId: number, tx: Executor): Prom
 
 /** Whether this picture's credit was spent and whether it was returned. */
 export async function pictureCreditState(attemptId: number, tx: Executor): Promise<{ spent: boolean; returned: boolean }> {
-  const rows = await tx.select({ kind: creditLedgerTable.kind }).from(creditLedgerTable)
-    .where(eq(creditLedgerTable.ref, pictureRef(attemptId)));
-  return { spent: rows.some((r) => r.kind === "picture_spend"), returned: rows.some((r) => r.kind === "picture_return") };
+  const returned = await returnedPictures([attemptId], tx);
+  const rows = await tx.select({ id: creditLedgerTable.id }).from(creditLedgerTable)
+    .where(and(eq(creditLedgerTable.kind, "picture_spend"), eq(creditLedgerTable.ref, pictureRef(attemptId)))).limit(1);
+  return { spent: rows.length > 0, returned: returned.has(attemptId) };
+}
+
+/** Which of these pictures had their credit returned: one query, on the (kind, ref) index. */
+export async function returnedPictures(attemptIds: number[], tx: Executor): Promise<Set<number>> {
+  if (attemptIds.length === 0) return new Set();
+  const rows = await tx.select({ ref: creditLedgerTable.ref }).from(creditLedgerTable)
+    .where(and(eq(creditLedgerTable.kind, "picture_return"), inArray(creditLedgerTable.ref, attemptIds.map(pictureRef))));
+  return new Set(rows.map((r) => Number(r.ref.slice("picture:".length))));
 }

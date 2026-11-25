@@ -9,19 +9,21 @@ import { logger } from "../logger";
 import { gateMemberCall } from "./spend";
 import { recordCost } from "../budgetGate";
 
-export type OutputCheckOutcome =
+type OutputCheckOutcome =
   | { outcome: "pass" }
   | { outcome: "refused" }
   /** The check could not run and is configured to fail closed: the caller retries. */
   | { outcome: "unavailable"; message: string };
 
 type Classifier = (imageUrl: string) => ReturnType<typeof classifyAndDecide>;
-let classify: Classifier = (url) => classifyAndDecide(url, { nsfwModeEnabled: false });
-let keyPresent: () => boolean = () => Boolean(getFalApiKey());
-/** Test seam: replace the classifier (null restores it); `withKey` stands in for a configured fal key. */
-export function __setOutputClassifierForTest(fn: Classifier | null, withKey = true): void {
-  classify = fn ?? ((url) => classifyAndDecide(url, { nsfwModeEnabled: false }));
-  keyPresent = fn ? () => withKey : () => Boolean(getFalApiKey());
+const defaultClassify: Classifier = (url) => classifyAndDecide(url, { nsfwModeEnabled: false });
+const defaultKeyPresent = (): boolean => Boolean(getFalApiKey());
+let classify = defaultClassify;
+let keyPresent = defaultKeyPresent;
+/** Test seam: replace the classifier (null restores it); a replaced classifier runs as if a fal key were set. */
+export function __setOutputClassifierForTest(fn: Classifier | null): void {
+  classify = fn ?? defaultClassify;
+  keyPresent = fn ? () => true : defaultKeyPresent;
 }
 
 /** The classifier's cost per call, for the gate and the ledger: a fraction of a cent, recorded as an estimate. */

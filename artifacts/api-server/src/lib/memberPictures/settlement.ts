@@ -10,19 +10,20 @@
  * The invariant the tests hold: no member picture ends failed with its spend
  * standing and no return, and none is delivered with a return.
  */
-import { and, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { asyncJobsTable, db, imagePromptAttemptsTable, userAiImagesTable, type ImagePromptAttempt } from "@workspace/db";
 import { pictureCreditState, returnPictureCredit } from "../credits/pictures";
 import type { Executor } from "../visualConceptOwner";
 import { logger } from "../logger";
+import { IMAGE_GENERATION_QUEUE, IMAGE_PROMPT_QUEUE, imageJobDedupeKey, promptJobDedupeKey } from "../imagePromptAttempts";
+import { STRANDED_ERROR_CODE } from "./failures";
+
 
 /** What a member's picture row in My content records it as. */
 export const MEMBER_PICTURE_IMAGE_TYPE = "member_picture";
 
-/** The error code of a picture that the recovery pass found stranded. */
-export const STRANDED_ERROR_CODE = "member_picture_stranded";
 /** A picture with no live job for this long, not delivered and not failed, is stranded. */
-export const STRANDED_AFTER_MS = 5 * 60_000;
+const STRANDED_AFTER_MS = 5 * 60_000;
 /** A picture still undelivered this long after it was asked for is ended, whatever its jobs say. */
 export const PICTURE_DEADLINE_MS = 2 * 60 * 60_000;
 
@@ -51,7 +52,7 @@ export function isMemberPicture(attempt: Pick<ImagePromptAttempt, "memberRequest
   return attempt.memberRequestId != null;
 }
 
-export type DeliveryOutcome = "delivered" | "already_delivered" | "returned";
+type DeliveryOutcome = "delivered" | "already_delivered" | "returned";
 
 /**
  * Deliver a finished member picture as its owner's own, inside the worker's
@@ -88,36 +89,32 @@ export async function deliverMemberPicture(attemptId: number, storedPath: string
  * Return a member picture's credit because it will not be delivered. Inside
  * the caller's transaction (the terminal failure's, or the recovery pass's
  * own). No-op for an attempt that is not a member's picture, one already
- * returned, and one delivered. True when it returned a credit now.
+ * returned, and one delivered. With `failWith`, a picture not yet written as
+ * failed is written so first (a stranded one, or one past its deadline). True
+ * when it returned a credit now.
  */
-export async function returnUndeliveredPicture(attemptId: number, tx: Executor): Promise<boolean> {
+export async function returnUndeliveredPicture(attemptId: number, tx: Executor, failWith?: { code: string; message: string }): Promise<boolean> {
   const attempt = await lockAttempt(attemptId, tx);
   if (!attempt || !isMemberPicture(attempt)) return false;
   if (await isDelivered(attemptId, tx)) return false;
+  if (failWith && !attempt.error) {
+    await tx.update(imagePromptAttemptsTable)
+      .set({ error: failWith.message, errorCode: failWith.code, updatedAt: new Date() })
+      .where(eq(imagePromptAttemptsTable.id, attemptId));
+  }
   return returnPictureCredit(attemptId, tx);
 }
 
-/**
- * End a member picture now and return its credit: written as failed with the
- * reason, in one transaction with the return. Used by the recovery pass for a
- * stranded picture and for one past its deadline. No-op once delivered.
- */
-async function endAndReturn(attemptId: number, code: string, message: string): Promise<boolean> {
-  return db.transaction(async (tx) => {
-    const attempt = await lockAttempt(attemptId, tx);
-    if (!attempt || !isMemberPicture(attempt) || (await isDelivered(attemptId, tx))) return false;
-    if (!attempt.error) {
-      await tx.update(imagePromptAttemptsTable)
-        .set({ error: message, errorCode: code, updatedAt: new Date() })
-        .where(eq(imagePromptAttemptsTable.id, attemptId));
-    }
-    return returnPictureCredit(attemptId, tx);
-  });
-}
-
 const LIVE_JOB_STATUSES = ["pending", "processing", "recovering"];
+/**
+ * A failed picture is normally returned in its failure's own transaction, so
+ * the pass only ever finds recent ones unsettled (the hook was skipped, or the
+ * process stopped between the two). It looks back this far, which bounds its
+ * scan as history grows.
+ */
+const FAILED_LOOKBACK_MS = 7 * 24 * 60 * 60_000;
 
-export interface SettlementPassResult { failedReturned: number; strandedReturned: number; deadlineReturned: number }
+interface SettlementPassResult { failedReturned: number; strandedReturned: number; deadlineReturned: number }
 
 /**
  * The recovery pass: settle every member picture that will not be delivered.
@@ -131,6 +128,9 @@ export interface SettlementPassResult { failedReturned: number; strandedReturned
  *     row lost) → failed and returned;
  *   - past PICTURE_DEADLINE_MS and still not delivered → failed and returned;
  *     a late completion then finds the return and delivers nothing.
+ *
+ * The SQL below restates "spent, not returned, not delivered" to find
+ * candidates; `returnUndeliveredPicture` decides under the lock.
  */
 export async function runMemberPictureSettlementPass(now = Date.now(), limit = 200): Promise<SettlementPassResult> {
   const result: SettlementPassResult = { failedReturned: 0, strandedReturned: 0, deadlineReturned: 0 };
@@ -139,13 +139,18 @@ export async function runMemberPictureSettlementPass(now = Date.now(), limit = 2
     AND EXISTS (SELECT 1 FROM credit_ledger s WHERE s.kind = 'picture_spend' AND s.ref = 'picture:' || ${imagePromptAttemptsTable.id}::text)`;
 
   const failed = await db.select({ id: imagePromptAttemptsTable.id }).from(imagePromptAttemptsTable)
-    .where(and(isNotNull(imagePromptAttemptsTable.memberRequestId), isNotNull(imagePromptAttemptsTable.error), unsettled))
+    .where(and(
+      isNotNull(imagePromptAttemptsTable.memberRequestId),
+      isNotNull(imagePromptAttemptsTable.error),
+      gt(imagePromptAttemptsTable.updatedAt, new Date(now - FAILED_LOOKBACK_MS)),
+      unsettled,
+    ))
     .limit(limit);
   for (const { id } of failed) {
     if (await db.transaction((tx) => returnUndeliveredPicture(id, tx))) result.failedReturned++;
   }
 
-  const open = await db.select({ id: imagePromptAttemptsTable.id, createdAt: imagePromptAttemptsTable.createdAt, updatedAt: imagePromptAttemptsTable.updatedAt })
+  const open = await db.select({ id: imagePromptAttemptsTable.id, createdAt: imagePromptAttemptsTable.createdAt })
     .from(imagePromptAttemptsTable)
     .where(and(
       isNotNull(imagePromptAttemptsTable.memberRequestId),
@@ -155,20 +160,24 @@ export async function runMemberPictureSettlementPass(now = Date.now(), limit = 2
       unsettled,
     ))
     .limit(limit);
+  // One read of the live jobs for every candidate. The prompt stage chains the
+  // image job in the same transaction that saves the prompt, so "no live job"
+  // for both stages means nothing will ever finish the picture.
+  const keys = open.flatMap((r) => [promptJobDedupeKey(r.id), imageJobDedupeKey(r.id)]);
+  const live = new Set(keys.length === 0 ? [] : (await db.select({ key: asyncJobsTable.dedupeKey }).from(asyncJobsTable)
+    .where(and(
+      inArray(asyncJobsTable.queue, [IMAGE_PROMPT_QUEUE, IMAGE_GENERATION_QUEUE]),
+      inArray(asyncJobsTable.dedupeKey, keys),
+      inArray(asyncJobsTable.status, LIVE_JOB_STATUSES),
+    ))).map((j) => j.key));
   for (const row of open) {
-    if (row.createdAt.getTime() < now - PICTURE_DEADLINE_MS) {
-      if (await endAndReturn(row.id, STRANDED_ERROR_CODE, "This picture took too long to draw, so it was stopped.")) result.deadlineReturned++;
-      continue;
+    const pastDeadline = row.createdAt.getTime() < now - PICTURE_DEADLINE_MS;
+    if (!pastDeadline && (live.has(promptJobDedupeKey(row.id)) || live.has(imageJobDedupeKey(row.id)))) continue;
+    const message = pastDeadline ? "This picture took too long to draw, so it was stopped." : "This picture stopped before it was drawn.";
+    if (await db.transaction((tx) => returnUndeliveredPicture(row.id, tx, { code: STRANDED_ERROR_CODE, message }))) {
+      if (pastDeadline) result.deadlineReturned++;
+      else result.strandedReturned++;
     }
-    const keys = [`image_prompt:attempt:${row.id}`, `image_generation:attempt:${row.id}`];
-    const [live] = await db.select({ id: asyncJobsTable.id }).from(asyncJobsTable)
-      .where(and(inArray(asyncJobsTable.dedupeKey, keys), or(...LIVE_JOB_STATUSES.map((s) => eq(asyncJobsTable.status, s)))))
-      .limit(1);
-    if (live) continue;
-    // The prompt stage chains the image job in the same transaction that
-    // saves the prompt, so "no live job" for both stages means nothing will
-    // ever finish this picture.
-    if (await endAndReturn(row.id, STRANDED_ERROR_CODE, "This picture stopped before it was drawn.")) result.strandedReturned++;
   }
 
   const total = result.failedReturned + result.strandedReturned + result.deadlineReturned;

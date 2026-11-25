@@ -173,11 +173,18 @@ export async function checkBudget(
     // count), so a picture that keeps failing cannot keep spending. The value
     // comes from a real read or a real intentional default, never silently
     // from the emergency code default (#409 round 1).
-    const perCreditCeiling = await resolveBudgetFloat("budget_per_credit_ceiling_usd", 0.30, userId);
-    const [{ granted }] = await db
-      .select({ granted: sql<string>`COALESCE(SUM(${creditLedgerTable.credits}), 0)` })
-      .from(creditLedgerTable)
-      .where(sql`${creditLedgerTable.userId} = ${userId} AND ${creditLedgerTable.lotId} IS NULL`);
+    const [perCreditCeiling, [{ granted }], [{ total }]] = await Promise.all([
+      resolveBudgetFloat("budget_per_credit_ceiling_usd", 0.30, userId),
+      db
+        .select({ granted: sql<string>`COALESCE(SUM(${creditLedgerTable.credits}), 0)` })
+        .from(creditLedgerTable)
+        .where(sql`${creditLedgerTable.userId} = ${userId} AND ${creditLedgerTable.lotId} IS NULL`),
+      // This account's recorded spend, all time.
+      db
+        .select({ total: sql<string>`COALESCE(SUM(${userGenerationCostsTable.computedCostUsd}), 0)` })
+        .from(userGenerationCostsTable)
+        .where(sql`${userGenerationCostsTable.userId} = ${userId}`),
+    ]);
     const creditAllowance = parseFloat(granted ?? "0") * perCreditCeiling;
     const perUserOverride = user?.monthlyGenerationLimitOverrideUsd != null
       ? parseFloat(String(user.monthlyGenerationLimitOverrideUsd))
@@ -185,12 +192,6 @@ export async function checkBudget(
     const limit = (perUserOverride !== null && !isNaN(perUserOverride))
       ? perUserOverride
       : creditAllowance;
-
-    // Sum this account's recorded spend, all time.
-    const [{ total }] = await db
-      .select({ total: sql<string>`COALESCE(SUM(${userGenerationCostsTable.computedCostUsd}), 0)` })
-      .from(userGenerationCostsTable)
-      .where(sql`${userGenerationCostsTable.userId} = ${userId}`);
 
     const currentSpend = parseFloat(total ?? "0");
     const remainingBudget = Math.max(0, limit - currentSpend);

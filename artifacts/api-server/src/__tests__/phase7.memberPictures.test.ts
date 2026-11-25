@@ -36,7 +36,7 @@ import { EMPTY_VISUAL_STRATEGY_OVERRIDE, buildPlaceholderFactEnrichment } from "
 import { requestMemberPicture, MemberPictureError, type MemberPictureCommand } from "../lib/memberPictures/command.js";
 import { runMemberPictureSettlementPass, PICTURE_DEADLINE_MS } from "../lib/memberPictures/settlement.js";
 import { __setOutputClassifierForTest } from "../lib/memberPictures/outputCheck.js";
-import { __setMemberReferenceUploaderForTest } from "../lib/memberPictures/reference.js";
+import { __setReferenceFalUploadForTest } from "../lib/defaultReferenceResolver.js";
 import { imagePromptGenerationHandler, imageGenerationHandler } from "../lib/imagePromptJobs.js";
 import { __setRenderFalForTest } from "../lib/renderFalTransport.js";
 import { __setTier3ForTest } from "../lib/sourceImageAnalysis/index.js";
@@ -185,12 +185,12 @@ before(async () => {
 
 beforeEach(() => {
   __setTier3ForTest(async () => ({ ...PERSON }) as never);
-  __setMemberReferenceUploaderForTest(async () => "https://example.test/member-reference.jpg");
+  __setReferenceFalUploadForTest(async () => "https://example.test/member-reference.jpg");
   __setOutputClassifierForTest(async () => ({ outcome: "accept", score: 0.01, model: "t", raw: {}, isNsfwTag: false }));
 });
 afterEach(() => {
   __setTier3ForTest(null);
-  __setMemberReferenceUploaderForTest(null);
+  __setReferenceFalUploadForTest(null);
   __setOutputClassifierForTest(null);
 });
 
@@ -230,6 +230,16 @@ describe("Phase 7 inc 2: one command, one picture", () => {
     assert.equal(again.created, false);
     assert.equal(again.attemptId, first.attemptId);
     assert.equal(await creditBalance(userId), 1, "one credit spent, not two");
+  });
+
+  it("the same request id with a different gag, look, photo or subject is refused, not answered with the first picture", async () => {
+    const userId = await newMember(2);
+    const { factId, gagIds } = await liveFact(["{NAME} one.", "{NAME} two."]);
+    const cmd = await command(userId, factId);
+    await requestMemberPicture(cmd);
+    await assert.rejects(requestMemberPicture({ ...cmd, gagId: gagIds[1]! }), (e: unknown) => e instanceof MemberPictureError && e.code === "request_reused");
+    await assert.rejects(requestMemberPicture({ ...cmd, subject: { kind: "pet", name: "Mango", pronouns: null } }), (e: unknown) => e instanceof MemberPictureError && e.code === "request_reused");
+    assert.equal(await creditBalance(userId), 1);
   });
 
   it("two commands at once with one credit make one picture", async () => {

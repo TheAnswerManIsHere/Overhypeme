@@ -39,6 +39,8 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
    * already made. Set only on a member's own picture; NULL on every other attempt.
    */
   memberRequestId: varchar("member_request_id", { length: 64 }),
+  /** A hash of what that command asked for: a request id reused for a different picture is refused (migration 0173). */
+  memberRequestFingerprint: varchar("member_request_fingerprint", { length: 64 }),
   /** Parent client-poll handle (UUID). Set by /generate-v2 before enqueueing the prompt job. */
   renderJobId: varchar("render_job_id", { length: 64 }),
   /** "i2i" | "t2i" — derived from `subjectRenderMode`. */

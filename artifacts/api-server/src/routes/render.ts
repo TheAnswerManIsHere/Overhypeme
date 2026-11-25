@@ -20,7 +20,7 @@
  * and template backgrounds, deleted in launch Phase 4 (removals 5 and 6).
  */
 
-import { aiPictureObjectPath, userOwnsAiPicture, userOwnsUpload } from "../lib/uploadOwnership";
+import { ownedAiPicturePath, userOwnsUpload } from "../lib/uploadOwnership";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import { factsTable } from "@workspace/db/schema";
@@ -165,8 +165,7 @@ async function validateAndResolve(
   // An AI picture must be one of the caller's own live pictures of this fact.
   let aiPicturePath: string | null = null;
   if (parsed.data.imageSource.type === "ai_picture") {
-    const owned = await userOwnsAiPicture(parsed.data.imageSource.aiImageId, userId, fact.id);
-    aiPicturePath = owned ? await aiPictureObjectPath(parsed.data.imageSource.aiImageId) : null;
+    aiPicturePath = await ownedAiPicturePath(parsed.data.imageSource.aiImageId, userId, fact.id);
     if (!aiPicturePath) {
       res.status(403).json({ error: "ai_picture_not_owned" });
       void logTransientRender({

@@ -77,12 +77,15 @@ import type { EngineFallbackRecord } from "@workspace/db";
 import { ObjectStorageService } from "./objectStorage";
 import { deliverMemberPicture, isMemberPicture, returnUndeliveredPicture } from "./memberPictures/settlement";
 import { gateMemberCall, MemberSpendRefusedError, recordEngineRequestCost } from "./memberPictures/spend";
+import { LATE_AFTER_RETURN_ERROR_CODE, OUTPUT_REFUSED_ERROR_CODE } from "./memberPictures/failures";
+import { sniffImage } from "./provenance/imageFile";
+import { imageJobDedupeKey } from "./imagePromptAttempts";
 import { checkMemberPictureOutput } from "./memberPictures/outputCheck";
 import { GENERIC_REJECT_MESSAGE } from "./moderation/types";
 import { logger } from "./logger";
 
-export const IMAGE_PROMPT_QUEUE = "image_prompt_generation";
-export const IMAGE_GENERATION_QUEUE = "image_generation";
+import { IMAGE_GENERATION_QUEUE, IMAGE_PROMPT_QUEUE } from "./imagePromptAttempts";
+export { IMAGE_GENERATION_QUEUE, IMAGE_PROMPT_QUEUE };
 
 /**
  * The recovery protocol the render queues implement (plan PLAN_JOB_RESUME.md
@@ -143,7 +146,7 @@ export const imagePromptGenerationHandler: JobHandler = {
         await fencedTransaction(db, (tx) => enqueueJob({
           queue: IMAGE_GENERATION_QUEUE,
           payload: { attemptId: p.attemptId } satisfies ImagePromptJobPayload,
-          dedupeKey: `image_generation:attempt:${p.attemptId}`,
+          dedupeKey: imageJobDedupeKey(p.attemptId),
         }, tx));
       }
       logger.info({ attemptId: p.attemptId }, "[imagePromptJobs] compiled prompt already saved for this attempt; reusing it");
@@ -265,7 +268,7 @@ export async function persistCompiledPromptAndEnqueueGeneration(args: {
     await enqueueJob({
       queue: IMAGE_GENERATION_QUEUE,
       payload: { attemptId: args.attemptId } satisfies ImagePromptJobPayload,
-      dedupeKey: `image_generation:attempt:${args.attemptId}`,
+      dedupeKey: imageJobDedupeKey(args.attemptId),
     }, tx);
   });
 }
@@ -418,8 +421,7 @@ export const imageGenerationHandler: JobHandler = {
       },
     });
     } catch (err) {
-      if (err instanceof MemberSpendRefusedError) return recordTerminalAttemptFailure(p.attemptId, err.code, err.message);
-      throw err;
+      return endIfSpendRefused(p.attemptId, err);
     }
     const resultUrl = drawn.ok ? extractFirstImageUrl(drawn.data) : null;
     if (!drawn.ok || !resultUrl) {
@@ -492,10 +494,9 @@ export const imageGenerationHandler: JobHandler = {
     if (memberPicture) {
       let check;
       try {
-        check = await checkMemberPictureOutput({ attemptId: p.attemptId, userId: attempt.userId!, imageUrl: resultUrl, bytes: buf, mimeType: sniffImageMime(buf) });
+        check = await checkMemberPictureOutput({ attemptId: p.attemptId, userId: attempt.userId!, imageUrl: resultUrl, bytes: buf, mimeType: sniffImage(buf).mime });
       } catch (err) {
-        if (err instanceof MemberSpendRefusedError) return recordTerminalAttemptFailure(p.attemptId, err.code, err.message);
-        throw err;
+        return endIfSpendRefused(p.attemptId, err);
       }
       if (check.outcome === "refused") return recordTerminalAttemptFailure(p.attemptId, OUTPUT_REFUSED_ERROR_CODE, GENERIC_REJECT_MESSAGE);
       if (check.outcome === "unavailable") return retryRender(p.attemptId, check.message);
@@ -548,7 +549,7 @@ export const imageGenerationHandler: JobHandler = {
       const outcome = await fencedTransaction(db, (tx) => deliverMemberPicture(p.attemptId, storedPath, tx));
       if (outcome === "returned") {
         logger.warn({ attemptId: p.attemptId }, "[imagePromptJobs] member picture finished after its credit was returned; not delivered");
-        return terminalFailure(STRANDED_RETURNED_CODE, "This picture finished after it had been stopped and its credit returned.");
+        return terminalFailure(LATE_AFTER_RETURN_ERROR_CODE, "This picture finished after it had been stopped and its credit returned.");
       }
     } else {
       await fencedTransaction(db, (tx) => tx
@@ -580,13 +581,6 @@ export const imageGenerationHandler: JobHandler = {
  * the attempt is not marked failed while the queue will still retry it
  * (`onAbandon` writes it when it will not).
  */
-/** The picture's type from its first bytes, for the quarantine record. */
-function sniffImageMime(buf: Buffer): string {
-  if (buf.length >= 8 && buf.readUInt32BE(0) === 0x89504e47) return "image/png";
-  if (buf.length >= 12 && buf.toString("ascii", 8, 12) === "WEBP") return "image/webp";
-  return "image/jpeg";
-}
-
 function retryRender(attemptId: number, error: string): HandlerResult {
   logger.warn({ attemptId, error }, "[imagePromptJobs] image_generation failed; the queue will retry it");
   return { ok: false, error };
@@ -747,10 +741,12 @@ async function markAttemptError(attemptId: number, error: string): Promise<void>
 const RENDER_INPUT_INVALID = "render_input_invalid";
 /** fal rejected the request for a cause a retry cannot change (not a content refusal). */
 const VENDOR_REJECTED_ERROR_CODE = "vendor_request_rejected";
-/** A member's picture the output check refused: quarantined, never delivered, its credit returned. */
-export const OUTPUT_REFUSED_ERROR_CODE = "output_refused";
-/** A member's picture that finished after the recovery pass had stopped it and returned its credit. */
-const STRANDED_RETURNED_CODE = "member_picture_returned";
+
+/** The spend backstop refused a member's paid call: the picture ends and its credit returns. Anything else is rethrown. */
+async function endIfSpendRefused(attemptId: number, err: unknown): Promise<HandlerResult> {
+  if (err instanceof MemberSpendRefusedError) return recordTerminalAttemptFailure(attemptId, err.code, err.message);
+  throw err;
+}
 
 async function recordTerminalAttemptFailure(
   attemptId: number,
