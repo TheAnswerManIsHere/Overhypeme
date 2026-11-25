@@ -1217,7 +1217,14 @@
       "idx": 173,
       "version": "7",
       "when": 1790600000000,
-      "tag": "0173_stored_file_deletions",
+      "tag": "0173_member_pictures",
+      "breakpoints": true
+    },
+    {
+      "idx": 174,
+      "version": "7",
+      "when": 1790700000000,
+      "tag": "0174_stored_file_deletions",
       "breakpoints": true
     }
   ]

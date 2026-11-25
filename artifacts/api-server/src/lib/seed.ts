@@ -313,27 +313,11 @@ export async function ensureSchema(): Promise<void> {
             ON CONFLICT (key) DO NOTHING`,
     },
     {
-      label: "admin_config seed budget_period",
-      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
-            VALUES ('budget_period', 'monthly', 'string', 'Budget Reset Period',
-                    'How often the per-user generation budget resets. Values: "monthly" (1st of month) or "rolling_30d" (last 30 days).',
-                    false)
-            ON CONFLICT (key) DO NOTHING`,
-    },
-    {
-      label: "admin_config seed budget_limit_registered_usd",
-      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
-            VALUES ('budget_limit_registered_usd', '0.50', 'string', 'Registered Tier Generation Budget (USD)',
-                    'Maximum fal.ai generation spend per budget period for users on the Registered Tier (USD).',
-                    false)
-            ON CONFLICT (key) DO NOTHING`,
-    },
-    {
-      label: "admin_config seed budget_limit_legendary_usd",
-      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
-            VALUES ('budget_limit_legendary_usd', '10.00', 'string', 'Legendary Tier Generation Budget (USD)',
-                    'Maximum fal.ai generation spend per budget period for users on the Legendary Tier (USD).',
-                    false)
+      label: "admin_config seed budget_per_credit_ceiling_usd",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, min_value, max_value, is_public)
+            VALUES ('budget_per_credit_ceiling_usd', '0.30', 'float', 'Engine spend allowed per credit granted (USD)',
+                    'The backstop on what one account can cost in AI engine charges on record (cost records are kept 13 months): this many dollars for every credit the account has ever been granted. Leaves room for a fallback and a redraw; a returned credit adds nothing.',
+                    0, 100, false)
             ON CONFLICT (key) DO NOTHING`,
     },
     {

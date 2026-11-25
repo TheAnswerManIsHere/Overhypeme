@@ -2,7 +2,10 @@
  * Budget Gate
  *
  * Pre-generation budget check and post-generation cost ledger recording.
- * All limits come from the admin_config table, never from hardcoded values.
+ * The limit is a backstop that follows the credits an account has been
+ * granted (`budget_per_credit_ceiling_usd` per credit, against the spend on
+ * record, kept 13 months; launch Phase 7), the same rule for every account; an admin is exempt and a per-user
+ * override replaces it. Its figure comes from admin_config.
  *
  * `checkBudget` FAILS CLOSED: if the check itself cannot complete, it throws
  * `BudgetGateError` rather than granting the generation. It previously
@@ -12,11 +15,10 @@
  */
 
 import { db } from "@workspace/db";
-import { userGenerationCostsTable, usersTable } from "@workspace/db/schema";
+import { creditLedgerTable, userGenerationCostsTable, usersTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { getConfigStringWithSource } from "./adminConfig";
 import { logger } from "./logger";
-import { effectiveTierExpr } from "./membershipState";
 import { isRealAdminRow } from "./adminIdentity";
 
 export interface BudgetStatus {
@@ -82,16 +84,6 @@ export interface RecordCostParams {
   isEstimated: boolean;
 }
 
-/** Resolve the start-of-period date based on budget_period config. */
-function getPeriodStart(budgetPeriod: string): Date {
-  if (budgetPeriod === "rolling_30d") {
-    return new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  }
-  // "monthly" — first day of current month at midnight UTC
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
-}
-
 /**
  * Resolve a numeric budget limit via `getConfigStringWithSource`, throwing
  * when the read itself failed rather than silently substituting the code
@@ -144,7 +136,6 @@ export async function checkBudget(
       .select({
         id: usersTable.id,
         email: usersTable.email,
-        membershipTier: effectiveTierExpr(),
         isAdmin: usersTable.isAdmin,
         monthlyGenerationLimitOverrideUsd: usersTable.monthlyGenerationLimitOverrideUsd,
       })
@@ -152,7 +143,6 @@ export async function checkBudget(
       .where(eq(usersTable.id, userId))
       .limit(1);
 
-    const tier = user?.membershipTier ?? "unregistered";
     // The canonical three-mechanism check, not the raw column — an env- or
     // bootstrap-granted admin (no `is_admin` row) was silently paying like a
     // regular user. Round 2 of PR #425's review caught this.
@@ -174,44 +164,36 @@ export async function checkBudget(
     // preempted the exemption above and rejected admins outright.
     const proposedCostUsd = typeof proposedCost === "function" ? await proposedCost() : proposedCost;
 
-    // Fetch config values WITH provenance: `fallback_default` means the read
-    // itself failed, not that the key is legitimately unset. A non-admin's
-    // limit must come from a real read or a real intentional default — never
-    // silently from the emergency code default, which could be far more
-    // permissive than what the operator actually configured (#409 round 1).
-    // `resolveBudgetFloat` reuses the existing `getConfigStringWithSource`
-    // rather than adding a float-typed sibling export — a new abstraction is
-    // a Tier C trigger regardless of how closely it mirrors an existing one
-    // (#409 round 3, the same class of finding as `gateGeneration`).
-    const [budgetPeriodRes, registeredLimit, legendaryLimit] = await Promise.all([
-      getConfigStringWithSource("budget_period", "monthly"),
-      resolveBudgetFloat("budget_limit_registered_usd", 0.50, userId),
-      resolveBudgetFloat("budget_limit_legendary_usd", 10.00, userId),
+    // One rule for every account (launch Phase 7, plan
+    // PLAN_PHASE7_IMAGE_OFFERING.md §2): the engine dollars an account may
+    // cause IN TOTAL are bounded by the credits it has ever been granted times
+    // a per-credit ceiling. A fixed per-tier monthly figure would stop someone
+    // using credits they bought (credits never expire), and make membership
+    // the gate again. A returned credit adds no allowance (only grant rows
+    // count), so a picture that keeps failing cannot keep spending. The value
+    // comes from a real read or a real intentional default, never silently
+    // from the emergency code default (#409 round 1).
+    const [perCreditCeiling, [{ granted }], [{ total }]] = await Promise.all([
+      resolveBudgetFloat("budget_per_credit_ceiling_usd", 0.30, userId),
+      db
+        .select({ granted: sql<string>`COALESCE(SUM(${creditLedgerTable.credits}), 0)` })
+        .from(creditLedgerTable)
+        .where(sql`${creditLedgerTable.userId} = ${userId} AND ${creditLedgerTable.lotId} IS NULL`),
+      // This account's recorded spend: every cost row on record, which the
+      // retention job keeps 13 months (dataLifecycle.ts). Not a lifetime total
+      // once rows age out; whether it should be is open (PR #1300).
+      db
+        .select({ total: sql<string>`COALESCE(SUM(${userGenerationCostsTable.computedCostUsd}), 0)` })
+        .from(userGenerationCostsTable)
+        .where(sql`${userGenerationCostsTable.userId} = ${userId}`),
     ]);
-    if (budgetPeriodRes.source === "fallback_default") {
-      throw new Error(`admin_config read failed while resolving budget_period for user ${userId}`);
-    }
-    const budgetPeriod = budgetPeriodRes.value;
-    const registeredLimitStr = registeredLimit;
-    const legendaryLimitStr = legendaryLimit;
-
-    const globalLimit = tier === "legendary" ? legendaryLimitStr : registeredLimitStr;
+    const creditAllowance = parseFloat(granted ?? "0") * perCreditCeiling;
     const perUserOverride = user?.monthlyGenerationLimitOverrideUsd != null
       ? parseFloat(String(user.monthlyGenerationLimitOverrideUsd))
       : null;
     const limit = (perUserOverride !== null && !isNaN(perUserOverride))
       ? perUserOverride
-      : globalLimit;
-    const periodStart = getPeriodStart(budgetPeriod);
-
-    // Sum spend for this user in the current period
-    const [{ total }] = await db
-      .select({ total: sql<string>`COALESCE(SUM(${userGenerationCostsTable.computedCostUsd}), 0)` })
-      .from(userGenerationCostsTable)
-      .where(
-        sql`${userGenerationCostsTable.userId} = ${userId}
-         AND ${userGenerationCostsTable.createdAt} >= ${periodStart.toISOString()}`,
-      );
+      : creditAllowance;
 
     const currentSpend = parseFloat(total ?? "0");
     const remainingBudget = Math.max(0, limit - currentSpend);
@@ -249,7 +231,10 @@ export async function recordCost(params: RecordCostParams): Promise<void> {
       pricingFetchedAt: params.pricingFetchedAt,
       jobReferenceId: params.jobReferenceId ?? null,
       isEstimated: params.isEstimated,
-    });
+    // An engine request's cost (`genreq:<id>`) is unique (migration 0173): a
+    // second collection of the same request records nothing more, and is not
+    // a lost write.
+    }).onConflictDoNothing();
   } catch (err) {
     logger.warn(
       { err, userId: params.userId, jobType: params.jobType, endpointId: params.endpointId },

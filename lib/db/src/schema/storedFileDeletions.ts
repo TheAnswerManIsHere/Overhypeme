@@ -2,7 +2,7 @@ import { pgTable, bigserial, text, varchar, integer, timestamp, index, uniqueInd
 import { sql } from "drizzle-orm";
 
 /**
- * Stored files still to delete (migration 0173; plan PLAN_RENDER_HISTORY.md D6
+ * Stored files still to delete (migration 0174; plan PLAN_RENDER_HISTORY.md D6
  * and D7). Written in the same transaction as the database delete that leaves
  * a file unreferenced, so the row and the obligation to remove its file commit
  * together; removed after the commit, at once and then by the hourly sweep

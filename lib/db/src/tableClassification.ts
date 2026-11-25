@@ -102,7 +102,7 @@ export const TABLE_CLASSIFICATION: Readonly<Record<string, TableEntry>> = {
   fal_pricing_cache: { class: "runtime" },
   feature_permissions_migration_log: { class: "runtime" },
   rate_limit_counters: { class: "runtime" },
-  // Picture files still to delete after their rows went (migration 0173, Issue #1304).
+  // Picture files still to delete after their rows went (migration 0174, Issue #1304).
   stored_file_deletions: { class: "runtime" },
   reference_research_cache: { class: "runtime" },
   tier_feature_permission_audit: { class: "runtime" },

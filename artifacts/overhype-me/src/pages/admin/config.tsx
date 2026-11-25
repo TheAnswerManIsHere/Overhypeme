@@ -13,9 +13,7 @@ import {
 
 // Keys that belong to named sections — excluded from the catch-all generic list
 const BUDGET_KEYS = new Set([
-  "budget_limit_registered_usd",
-  "budget_limit_legendary_usd",
-  "budget_period",
+  "budget_per_credit_ceiling_usd",
 ]);
 
 const LIMIT_KEYS = new Set([

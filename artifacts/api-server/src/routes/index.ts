@@ -34,6 +34,7 @@ import shareCopyRouter from "./shareCopy";
 import shareIntentsRouter from "./shareIntents";
 import supportRouter from "./support";
 import lookStylesRouter from "./lookStyles";
+import memberPicturesRouter from "./memberPictures";
 
 const router: IRouter = Router();
 
@@ -55,6 +56,7 @@ router.use(adminReferenceResearchRouter);
 router.use(adminOperationsRouter);
 router.use(aiRouter);
 router.use(memesRouter);
+router.use(memberPicturesRouter);
 router.use(ogRouter);
 router.use(renderRouter);
 router.use(storageRouter);

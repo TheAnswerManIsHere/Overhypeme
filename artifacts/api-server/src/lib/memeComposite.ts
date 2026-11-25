@@ -51,6 +51,8 @@ export interface ComposeMemeOptions {
    * identity memes; omitted otherwise.
    */
   profileImageObjectPath?: string | null;
+  /** Object path of the `ai_picture` source's picture, resolved by the caller after its ownership check. */
+  aiPictureObjectPath?: string | null;
   /** Optional override for the storage service (test seam). */
   objectStorage?: ObjectStorageService;
   /** The provenance record id to watermark into the pixels; only lib/provenance/meme.ts's caller passes it. */
@@ -184,6 +186,7 @@ export function storedMemeCaption(
 type ResolverDeps = {
   objectStorage: ObjectStorageService;
   profileImageObjectPath?: string | null;
+  aiPictureObjectPath?: string | null;
 };
 
 type SourceResolver<T extends ImageSource["type"]> = (
@@ -204,7 +207,21 @@ const SOURCE_RESOLVERS: { [K in ImageSource["type"]]: SourceResolver<K> } = {
     return downloadAsBackground(deps.objectStorage, profilePath);
   },
 
+  // The caller checked the picture is the requester's own (`userOwnsAiPicture`)
+  // and resolved its object path (`aiPictureObjectPath`).
+  ai_picture: async (_src, deps) => {
+    if (!deps.aiPictureObjectPath) throw new AiPictureMissingError();
+    return downloadAsBackground(deps.objectStorage, deps.aiPictureObjectPath);
+  },
 };
+
+/** An `ai_picture` source names a picture that no longer exists. */
+export class AiPictureMissingError extends Error {
+  constructor() {
+    super("That AI picture is no longer available.");
+    this.name = "AiPictureMissingError";
+  }
+}
 
 async function downloadAsBackground(
   objectStorage: ObjectStorageService,
@@ -223,6 +240,7 @@ export async function resolveBackground(
   const deps: ResolverDeps = {
     objectStorage: opts.objectStorage ?? defaultObjectStorage,
     profileImageObjectPath: opts.profileImageObjectPath,
+    aiPictureObjectPath: opts.aiPictureObjectPath,
   };
   // Cast is safe: the resolver table is keyed on the discriminator, and
   // `imageSource.type` indexes into it deterministically. TypeScript can't
@@ -283,7 +301,7 @@ export async function composeTracedMeme(
       kind: trace.kind,
       actor: trace.actor,
       factId: trace.factId,
-      backgroundObjectPath: backgroundPathOf(input.imageSource, opts.profileImageObjectPath),
+      backgroundObjectPath: backgroundPathOf(input.imageSource, opts.profileImageObjectPath, opts.aiPictureObjectPath),
       snapshot: memeSnapshot({
         drawn: drawnCaption(
           renderPersonalized(input.factTextTemplate, input.name, input.pronouns),

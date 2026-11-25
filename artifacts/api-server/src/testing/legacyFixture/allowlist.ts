@@ -301,6 +301,9 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     factId: "ref:facts",
     userId: "map-user",
     requestId: "synthetic:opaque-id",
+    // 0173: a member's picture command identity; the fixture predates member pictures.
+    memberRequestId: "drop",
+    memberRequestFingerprint: "drop",
     renderJobId: "synthetic:opaque-id",
     generationMode: "keep",
     subjectRenderMode: "keep",
@@ -453,6 +456,8 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     id: "keep", userId: "map-user", factId: "ref:facts", gender: "keep", storagePath: "media",
     imageType: "keep", createdAt: "keep", deletedAt: "keep", purgeAfter: "keep",
     audience: "drop", // 0121: its default, 'general' (see facts)
+    // 0173: what a member's picture delivered and drew; the fixture predates them.
+    attemptId: "drop", gagId: "drop", lookStyleId: "drop",
   }),
   include(s.commentsTable, {
     id: "keep", factId: "ref:facts", authorId: "map-user", text: "prose", status: "keep", flagged: "keep",
@@ -543,7 +548,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
   exclude(s.asyncJobsTable, "job-state", "job rows are executable work and their payloads carry recipients and results"),
   exclude(s.factGagFoldArchiveTable, "job-state", "the fold's reversal record (0147): it names gags by their source ids and restores content only where the fold ran"),
   exclude(s.workerLaneHeartbeatsTable, "job-state", "per-process worker liveness"),
-  exclude(s.storedFileDeletionsTable, "job-state", "outstanding work: picture files still to delete, written from 0173 on; they name paths in the source's own storage"),
+  exclude(s.storedFileDeletionsTable, "job-state", "outstanding work: picture files still to delete, written from 0174 on; they name paths in the source's own storage"),
   exclude(s.membershipLeasesTable, "job-state", "fenced leases held by running workers"),
   exclude(s.accountDeletionRequestsTable, "job-state", "a deletion request is scheduled destructive work: loaded elsewhere, it would purge an account"),
   exclude(s.quarantinedMemesTable, "child-safety", "the child-safety boundary"),
