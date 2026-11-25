@@ -346,10 +346,11 @@ a direction, not a note anywhere — recording that it was ever part of the inte
 
 ## What a good plan contains
 
-Use the template in [`../../.agents/PLANS.md`](../../.agents/PLANS.md): the concrete
-symptom, the **product intent** (and what must not change), the **repo context you
-actually inspected**, a **source-of-truth analysis** for every affected concept,
-migration/backfill impact, runtime + admin UX behavior, security/permissions/
+Use the template in [`../../.agents/PLANS.md`](../../.agents/PLANS.md): a short
+**summary David approves on**, then, for the reviewer and the builder, the concrete
+symptom, the **product intent** (and what must not change), a **source-of-truth
+analysis** where a concept has more than one, and — where each applies —
+migration/backfill impact, admin and user UX, security/permissions/
 validation, a testing plan that proves the **general invariant** (not just the
 reported example), risks, questions for David, and a concrete definition of done.
 
