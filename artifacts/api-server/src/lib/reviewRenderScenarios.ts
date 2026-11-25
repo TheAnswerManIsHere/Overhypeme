@@ -22,7 +22,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db, imagePromptAttemptsTable, pendingReviewsTable, factGagsTable, type ImagePromptAttempt, type FactGag } from "@workspace/db";
 import {
   defaultIdentityPolicyForRenderMode,
@@ -68,6 +68,7 @@ import {
 } from "./imagePromptAttempts";
 import { defaultPreviewSubjectForReference, resolveRenderReviewInput } from "./imagePrompt/resolveRenderReviewInput";
 import { loadGagRenderContext, loadGags, workingContent } from "./gags/resolver";
+import { loadGagExamples } from "./gags/examples";
 import { assertCanRunGagRenders, GagError, type GagActor } from "./gags/gagStore";
 import { renderPersonalized } from "./renderCanonical";
 import { RESUMES_FROM_CHECKPOINTS, enqueueJob, registerJobHandler, type EnqueueJobResult, type HandlerResult, type JobHandler } from "./asyncJobs";
@@ -508,6 +509,7 @@ function cardFor(
   scenarioKey: RenderScenarioKey,
   attempt: ImagePromptAttempt | null,
   progress: RenderProgress | null = null,
+  stale = false,
 ): RenderScenarioCard {
   const desc = RENDER_SCENARIO_DESCRIPTORS[scenarioKey];
   const status: RenderScenarioStatus = attempt ? deriveScenarioStatus(attempt, progress) : "missing";
@@ -521,7 +523,9 @@ function cardFor(
     status,
     progress: inFlight ? progress : null,
     // Matched by content: a later engine or recipe change does not unseat it.
-    stale: false,
+    // Stale only for an example standing in for a kind with no render of the
+    // content as it is (buildGagKindCards).
+    stale,
     latestAttemptId: attempt?.id ?? null,
     imageUrl: attempt ? imageUrlForAttempt(gagId, attempt, status) : null,
     message: !attempt ? null
@@ -539,21 +543,47 @@ function cardFor(
 /**
  * A gag's tile per kind: the render of its current content the scheduler
  * reused or drew (plan PLAN_GAG_EXAMPLES.md, section C). Renders of other
- * content are history and are not listed.
+ * content are history and are not listed, with one exception: a kind with no
+ * render of the current content shows the gag's own example for it, out of
+ * date (`stale`), when the content it belongs to has since been rewritten
+ * under it, as the cast fill did (PLAN_GAG_DIRECT_RENDER.md, E: a folded
+ * version's test renders read out of date). The example is the one of the
+ * version being worked on (the draft's picks, else the published set), so a
+ * changed draft with no picks still reads "not drawn" (Issue #1277).
  */
 export async function buildGagKindCards(gagId: number): Promise<PerKind<RenderScenarioCard | null>> {
   const loaded = await loadGagRenderTarget(gagId);
   if (!loaded.ok) return mapKinds(() => null);
-  const attempts = await Promise.all(GAG_EXAMPLE_KINDS.map(async (kind) => {
+  const current = await Promise.all(GAG_EXAMPLE_KINDS.map((kind) =>
+    attemptForContent(gagId, SCENARIO_FOR_KIND[kind], loaded.target.enrichment)));
+  const fallback = current.some((a) => a == null) ? await examplesStandingIn(loaded.gag) : null;
+  const attempts = GAG_EXAMPLE_KINDS.map((kind, i) => {
     const scenarioKey = SCENARIO_FOR_KIND[kind];
-    return [kind, scenarioKey, await attemptForContent(gagId, scenarioKey, loaded.target.enrichment)] as const;
-  }));
+    const example = current[i] == null ? fallback?.[kind] ?? null : null;
+    return [kind, scenarioKey, current[i] ?? example, example != null] as const;
+  });
   const progress = await renderProgressByAttempt(
     attempts.flatMap(([, , a]) => (a && !a.generatedImageObjectPath ? [a.id] : [])),
   );
-  const cards = attempts.map(([kind, scenarioKey, attempt]) =>
-    [kind, cardFor(gagId, scenarioKey, attempt, attempt ? progress.get(attempt.id) ?? null : null)] as const);
+  const cards = attempts.map(([kind, scenarioKey, attempt, stale]) =>
+    [kind, cardFor(gagId, scenarioKey, attempt, attempt ? progress.get(attempt.id) ?? null : null, stale)] as const);
   return Object.fromEntries(cards) as PerKind<RenderScenarioCard | null>;
+}
+
+/** The attempts of a gag's examples for the version being worked on: the draft's picks, else the published set's. */
+async function examplesStandingIn(gag: FactGag): Promise<PerKind<ImagePromptAttempt | null>> {
+  const set = await loadGagExamples(gag.id);
+  const picks = gag.pendingContent != null ? set.pending : set.approved;
+  const ids = GAG_EXAMPLE_KINDS.flatMap((k) => (picks[k] ? [picks[k]!.attemptId] : []));
+  const rows = ids.length === 0 ? [] : await db.select().from(imagePromptAttemptsTable).where(and(
+    inArray(imagePromptAttemptsTable.id, ids),
+    eq(imagePromptAttemptsTable.gagId, gag.id),
+  ));
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  return mapKinds((k) => {
+    const row = picks[k] ? byId.get(picks[k]!.attemptId) : undefined;
+    return row && row.reviewRenderScenarioKey === SCENARIO_FOR_KIND[k] ? row : null;
+  });
 }
 
 

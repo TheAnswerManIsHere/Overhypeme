@@ -696,8 +696,10 @@ function GagRendersCard({
   const locked = readOnly || s.busy;
   const drawing = GAG_EXAMPLE_KINDS.some((k) => IN_FLIGHT.has(gag.renders[k]?.status ?? ""));
   const picks = examplePicks(gag);
-  const notDrawn = (k: GagExampleKind) => gag.renders[k] == null || gag.renders[k]!.status === "missing";
-  const restMissing = REST_KINDS.filter(notDrawn);
+  // A kind needs drawing with no render of the gag as it is: none at all, or
+  // only an example drawn from an earlier version (Issue #1277).
+  const needsDrawing = (k: GagExampleKind) => gag.renders[k] == null || gag.renders[k]!.status === "missing" || gag.renders[k]!.stale;
+  const restMissing = REST_KINDS.filter(needsDrawing);
 
   return (
     <div className="rounded-sm border-2 border-border bg-card p-4 space-y-2" data-testid="gag-card" data-gag-slot={gag.slot}>
@@ -785,6 +787,11 @@ function RenderTile({ kind, card, picked, canAct, readOnly, onApprove, onDraw }:
           <a href={card.imageUrl} target="_blank" rel="noopener noreferrer" title="Open full size" data-testid="gag-render-open">
             <img src={card.imageUrl} alt={`${KIND_LABEL[kind]} render`} className="w-full rounded-sm border border-border" />
           </a>
+          {card.stale && (
+            <p className="text-[11px] text-amber-700 dark:text-amber-400" data-testid="gag-render-stale">
+              Drawn from an earlier version of this gag. Draw it again to see the gag as it is now.
+            </p>
+          )}
           {card.engineFallback && (
             <p className="text-[11px] text-amber-700 dark:text-amber-400" data-testid="gag-render-fallback">
               GPT Image refused this picture; Nano Banana drew it.
