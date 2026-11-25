@@ -165,7 +165,7 @@ export const PRIVACY_RETENTION_ROWS: readonly PrivacyRetentionRow[] = [
   {
     information: "Payment records",
     howLong: "While your account exists. Stripe keeps its own record of each payment under its terms; records of payment notices are kept 90 days",
-    covers: ["membership_entitlements", "entitlement_source_disputes", "membership_history", "stripe_checkout_request_ledger", "stripe_processed_events", "stripe_webhook_audit", "stripe"],
+    covers: ["membership_entitlements", "credit_ledger", "entitlement_source_disputes", "membership_history", "stripe_checkout_request_ledger", "stripe_processed_events", "stripe_webhook_audit", "stripe"],
   },
   {
     information: "Messages you send to support",

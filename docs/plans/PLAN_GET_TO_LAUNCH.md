@@ -547,6 +547,14 @@ multi-step thing by definition). Phase 6's settled scope is on #873.*
 
 ### Phase 7 — The image offering
 
+> **Superseded by the approved phase plan** (pointer, 2026-11-25; no new
+> version of this plan): `docs/plans/PLAN_PHASE7_IMAGE_OFFERING.md`, approved
+> by David 2026-11-25 (Issue #1289), rebuilt this phase on the 2026-11-11
+> product strategy — credits, the free picture, the credit pack, membership
+> credits, examples in public — and drops the hero backgrounds, the hero hard
+> gate and the catalogue-wide re-render below. The text below is kept as the
+> record of what was first planned.
+
 - **Outcome:** free users get the fact's approved hero options; Legendary
   users get their face in the scene; only a user's own images are ever
   offered to them.
@@ -618,6 +626,11 @@ multi-step thing by definition). Phase 6's settled scope is on #873.*
 - **Tier:** sensitive (abuse surface). **Lane:** Product.
 
 ### Phase 10 — Membership and money
+
+> **Pointer, 2026-11-25** (no new version of this plan): the credit pack and
+> membership credits are built in Phase 7 (David's Q3: 1 on
+> `docs/plans/PLAN_PHASE7_IMAGE_OFFERING.md`); the monthly-only line below is
+> superseded by the 2026-11-11 product strategy (monthly and annual).
 
 - **Outcome:** one monthly plan, the Legendary definition in the grid, every
   grant surface correct in both Stripe modes, and a repair path an operator

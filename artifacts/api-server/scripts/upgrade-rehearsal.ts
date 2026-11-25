@@ -58,6 +58,7 @@ import { pgCommandConnection } from "../src/lib/pgCommandLine.js";
 import {
   RETIRED_TABLES,
   aiMemeBackfillDropLosses,
+  reviewRenderPrepareDropLosses,
   isRetiredSettingValue,
   mergeLosses,
   refreshRetirementLosses,
@@ -128,7 +129,7 @@ async function main(): Promise<void> {
     // Intended deletions, counted before they run: migration 0142's retired
     // variants, 0151's retired refresh and resubmission reviews, and the
     // admin_config rows of settings a migration retires (0149, 0160), and the
-    // jobs 0160 and 0169 delete. The tables 0160, 0167 and 0170 drop whole are
+    // jobs 0160, 0169 and 0171 delete. The tables 0160, 0167 and 0170 drop whole are
     // RETIRED_TABLES.
     const intended = mergeLosses(
       await variantRetirementLosses(db),
@@ -136,6 +137,7 @@ async function main(): Promise<void> {
       await retiredSettingLosses(db),
       await taxonomyDropLosses(db),
       await aiMemeBackfillDropLosses(db),
+      await reviewRenderPrepareDropLosses(db),
     );
     const settingsBefore = await adminValues(db);
     const ledgerBefore = Number((await db.query("SELECT count(*) AS n FROM drizzle.__drizzle_migrations")).rows[0].n);

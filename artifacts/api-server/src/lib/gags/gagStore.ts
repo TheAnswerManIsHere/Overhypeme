@@ -249,8 +249,9 @@ async function resolveScope(tx: Tx, factId: number, actor: GagActor): Promise<{ 
  * a fact in moderation, from its review's Test Renders step; a live fact with
  * no review open, from the Facts editor. Renders spend, so they run only on a
  * moderator's action (plan PLAN_GAG_EXAMPLES.md, section C), and never while
- * the review is on its Gags step, which shows none: the male render starts on
- * arrival at Test Renders (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1E).
+ * the review is on its Gags step, which shows none. Every render is drawn on
+ * request, at Test Renders or on the fact sheet; none starts by itself (Issue
+ * #1282, plan PLAN_RENDERS_MANUAL.md, amending PLAN_FACT_LIFECYCLE_REBUILD.md 1E).
  */
 export async function assertCanRunGagRenders(factId: number, gagId: number, actor: GagActor): Promise<void> {
   await db.transaction(async (tx) => {

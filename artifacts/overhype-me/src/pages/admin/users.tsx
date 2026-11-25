@@ -12,6 +12,7 @@ import { SubscriptionInfo } from "@/components/SubscriptionInfo";
 import { StripeLink } from "@/components/StripeLink";
 import { makeAbortController } from "@/lib/makeAbortController";
 import { AccountDeletionsPanel } from "@/components/admin/AccountDeletionsPanel";
+import { UserCredits } from "@/components/admin/UserCredits";
 
 interface User {
   id: string;
@@ -1036,6 +1037,12 @@ export default function AdminUsers() {
                   placeholder="user@example.com"
                 />
               </div>
+            </div>
+
+            {/* Credits (launch Phase 7): the balance, the ledger and an adjustment */}
+            <div>
+              <FieldLabel>Credits</FieldLabel>
+              <UserCredits key={`${selectedUser.id}:${selectedUser.emailVerifiedAt ?? ""}`} userId={selectedUser.id} />
             </div>
 
             {/* Generation Costs */}

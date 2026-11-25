@@ -109,7 +109,7 @@ import { adminPurgeNow, pendingDeletion, purgeNowBody } from "../lib/accountDele
  * readable exists, which those constructors reject deliberately; the raw id is
  * never a fallback, since no internal id may reach an admin-visible surface.
  */
-function adminLabel(actor: { displayName?: string | null; email?: string | null }): string {
+export function adminLabel(actor: { displayName?: string | null; email?: string | null }): string {
   return [actor.displayName, actor.email].find((v) => (v ?? "").trim() !== "")?.trim() ?? "";
 }
 
