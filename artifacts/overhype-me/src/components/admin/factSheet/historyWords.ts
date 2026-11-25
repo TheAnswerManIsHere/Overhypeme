@@ -169,6 +169,8 @@ const FIELD_LABEL: Record<string, string> = {
   reverted: "Gags put back", edited: "Edited", withDraft: "With a draft", noteChanged: "After the Humor Note changed",
   referenceIdentityType: "Picture", lookStyleId: "Look", readingId: "Reading", attemptId: "Picture id",
   gagId: "Gag id", changed: "Changed", after: "After", factId: "Fact",
+  purgedFactId: "Fact purged", rendersPurged: "Renders purged", filesPurged: "Picture files removed",
+  purgeSkipped: "Not purged because",
 };
 
 function valueLines(v: unknown): string[] {

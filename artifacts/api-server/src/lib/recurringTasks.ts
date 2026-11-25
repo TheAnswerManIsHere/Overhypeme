@@ -140,6 +140,14 @@ export const RECURRING_TASKS = [
     graceMs: 30 * MINUTE,
   },
   {
+    id: "stored_file_cleanup",
+    label: "Deleted picture file cleanup",
+    site: "index.ts",
+    cadenceMs: () => HOUR,
+    firstRunMs: 5 * MINUTE,
+    graceMs: 30 * MINUTE,
+  },
+  {
     id: "fingerprint_fill",
     label: "Duplicate fingerprint fill",
     site: "index.ts",

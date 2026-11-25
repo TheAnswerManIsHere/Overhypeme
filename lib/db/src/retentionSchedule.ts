@@ -282,6 +282,7 @@ export const RETENTION_SCHEDULE: Readonly<Record<string, RetentionEntry>> = {
     rules: [{ kind: "job", job: "rate-limit-counters", window: "removed by the cleanup once the counter has expired (windows up to 24 hours, the daily upload limit); hourly while the app runs, daily from outside" }],
   },
   worker_lane_heartbeats: systemKept("worker liveness, pruned by the worker itself"),
+  stored_file_deletions: systemKept("picture files still to delete, and the record of each one removed (migration 0174); a storage path, no person"),
   fact_gag_fold_archive: systemKept("the reversal record of the gag fold (migration 0147)"),
   reference_research_cache: systemKept("cached research about a fact"),
   fal_pricing_cache: systemKept("engine prices"),

@@ -20,7 +20,7 @@ import { sql } from "drizzle-orm";
 import { db, pool } from "@workspace/db";
 import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
-import { isIntendedSettingChange, isRetiredSettingValue, mergeLosses, refreshRetirementLosses, retiredSettingLosses, rowRetirementLosses, variantRetirementLosses } from "../lib/retirementLosses.js";
+import { RETIRED_ADMIN_CONFIG_KEYS, RETIRED_AI_SETTING_KEYS, isIntendedSettingChange, isRetiredSettingValue, mergeLosses, refreshRetirementLosses, retiredSettingLosses, rowRetirementLosses, variantRetirementLosses } from "../lib/retirementLosses.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATION_SQL = readFileSync(path.resolve(__dirname, "../../../../lib/db/migrations/0142_retire_variants.sql"), "utf8");
@@ -170,6 +170,9 @@ describe("a retired setting is an intended deletion (0149)", () => {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+      // Start from no retired rows, whatever an earlier file in this shard
+      // left behind (rolled back with the rest).
+      await client.query(`DELETE FROM admin_config WHERE key = ANY($1::text[])`, [[...RETIRED_ADMIN_CONFIG_KEYS, ...RETIRED_AI_SETTING_KEYS]]);
       await client.query(
         `INSERT INTO admin_config (key, value, data_type, label) VALUES ($1, '80', 'integer', 'x') ON CONFLICT (key) DO NOTHING`,
         [KEY],
@@ -179,6 +182,9 @@ describe("a retired setting is an intended deletion (0149)", () => {
       assert.deepEqual([...await retiredSettingLosses(client)], []);
       await client.query("ROLLBACK");
     } finally {
+      // A failed assertion must not hand the pool a connection mid-transaction:
+      // the next file's writes would land in it and never commit.
+      await client.query("ROLLBACK").catch(() => {});
       client.release();
     }
     assert.equal(isRetiredSettingValue(`admin_config/${KEY}/value`), true);

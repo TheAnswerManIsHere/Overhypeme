@@ -548,6 +548,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
   exclude(s.asyncJobsTable, "job-state", "job rows are executable work and their payloads carry recipients and results"),
   exclude(s.factGagFoldArchiveTable, "job-state", "the fold's reversal record (0147): it names gags by their source ids and restores content only where the fold ran"),
   exclude(s.workerLaneHeartbeatsTable, "job-state", "per-process worker liveness"),
+  exclude(s.storedFileDeletionsTable, "job-state", "outstanding work: picture files still to delete, written from 0174 on; they name paths in the source's own storage"),
   exclude(s.membershipLeasesTable, "job-state", "fenced leases held by running workers"),
   exclude(s.accountDeletionRequestsTable, "job-state", "a deletion request is scheduled destructive work: loaded elsewhere, it would purge an account"),
   exclude(s.quarantinedMemesTable, "child-safety", "the child-safety boundary"),

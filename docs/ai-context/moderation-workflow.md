@@ -9,6 +9,9 @@
 > taxonomy runs beside moderation and gates nothing; every transition takes
 > its rows in one order (`artifacts/api-server/src/lib/reviewLocks.ts`). Trust the code and
 > `docs/plans/PLAN_FACT_LIFECYCLE_REBUILD.md` over the sections below.
+> Since Issue #1304 (increment A), Reject purges a never-approved staging fact
+> with its renders and their files (`artifacts/api-server/src/lib/rejectedSubmissionPurge.ts`; decisions
+> 2026-11-25); the review row and its reason stay.
 
 > Staged, cost-gated review of user-submitted facts. Source of truth for the
 > stages: `lib/api-zod/src/moderationWorkflow.ts`. Route logic:

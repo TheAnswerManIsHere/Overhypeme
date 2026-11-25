@@ -741,7 +741,7 @@ describe("POST /admin/reviews/:id/reject", () => {
     assert.equal(after.reviewedById, adminId);
     const actions = await db.select({ action: adminActionsTable.action, actorId: adminActionsTable.actorId, detail: adminActionsTable.detail })
       .from(adminActionsTable).where(eq(adminActionsTable.reviewId, r.id));
-    assert.deepEqual(actions, [{ action: "reject", actorId: adminId, detail: { reason: "spam", adminNote: "doesn't fit", stage: "triage", gagsDiscarded: 0 } }]);
+    assert.deepEqual(actions, [{ action: "reject", actorId: adminId, detail: { reason: "spam", adminNote: "doesn't fit", stage: "triage" } }]);
   });
 });
 
@@ -1043,8 +1043,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
         assert.equal(loser.body.workflowStage, "approved");
       } else {
         assert.equal(r.workflowStage, "rejected");
-        assert.equal(fact.isActive, false);
-        assert.equal(fact.approvedAt, null, "a rejected submission is never recorded approved");
+        assert.equal(fact, undefined, "a rejected submission's staging fact is purged, never recorded approved (D7)");
         const gags = await db.select({ id: factGagsTable.id }).from(factGagsTable).where(eq(factGagsTable.factId, stagingFactId));
         assert.equal(gags.length, 0, "its gags are deleted");
       }
@@ -1234,7 +1233,7 @@ describe("reject from every step (PLAN_FACT_LIFECYCLE_REBUILD.md item 13)", () =
   }
 
   for (const stage of ["reading", "gags", "test_renders"] as const) {
-    it(`rejects from ${stage}: rejected, the gags deleted, the staging fact never live, recorded, the submitter told`, async () => {
+    it(`rejects from ${stage}: rejected, the staging fact purged with its gags, recorded, the submitter told`, async () => {
       const { submitterId, staging, review } = await seedPastTriage(stage);
       const adminId = await createTestUser({ isAdmin: true });
       const sid = await bearerForUser(adminId, { isAdmin: true });
@@ -1252,21 +1251,23 @@ describe("reject from every step (PLAN_FACT_LIFECYCLE_REBUILD.md item 13)", () =
       assert.equal(r.adminNote, "no picture lands");
       assert.equal(r.productionRejectedById, adminId);
       assert.ok(r.productionRejectedAt);
-      const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
-      assert.equal(fact.isActive, false, "the staging fact never goes live");
-      assert.equal(fact.approvedAt, null, "and is never recorded as approved");
-      if (stage === "reading") assert.equal(fact.enrichmentStatus, null, "a pending taxonomy run is cleared");
+      // Purged (David, Q52; PLAN_RENDER_HISTORY.md D7): the never-approved
+      // staging fact goes, its gags with it; the review the submitter's
+      // Library reads stays, its fact link nulled.
+      const facts = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
+      assert.equal(facts.length, 0, "the staging fact is purged");
+      assert.equal(r.stagingFactId, null, "the review stays, its fact link nulled");
       const gags = await db.select().from(factGagsTable).where(eq(factGagsTable.factId, staging.id));
-      assert.equal(gags.length, 0, "the submission's gags are discarded");
+      assert.equal(gags.length, 0, "the submission's gags go with it");
       const actions = await db.select({ action: adminActionsTable.action, actorId: adminActionsTable.actorId, factId: adminActionsTable.factId, detail: adminActionsTable.detail })
         .from(adminActionsTable).where(eq(adminActionsTable.reviewId, review.id));
-      assert.deepEqual(actions, [{ action: "reject", actorId: adminId, factId: staging.id, detail: { reason: "visual", adminNote: "no picture lands", stage, gagsDiscarded: 1 } }]);
+      assert.deepEqual(actions, [{ action: "reject", actorId: adminId, factId: null, detail: { reason: "visual", adminNote: "no picture lands", stage, purgedFactId: staging.id, rendersPurged: 3, filesPurged: 3 } }]);
       const feed = await db.select().from(activityFeedTable).where(eq(activityFeedTable.userId, submitterId));
       assert.ok(feed.some((e) => e.actionType === "review_rejected"), "the submitter is told (the email follows the same path)");
     });
   }
 
-  it("waits for a gag being added and discards it too; a gag action after the rejection is refused (PR #1036 round 1)", async () => {
+  it("waits for a gag being added and purges it too; a gag action after the rejection is refused (PR #1036 round 1)", async () => {
     const { staging, review } = await seedPastTriage("gags");
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
@@ -1299,13 +1300,13 @@ describe("reject from every step (PLAN_FACT_LIFECYCLE_REBUILD.md item 13)", () =
     assert.equal(res.status, 200);
 
     const gags = await db.select().from(factGagsTable).where(eq(factGagsTable.factId, staging.id));
-    assert.equal(gags.length, 0, "the gag added while Reject waited is discarded too");
+    assert.equal(gags.length, 0, "the gag added while Reject waited goes with the purge");
     const [action] = await db.select({ detail: adminActionsTable.detail }).from(adminActionsTable).where(eq(adminActionsTable.reviewId, review.id));
-    assert.equal((action.detail as { gagsDiscarded: number }).gagsDiscarded, 2);
+    assert.equal((action.detail as { purgedFactId: number }).purgedFactId, staging.id);
 
     await assert.rejects(
       assertCanRunGagRenders(staging.id, 1, { adminId, reviewId: review.id }),
-      (err: unknown) => err instanceof GagError && err.code === "REVIEW_NOT_EDITABLE",
+      (err: unknown) => err instanceof GagError,
       "a gag action after the rejection is refused",
     );
   });

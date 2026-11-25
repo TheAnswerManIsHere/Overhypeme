@@ -163,8 +163,8 @@ router.post("/admin/facts/:factId/gags/:gagId/approve", requireAdmin, async (req
   if (!body) return;
   const reviewId = body.reviewId ?? null;
   await respond(res, p.factId, async () => {
+    // The record is written inside the approval's transaction (D8).
     await approveGagRender(p.factId, p.gagId, body.attemptId, { adminId: req.user.id, reviewId });
-    await recordAdminAction({ factId: p.factId, reviewId }, req.user.id, "gag_render_approval", { gagId: p.gagId, attemptId: body.attemptId });
   });
 });
 

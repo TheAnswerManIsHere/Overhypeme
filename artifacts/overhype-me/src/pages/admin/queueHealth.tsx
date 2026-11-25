@@ -59,6 +59,8 @@ interface HealthPayload {
   ts: string;
   queues: QueueRow[];
   lanes: LaneRow[];
+  /** Picture files on the durable cleanup list, still to delete (Issue #1304). */
+  storedFileDeletions?: { outstanding: number; failing: number; oldestQueuedAt: string | null };
 }
 
 interface JobRow {
@@ -276,6 +278,28 @@ export default function AdminQueueHealth() {
               failed and we are still retrying. These numbers are not current.
             </span>
           </div>
+        )}
+
+        {/* Deleted pictures whose files are still being removed: the durable
+            cleanup list (Issue #1304). Said in words, failures included. */}
+        {data.storedFileDeletions && (
+          <section className="flex flex-col gap-1" data-testid="stored-file-deletions">
+            <h2 className="text-sm font-semibold">Deleted picture files</h2>
+            {data.storedFileDeletions.outstanding === 0 ? (
+              <p className="text-xs text-muted-foreground">Every deleted picture's file has been removed.</p>
+            ) : (
+              <p className={`text-xs ${data.storedFileDeletions.failing > 0 ? "text-amber-700" : "text-muted-foreground"}`}>
+                {data.storedFileDeletions.outstanding} picture file{data.storedFileDeletions.outstanding === 1 ? " is" : "s are"} still
+                being removed
+                {data.storedFileDeletions.failing > 0
+                  ? `; ${data.storedFileDeletions.failing} failed at least once and ${data.storedFileDeletions.failing === 1 ? "is" : "are"} retried every hour`
+                  : ""}
+                {data.storedFileDeletions.oldestQueuedAt
+                  ? `. The oldest has waited since ${new Date(data.storedFileDeletions.oldestQueuedAt).toLocaleString()}.`
+                  : "."}
+              </p>
+            )}
+          </section>
         )}
 
         {/* Lane liveness. A stale lane is called out IN WORDS, not by colour alone. */}

@@ -35,3 +35,4 @@ export * from "./factGags";
 export * from "./adminActions";
 export * from "./factReadings";
 export * from "./legalAcceptances";
+export * from "./storedFileDeletions";

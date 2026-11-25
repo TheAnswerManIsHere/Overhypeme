@@ -398,6 +398,26 @@ test.describe("Admin · Queue Health", () => {
     await expect(page.getByText("#9004", { exact: true }), "PR288 step 8: the collapsed row should hide its jobs").toHaveCount(0);
   });
 
+  // Issue #1304: picture files still being removed after their renders were
+  // deleted are counted in words, failures included, and the clear state too.
+  test("says how many deleted picture files are still being removed, and when none are", async ({ page }) => {
+    let files = { outstanding: 3, failing: 1, oldestQueuedAt: "2026-10-01T12:00:00.000Z" };
+    await page.route(HEALTH_URL, async (route: Route) => {
+      if (new URL(route.request().url()).pathname !== "/api/admin/queue-health") return route.continue();
+      const res = await route.fetch();
+      const body = (await res.json()) as Record<string, unknown>;
+      await route.fulfill({ response: res, json: { ...body, storedFileDeletions: files } });
+    });
+    await gotoQueueHealth(page);
+    const section = page.getByTestId("stored-file-deletions");
+    await expect(section).toContainText("Deleted picture files");
+    await expect(section).toContainText("3 picture files are still being removed; 1 failed at least once and is retried every hour");
+    await expect(section).toContainText("The oldest has waited since");
+    files = { outstanding: 0, failing: 0, oldestQueuedAt: null };
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("stored-file-deletions")).toContainText("Every deleted picture's file has been removed.");
+  });
+
   // PR288 steps 12 and 10. The first response is held, to see the loading
   // state, then answered with a failure -- the API being down is not something
   // this stack can do to itself while still serving the page.

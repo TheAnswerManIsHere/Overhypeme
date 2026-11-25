@@ -29,6 +29,11 @@ import { isAttemptStale } from "../lib/factRenderScenarios.js";
 import { buildRenderStatusPayload } from "../lib/imagePromptAttempts.js";
 import { traceIdOrLink } from "../lib/provenance/trace.js";
 import { photoBackgrounds } from "./helpers/photoBackground.js";
+import { storedFileDeletionsTable } from "@workspace/db/schema";
+import { ObjectStorageService } from "../lib/objectStorage.js";
+import { __setProvenanceInsertForTest } from "../lib/provenance/records.js";
+import { purgeRejectedFact } from "../lib/rejectedSubmissionPurge.js";
+import { __setFileRemoverForTest, runStoredFileCleanup } from "../lib/storedFileDeletions.js";
 import { __setUtilityLLMClientForTest } from "../lib/utilityLLM.js";
 import { __setRenderFalForTest, type FalHistoryEntry, type RenderFal } from "../lib/renderFalTransport.js";
 import { __setRecoveryClockForTest, recoverLostReceipt } from "../lib/renderRequestRecovery.js";
@@ -1238,5 +1243,179 @@ describe("image_prompt_generation — a resumed run reuses the prompt it saved (
     assert.equal(jobs.length, 1, "deduped against the one in flight");
     assert.equal(llmCalls, 0, "no model call at any step");
     await db.delete(asyncJobsTable).where(eq(asyncJobsTable.dedupeKey, `image_generation:attempt:${attemptId}`));
+  });
+});
+
+// ─── The final store serialises with a purge (plan PLAN_RENDER_HISTORY.md D7) ───
+
+describe("image_generation — the final store and a rejection's purge never leave a file behind (Issue #1304, Astra C4)", () => {
+  const photos = photoBackgrounds();
+  let png: Buffer;
+  const factIdsHere: number[] = [];
+
+  before(async () => {
+    photos.setUp();
+    png = await sharp({ create: { width: 32, height: 18, channels: 3, background: "#283" } }).png().toBuffer();
+    __setRecoveryClockForTest({ sleep: async () => {} });
+  });
+  after(async () => {
+    __setRecoveryClockForTest(null);
+    __setProvenanceInsertForTest(null);
+    if (factIdsHere.length) {
+      await db.delete(imageProvenanceTable).where(inArray(imageProvenanceTable.factId, factIdsHere));
+      await db.delete(imageGenerationRequestsTable).where(inArray(imageGenerationRequestsTable.factId, factIdsHere));
+    }
+    await photos.tearDown();
+  });
+
+  /** A compiled moderation render of a never-approved staging fact, ready to draw. */
+  async function planned(): Promise<{ attemptId: number; factId: number }> {
+    installLlmCounter();
+    const attemptId = await seedHandlerAttempt({ snapshot: handlerEnrichment({ coreSceneOverride: "{NAME} lifts a library." }) });
+    const row = await attemptRow(attemptId);
+    factIdsHere.push(row.factId);
+    await db.update(imagePromptAttemptsTable).set({
+      actualImageEngineId: "nano-banana-2-1-edit",
+      renderControls: { ...(row.renderControls as Record<string, unknown>), referenceImageUrl: "https://example.test/reference.png", mirrorToLegacyStorage: false } as never,
+    }).where(eq(imagePromptAttemptsTable.id, attemptId));
+    const res = await runHandler(attemptId);
+    assert.equal(res.ok, true, JSON.stringify(res));
+    return { attemptId, factId: row.factId };
+  }
+
+  async function draw(attemptId: number, whileDrawing?: () => Promise<unknown>) {
+    __setRenderFalForTest({
+      async submit() { return `req-${randomUUID()}`; },
+      async status() { return "COMPLETED"; },
+      async result() {
+        if (whileDrawing) await whileDrawing();
+        return { images: [{ url: `data:image/png;base64,${png.toString("base64")}` }] };
+      },
+      async history() { throw new Error("no history in this test"); },
+    });
+    const priorKey = process.env["FAL_AI_API_KEY"];
+    process.env["FAL_AI_API_KEY"] = priorKey ?? "test-fal-key";
+    try {
+      return await imageGenerationHandler.run({ attemptId }, {} as never);
+    } finally {
+      __setRenderFalForTest(null);
+      if (priorKey === undefined) delete process.env["FAL_AI_API_KEY"];
+      else process.env["FAL_AI_API_KEY"] = priorKey;
+    }
+  }
+
+  const exists = (path: string) => new ObjectStorageService().getObjectEntityFile(path).then(() => true, () => false);
+  const provenancePaths = async (attemptId: number) =>
+    (await db.select({ path: imageProvenanceTable.objectPath }).from(imageProvenanceTable).where(eq(imageProvenanceTable.attemptId, attemptId)))
+      .map((r) => r.path!).filter(Boolean);
+  const queued = async (paths: string[]) => paths.length === 0 ? [] :
+    db.select().from(storedFileDeletionsTable).where(inArray(storedFileDeletionsTable.path, paths));
+  async function purge(factId: number) {
+    const outcome = await db.transaction((tx) => purgeRejectedFact(tx, factId));
+    if (outcome.kind === "purged") await runStoredFileCleanup({ paths: outcome.files });
+    return outcome;
+  }
+
+  it("a rejection while fal is drawing, before the final store: the worker finds the fact gone and stores nothing, records nothing", async () => {
+    const { attemptId, factId } = await planned();
+    let purged: string | undefined;
+    const out = await draw(attemptId, async () => { purged = (await purge(factId)).kind; });
+    assert.equal(purged, "purged");
+    assert.equal(out.ok, true, JSON.stringify(out));
+    assert.equal((out as { result?: { discarded?: boolean } }).result?.discarded, true);
+    assert.deepEqual(await provenancePaths(attemptId), [], "no picture recorded, so none stored");
+  });
+
+  it("a rejection that takes the fact lock first: the worker waits, then stores nothing", async () => {
+    const { attemptId, factId } = await planned();
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    let locked!: () => void;
+    const lockTaken = new Promise<void>((r) => { locked = r; });
+    const purging = db.transaction(async (tx) => {
+      const outcome = await purgeRejectedFact(tx, factId);
+      locked();
+      await held;
+      return outcome;
+    });
+    await lockTaken;
+    let settled = false;
+    const drawing = draw(attemptId).then((r) => { settled = true; return r; });
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(settled, false, "the worker's final store waits for the purge's fact lock");
+    release();
+    assert.equal((await purging).kind, "purged");
+    const out = await drawing;
+    assert.equal((out as { result?: { discarded?: boolean } }).result?.discarded, true);
+    assert.deepEqual(await provenancePaths(attemptId), [], "nothing recorded or stored once the fact is gone");
+  });
+
+  it("a rejection while the worker holds the lock: the purge waits, then puts the stored picture on the cleanup list, which removes it", async () => {
+    const { attemptId, factId } = await planned();
+    // Pause the worker inside its locked section, at its provenance record.
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    let inside!: () => void;
+    const reached = new Promise<void>((r) => { inside = r; });
+    __setProvenanceInsertForTest(async (row) => {
+      await db.insert(imageProvenanceTable).values(row);
+      inside();
+      await held;
+    });
+    const drawing = draw(attemptId);
+    try {
+      await reached;
+      let settled = false;
+      const purging = purge(factId).then((o) => { settled = true; return o; });
+      await new Promise((r) => setTimeout(r, 300));
+      assert.equal(settled, false, "the purge waits for the worker's lock");
+      release();
+      const out = await drawing;
+      assert.equal(out.ok, true, JSON.stringify(out));
+      const stored = (out as { result: { generatedImageObjectPath: string } }).result.generatedImageObjectPath;
+      const outcome = await purging;
+      assert.equal(outcome.kind, "purged");
+      assert.ok(outcome.kind === "purged" && outcome.files.includes(stored), "the linked picture is on the purge's list");
+      const rows = await queued([stored]);
+      assert.equal(rows.length, 1);
+      assert.ok(rows[0]!.doneAt, "and removed");
+      assert.equal(await exists(stored), false, "no file left behind");
+    } finally {
+      __setProvenanceInsertForTest(null);
+      release();
+    }
+  });
+
+  it("an interruption after upload, before linking, then a purge and the sweeper: the file is found through its record and removed", async () => {
+    const { attemptId, factId } = await planned();
+    // The worker stopped after recording and uploading, before linking: the
+    // record and the file exist, the render names no picture.
+    const path = await new ObjectStorageService().uploadObjectBuffer({ subPath: `ai-bg-v2/${factId}/${attemptId}-interrupted.png`, buffer: png, contentType: "image/png" });
+    await db.insert(imageProvenanceTable).values({
+      id: Math.floor(Math.random() * 2 ** 50) + 1, kind: "ai_render", actorKind: "system", attemptId, factId, objectPath: path,
+      sha256: "0".repeat(64), mime: "image/png", byteSize: png.length,
+    });
+    assert.equal((await attemptRow(attemptId)).generatedImageObjectPath, null);
+    // The purge's own cleanup fails (storage down); the hourly sweep retries.
+    __setFileRemoverForTest({ async deleteObject() { throw new Error("storage unavailable"); } });
+    let outcome;
+    try {
+      outcome = await purge(factId);
+    } finally {
+      __setFileRemoverForTest(null);
+    }
+    assert.ok(outcome.kind === "purged" && outcome.files.includes(path));
+    const [waiting] = await queued([path]);
+    assert.equal(waiting!.doneAt, null, "still outstanding after the failed cleanup");
+    assert.equal(waiting!.attempts, 1);
+    assert.match(waiting!.lastError ?? "", /storage unavailable/);
+    assert.equal(await exists(path), true);
+    // An hour on, the hourly sweep: a row tried moments ago is left to the run
+    // that claimed it until its lease passes.
+    await db.update(storedFileDeletionsTable).set({ lastAttemptAt: new Date(Date.now() - 60 * 60_000) }).where(eq(storedFileDeletionsTable.path, path));
+    await runStoredFileCleanup();
+    const [done] = await queued([path]);
+    assert.ok(done!.doneAt, "the sweep removed it");
+    assert.equal(await exists(path), false);
   });
 });

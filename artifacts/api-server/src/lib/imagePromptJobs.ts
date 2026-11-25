@@ -45,7 +45,8 @@ import {
   type GagRenderInput,
 } from "@workspace/api-zod";
 import { registerJobHandler, enqueueJob, terminalFailure, type JobHandler, type HandlerResult } from "./asyncJobs";
-import { assertJobOwnership, fencedTransaction } from "./jobFence";
+import { assertJobOwnership, fencedTransaction, rethrowIfOwnershipLost } from "./jobFence";
+import { lockFactRow } from "./reviewLocks";
 import { drawOrCollect } from "./renderRequestRecovery";
 import { finishAndStore, recordGenerationRequest } from "./provenance/records";
 import { vendorContext } from "./provenance/vendorContext";
@@ -517,10 +518,11 @@ export const imageGenerationHandler: JobHandler = {
       if (check.outcome === "refused") return recordTerminalAttemptFailure(p.attemptId, OUTPUT_REFUSED_ERROR_CODE, GENERIC_REJECT_MESSAGE);
       if (check.outcome === "unavailable") return retryRender(p.attemptId, check.message);
     }
-    let storedPath: string;
-    try {
-      // Saved under the format the engine actually returned, and recorded,
-      // stamped and hashed before it is stored (image tracing).
+    // Saved under the format the engine actually returned, and recorded,
+    // stamped and hashed before it is stored (image tracing). Reference
+    // pictures are fingerprinted first, outside any lock.
+    const vendor = await vendorContext(falInput, vendorData);
+    const store = async () => {
       const stamp = Date.now();
       const finished = await finishAndStore({
         store: objectStorage,
@@ -545,34 +547,76 @@ export const imageGenerationHandler: JobHandler = {
           renderControls,
           renderJobId: attempt.renderJobId,
           attempt: attemptLineage(attempt, requestSettings),
-          ...(await vendorContext(falInput, vendorData)),
+          ...vendor,
         },
       });
-      storedPath = finished.objectPath;
-    } catch (err) {
-      return retryRender(p.attemptId, `the finished picture could not be saved (${err instanceof Error ? err.message : String(err)})`);
-    }
+      return finished.objectPath;
+    };
 
-    // Mark the attempt complete in one fenced transaction (plan
-    // PLAN_JOB_RESUME.md §F). A member's picture is delivered as theirs in the
-    // same transaction: the stored path, the `user_ai_images` row and the
-    // credit's final state commit together, and a failure fails the whole
-    // commit, so it is retried (the request is collected, never paid again)
-    // and, at the end, failed and returned (plan PLAN_PHASE7_IMAGE_OFFERING.md
-    // §2). Nothing is filed in the fact's shared gallery. A picture whose
-    // credit the recovery pass already returned is not delivered.
     if (memberPicture) {
+      let storedPath: string;
+      try {
+        storedPath = await store();
+      } catch (err) {
+        return retryRender(p.attemptId, `the finished picture could not be saved (${err instanceof Error ? err.message : String(err)})`);
+      }
+      // A member's picture is delivered as theirs in one fenced transaction
+      // (plan PLAN_JOB_RESUME.md §F): the stored path, the `user_ai_images`
+      // row and the credit's final state commit together, and a failure fails
+      // the whole commit, so it is retried (the request is collected, never
+      // paid again) and, at the end, failed and returned (plan
+      // PLAN_PHASE7_IMAGE_OFFERING.md §2). Nothing is filed in the fact's
+      // shared gallery. A picture whose credit the recovery pass already
+      // returned is not delivered. It is drawn for a live fact, which no purge
+      // or render delete touches, so it takes no fact lock: members drawing
+      // the same fact never queue behind each other.
       const outcome = await fencedTransaction(db, (tx) => deliverMemberPicture(p.attemptId, storedPath, tx));
       if (outcome === "returned") {
         logger.warn({ attemptId: p.attemptId }, "[imagePromptJobs] member picture finished after its credit was returned; not delivered");
         return terminalFailure(LATE_AFTER_RETURN_ERROR_CODE, RETURNED_MESSAGE);
       }
-    } else {
-      await fencedTransaction(db, (tx) => tx
+      return { ok: true, result: { attemptId: p.attemptId, generatedImageObjectPath: storedPath } };
+    }
+
+    // A gag render: recorded, stored and linked under the fact's lock (plan
+    // PLAN_RENDER_HISTORY.md D7; Astra C4). A rejection purges its fact under
+    // the same lock, and a render delete takes it too, so the two serialise:
+    //   - the fact or this render already gone: nothing is recorded or stored;
+    //   - otherwise the lock is held through provenance, upload and linking,
+    //     so the purge waits and then finds the linked picture (or, after an
+    //     interruption, the committed provenance record naming it) and puts
+    //     its file on the cleanup list.
+    // Provenance commits on its own connection before the upload
+    // (finishImage), so a picture uploaded but never linked is still named by
+    // a committed record. The download and the reference fingerprints happen
+    // before the lock and the upload keeps its own timeout, so the lock is
+    // held for seconds. The same fenced transaction marks the attempt
+    // complete (plan PLAN_JOB_RESUME.md §F).
+    const stored: { path: string } | { gone: true } | { failed: string } = await fencedTransaction(db, async (tx) => {
+      if (!(await lockFactRow(tx, attempt.factId))) return { gone: true as const };
+      const [still] = await tx.select({ id: imagePromptAttemptsTable.id }).from(imagePromptAttemptsTable)
+        .where(eq(imagePromptAttemptsTable.id, p.attemptId)).limit(1);
+      if (!still) return { gone: true as const };
+      let storedPath: string;
+      try {
+        storedPath = await store();
+      } catch (err) {
+        rethrowIfOwnershipLost(err);
+        return { failed: `the finished picture could not be saved (${err instanceof Error ? err.message : String(err)})` };
+      }
+      await tx
         .update(imagePromptAttemptsTable)
         .set({ generatedImageObjectPath: storedPath, error: null, errorCode: null, updatedAt: new Date() })
-        .where(eq(imagePromptAttemptsTable.id, p.attemptId)));
+        .where(eq(imagePromptAttemptsTable.id, p.attemptId));
+      return { path: storedPath };
+    });
+    if ("gone" in stored) {
+      // Purged or deleted while it was drawing: the picture is not kept.
+      logger.info({ attemptId: p.attemptId, factId: attempt.factId }, "[imagePromptJobs] the render or its fact is gone; the picture is not stored");
+      return { ok: true, result: { attemptId: p.attemptId, discarded: true } };
     }
+    if ("failed" in stored) return retryRender(p.attemptId, stored.failed);
+    const storedPath = stored.path;
 
     return { ok: true, result: { attemptId: p.attemptId, generatedImageObjectPath: storedPath } };
   },

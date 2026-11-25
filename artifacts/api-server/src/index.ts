@@ -240,6 +240,18 @@ function scheduleContentPurger() {
         },
         failureMessage: "[content-purger] run failed",
       },
+      {
+        // Picture files still on the durable cleanup list (lib/storedFileDeletions.ts):
+        // retried until gone. A batch a run; a run that leaves a full batch
+        // comes back in a minute, so a backlog drains promptly.
+        id: "stored_file_cleanup",
+        run: async () => {
+          const { runStoredFileCleanup } = await import("./lib/storedFileDeletions");
+          const result = await runStoredFileCleanup();
+          return result.deleted >= 200 ? { followUpMs: 60 * 1000 } : undefined;
+        },
+        failureMessage: "[stored-file-deletions] sweep failed",
+      },
     ],
   });
 }
@@ -550,6 +562,9 @@ scheduleFingerprintFill();
 // When monitoring of each recurring task began (launch Phase 16): the health
 // check's reference for a task that has not completed a run yet.
 void beginTaskMonitoring();
+// The render-approval boundary (lib/renderApprovalAudit.ts): set once, by the
+// first boot of the release that records approvals with their pick.
+void import("./lib/renderApprovalAudit").then((m) => m.markRenderApprovalAuditBoundary());
 scheduleDailyFactJob();
 scheduleTransientRenderPurger();
 scheduleMemberPictureSettlement();
