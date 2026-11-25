@@ -875,7 +875,7 @@ export const CreateMemeBody = zod.object({
       }),
       zod.object({
         type: zod.enum(["ai_picture"]),
-        aiImageId: zod.number().int().min(1),
+        aiImageId: zod.int().min(1),
       }),
     ])
     .describe(
