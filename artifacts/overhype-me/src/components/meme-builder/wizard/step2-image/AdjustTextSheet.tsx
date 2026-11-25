@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { DEFAULT_BOTTOM_Y, DEFAULT_TOP_Y, type MemeTextOptions } from "../../types";
+import { FontSizeSlider } from "./sliders/FontSizeSlider";
 import { SplitSlider } from "./sliders/SplitSlider";
 import { VerticalPositionSlider } from "./sliders/VerticalPositionSlider";
 import type { CaptionLayout } from "@workspace/api-zod";
@@ -22,7 +23,8 @@ interface Props {
 }
 
 /**
- * Inline collapsible for the three text-positioning sliders.
+ * Inline collapsible for the caption's layout controls, in this order (David,
+ * 2026-11-25): split position, font size, top position, bottom position.
  * Previously a bottom-drawer; now lives inside the scrollable controls
  * panel so it can never obscure the locked preview above.
  */
@@ -78,6 +80,11 @@ export function AdjustTextSheet({
             factText={factText}
             value={Math.min(Math.max(effectiveSplit, 1), Math.max(1, words.length - 1))}
             onChange={onSplitChange}
+          />
+
+          <FontSizeSlider
+            value={textOptions.fontSize ?? 64}
+            onChange={(n) => onTextOptionsChange({ ...textOptions, fontSize: n })}
           />
 
           <VerticalPositionSlider

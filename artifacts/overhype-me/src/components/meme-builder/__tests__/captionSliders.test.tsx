@@ -77,7 +77,7 @@ describe("AdjustTextSheet position sliders", () => {
 
   it("runs each slider over the range the layout gives and shows where the block is drawn", () => {
     const layout = layoutAt(51, 72);
-    const [, top, bottom] = open(layout);
+    const [, , top, bottom] = open(layout);
     const t = sliderRange(layout.blocks[0])!;
     const b = sliderRange(layout.blocks[1])!;
     expect(top!.getAttribute("aria-valuemin")).toBe(String(t.min));
@@ -92,10 +92,23 @@ describe("AdjustTextSheet position sliders", () => {
   });
 
   it("falls back to the whole track before the caption face has loaded", () => {
-    const [, top, bottom] = open(null);
+    const [, , top, bottom] = open(null);
     expect(top!.getAttribute("aria-valuemin")).toBe("0");
     expect(top!.getAttribute("aria-valuemax")).toBe("100");
     expect(top!.getAttribute("aria-valuenow")).toBe("51");
     expect(bottom!.getAttribute("aria-valuenow")).toBe("72");
+  });
+
+  it("orders its controls split, font size, top position, bottom position, and the font size slider sets the font size", () => {
+    const onTextOptionsChange = vi.fn();
+    const sliders = open(null, onTextOptionsChange);
+    expect(sliders).toHaveLength(4);
+    const labels = [...document.querySelectorAll("span.uppercase.tracking-wider")].map((el) => el.textContent?.trim().toUpperCase());
+    expect(labels.filter((l) => /SPLIT|FONT SIZE|TOP POSITION|BOTTOM POSITION/.test(l ?? ""))).toEqual(["SPLIT POSITION", "FONT SIZE", "TOP POSITION", "BOTTOM POSITION"]);
+    const font = sliders[1]!;
+    expect(font.getAttribute("aria-valuemin")).toBe("32");
+    expect(font.getAttribute("aria-valuemax")).toBe("120");
+    fireEvent.keyDown(font, { key: "End" });
+    expect(onTextOptionsChange).toHaveBeenLastCalledWith(expect.objectContaining({ fontSize: 120, topY: 51, bottomY: 72 }));
   });
 });

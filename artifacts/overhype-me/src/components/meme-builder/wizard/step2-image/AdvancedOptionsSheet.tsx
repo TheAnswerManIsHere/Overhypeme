@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import type { MemeTextOptions } from "../../types";
 import { CaptionFontPicker } from "../../parts/CaptionFontPicker";
@@ -57,23 +56,6 @@ export function AdvancedOptionsSheet({ value, onChange }: Props) {
         <div className="space-y-5 border-t border-border px-4 pb-6 pt-4">
           {/* Its status shows beside the save button, outside this collapsed panel. */}
           <CaptionFontPicker value={captionFontOf(value)} onChange={(id) => set("fontFamily", id)} showStatus={false} />
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs uppercase tracking-wider text-muted-foreground">Font size</span>
-              <span className="text-xs tabular-nums text-muted-foreground">{value.fontSize ?? 64}px</span>
-            </div>
-            <Slider
-              value={[value.fontSize ?? 64]}
-              min={32}
-              max={120}
-              step={1}
-              onValueChange={(next) => {
-                const n = next[0];
-                if (typeof n === "number") set("fontSize", Math.round(n));
-              }}
-            />
-          </div>
 
           <div className="space-y-2">
             <span className="text-xs uppercase tracking-wider text-muted-foreground">Text color</span>

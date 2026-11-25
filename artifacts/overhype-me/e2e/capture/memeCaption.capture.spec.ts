@@ -103,7 +103,8 @@ for (const ratio of [
 test("the caption at two position-slider settings (R2)", async ({ page }) => {
   const factId = await factIdByText(page.request, FACT);
   await openBuilderWithPhoto(page, factId);
-  const top = page.getByRole("slider").nth(1);
+  // Adjust the text's sliders: split, font size, top position, bottom position.
+  const top = page.getByRole("slider").nth(2);
   const before = Number(await top.getAttribute("aria-valuenow"));
   saveShot("pr398-r2-preview-default", await previewShot(page), { doc: DOC, step: "R2", shows: `the preview with the top line at its default position (${before}%)` });
   await setSlider(top, 45, Number(await top.getAttribute("aria-valuemin")), Number(await top.getAttribute("aria-valuemax")));

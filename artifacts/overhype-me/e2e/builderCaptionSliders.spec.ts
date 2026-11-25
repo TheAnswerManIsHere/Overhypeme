@@ -67,10 +67,9 @@ test.describe("Meme builder caption position sliders (Issue #1260)", () => {
     await expect(page.getByRole("button", { name: "Make my meme" })).toBeVisible();
     await expect(page.locator('canvas[aria-label="Meme preview"]')).toHaveAttribute("data-caption-font-status", "ready");
     await page.getByTestId("adjust-text-trigger").click();
-    await page.getByTestId("advanced-options-trigger").click();
-    // Sliders, in page order: split, top position, bottom position, font size.
+    // Sliders, in page order (David, 2026-11-25): split, font size, top position, bottom position.
     await expect(page.getByRole("slider")).toHaveCount(4);
-    const TOP = 1, BOTTOM = 2, FONT = 3;
+    const FONT = 1, TOP = 2, BOTTOM = 3;
 
     for (const fontEnd of [null, "Home", "End"] as const) {
       if (fontEnd) await setSlider(page, FONT, fontEnd);
@@ -114,14 +113,14 @@ test.describe("Meme builder caption position sliders (Issue #1260)", () => {
     await expect(page.locator('canvas[aria-label="Meme preview"]')).toHaveAttribute("data-caption-font-status", "ready");
     await page.getByTestId("aspect-portrait").click();
     await page.getByTestId("adjust-text-trigger").click();
-    await expect(page.getByRole("slider")).toHaveCount(3);
+    await expect(page.getByRole("slider")).toHaveCount(4);
     await page.waitForTimeout(150);
 
     const before = await inkBands(page);
     const topLines = before.bands.length - 2; // the bottom half is two lines in portrait
     // The top block starts at its slider's upper end: the five-line block cannot sit at the 17% default.
-    expect(await valueOf(page, 1)).toBe(Number(await page.getByRole("slider").nth(1).getAttribute("aria-valuemin")));
-    await page.getByRole("slider").nth(1).focus();
+    expect(await valueOf(page, 2)).toBe(Number(await page.getByRole("slider").nth(2).getAttribute("aria-valuemin")));
+    await page.getByRole("slider").nth(2).focus();
     await page.keyboard.press("ArrowRight");
     await page.waitForTimeout(150);
     const after = await inkBands(page);
