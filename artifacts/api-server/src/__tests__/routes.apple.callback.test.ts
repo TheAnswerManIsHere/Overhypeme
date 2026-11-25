@@ -337,8 +337,9 @@ describe("POST /api/callback/apple", () => {
       assert.notEqual(res.status, 500, `Expected no 500, got ${res.status}`);
       assert.equal(res.status, 200, `Expected 200 HTML for popup flow, got ${res.status}`);
       assert.ok(
-        res.text.includes("<script>"),
-        "Popup response should contain an inline <script> to redirect the opener",
+        /<script nonce="[A-Za-z0-9+/=]+">/.test(res.text) &&
+          /(^|; )script-src 'nonce-[A-Za-z0-9+/=]+'(;|$)/.test(String(res.headers["content-security-policy"] ?? "")),
+        "Popup response should contain one inline <script> carrying the enforced policy's nonce (launch Phase 15, increment 3d)",
       );
     } finally {
       restoreEnv();

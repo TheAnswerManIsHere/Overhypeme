@@ -421,10 +421,18 @@ is a separate, same-origin static artifact** (Replit's application router / the
 Vite dev server), so a CSP here governs only this server's responses and can't
 break the SPA's inline scripts. Deliberate, env/route-aware choices:
 
-- **CSP is Report-Only first** (enforced in Phase 15, increment 3d, after the
-  OAuth popup journeys pass under it); strict `default-src 'none'` for JSON,
-  `img-src` added for OG shells. Every policy reports to the collector (below)
-  by `report-uri /api/csp-report/api` alone.
+- **CSP is enforced** (since Phase 15, increment 3d; report-only before), in
+  three route classes: strict `default-src 'none'` for JSON; `img-src` added for
+  OG shells; and the OAuth popup callback (`routes/auth.ts`), the one response
+  that runs script, whose policy is set per response by
+  `setOAuthCallbackCsp()` and admits only its own inline script by a fresh
+  128-bit nonce (`script-src 'nonce-…'`, nothing else). JSON and OG also carry
+  `style-src-attr 'unsafe-inline'`: an image or JSON response opened directly in
+  a tab is shown in the browser's own viewer, which styles itself with inline
+  style attributes (measured in Chromium: blocked styling and one report per
+  view without it). The callback escapes `<` in the destination it embeds.
+  Every policy reports to the collector (below) by `report-uri
+  /api/csp-report/api` alone.
 - **Frame policy is env-aware** — `X-Frame-Options: DENY` + `frame-ancestors
   'none'` in production, **omitted when `REPLIT_DEV_DOMAIN` is set** because the
   app runs inside the Replit webview iframe in dev.
