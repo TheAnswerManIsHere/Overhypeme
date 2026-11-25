@@ -76,9 +76,10 @@ gag writer too.
 
 ## The engine comparison (launch Phase 8)
 
-The comparison that informs the launch engines is its own small model (its
-outcome, GPT Image 2.6 for photoreal and Nano Banana 2.1 for styles,
-provisional, is the [product strategy](./product-strategy.md#pictures-and-engines)),
+The comparison that informed the launch engines is its own small model (its
+outcome, GPT Image 2.6 for photoreal and Nano Banana 2.1 for styles, is
+settled with no further engine rounds:
+[decisions.md](./decisions.md#2026-11-11--the-engines-are-settled-prompts-are-tuned-not-engines-re-run)),
 beside the eval run rather than inside it (plan
 `docs/plans/PLAN_PHASE8_ENGINE_EVALUATION.md`, *Proposed Design* C and D).
 
@@ -181,7 +182,8 @@ beside the eval run rather than inside it (plan
   seed and the cell id, the seed never leaving the server — and served by
   `GET /api/admin/comparison/panels/:id/images/:token` with only its content
   type, so neither the payload nor the image names an engine, endpoint, cell
-  or storage path. **Every image is scored 1 to 5** (David, 2026-11-10,
+  or storage path. **In the first judging edition (sets made before
+  2026-11-12; see below), every image is scored 1 to 5** (David, 2026-11-10,
   `decisions.md`, in place of picking the best one). A reference panel shows
   its source photo beside the pictures (`BlindPanel.reference`, the panel's
   stored `reference_image_url`, the same for every engine), so a likeness is
@@ -654,8 +656,8 @@ or `nano-banana-2-edit` by string. Now:
   `image_prompt_attempts.actual_image_engine_id`, and changes it at most once,
   on a recorded photoreal fallback (below); the worker renders through
   that engine, never through today's default: an attempt queued before a
-  default changed still renders through the engine it was made for. Signatures,
-  the eval dashboard and moderation diagnostics read the column
+  default changed still renders through the engine it was made for. Signatures
+  and moderation diagnostics read the column
   (`attemptImageEngineId`). A null appears only on a row an older release wrote
   after 0123 ran; such a release routed by mode alone, so the null reads as that
   release's engine. A later contract migration makes the column `NOT NULL`.
