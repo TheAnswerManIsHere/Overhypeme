@@ -12,6 +12,8 @@ import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import type Stripe from "stripe";
+import { StripeSync, runMigrations } from "stripe-replit-sync";
+import { adaptStripeSync } from "../lib/stripeSyncAdaptations.js";
 import { db, adminActionsTable } from "@workspace/db";
 import { usersTable, membershipHistoryTable, stripeProcessedEventsTable, stripeWebhookAuditTable } from "@workspace/db/schema";
 import { and, eq, inArray, like, sql } from "drizzle-orm";
@@ -134,6 +136,32 @@ describe("replaying a missed Stripe event", () => {
     assert.deepEqual((await audits(viaReplay.id)).map((a) => [a.state, a.detail]), [["received", "admin replay"], ["processed", "admin replay"]]);
     assert.deepEqual(h.mirrored, [viaReplay.id], "the replay mirrors, as the library does for a delivery");
     assert.deepEqual(await adminRows(viaReplay.id), ["attempt", "outcome"]);
+  });
+
+  it("an id-less renewal reminder goes all the way through with the real, adapted mirror (plan increment 1's end-to-end case)", async () => {
+    // The library's own mirror, adapted as at construction (stripeClient.ts),
+    // against the real `stripe` schema: no stub for the step that used to fail.
+    await runMigrations({ databaseUrl: process.env.DATABASE_URL! });
+    const real = new StripeSync({
+      poolConfig: { connectionString: process.env.DATABASE_URL!, max: 1 },
+      stripeSecretKey: "sk_test_replay_never_sent",
+    });
+    (real as unknown as { cachedAccount: { id: string } }).cachedAccount = { id: "acct_replay_test" };
+    assert.equal(adaptStripeSync(real), true);
+    try {
+      const e = upcoming(nextId());
+      assert.equal("id" in (e.data.object as object), false, "the preview invoice carries no id, as Stripe sends it");
+      const h = harness([e]);
+      h.deps.sync = async () => real as unknown as StripeSyncApi;
+      const start = await reminders();
+      const r = await replayStripeEvent(e.id, ADMIN, h.deps);
+      assert.equal(r.outcome, "processed");
+      assert.equal(await claims(e.id), 1);
+      assert.deepEqual((await audits(e.id)).map((a) => a.state), ["received", "processed"]);
+      assert.equal(await reminders(), start + 1, "the renewal reminder is recorded against the member");
+    } finally {
+      await (real as unknown as { postgresClient: { pool: { end: () => Promise<void> } } }).postgresClient.pool.end();
+    }
   });
 
   it("an event with no domain effect is still claimed once", async () => {
