@@ -6,6 +6,7 @@
  *   Wizard               → Server imageSource
  *   ───────────────────    ─────────────────────
  *   mode="self-upload"   → { type:"upload", … }
+ *   an AI picture        → { type:"ai_picture", aiImageId } (launch Phase 7)
  *
  * The stock mode went with Pexels (launch Phase 4, removal 6) and the
  * PuLID-stylised mode with PuLID (removal 3); this never produces a stock
@@ -19,7 +20,8 @@ export interface SaveMemePayload {
   factId: number;
   imageSource:
     | { type: "upload"; uploadKey: string }
-    | { type: "identity" };
+    | { type: "identity" }
+    | { type: "ai_picture"; aiImageId: number };
   name?: string;
   pronouns?: string;
   textOptions?: MemeTextOptions;
@@ -72,6 +74,10 @@ export function buildSaveMemePayload(args: BuildPayloadArgs): SaveMemePayload | 
     aspectRatio: state.aspectRatio,
     isPublic: state.isPublic ?? true,
   };
+
+  if (state.source.kind === "ai-picture") {
+    return { ...base, imageSource: { type: "ai_picture", aiImageId: state.source.aiImageId } };
+  }
 
   if (state.source.kind === "self-upload") {
     const image = state.source.image;

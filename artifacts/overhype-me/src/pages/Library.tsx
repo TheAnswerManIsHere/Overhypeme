@@ -42,6 +42,16 @@ interface UploadItem {
   isProfile?: boolean;
 }
 
+/** A member picture's state (`GET /api/member-pictures`). */
+interface MemberPictureState {
+  attemptId: number;
+  factId: number;
+  status: "queued" | "drawing" | "done" | "failed";
+  reason: string | null;
+  creditReturned: boolean;
+  createdAt: string;
+}
+
 interface AiImageItem {
   id: number;
   factId: number;
@@ -163,6 +173,28 @@ export default function Library() {
     "my-uploads", `${BASE_URL}api/users/me/uploads`,
     (page) => page.uploads as UploadItem[], isAuthenticated && activeTab === "images",
   );
+  // The member's own AI pictures (launch Phase 7, increment 2), and the ones still drawing.
+  const memberPictures = usePagedList<AiImageItem>(
+    "my-member-pictures", `${BASE_URL}api/users/me/ai-images?imageType=member_picture`,
+    (page) => page.images as AiImageItem[], isAuthenticated && activeTab === "images",
+  );
+  const { data: drawingData } = useQuery<{ pictures: MemberPictureState[] }>({
+    queryKey: ["my-member-pictures-drawing"],
+    queryFn: async () => {
+      const res = await fetch(`${BASE_URL}api/member-pictures`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load your pictures");
+      return res.json();
+    },
+    enabled: isAuthenticated && activeTab === "images",
+    // While any picture draws, follow it; a finished one lands in the list below.
+    refetchInterval: (q) => (q.state.data?.pictures.some((p) => p.status === "queued" || p.status === "drawing") ? 3000 : false),
+  });
+  const drawing = (drawingData?.pictures ?? []).filter((p) => p.status === "queued" || p.status === "drawing");
+  const recentlyFailed = (drawingData?.pictures ?? []).filter((p) => p.status === "failed" && Date.now() - Date.parse(p.createdAt) < 24 * 60 * 60_000);
+  const lastDone = drawingData?.pictures.filter((p) => p.status === "done").length ?? 0;
+  useEffect(() => {
+    void queryClient.invalidateQueries({ queryKey: ["my-member-pictures"] });
+  }, [lastDone, queryClient]);
   const aiImages = usePagedList<AiImageItem>(
     "my-ai-images", `${BASE_URL}api/users/me/ai-images?imageType=reference`,
     (page) => page.images as AiImageItem[], isAuthenticated && activeTab === "images",
@@ -203,7 +235,7 @@ export default function Library() {
   const deleteUpload = (objectPath: string) =>
     change(`${BASE_URL}api/users/me/uploads?path=${encodeURIComponent(objectPath)}`, "DELETE", ["my-uploads"]);
   const deleteAiImage = (id: number) =>
-    change(`${BASE_URL}api/users/me/ai-images/${id}`, "DELETE", ["my-ai-images"]);
+    change(`${BASE_URL}api/users/me/ai-images/${id}`, "DELETE", ["my-ai-images", "my-member-pictures"]);
 
   /** "Delete now": ends the item's restore window; the purger removes it within the hour. */
   const purgeNow = (item: DeletedItem) =>
@@ -214,7 +246,7 @@ export default function Library() {
       case "photo":
         return change(`${BASE_URL}api/users/me/uploads/restore`, "POST", ["my-uploads"], { path: item.objectPath });
       case "generated":
-        return change(`${BASE_URL}api/users/me/ai-images/${item.id}/restore`, "POST", ["my-ai-images"]);
+        return change(`${BASE_URL}api/users/me/ai-images/${item.id}/restore`, "POST", ["my-ai-images", "my-member-pictures"]);
       case "meme":
         return change(`${BASE_URL}api/memes/${encodeURIComponent(item.slug)}/restore`, "POST", ["profile-my-memes"]);
     }
@@ -390,6 +422,57 @@ export default function Library() {
                   <p className="text-muted-foreground text-lg font-medium mb-2">No images uploaded yet.</p>
                   <p className="text-muted-foreground text-sm mb-6">Upload a custom photo in the meme builder and it will appear here for easy reuse.</p>
                   <Link href="/"><Button variant="outline">GO TO MEME BUILDER</Button></Link>
+                </div>
+              )}
+
+              {(drawing.length > 0 || recentlyFailed.length > 0 || memberPictures.isLoading || (memberPictures.items && memberPictures.items.length > 0)) && (
+                <div className="mt-10" data-testid="my-ai-pictures">
+                  <h3 className="text-lg font-display uppercase tracking-wider text-foreground mb-1">Your AI Pictures</h3>
+                  <p className="text-sm text-muted-foreground mb-6">Pictures drawn from your photos. Use one as a meme background from that fact's meme builder.</p>
+                  {(drawing.length > 0 || recentlyFailed.length > 0) && (
+                    <ul className="mb-6 space-y-2" aria-live="polite">
+                      {drawing.map((p) => (
+                        <li key={p.attemptId} className="rounded-sm border-2 border-border bg-card px-3 py-2 text-sm">
+                          {p.status === "queued" ? "Waiting to start drawing…" : "Drawing…"}{" "}
+                          <Link href={`/facts/${p.factId}`} className="underline text-muted-foreground">this fact</Link>
+                        </li>
+                      ))}
+                      {recentlyFailed.map((p) => (
+                        <li key={p.attemptId} className="rounded-sm border-2 border-border bg-card px-3 py-2 text-sm">
+                          {p.reason} {p.creditReturned ? "Your credit was returned." : "Your credit will be returned shortly."}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {memberPictures.isLoading ? (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                      {Array.from({ length: 4 }).map((_, i) => (
+                        <div key={i} className="aspect-[3/4] bg-card border-2 border-border rounded-sm animate-pulse" />
+                      ))}
+                    </div>
+                  ) : (
+                    <>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                      {memberPictures.items!.map((img) => {
+                        const imgUrl = `${BASE_URL}api/memes/ai-user/image?storagePath=${encodeURIComponent(img.storagePath)}`;
+                        return (
+                          <ImageCard
+                            key={img.id}
+                            src={imgUrl}
+                            alt="Your AI picture"
+                            isAuthProtected
+                            aspectRatio="aspect-[3/4]"
+                            actions={["delete", "openFull"]}
+                            onDelete={() => deleteAiImage(img.id)}
+                            deleteConfirmMessage={`Delete this picture? It moves to Recently deleted, where you can restore it for ${windowDays} days. Its credit is not returned.`}
+                            footer={<AdminMediaInfoForUrl url={imgUrl} fileName={getFileNameFromUrl(img.storagePath)} mimeType={getMimeTypeFromUrl(img.storagePath)} />}
+                          />
+                        );
+                      })}
+                    </div>
+                    <LoadMore list={memberPictures} />
+                    </>
+                  )}
                 </div>
               )}
 

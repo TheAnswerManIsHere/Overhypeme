@@ -12,6 +12,7 @@ import type { WizardAction, WizardRuntimeState } from "../state/useWizardState";
 import { LockedPreview } from "./LockedPreview";
 import { AspectRatioToggle } from "./AspectRatioToggle";
 import { SelfUploadSourcePanel } from "./SelfUploadSourcePanel";
+import { AiPicturePanel } from "./AiPicturePanel";
 import { GuestPhotoSignupPanel } from "./GuestPhotoSignupPanel";
 import { AdjustTextSheet } from "./AdjustTextSheet";
 import { useCaptionLayout } from "../../captionLayout";
@@ -91,6 +92,10 @@ export function Step2Image({
   const [selfUploadImage, setSelfUploadImage] = useState<MyImageSource | null>(
     state.source?.kind === "self-upload" ? state.source.image : null,
   );
+  // One of the member's own AI pictures, when it is the background (launch Phase 7).
+  const [aiPicture, setAiPicture] = useState<{ aiImageId: number; imageUrl: string } | null>(
+    state.source?.kind === "ai-picture" ? { aiImageId: state.source.aiImageId, imageUrl: state.source.imageUrl } : null,
+  );
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -128,6 +133,10 @@ export function Step2Image({
 
   // Persist the source selection.
   useEffect(() => {
+    if (aiPicture) {
+      dispatch({ type: "set-source", source: { kind: "ai-picture", ...aiPicture } });
+      return;
+    }
     if (selfUploadImage) {
       dispatch({ type: "set-mode", mode: "self-upload" });
       dispatch({
@@ -135,15 +144,16 @@ export function Step2Image({
         source: { kind: "self-upload", image: selfUploadImage },
       });
     }
-  }, [selfUploadImage, dispatch]);
+  }, [selfUploadImage, aiPicture, dispatch]);
 
   // Background URL for the live preview.
   const backgroundUrl = useMemo(() => {
+    if (aiPicture) return aiPicture.imageUrl;
     if (selfUploadImage) {
       return `/api/storage/objects${selfUploadImage.objectPath.replace(/^\/objects/, "")}`;
     }
     return null;
-  }, [selfUploadImage]);
+  }, [selfUploadImage, aiPicture]);
 
   // Map split index into top/bottom text via the existing fact-text words.
   const memeTextOptions: MemeTextOptions = useMemo(() => {
@@ -159,7 +169,7 @@ export function Step2Image({
   // The layout the preview is drawing, for the position sliders (#1260).
   const captionLayout = useCaptionLayout({ factText, name, pronouns, textOptions: memeTextOptions, aspectRatio });
 
-  const sourceSelected = !!selfUploadImage;
+  const sourceSelected = !!selfUploadImage || !!aiPicture;
   // The tier comes from the live auth state on every render (the builder's
   // host passes `roleToIdentity(role)`), and the builder mounts only once auth
   // has resolved, so "unregistered" here means signed out now, including a
@@ -170,7 +180,9 @@ export function Step2Image({
   const captionFontId = captionFontOf(textOptions);
   const captionFontReady = useCaptionFont(captionFontId).status === "ready";
 
+  // Choosing a photo makes it the background again; it is also the photo an AI picture is drawn from.
   const handleSelfUploadImageSelect = (next: MyImageSource) => {
+    setAiPicture(null);
     setSelfUploadImage(next);
   };
 
@@ -264,10 +276,18 @@ export function Step2Image({
       {tier === "unregistered" ? (
         <GuestPhotoSignupPanel />
       ) : (
-        <SelfUploadSourcePanel
-          selected={selfUploadImage}
-          onSelect={handleSelfUploadImageSelect}
-        />
+        <>
+          <SelfUploadSourcePanel
+            selected={selfUploadImage}
+            onSelect={handleSelfUploadImageSelect}
+          />
+          <AiPicturePanel
+            factId={factId}
+            photoUploadKey={selfUploadImage?.objectPath ?? null}
+            selectedAiImageId={aiPicture?.aiImageId ?? null}
+            onPicture={setAiPicture}
+          />
+        </>
       )}
 
       <AdjustTextSheet
