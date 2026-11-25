@@ -78,7 +78,7 @@ gag writer too.
 
 The comparison that informs the launch engines is its own small model (its
 outcome, GPT Image 2.6 for photoreal and Nano Banana 2.1 for styles,
-provisional, is the [product strategy](./product-strategy.md#pictures-and-engines)),
+settled, is the [product strategy](./product-strategy.md#pictures-and-engines)),
 beside the eval run rather than inside it (plan
 `docs/plans/PLAN_PHASE8_ENGINE_EVALUATION.md`, *Proposed Design* C and D).
 

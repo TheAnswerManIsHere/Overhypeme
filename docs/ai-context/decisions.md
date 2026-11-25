@@ -13,6 +13,13 @@
 
 ---
 
+### 2026-11-11 · The engines are settled; prompts are tuned, not engines re-run
+- **Decision:** GPT Image 2.6 draws photoreal pictures and Nano Banana 2.1 draws styled ones, with no further engine rounds; Muse Image stays in reserve. The strategy's "provisional" and its three-factor check are withdrawn. Quality work moves to the prompt tuner: a wording version per engine, drawn against the live one, judged blind and promoted. Judging, from its second edition, scores each picture 1–5 on visual quality, gag fidelity, realism, style interpretation (skipped on unstyled) and facial fidelity, with one pick per panel and a "broken" flag replacing the face-mismatch mark; rounds 1 and 2 keep their old categories. The old Eval harness (golden set, eval runs, opportunistic ratings) is removed with its data (`PLAN_PROMPT_TUNER.md`, decision 4).
+- **Why:** David, 2026-11-11, agreeing the prompt tuner's scope: the two engines are settled, and the work left is making their prompts better, which an engine round does not measure.
+- **Supersedes:** the "provisional until a check scores scene fidelity, likeness and style separately" clause of [The product strategy](#2026-11-11--the-product-strategy-made-about-a-friend-credits-two-engines-up-to-three-gags), and its "Revisit if" condition on the three-factor check.
+- **Reference:** #887 (scope comment, 2026-11-11); `docs/plans/PLAN_PROMPT_TUNER.md`; PR #924, PR #926, PR #927, PR #931.
+- **Revisit if:** real bills or member feedback show either engine failing a look it is routed to.
+
 ### 2026-11-24 · A suspended member receives no ordinary mail; billing, lifecycle and the suspension notices still go
 - **Decision:** while an account is suspended, ordinary mail to it is skipped at delivery and dropped for good, including mail queued before the suspension and every retry. Still sent: `account_suspended`, `account_reinstated`, `support_ack`; billing (`billing_payment_action`, `billing_renewal_reminder`, `billing_card_updated`, `access_revoked`); account lifecycle (`account_deletion_scheduled`, `account_deletion_cancelled`). The cutoff is the transaction that authorises a send: one authorised before the suspension commits may still go; every later attempt checks again.
 - **Why:** David, 2026-11-24, approving the Issue #1212 plan: Q21: 1 (billing mail keeps going: a suspended member may still be charged), Q22: 1 (deletion runs regardless, so the member is told), Q23: 1 (no replay: a reinstated member would otherwise get stale daily facts and old invitations), Q24: 1 (making suspension wait on the email provider buys at most a few seconds).

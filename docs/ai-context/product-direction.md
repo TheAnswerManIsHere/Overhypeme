@@ -54,8 +54,8 @@ by every modality) — see *Launch-critical vs deferrable work* below.
   one AI picture per verified account. AI pictures cost credits; membership
   adds credits and carries the perks. Templates, stock photos and user-facing
   text-to-image stay gone. The engine follows the look: GPT Image 2.6 for
-  photoreal, Nano Banana 2.1 for styles, provisional until the three-factor
-  check (the planner/compiler split stays). All of this is the
+  photoreal, Nano Banana 2.1 for styles, settled (the planner/compiler split
+  stays). All of this is the
   [product strategy](./product-strategy.md).
 
 ## Moderation direction
