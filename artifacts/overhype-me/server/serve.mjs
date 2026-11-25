@@ -120,7 +120,7 @@ const THIRD_PARTY = {
 /** The `'sha256-…'` source for every inline script in an HTML document, so the policy admits exactly the scripts the build shipped. */
 export function inlineScriptHashes(html) {
   const hashes = [];
-  for (const match of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)) {
+  for (const match of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script[^>]*>/gi)) {
     if (/\bsrc\s*=/i.test(match[1])) continue;
     hashes.push(`'sha256-${createHash("sha256").update(match[2], "utf8").digest("base64")}'`);
   }
