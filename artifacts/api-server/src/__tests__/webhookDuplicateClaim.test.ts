@@ -14,8 +14,12 @@
  * constraint during PREPARE — before any claim exists at all.
  */
 
-import { describe, it } from "node:test";
+import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { db } from "@workspace/db";
+import { stripeProcessedEventsTable } from "@workspace/db/schema";
+import { eq } from "drizzle-orm";
 
 import { isConstraintViolation } from "../lib/webhookHandlers.js";
 
@@ -63,5 +67,34 @@ describe("isConstraintViolation — only the claim's own constraint is a duplica
   it("rejects non-Error throws", () => {
     assert.equal(isConstraintViolation("23505", PROCESSED_EVENTS_PK), false);
     assert.equal(isConstraintViolation(null, PROCESSED_EVENTS_PK), false);
+  });
+});
+
+/**
+ * The error the claim insert REALLY throws, from drizzle against the test
+ * database: a `DrizzleQueryError` whose SQLSTATE and constraint sit on `.cause`
+ * (Issue #1261). The raw-shape cases above never saw the wrapper, which is how a
+ * redelivered event came to be treated as a failure.
+ */
+describe("isConstraintViolation — the error drizzle actually throws", () => {
+  const id = `evt_dupclaim_${randomUUID()}`;
+  after(async () => {
+    await db.delete(stripeProcessedEventsTable).where(eq(stripeProcessedEventsTable.eventId, id));
+  });
+
+  it("recognises a second claim of one event inside a transaction as the claim's own duplicate", async () => {
+    await db.insert(stripeProcessedEventsTable).values({ eventId: id });
+    let thrown: unknown;
+    try {
+      await db.transaction(async (tx) => {
+        await tx.insert(stripeProcessedEventsTable).values({ eventId: id });
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    assert.ok(thrown instanceof Error, "the second claim must fail");
+    assert.equal((thrown as { code?: unknown }).code, undefined, "drizzle does not copy the SQLSTATE up (the premise of this test)");
+    assert.equal(isConstraintViolation(thrown, PROCESSED_EVENTS_PK), true);
+    assert.equal(isConstraintViolation(thrown, "some_other_unique_idx"), false);
   });
 });
