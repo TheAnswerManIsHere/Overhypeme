@@ -230,6 +230,21 @@ export async function assertFenceHeld(tx: Tx, handle: LeaseHandle): Promise<void
 const LOCK_NOT_AVAILABLE = "55P03";
 
 /**
+ * Whether `error` is a lock timeout. drizzle wraps the driver's error in a
+ * `DrizzleQueryError` that does not copy the SQLSTATE up — the pg error sits on
+ * `.cause` — so reading `code` off the top level never matched, and the retry
+ * below never ran (Issue #1266; the same class as Issue #1261). Walk the chain.
+ */
+export function isLockTimeout(error: unknown): boolean {
+  let cur: unknown = error;
+  for (let depth = 0; depth < 5 && cur !== null && typeof cur === "object"; depth++) {
+    if ((cur as { code?: unknown }).code === LOCK_NOT_AVAILABLE) return true;
+    cur = (cur as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+/**
  * The one way an entitlement apply transaction gets opened, everywhere.
  *
  * Two things every caller of `applyPrepared` needs, and neither was true of a
@@ -256,8 +271,7 @@ export async function runBoundedApply<T>(fn: (tx: Tx) => Promise<T>): Promise<T>
         return fn(tx);
       });
     } catch (error) {
-      const code = (error as { code?: string } | null | undefined)?.code;
-      if (code !== LOCK_NOT_AVAILABLE || attempt >= APPLY_RETRY_ATTEMPTS) throw error;
+      if (!isLockTimeout(error) || attempt >= APPLY_RETRY_ATTEMPTS) throw error;
       await new Promise((resolve) =>
         setTimeout(resolve, APPLY_RETRY_BACKOFF_MS * 2 ** (attempt - 1)),
       );
