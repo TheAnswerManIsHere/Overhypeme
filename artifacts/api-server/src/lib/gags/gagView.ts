@@ -104,6 +104,8 @@ async function viewOf(
 ): Promise<GagView> {
   const approved = g.approvedContent != null;
   const state = !approved ? "new" : g.pendingContent != null || g.draftRemoved ? "approved_with_change" : "approved";
+  // The view is polled while renders draw: its two render reads run together.
+  const [renders, roles] = await Promise.all([buildGagKindCards(g.id), rolesView(g.id, set, ex)]);
   return {
     id: g.id,
     slot: g.slot,
@@ -118,8 +120,8 @@ async function viewOf(
     pendingExamples: perKind(set.pending, ex),
     draftRemoved: g.draftRemoved,
     prefilledUntouched: isUntouchedPrefill(g),
-    renders: await buildGagKindCards(g.id),
-    roles: await rolesView(g.id, set, ex),
+    renders,
+    roles,
   };
 }
 

@@ -22,7 +22,7 @@ import { buildTestApp } from "./helpers/buildTestApp.js";
 import { withCast } from "./helpers/gagCast.js";
 import { GagError, approveGagRender, deleteGagRender } from "../lib/gags/gagStore.js";
 import { buildFactGagsView } from "../lib/gags/gagView.js";
-import { HISTORY_PAGE_SIZE, approvalOf, costOf, gagRenderHistory, removedGagHistories } from "../lib/gags/renderHistory.js";
+import { HISTORY_PAGE_SIZE, approvalOf, gagRenderHistory, renderCostOf, removedGagHistories } from "../lib/gags/renderHistory.js";
 import { billingWindows, runRenderBillingFill } from "../lib/renderBilling.js";
 import { RENDER_APPROVAL_AUDIT_KEY } from "../lib/renderApprovalAudit.js";
 import { __setFileRemoverForTest } from "../lib/storedFileDeletions.js";
@@ -223,12 +223,12 @@ describe("a gag's history (D4)", () => {
 describe("billed cost (D5)", () => {
   it("reads each state from stored bills", () => {
     const r = (v: string | null, billed: string | null, checked: boolean) => ({ vendorRequestId: v, billedUsd: billed, billingCheckedAt: checked ? new Date() : null });
-    assert.deepEqual(costOf([r(null, null, false)], true), { state: "never_sent" });
-    assert.deepEqual(costOf([r("a", "0.0100", true), r("b", "0.0250", true)], true), { state: "billed", usd: 0.035, unbilledRequests: 0 }, "a render with several requests sums them");
-    assert.deepEqual(costOf([r("a", "0.0100", true), r("b", null, false)], false), { state: "billed", usd: 0.01, unbilledRequests: 1 });
-    assert.deepEqual(costOf([r("a", null, false)], true), { state: "not_checked" });
-    assert.deepEqual(costOf([r("a", null, true)], true), { state: "no_bill_found" });
-    assert.deepEqual(costOf([r("a", null, true)], false), { state: "billing_key_not_set" });
+    assert.deepEqual(renderCostOf([r(null, null, false)], true), { state: "never_sent" });
+    assert.deepEqual(renderCostOf([r("a", "0.0100", true), r("b", "0.0250", true)], true), { state: "billed", usd: 0.035, unbilledRequests: 0 }, "a render with several requests sums them");
+    assert.deepEqual(renderCostOf([r("a", "0.0100", true), r("b", null, false)], false), { state: "billed", usd: 0.01, unbilledRequests: 1 });
+    assert.deepEqual(renderCostOf([r("a", null, false)], true), { state: "not_checked" });
+    assert.deepEqual(renderCostOf([r("a", null, true)], true), { state: "no_bill_found" });
+    assert.deepEqual(renderCostOf([r("a", null, true)], false), { state: "billing_key_not_set" });
   });
 
   it("the fill sums a request's events, looks an old request up in its own window, and marks an unbilled one checked", async () => {

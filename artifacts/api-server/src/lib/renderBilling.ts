@@ -19,7 +19,7 @@
  */
 import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, imageGenerationRequestsTable } from "@workspace/db";
-import { falBillingFetcher, type BillingFetcher } from "./comparison/billedCost";
+import { falBillingFetcher, falBillingKey, sumBilledByRequest, type BillingFetcher } from "./comparison/billedCost";
 import { logger } from "./logger";
 
 /** Requests looked up in one run. */
@@ -45,7 +45,7 @@ export interface RenderBillingCounts {
 
 /** Whether the billing-read key is set; without it nothing is read and history says so. */
 export function billingKeySet(): boolean {
-  return Boolean(process.env.FAL_BILLING_API_KEY?.trim());
+  return falBillingKey() != null;
 }
 
 /** Group requests (oldest first) into lookups of at most 90 days each. */
@@ -72,7 +72,7 @@ export function billingWindows<T extends { createdAt: Date }>(rows: T[], now: Da
  */
 export async function runRenderBillingFill(opts: { fetchEvents?: BillingFetcher; now?: Date; batch?: number } = {}): Promise<RenderBillingCounts> {
   const counts: RenderBillingCounts = { checked: 0, filled: 0, noBill: 0, windows: 0, failedWindows: 0 };
-  const apiKey = process.env.FAL_BILLING_API_KEY?.trim();
+  const apiKey = falBillingKey();
   const fetchEvents = opts.fetchEvents ?? (apiKey ? falBillingFetcher(apiKey) : null);
   if (!fetchEvents) return counts;
   const now = opts.now ?? new Date();
@@ -92,8 +92,7 @@ export async function runRenderBillingFill(opts: { fetchEvents?: BillingFetcher;
       logger.warn({ err: (err as Error).message, start: w.start, end: w.end }, "[render-billing] fal's billing lookup failed; these requests stay as they were");
       continue;
     }
-    const costOf = new Map<string, number>();
-    for (const e of events) costOf.set(e.request_id, (costOf.get(e.request_id) ?? 0) + e.cost_total);
+    const costOf = sumBilledByRequest(events);
     const found = w.rows.filter((r) => costOf.has(r.vendorRequestId!));
     const missing = w.rows.filter((r) => !costOf.has(r.vendorRequestId!));
     for (const r of found) {

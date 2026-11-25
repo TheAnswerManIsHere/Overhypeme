@@ -27,7 +27,6 @@ import {
 } from "@workspace/db";
 import {
   GAG_EXAMPLE_KINDS,
-  SCENARIO_FOR_KIND,
   kindForScenario,
   type RemovedGagHistory,
   type RenderApproval,
@@ -41,7 +40,7 @@ import { deriveScenarioStatus } from "../factRenderScenarios";
 import { buildRenderStatusPayload } from "../imagePromptAttempts";
 import { switchedFallbackOf } from "../engineFallback";
 import { renderProgressByAttempt } from "../renderProgress";
-import { gagRenderImageUrl } from "../reviewRenderScenarios";
+import { gagRenderImageUrl, newestRendersPerKind } from "../reviewRenderScenarios";
 import { renderApprovalAuditBoundary } from "../renderApprovalAudit";
 import { billingKeySet } from "../renderBilling";
 import { drewGagOf } from "./gagStore";
@@ -55,7 +54,7 @@ export const HISTORY_PAGE_SIZE = 50;
 function encodeCursor(a: { createdAt: Date; id: number }): string {
   return `${a.createdAt.toISOString()}|${a.id}`;
 }
-export function decodeCursor(raw: string | undefined): { at: Date; id: number } | null {
+function decodeCursor(raw: string | undefined): { at: Date; id: number } | null {
   if (!raw) return null;
   const [at, id] = raw.split("|");
   const when = new Date(at ?? "");
@@ -65,14 +64,7 @@ export function decodeCursor(raw: string | undefined): { at: Date; id: number } 
 
 /** The roles each render of a gag holds now (D1), by attempt id. */
 async function rolesOf(gagId: number): Promise<Map<number, RenderRole[]>> {
-  const keys = GAG_EXAMPLE_KINDS.map((k) => SCENARIO_FOR_KIND[k]);
-  const [set, newest] = await Promise.all([
-    loadGagExamples(gagId),
-    db.selectDistinctOn([imagePromptAttemptsTable.reviewRenderScenarioKey], { id: imagePromptAttemptsTable.id })
-      .from(imagePromptAttemptsTable)
-      .where(and(eq(imagePromptAttemptsTable.gagId, gagId), inArray(imagePromptAttemptsTable.reviewRenderScenarioKey, keys)))
-      .orderBy(imagePromptAttemptsTable.reviewRenderScenarioKey, desc(imagePromptAttemptsTable.createdAt), desc(imagePromptAttemptsTable.id)),
-  ]);
+  const [set, newest] = await Promise.all([loadGagExamples(gagId), newestRendersPerKind(gagId)]);
   const out = new Map<number, RenderRole[]>();
   const add = (id: number, role: RenderRole) => out.set(id, [...(out.get(id) ?? []), role]);
   for (const kind of GAG_EXAMPLE_KINDS) {
@@ -85,7 +77,11 @@ async function rolesOf(gagId: number): Promise<Map<number, RenderRole[]>> {
   return out;
 }
 
-/** Which of these renders were ever approved, by the evidence D4 names. */
+/**
+ * Which of these renders were ever approved, by the evidence D4 names. The
+ * gag's legacy recovery columns (`approved_/pending_example_attempt_id`) are
+ * read here as retained evidence; nothing else reads them.
+ */
 async function approvedIds(gagId: number, ids: number[]): Promise<Set<number>> {
   if (ids.length === 0) return new Set();
   const [picks, legacy, records] = await Promise.all([
@@ -107,7 +103,7 @@ async function approvedIds(gagId: number, ids: number[]): Promise<Set<number>> {
 }
 
 /** A render's cost from its requests' stored bills (D5); no fal call. */
-export function costOf(requests: { vendorRequestId: string | null; billedUsd: string | null; billingCheckedAt: Date | null }[], keySet: boolean): RenderCost {
+export function renderCostOf(requests: { vendorRequestId: string | null; billedUsd: string | null; billingCheckedAt: Date | null }[], keySet: boolean): RenderCost {
   const sent = requests.filter((r) => r.vendorRequestId != null);
   if (sent.length === 0) return { state: "never_sent" };
   const billed = sent.filter((r) => r.billedUsd != null);
@@ -191,7 +187,7 @@ export async function gagRenderHistory(factId: number, gagId: number, before?: s
         })),
       },
       approval: approvalOf(r, approved, boundary),
-      cost: costOf(reqs, keySet),
+      cost: renderCostOf(reqs, keySet),
     };
   });
   const last = page[page.length - 1];

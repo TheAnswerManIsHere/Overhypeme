@@ -512,6 +512,14 @@ export async function buildGagKindCards(gagId: number): Promise<PerKind<RenderSc
   return Object.fromEntries(cards) as PerKind<RenderScenarioCard | null>;
 }
 
+/** The newest render of each picture (male, female, pet) of a gag: its working renders (D1). */
+export async function newestRendersPerKind(gagId: number): Promise<ImagePromptAttempt[]> {
+  const keys = GAG_EXAMPLE_KINDS.map((k) => SCENARIO_FOR_KIND[k]);
+  return db.selectDistinctOn([imagePromptAttemptsTable.reviewRenderScenarioKey]).from(imagePromptAttemptsTable)
+    .where(and(eq(imagePromptAttemptsTable.gagId, gagId), inArray(imagePromptAttemptsTable.reviewRenderScenarioKey, keys)))
+    .orderBy(imagePromptAttemptsTable.reviewRenderScenarioKey, desc(imagePromptAttemptsTable.createdAt), desc(imagePromptAttemptsTable.id));
+}
+
 /**
  * A gag's working render per kind (plan PLAN_RENDER_HISTORY.md D1; Issue
  * #1304): the newest render of that picture for this gag, whatever its
@@ -521,13 +529,7 @@ export async function buildGagKindCards(gagId: number): Promise<PerKind<RenderSc
  * than the one being worked on ("drawn from an earlier version").
  */
 export async function buildGagWorkingCards(gagId: number): Promise<PerKind<RenderScenarioCard | null>> {
-  const keys = GAG_EXAMPLE_KINDS.map((k) => SCENARIO_FOR_KIND[k]);
-  const [loaded, rows] = await Promise.all([
-    loadGagRenderTarget(gagId),
-    db.selectDistinctOn([imagePromptAttemptsTable.reviewRenderScenarioKey]).from(imagePromptAttemptsTable)
-      .where(and(eq(imagePromptAttemptsTable.gagId, gagId), inArray(imagePromptAttemptsTable.reviewRenderScenarioKey, keys)))
-      .orderBy(imagePromptAttemptsTable.reviewRenderScenarioKey, desc(imagePromptAttemptsTable.createdAt), desc(imagePromptAttemptsTable.id)),
-  ]);
+  const [loaded, rows] = await Promise.all([loadGagRenderTarget(gagId), newestRendersPerKind(gagId)]);
   const want = loaded.ok ? pictureIdentity(loaded.target.enrichment) : null;
   const newest = new Map(rows.map((r) => [r.reviewRenderScenarioKey, r]));
   const progress = await renderProgressByAttempt(rows.filter((r) => !r.generatedImageObjectPath).map((r) => r.id));

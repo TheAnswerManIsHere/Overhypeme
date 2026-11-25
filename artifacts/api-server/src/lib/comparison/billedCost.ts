@@ -25,6 +25,18 @@ const PAGE_LIMIT = 1000;
 const MAX_PAGES = 50;
 
 export interface BillingEvent { request_id: string; cost_total: number }
+
+/** The billing-read key, or null when it is not set (then nothing is looked up). */
+export function falBillingKey(): string | null {
+  return process.env.FAL_BILLING_API_KEY?.trim() || null;
+}
+
+/** What fal billed per request id: one request can carry several billing events, which are summed. */
+export function sumBilledByRequest(events: BillingEvent[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const e of events) out.set(e.request_id, (out.get(e.request_id) ?? 0) + e.cost_total);
+  return out;
+}
 export type BillingFetcher = (startIso: string, endIso: string) => Promise<BillingEvent[]>;
 
 export function parseBillingEvents(raw: unknown): { events: BillingEvent[]; nextCursor: string | null } {
@@ -86,8 +98,7 @@ export async function syncBilledCosts(fetchEvents: BillingFetcher, opts: { setId
   // A day of margin before the first request; never further back than fal's window allows.
   const start = new Date(Math.max(earliest - 24 * 60 * 60 * 1000, now.getTime() - MAX_WINDOW_MS + 60_000));
   const events = await fetchEvents(start.toISOString(), now.toISOString());
-  const costOf = new Map<string, number>();
-  for (const e of events) costOf.set(e.request_id, (costOf.get(e.request_id) ?? 0) + e.cost_total);
+  const costOf = sumBilledByRequest(events);
 
   let filled = 0;
   for (const c of cells) {
@@ -107,7 +118,7 @@ export async function syncBilledCosts(fetchEvents: BillingFetcher, opts: { setId
  * sets. Never throws and never blocks the results on fal being unreachable.
  */
 export async function refreshBilledCosts(setIds: number[]): Promise<void> {
-  const apiKey = process.env.FAL_BILLING_API_KEY?.trim();
+  const apiKey = falBillingKey();
   if (!apiKey) return;
   try {
     await syncBilledCosts(falBillingFetcher(apiKey), { setIds, apply: true });

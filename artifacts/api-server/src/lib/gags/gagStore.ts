@@ -430,7 +430,8 @@ export async function deleteGagRender(factId: number, gagId: number, attemptId: 
         .where(eq(userAiImagesTable.storagePath, attempt.generatedImageObjectPath)).limit(1);
       if (member) throw new GagError("RENDER_IN_USE", "A member's picture uses this render, so it can't be deleted.");
     }
-    // The unread recovery-snapshot columns that point at it are cleared with it.
+    // The legacy recovery columns that point at it (read only as approval
+    // evidence, by the history) are cleared with it, as D6 says.
     await tx.update(factGagsTable).set({ approvedExampleAttemptId: null }).where(eq(factGagsTable.approvedExampleAttemptId, attemptId));
     await tx.update(factGagsTable).set({ pendingExampleAttemptId: null }).where(eq(factGagsTable.pendingExampleAttemptId, attemptId));
     const files = await queueStoredFileDeletions(tx, await renderFilePaths(tx, [attemptId]), "render_delete");
