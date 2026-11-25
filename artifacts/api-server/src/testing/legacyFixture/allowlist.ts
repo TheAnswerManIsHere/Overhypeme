@@ -338,15 +338,6 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     reviewRenderBatchId: "synthetic:opaque-id",
     // 0139: the gag the attempt drew (a plain value; fact_gags is exported below).
     gagId: "keep",
-    // The eval lane is dropped with eval_runs (D2).
-    moderatorRating: "drop",
-    failureTag: "drop",
-    evalNotes: "drop",
-    evalBy: "drop",
-    evalAt: "drop",
-    evalRunId: "drop",
-    evalScenarioKey: "drop",
-    evalInputHash: "drop",
     createdAt: "keep",
     updatedAt: "keep",
   }),

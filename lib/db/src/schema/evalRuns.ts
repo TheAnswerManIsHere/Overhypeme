@@ -12,7 +12,9 @@ import { usersTable } from "./auth";
  * image engine, reference identity/version, look style) lives on each
  * `image_prompt_attempts` row so a run can span multiple scenarios/engines.
  *
- * See migration 0081 + lib/eval/*.
+ * See migration 0081. Nothing reads or writes it any more (launch Phase 8,
+ * prompt tuner plan *E. Retirements*); it stays declared only until part 4's
+ * drop migration removes the table.
  */
 export const evalRunsTable = pgTable("eval_runs", {
   id: bigserial("id", { mode: "number" }).primaryKey(),
