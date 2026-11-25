@@ -34,7 +34,10 @@ export interface PendingWizardState {
   factId: string;
   entryFlow: EntryFlow;
   mode?: Mode;
-  source?: { kind: "self-upload"; image: MyImageSource };
+  source?:
+    | { kind: "self-upload"; image: MyImageSource }
+    /** One of the member's own AI pictures of this fact (launch Phase 7, increment 2). */
+    | { kind: "ai-picture"; aiImageId: number; imageUrl: string };
   aspectRatio?: AspectRatio;
   framingOffset?: FramingOffset;
   name?: string;

@@ -48,24 +48,12 @@ instance** at module level. Every caller — the production entrypoint
 independent instance reading whatever env is current *at that call*, not at
 first-import time.
 
-**Scoped claim, not a complete fix — a related, still-open gap remains.**
-`app.ts` still has other top-level, env-reading state: `ORIGIN_EXEMPT_PATHS`
-is a module-scope `Set`, conditionally gaining `/api/auth/dev-admin-login`
-only via an `if (isDevAdminLoginEnabled())` block that runs once at import
-time. `createApp()` itself re-checks `isDevAdminLoginEnabled()` fresh on
-every call (to decide whether to mount the permissive dev-admin CORS
-middleware), but `isOriginExempt()` — used by the origin-check middleware
-`createApp()` registers — reads that same frozen-at-import `Set`. So in a
-shared-process caller that imports `app.ts` before `ENABLE_DEV_ADMIN_LOGIN`
-is set, then calls `createApp()` after: the permissive CORS gets mounted
-(fresh check), but the origin-exemption never gets added (stale check) — a
-cross-origin dev-admin-login POST would get permissive CORS headers and then
-be rejected by the origin-check middleware anyway. This is the same species
-of import-time-env-capture bug this note is about, just not what PR #308's
-actual fix addressed (that fix targeted the app-instance singleton
-specifically, not this `Set`). **Not fixed here** — tracked as its own
-`deferred-work.md` entry (Codex review, PR #319's `/document` harvest) rather
-than a drive-by code change inside a docs-only harvest PR.
+**A related gap, since closed.** `app.ts` once added
+`/api/auth/dev-admin-login` to the module-scope `ORIGIN_EXEMPT_PATHS` `Set`
+at import time while `createApp()` mounted its permissive CORS per call, so
+the two could desync in a shared process. Launch Phase 15, increment 2
+removed both the exemption and the permissive CORS; the `Set` is now
+constant.
 
 **Rule — scoped to import-time env/config capture, not singletons in
 general:** a module meant to be imported by tests under a shared-process

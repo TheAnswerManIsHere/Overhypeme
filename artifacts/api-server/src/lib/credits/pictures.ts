@@ -7,12 +7,20 @@
  * 0173's triggers refuse a return for a delivered picture and a delivery for a
  * returned one; the caller serialises the two on a lock of the attempt row.
  */
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql, type SQL, type AnyColumn } from "drizzle-orm";
 import { creditLedgerTable, usersTable } from "@workspace/db";
 import type { Executor } from "../visualConceptOwner";
 import { creditBalance, openLots } from "./ledger";
 
 const pictureRef = (attemptId: number): string => `picture:${attemptId}`;
+
+/**
+ * SQL over a query's attempt-id column: this picture's credit has a spend, or
+ * a return, on the ledger. The one statement of both, for the readers that
+ * filter attempts in SQL (the in-progress cap and list, and settlement).
+ */
+export const pictureHasLedgerRow = (kind: "picture_spend" | "picture_return", attemptId: AnyColumn): SQL =>
+  sql`EXISTS (SELECT 1 FROM credit_ledger c WHERE c.kind = ${kind} AND c.ref = 'picture:' || ${attemptId}::text)`;
 
 /** The account cannot pay for a picture: no credit, or a balance at or below zero after a reversal. */
 export class NoCreditError extends Error {

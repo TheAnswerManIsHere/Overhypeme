@@ -4,8 +4,7 @@
  * Rejects anything that isn't a plain absolute path on our own origin —
  * absolute URLs (`https://evil.com`), protocol-relative (`//evil.com`), and
  * non-path schemes (`javascript:…`) all collapse to `/`. Shared by the OAuth
- * login and link routes and the dev-admin-login route so the open-redirect rule is
- * single-sourced (see the path-classification / duplicate-source-of-truth
+ * login and link routes so the open-redirect rule is single-sourced (see the path-classification / duplicate-source-of-truth
  * traps in docs/ai-context/known-failure-patterns.md).
  *
  * A second normalization check runs on the *resolved* value, not just the

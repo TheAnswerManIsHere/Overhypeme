@@ -10,7 +10,7 @@ import { eq, and, or, sql, isNull, gt, getTableColumns } from "drizzle-orm";
 import { createSession, createSignInSession, SuspendedAccountError, updateSession, deleteSession, getSessionId, revokeUserSessions, type SessionData } from "../lib/auth";
 import { isDevAdminLoginEnabled } from "../lib/devAdminLogin";
 import { previewKeyAdmits, refuseDevPreview } from "../middlewares/devPreviewGate";
-import { getSafeReturnTo, getSafeSignupReturnTo } from "../lib/safeReturnTo";
+import { getSafeSignupReturnTo } from "../lib/safeReturnTo";
 import { isAdminById } from "./auth";
 import { sendEmail, buildPasswordResetEmail, buildEmailVerificationEmail, buildEmailChangeVerificationEmail } from "../lib/email";
 import { getSiteBaseUrl } from "../lib/siteUrl";
@@ -923,21 +923,22 @@ router.delete("/auth/unlink-provider", async (req: Request, res: Response) => {
 });
 
 // ── Secret admin login ────────────────────────────────────────────────────────
-// Triple-tap the wordmark to instantly switch into the admin account.
+// Triple-tap the wordmark to switch into the admin account (development only).
 //
-// Strategy: mutate the caller's EXISTING session in-place so the browser's
-// current sid cookie keeps working without having to store any new cookie.
-// This bypasses every cookie-storage edge-case (iframe third-party blocking,
-// Replit proxy redirect handling, SameSite restrictions, etc.).
-// If the caller has no session yet, a fresh one is created and the cookie set.
+// Launch Phase 15, increment 2: only a POST mints the session — no GET does, and
+// no server-written page carries a session token. The SPA's wordmark gesture
+// calls this POST through its own fetch, so the route is subject to the normal
+// origin and CSRF checks (app.ts) like every other mutation; a page on another
+// site cannot sign a browser in. Because the Replit canvas iframe drops the
+// cookie, this gated development route — and only it — also returns the fresh
+// session token in its JSON body; the SPA stores it in its existing Bearer slot
+// (`auth_token`). Normal sign-in never returns a token.
 async function handleDevAdminLogin(req: Request, res: Response) {
   // Fail-closed gate (C1). This route mints a bootstrap-admin session for any
   // caller, so it is inert unless explicitly enabled for a non-production
   // preview (ENABLE_DEV_ADMIN_LOGIN=true and NOT production). When disabled it
   // behaves like an unknown route — no session, no cookie, no disclosure that
-  // the endpoint exists. This request-time check is the authoritative guard;
-  // app.ts additionally withholds the permissive CORS + origin-exemption when
-  // disabled. See docs/ai-context/security-model.md.
+  // the endpoint exists. See docs/ai-context/security-model.md.
   if (!isDevAdminLoginEnabled()) {
     res.status(404).json({ error: "Not found" });
     return;
@@ -978,10 +979,7 @@ async function handleDevAdminLogin(req: Request, res: Response) {
   // one, rather than mutating the caller's sid in place. In-place mutation is a
   // session-fixation vector — an attacker-known/pre-set sid would become a live
   // admin session. Create the new session BEFORE deleting the old one so there
-  // is never a window with no valid session. The GET branch writes the fresh
-  // sid into localStorage (Bearer-token fallback), which is what keeps the
-  // Replit-canvas iframe working even when the new cookie is dropped — so
-  // rotation does not regress the preview flow.
+  // is never a window with no valid session.
   const oldSid = getSessionId(req);
   const effectiveSid = await createSession(sessionData, adminUser.id);
   setSessionCookie(res, effectiveSid);
@@ -989,52 +987,13 @@ async function handleDevAdminLogin(req: Request, res: Response) {
     await deleteSession(oldSid);
   }
 
-  if (req.method === "GET") {
-    // Return an HTML page that does two things before navigating away:
-    //
-    //   1. Writes effectiveSid into localStorage["auth_token"] so the
-    //      global fetch interceptor in main.tsx sends it as
-    //      "Authorization: Bearer <sid>" on every /api/ request.
-    //      This bypasses iframe cookie restrictions in Chrome on Windows:
-    //      CHIPS / storage partitioning silently drops Set-Cookie headers
-    //      in cross-site iframe contexts (the Replit canvas preview pane),
-    //      so cookies never land even with SameSite=None; Secure.
-    //      Bearer-token auth is unaffected by cookie policy.
-    //
-    //   2. JS-redirects to returnTo so the SPA reloads with fresh auth.
-    //
-    // The Set-Cookie above is still sent for browsers/environments where
-    // cookies work (Safari, direct URL access, etc.) — both paths stay active.
-    // Sanitize returnTo to a same-origin path — it is interpolated into a
-    // client-side redirect, so a raw value (`javascript:…`, `//evil.com`, an
-    // absolute URL) would be an open-redirect / script-injection vector.
-    const returnTo = getSafeReturnTo(req.query["returnTo"]);
-    res.setHeader("Content-Type", "text/html");
-    res.send(
-      `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>` +
-      `<script>` +
-      `try{localStorage.setItem("auth_token",${JSON.stringify(effectiveSid)});}catch(e){}` +
-      `window.location.replace(${JSON.stringify(returnTo)});` +
-      `</script>` +
-      `</body></html>`,
-    );
-  } else {
-    // `user` mirrors the shape the e2e admin-login flow asserts on
-    // (`loginBody.user?.email`); `ok`/`email` kept for any existing caller.
-    res.json({ ok: true, email: adminUser.email, user: { email: adminUser.email } });
-  }
+  // `user` mirrors the shape the e2e admin-login flow asserts on
+  // (`loginBody.user?.email`); `ok`/`email` kept for any existing caller.
+  // `token` is the explicit, additive Bearer fallback for the canvas iframe.
+  res.json({ ok: true, email: adminUser.email, user: { email: adminUser.email }, token: effectiveSid });
 }
 
-// dev-admin-login (C1) — HARDENED, fail-closed. The route grants a bootstrap-
-// admin session, so it is gated by `isDevAdminLoginEnabled()`: OFF by default,
-// opt-in only via ENABLE_DEV_ADMIN_LOGIN for a non-production preview, NEVER on
-// in production. The routes stay registered but `handleDevAdminLogin` 404s
-// immediately when disabled (the authoritative request-time guard); app.ts also
-// withholds the permissive CORS + origin-exemption when disabled, and the UI
-// trigger (Navbar.tsx) only fires in a dev build. The handler rotates the
-// session (fresh sid, delete old) and sanitizes returnTo. See
-// docs/ai-context/security-model.md.
-router.get("/auth/dev-admin-login", handleDevAdminLogin);
+// POST only: see handleDevAdminLogin above.
 router.post("/auth/dev-admin-login", handleDevAdminLogin);
 
 export default router;

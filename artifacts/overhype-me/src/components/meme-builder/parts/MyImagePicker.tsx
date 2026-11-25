@@ -10,6 +10,8 @@ import type { MyImageSource } from "../types";
 interface Props {
   selected: MyImageSource | null;
   onSelect: (next: MyImageSource) => void;
+  /** Receives the picker's own default pick, as distinct from a tap; defaults to `onSelect`. */
+  onAutoSelect?: (next: MyImageSource) => void;
   /** Tabs to hide entirely. Useful when a parent wants to restrict available choices. */
   hideTabs?: Tab[];
 }
@@ -23,7 +25,7 @@ type Tab = "library" | "upload";
  * sorts it first). The library tab auto-selects whichever image is first
  * (so the profile photo is the implicit default on tab activation).
  */
-export function MyImagePicker({ selected, onSelect, hideTabs }: Props) {
+export function MyImagePicker({ selected, onSelect, onAutoSelect, hideTabs }: Props) {
   const [tab, setTab] = useState<Tab>(() => (hideTabs?.includes("library") ? "upload" : "library"));
   const [reloadKey, setReloadKey] = useState(0);
   const isDesktop = useDesktopModality();
@@ -39,7 +41,7 @@ export function MyImagePicker({ selected, onSelect, hideTabs }: Props) {
     enabled: tab === "library" && !selected && !!firstLibraryPath,
     identityKey: firstLibraryPath,
     resolveDefault: () => firstLibraryPath ? { kind: "library", objectPath: firstLibraryPath } : null,
-    onSelect,
+    onSelect: onAutoSelect ?? onSelect,
   });
 
   const isSelectedObject = (objectPath: string) =>

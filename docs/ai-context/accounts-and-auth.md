@@ -50,8 +50,8 @@ say what the tables are and that Replit Auth is retired; the starter
 template's "mandatory for Replit Auth" boilerplate went in launch Phase 4,
 removal 7, with the admin access screen's "your Replit user ID" setup tip.
 
-There is also a **dev-only admin bootstrap login** (`GET`/`POST
-/auth/dev-admin-login`, `localAuth.ts:735-836`), fail-closed and gated by
+There is also a **dev-only admin bootstrap login** (`POST
+/auth/dev-admin-login`, `localAuth.ts`), fail-closed and gated by
 `isDevAdminLoginEnabled()`, never live in production — already fully
 documented as security-model.md's C1 finding; this spec doesn't duplicate it.
 
@@ -710,8 +710,9 @@ around third-party-iframe cookie partitioning (Chrome/Windows CHIPS drops
 `Set-Cookie` in the Replit canvas preview). A global fetch interceptor
 (`main.tsx`) sends `localStorage["auth_token"]` as a Bearer header on every
 request when present, but **ordinary Google/Apple/local sign-ins never
-write that key** — the only runtime path that does is the `GET` form of
-dev-admin-login (`localAuth.ts:788-815`), a dev-only route. A stale Bearer
+write that key** — the only runtime path that does is the wordmark gesture's call to
+dev-admin-login (`Navbar.tsx`), which stores the token that dev-only route
+returns in its JSON body (launch Phase 15, increment 2). A stale Bearer
 session **is** evicted server-side — `authMiddleware.ts:74-85` deletes its
 DB row on the next request that presents it — but the server has no way to
 clear the browser's `localStorage` copy itself (no `Set-Cookie`-equivalent

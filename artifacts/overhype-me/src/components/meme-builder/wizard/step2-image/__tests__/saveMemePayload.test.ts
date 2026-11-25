@@ -29,6 +29,14 @@ describe("buildSaveMemePayload", () => {
     expect(buildSaveMemePayload({ state, factId: 42 })).toBeNull();
   });
 
+  it("an AI picture is sent as its own source, never as an upload (launch Phase 7)", () => {
+    const state: WizardRuntimeState = {
+      ...baseState(),
+      source: { kind: "ai-picture", aiImageId: 7, imageUrl: "/api/memes/ai-user/image?storagePath=%2Fobjects%2Fx.png" },
+    };
+    expect(buildSaveMemePayload({ state, factId: 1 })!.imageSource).toEqual({ type: "ai_picture", aiImageId: 7 });
+  });
+
   it("sends the caption positions the preview drew, the slider defaults when untouched (#707)", () => {
     const state: WizardRuntimeState = {
       ...baseState(),

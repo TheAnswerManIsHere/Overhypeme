@@ -1,3 +1,4 @@
+import { isInFlight, type MemberPictureState } from "@/components/meme-builder/wizard/step2-image/AiPicturePanel";
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useGetMyProfile, getGetMyProfileQueryKey } from "@workspace/api-client-react";
@@ -17,6 +18,7 @@ import {
   FileText, ImageIcon, Images, Lock, Plus, RotateCcw, ThumbsUp, Trash2,
 } from "lucide-react";
 import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
+import { MemberPicturesSection } from "@/components/library/MemberPicturesSection";
 import { CACHED_COPY_NOTICE } from "@/lib/cachedCopyNotice";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
@@ -41,6 +43,7 @@ interface UploadItem {
   /** Your current profile photo, which can't be deleted (#875, R5). */
   isProfile?: boolean;
 }
+
 
 interface AiImageItem {
   id: number;
@@ -163,6 +166,33 @@ export default function Library() {
     "my-uploads", `${BASE_URL}api/users/me/uploads`,
     (page) => page.uploads as UploadItem[], isAuthenticated && activeTab === "images",
   );
+  // The member's own AI pictures (launch Phase 7, increment 2), and the ones still drawing.
+  const memberPictures = usePagedList<AiImageItem>(
+    "my-member-pictures", `${BASE_URL}api/users/me/ai-images?imageType=member_picture`,
+    (page) => page.images as AiImageItem[], isAuthenticated && activeTab === "images",
+  );
+  const { data: drawingData } = useQuery<{ pictures: MemberPictureState[] }>({
+    queryKey: ["my-member-pictures-drawing"],
+    queryFn: async () => {
+      const res = await fetch(`${BASE_URL}api/member-pictures`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load your pictures");
+      return res.json();
+    },
+    enabled: isAuthenticated && activeTab === "images",
+    // While any picture draws, follow it; a finished one lands in the list below.
+    refetchInterval: (q) => (q.state.data?.pictures.some(isInFlight) ? 3000 : false),
+  });
+  const pictures = drawingData?.pictures ?? [];
+  const drawing = pictures.filter(isInFlight);
+  const recentlyFailed = pictures.filter((p) => p.status === "failed" && Date.now() - Date.parse(p.createdAt) < 24 * 60 * 60_000);
+  // When a picture that was drawing finishes, refresh the list of your pictures.
+  const wasDrawing = useRef<Set<number>>(new Set());
+  useEffect(() => {
+    const now = new Set(drawing.map((p) => p.attemptId));
+    const finished = [...wasDrawing.current].some((id) => !now.has(id));
+    wasDrawing.current = now;
+    if (finished) void queryClient.invalidateQueries({ queryKey: ["my-member-pictures"] });
+  }, [drawingData, queryClient]);
   const aiImages = usePagedList<AiImageItem>(
     "my-ai-images", `${BASE_URL}api/users/me/ai-images?imageType=reference`,
     (page) => page.images as AiImageItem[], isAuthenticated && activeTab === "images",
@@ -203,7 +233,7 @@ export default function Library() {
   const deleteUpload = (objectPath: string) =>
     change(`${BASE_URL}api/users/me/uploads?path=${encodeURIComponent(objectPath)}`, "DELETE", ["my-uploads"]);
   const deleteAiImage = (id: number) =>
-    change(`${BASE_URL}api/users/me/ai-images/${id}`, "DELETE", ["my-ai-images"]);
+    change(`${BASE_URL}api/users/me/ai-images/${id}`, "DELETE", ["my-ai-images", "my-member-pictures"]);
 
   /** "Delete now": ends the item's restore window; the purger removes it within the hour. */
   const purgeNow = (item: DeletedItem) =>
@@ -214,7 +244,7 @@ export default function Library() {
       case "photo":
         return change(`${BASE_URL}api/users/me/uploads/restore`, "POST", ["my-uploads"], { path: item.objectPath });
       case "generated":
-        return change(`${BASE_URL}api/users/me/ai-images/${item.id}/restore`, "POST", ["my-ai-images"]);
+        return change(`${BASE_URL}api/users/me/ai-images/${item.id}/restore`, "POST", ["my-ai-images", "my-member-pictures"]);
       case "meme":
         return change(`${BASE_URL}api/memes/${encodeURIComponent(item.slug)}/restore`, "POST", ["profile-my-memes"]);
     }
@@ -392,6 +422,30 @@ export default function Library() {
                   <Link href="/"><Button variant="outline">GO TO MEME BUILDER</Button></Link>
                 </div>
               )}
+
+              <MemberPicturesSection drawing={drawing} recentlyFailed={recentlyFailed} list={memberPictures}>
+                <>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                  {(memberPictures.items ?? []).map((img) => {
+                    const imgUrl = `${BASE_URL}api/memes/ai-user/image?storagePath=${encodeURIComponent(img.storagePath)}`;
+                    return (
+                      <ImageCard
+                        key={img.id}
+                        src={imgUrl}
+                        alt="Your AI picture"
+                        isAuthProtected
+                        aspectRatio="aspect-[3/4]"
+                        actions={["delete", "openFull"]}
+                        onDelete={() => deleteAiImage(img.id)}
+                        deleteConfirmMessage={`Delete this picture? It moves to Recently deleted, where you can restore it for ${windowDays} days. Its credit is not returned.`}
+                        footer={<AdminMediaInfoForUrl url={imgUrl} fileName={getFileNameFromUrl(img.storagePath)} mimeType={getMimeTypeFromUrl(img.storagePath)} />}
+                      />
+                    );
+                  })}
+                </div>
+                <LoadMore list={memberPictures} />
+                </>
+              </MemberPicturesSection>
 
               {(aiImages.isLoading || (aiImages.items && aiImages.items.length > 0)) && (
                 <div className="mt-10">
