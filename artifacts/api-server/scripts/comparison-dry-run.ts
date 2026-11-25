@@ -1,7 +1,7 @@
 /**
  * The engine comparison's dry run (launch Phase 8, increment 2a; plan
  * `docs/plans/PLAN_PHASE8_ENGINE_EVALUATION.md`, *Implementation Steps* 2,
- * post-merge: "33 panels and 198 expected cells"). READ-ONLY: it reads this
+ * post-merge: "27 panels and 108 expected cells"). READ-ONLY: it reads this
  * database's image engines, derives the round 1 and round 2 layouts for three
  * placeholder facts against them and prices every cell at its engine's
  * per-call bound, the worst case for both rounds. No allowance is checked:
@@ -10,7 +10,8 @@
  *
  * Run (on the Repl):
  *   pnpm --filter @workspace/api-server exec tsx scripts/comparison-dry-run.ts
- * Exits non-zero if the counts are not 33 and 198.
+ * Exits non-zero if the counts are not 27 and 108 (9 + 18 panels; four
+ * engine families since FLUX 3 and Seedream 5.0 Pro were retired).
  */
 import { installStdioGuard } from "../src/lib/stdioGuard.js";
 installStdioGuard();
@@ -44,7 +45,7 @@ async function main(): Promise<void> {
     ...estimate,
   };
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-  const ok = report.panels === 33 && report.cells === 198;
+  const ok = report.panels === 27 && report.cells === 108;
   process.stdout.write(ok ? "DRY RUN OK\n" : "DRY RUN FAILED\n");
   process.exit(ok ? 0 : 1);
 }

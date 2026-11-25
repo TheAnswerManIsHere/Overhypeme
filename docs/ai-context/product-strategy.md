@@ -51,8 +51,8 @@ credits, or $34.99 a year with 400.
   offered as meme backgrounds. David: *"The whole purpose of the site is that it
   is personalized TO YOU!"*
 - **GPT Image 2.6** draws photoreal pictures; **Nano Banana 2.1** draws styled
-  ones; the site picks by the look chosen. **Provisional** until a check scores
-  scene fidelity, likeness and style separately (below).
+  ones; the site picks by the look chosen. The engines are settled: no more
+  engine-selection rounds (David, 2026-11-12, prompt tuner plan).
 - Pictures are made near screen size. Larger sizes can return later as a
   feature. David: *"I'd rather produce higher quality, lower resolution images
   than lower quality, higher resolution images."*
@@ -141,7 +141,8 @@ spending by anyone without an account.
 Each piece gets its own plan, reviewed and brought to David before building:
 
 - **Phase 8, finishing the engine work:** adopt the two engines, screen-size
-  pictures, prompt tuning and the three-factor check.
+  pictures and prompt tuning (the engines are settled; the unused ones are
+  retired in code).
 - **Phase 7, the paid layer and the friend flow:** credits, the pack,
   membership with credits, the free picture, the "who is this for?" flow,
   examples in place of hero backgrounds.

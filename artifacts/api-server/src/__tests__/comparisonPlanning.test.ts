@@ -4,7 +4,9 @@
 // cells, round 2 is 18 panels and 108, 33 and 198 together. Since every picture
 // starts from a photo (compiler review, Phase 2) round 1 drops its no-photo
 // scenario: 12 panels and 72 cells; since people and pets only (Issue #964)
-// it also drops the object/vehicle scenario: 9 panels and 54 cells.
+// it also drops the object/vehicle scenario: 9 panels. Since FLUX 3 and Seedream
+// 5.0 Pro were retired (prompt tuner plan, *E. Retirements*) the default list is
+// four families: 36 cells in round 1 and 72 in round 2.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
@@ -22,17 +24,17 @@ function round(n: 1 | 2) {
 }
 
 describe("comparison layout", () => {
-  it("round 1 is 9 photo panels and 54 cells", () => {
+  it("round 1 is 9 photo panels and 36 cells", () => {
     const panels = deriveComparisonLayout(round(1), catalogue);
     assert.equal(panels.length, 9);
-    assert.equal(panels.reduce((s, p) => s + p.engineIds.length, 0), 54);
+    assert.equal(panels.reduce((s, p) => s + p.engineIds.length, 0), 36);
     assert.ok(panels.every((p) => p.imageMode === "i2i"), "no picture without a photo");
   });
 
-  it("round 2 is 18 panels and 108 cells", () => {
+  it("round 2 is 18 panels and 72 cells", () => {
     const panels = deriveComparisonLayout(round(2), catalogue);
     assert.equal(panels.length, 18);
-    assert.equal(panels.reduce((s, p) => s + p.engineIds.length, 0), 108);
+    assert.equal(panels.reduce((s, p) => s + p.engineIds.length, 0), 72);
   });
 
   it("every cell's engine is of its family and the panel's mode", () => {
@@ -46,16 +48,16 @@ describe("comparison layout", () => {
   });
 
   it("a family that is not one engine per mode is refused, never dropped", () => {
-    const withoutEdit = catalogue.filter((e) => e.id !== "flux-3-edit");
+    const withoutEdit = catalogue.filter((e) => e.id !== "muse-image-edit");
     assert.throws(() => deriveComparisonLayout(round(1), withoutEdit), (err: unknown) =>
-      err instanceof ComparisonLayoutError && err.reasons.some((r) => /flux-3.*0 i2i/.test(r)));
+      err instanceof ComparisonLayoutError && err.reasons.some((r) => /muse-image.*0 i2i/.test(r)));
   });
 
   it("an engine without a price model, or inactive, is refused with the reason", () => {
     const unpriced = catalogue.map((e) => (e.id === "muse-image-edit" ? { ...e, priceModel: null } : e));
     assert.throws(() => deriveComparisonLayout(round(1), unpriced), /muse-image-edit: it has no price model/);
-    const inactive = catalogue.map((e) => (e.id === "seedream-5-pro-edit" ? { ...e, isActive: false } : e));
-    assert.throws(() => deriveComparisonLayout(round(1), inactive), /seedream-5-pro-edit: it is inactive/);
+    const inactive = catalogue.map((e) => (e.id === "nano-banana-2-1-edit" ? { ...e, isActive: false } : e));
+    assert.throws(() => deriveComparisonLayout(round(1), inactive), /nano-banana-2-1-edit: it is inactive/);
   });
 
   it("an unknown scenario is refused", () => {
@@ -91,7 +93,8 @@ describe("run admission", () => {
     const total = [1, 2].flatMap((n) => deriveComparisonLayout(round(n as 1 | 2), catalogue))
       .flatMap((p) => p.engineIds)
       .reduce((s, id) => s + cellBoundUsd(catalogue.find((e) => e.id === id)!.priceModel), 0);
-    // Six families' bounds sum to about $0.67 per t2i panel and $0.69 per i2i panel.
-    assert.ok(total > 15 && total < 30, `rounds 1–2 image bound $${total.toFixed(2)}`);
+    // The four default families' bounds sum to about $14.75 for both rounds
+    // (measured 2026-11-25, after FLUX 3 and Seedream 5.0 Pro were retired).
+    assert.ok(total > 10 && total < 20, `rounds 1–2 image bound $${total.toFixed(2)}`);
   });
 });

@@ -13,6 +13,17 @@
 
 ---
 
+### 2026-11-25 · Seven image engines are retired in code; four families stay able to draw
+- **Decision:** FLUX 1.1 Pro, FLUX 2 Pro, FLUX 3, Seedream 5.0 Pro, Nano Banana Pro, GPT Image 2 and GPT Image 2.5, with each one's edit or text-to-image twin, are `isActive: false` in their code definitions (prompt tuner plan `docs/plans/PLAN_PROMPT_TUNER.md`, *E. Retirements*; launch Phase 8, Issue #887).
+  - **They stay in the catalogue**, so old comparison results still name them. Nothing can draw with one: routing refuses an inactive engine, even when a caller names it.
+  - **Kept:** GPT Image 2.6 (photoreal), Nano Banana 2.1 (styled), Muse Image (reserve) and the Nano Banana 2 control, each as a pair. A test pins exactly this active image set.
+  - **The plan's "read the deployed routing values first" step is met by code.** Since 2026-11-14 routing is `IMAGE_ENGINE_IDS` in code, and the `image_engine_t2i`/`image_engine_i2i` rows are no longer read. None of the retired engines appears in it.
+  - **The comparison's default family list drops FLUX 3 and Seedream 5.0 Pro**, so the dry run derives 27 panels and 108 cells.
+  - **Retiring is a code change, not a migration.** The 2026-11-14 decision deleted the `engines` table.
+- **Why:** the engine evaluation settled the two engines; an engine left active is one a mis-set override could still pay for.
+- **Reference:** Issue #887; Issue #930.
+- **Revisit if:** a retired engine is wanted back for a new comparison: flip its flag in a reviewed PR.
+
 ### 2026-11-24 · A suspended member receives no ordinary mail; billing, lifecycle and the suspension notices still go
 - **Decision:** while an account is suspended, ordinary mail to it is skipped at delivery and dropped for good, including mail queued before the suspension and every retry. Still sent: `account_suspended`, `account_reinstated`, `support_ack`; billing (`billing_payment_action`, `billing_renewal_reminder`, `billing_card_updated`, `access_revoked`); account lifecycle (`account_deletion_scheduled`, `account_deletion_cancelled`). The cutoff is the transaction that authorises a send: one authorised before the suspension commits may still go; every later attempt checks again.
 - **Why:** David, 2026-11-24, approving the Issue #1212 plan: Q21: 1 (billing mail keeps going: a suspended member may still be charged), Q22: 1 (deletion runs regardless, so the member is told), Q23: 1 (no replay: a reinstated member would otherwise get stale daily facts and old invitations), Q24: 1 (making suspension wait on the email provider buys at most a few seconds).
