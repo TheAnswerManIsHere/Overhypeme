@@ -28,7 +28,7 @@ import { lookClassOfSelection, resolveImageEngine } from "./imageEngineRouting";
 import { FROZEN_FALLBACK_KEY, freezeFallbackChoice } from "./engineFallback";
 import { isValidRenderStyleSnapshot, resolveAndFreezeRenderStyle, type ResolvedRenderStyleSnapshot } from "./imagePrompt/styleResolution";
 import { engineFamilyOf, liveRecipeVersionIdForFamily } from "./imagePrompt/recipeStore";
-import { assertCanSpendPicture, lockAccountForSpend, spendPictureCredit } from "./credits/pictures";
+import { assertCanSpendPicture, lockAccountForSpend, pictureHasLedgerRow, spendPictureCredit } from "./credits/pictures";
 
 /** RenderControls plus the route-attached fields `imagePromptJobs` reads. */
 export type RenderControlsWithRefs = RenderControls & {
@@ -165,7 +165,7 @@ export class NoPhotoRenderRefusedError extends Error {
  */
 export const MEMBER_PICTURE_IN_PROGRESS = sql`${imagePromptAttemptsTable.memberRequestId} IS NOT NULL
   AND ${imagePromptAttemptsTable.error} IS NULL AND ${imagePromptAttemptsTable.generatedImageObjectPath} IS NULL
-  AND NOT EXISTS (SELECT 1 FROM credit_ledger c WHERE c.kind = 'picture_return' AND c.ref = 'picture:' || ${imagePromptAttemptsTable.id}::text)`;
+  AND NOT ${pictureHasLedgerRow("picture_return", imagePromptAttemptsTable.id)}`;
 
 export async function buildAndEnqueueImagePromptAttempt(
   args: BuildImagePromptAttemptArgs,

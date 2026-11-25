@@ -628,12 +628,10 @@ describe("Phase 7 inc 2: every failure returns the credit", () => {
     const { attemptId } = await requestMemberPicture(await command(userId, factId));
     // 21 newer pictures of the same member, all finished.
     const { id: _id, createdAt: _c, updatedAt: _u, renderJobId: _r, memberRequestId: _m, memberRequestFingerprint: _f, ...base } = await attempt(attemptId);
-    for (let i = 0; i < 21; i++) {
-      await db.insert(imagePromptAttemptsTable).values({
-        ...base, renderJobId: randomUUID(), memberRequestId: `newer-${randomUUID()}`, memberRequestFingerprint: "x",
-        generatedImageObjectPath: `/objects/ai-bg-v2/${factId}/newer-${i}.png`,
-      } as never);
-    }
+    await db.insert(imagePromptAttemptsTable).values(Array.from({ length: 21 }, (_, i) => ({
+      ...base, renderJobId: randomUUID(), memberRequestId: `newer-${randomUUID()}`, memberRequestFingerprint: "x",
+      generatedImageObjectPath: `/objects/ai-bg-v2/${factId}/newer-${i}.png`,
+    })) as never);
     const listFor = async (who: string) => (await request(buildTestApp({ kind: "authenticated", userId: who }, memberPicturesRouter)).get("/api/member-pictures"))
       .body.pictures as Array<{ attemptId: number; status: string; creditReturned: boolean }>;
     const before = (await listFor(userId)).find((p) => p.attemptId === attemptId);

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { PRONOUN_PRESETS } from "@/lib/pronouns";
 
 /**
  * "Make an AI picture" (launch Phase 7, increment 2; plan
@@ -59,12 +60,16 @@ interface Props {
 
 type Subject = "me" | "pet";
 const POLL_MS = 2500;
-const PRONOUN_CHOICES = ["he/him", "she/her", "they/them"] as const;
 
 function newRequestId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+/** A picture still on its way: queued or drawing. */
+export function isInFlight(p: Pick<MemberPictureState, "status">): boolean {
+  return p.status === "queued" || p.status === "drawing";
 }
 
 const STATUS_WORDS: Record<MemberPictureState["status"], string> = {
@@ -98,7 +103,7 @@ export function AiPicturePanel({ factId, photoUploadKey, onPicture, selectedAiIm
       .then((r) => (r.ok ? r.json() : null))
       .then((body: { pictures: MemberPictureState[] } | null) => {
         if (cancelled || !body) return;
-        const inFlight = body.pictures.find((p) => String(p.factId) === factId && (p.status === "queued" || p.status === "drawing"));
+        const inFlight = body.pictures.find((p) => String(p.factId) === factId && isInFlight(p));
         if (inFlight) { setPicture(inFlight); setOpen(true); }
       })
       .catch(() => undefined);
@@ -127,7 +132,7 @@ export function AiPicturePanel({ factId, photoUploadKey, onPicture, selectedAiIm
   }, [open, options, factId]);
 
   // Follow a picture while it draws.
-  const inFlight = picture && (picture.status === "queued" || picture.status === "drawing");
+  const inFlight = !!picture && isInFlight(picture);
   useEffect(() => {
     if (!picture || !inFlight) return;
     const t = setTimeout(() => {
@@ -289,7 +294,7 @@ export function AiPicturePanel({ factId, photoUploadKey, onPicture, selectedAiIm
                   aria-label="Your pet's pronouns"
                   className="rounded-md border border-white/15 bg-transparent px-2 py-1.5 text-sm"
                 >
-                  {PRONOUN_CHOICES.map((p) => <option key={p} value={p}>{p}</option>)}
+                  {PRONOUN_PRESETS.map((p) => <option key={p} value={p}>{p}</option>)}
                 </select>
               </div>
             )}

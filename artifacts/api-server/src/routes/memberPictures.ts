@@ -13,7 +13,6 @@
  * only: `requireEligibleActor` refuses a state-changing request from anyone
  * else, and every route here checks the session itself.
  */
-import { MEMBER_PICTURE_IN_PROGRESS } from "../lib/imagePromptAttempts";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
 import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
@@ -21,6 +20,7 @@ import { creditLedgerTable, db, imagePromptAttemptsTable, imageGenerationRequest
 import { availableGags } from "../lib/gags/resolver";
 import { creditBalance, openLots } from "../lib/credits/ledger";
 import { returnedPictures } from "../lib/credits/pictures";
+import { MEMBER_PICTURE_IN_PROGRESS } from "../lib/imagePromptAttempts";
 import { MemberPictureError, requestMemberPicture } from "../lib/memberPictures/command";
 import { memberFailureWords } from "../lib/memberPictures/failures";
 import { liveContent } from "../lib/contentVisibility";

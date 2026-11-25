@@ -1,3 +1,4 @@
+import { isInFlight, type MemberPictureState } from "@/components/meme-builder/wizard/step2-image/AiPicturePanel";
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useGetMyProfile, getGetMyProfileQueryKey } from "@workspace/api-client-react";
@@ -42,15 +43,6 @@ interface UploadItem {
   isProfile?: boolean;
 }
 
-/** A member picture's state (`GET /api/member-pictures`). */
-interface MemberPictureState {
-  attemptId: number;
-  factId: number;
-  status: "queued" | "drawing" | "done" | "failed";
-  reason: string | null;
-  creditReturned: boolean;
-  createdAt: string;
-}
 
 interface AiImageItem {
   id: number;
@@ -187,14 +179,19 @@ export default function Library() {
     },
     enabled: isAuthenticated && activeTab === "images",
     // While any picture draws, follow it; a finished one lands in the list below.
-    refetchInterval: (q) => (q.state.data?.pictures.some((p) => p.status === "queued" || p.status === "drawing") ? 3000 : false),
+    refetchInterval: (q) => (q.state.data?.pictures.some(isInFlight) ? 3000 : false),
   });
-  const drawing = (drawingData?.pictures ?? []).filter((p) => p.status === "queued" || p.status === "drawing");
-  const recentlyFailed = (drawingData?.pictures ?? []).filter((p) => p.status === "failed" && Date.now() - Date.parse(p.createdAt) < 24 * 60 * 60_000);
-  const lastDone = drawingData?.pictures.filter((p) => p.status === "done").length ?? 0;
+  const pictures = drawingData?.pictures ?? [];
+  const drawing = pictures.filter(isInFlight);
+  const recentlyFailed = pictures.filter((p) => p.status === "failed" && Date.now() - Date.parse(p.createdAt) < 24 * 60 * 60_000);
+  // When a picture that was drawing finishes, refresh the list of your pictures.
+  const wasDrawing = useRef<Set<number>>(new Set());
   useEffect(() => {
-    void queryClient.invalidateQueries({ queryKey: ["my-member-pictures"] });
-  }, [lastDone, queryClient]);
+    const now = new Set(drawing.map((p) => p.attemptId));
+    const finished = [...wasDrawing.current].some((id) => !now.has(id));
+    wasDrawing.current = now;
+    if (finished) void queryClient.invalidateQueries({ queryKey: ["my-member-pictures"] });
+  }, [drawingData, queryClient]);
   const aiImages = usePagedList<AiImageItem>(
     "my-ai-images", `${BASE_URL}api/users/me/ai-images?imageType=reference`,
     (page) => page.images as AiImageItem[], isAuthenticated && activeTab === "images",

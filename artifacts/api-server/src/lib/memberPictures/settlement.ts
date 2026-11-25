@@ -12,7 +12,7 @@
  */
 import { and, eq, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { asyncJobsTable, db, imagePromptAttemptsTable, userAiImagesTable, type ImagePromptAttempt } from "@workspace/db";
-import { pictureCreditState, returnedPictures, returnPictureCredit } from "../credits/pictures";
+import { pictureCreditState, pictureHasLedgerRow, returnedPictures, returnPictureCredit } from "../credits/pictures";
 import type { Executor } from "../visualConceptOwner";
 import { logger } from "../logger";
 import { IMAGE_GENERATION_QUEUE, IMAGE_PROMPT_QUEUE, imageJobDedupeKey, promptJobDedupeKey } from "../imagePromptAttempts";
@@ -164,9 +164,9 @@ const LIVE_JOB_STATUSES = ["pending", "processing", "recovering"];
  * the fact would delete the attempt and leave the spend with nothing that
  * can return it (Codex review, PR #1300).
  */
-const UNSETTLED = sql`NOT EXISTS (SELECT 1 FROM credit_ledger c WHERE c.kind = 'picture_return' AND c.ref = 'picture:' || ${imagePromptAttemptsTable.id}::text)
+const UNSETTLED = sql`NOT ${pictureHasLedgerRow("picture_return", imagePromptAttemptsTable.id)}
     AND ${imagePromptAttemptsTable.generatedImageObjectPath} IS NULL
-    AND EXISTS (SELECT 1 FROM credit_ledger s WHERE s.kind = 'picture_spend' AND s.ref = 'picture:' || ${imagePromptAttemptsTable.id}::text)`;
+    AND ${pictureHasLedgerRow("picture_spend", imagePromptAttemptsTable.id)}`;
 
 /** How many member pictures of this fact still owe their member an outcome (delivered or returned). */
 export async function unsettledPicturesOnFact(factId: number, executor: Executor = db): Promise<number> {
