@@ -612,7 +612,7 @@ rule 2 — a sentence or two, saying only what he must know or do).
   explicitly does not become negotiable for being technical.
   **This paragraph asserted the opposite for one round.** Added at #124 round 7
   to fix the planning half, it went on to say the code review loop "has no
-  technical tie-break" — contradicting `claude-core.md` rule 4,
+  technical tie-break" — contradicting `claude-core.md`, *Shared judgement on a review round*, item 4,
   `working-modes.md`'s *Who judges* and the reviewer's own brief, all of which
   give a surviving purely technical disagreement to the Fable assessor, and the
   first of those was already on `main`. A fix that introduces the very

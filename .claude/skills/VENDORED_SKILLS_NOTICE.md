@@ -94,8 +94,8 @@ bounded by the builder's judgement under the write-gate and the ship gate, with
 a recorded gap the ordinary answer from the second review on; the 2026-09-20
 note above stays as the record of what they said until then.
 
-Rationale and the full policy for the 2026-07-24 delegation calibrations live
-in `CLAUDE.md` → *Model, cost, and routing*; the two-review limit's were in
+The delegation policy behind the 2026-07-24 calibrations is `CLAUDE.md` →
+*Model, cost, and routing* (its rationale, KITT's `docs/decisions.md`); the two-review limit's were in
 its home, linked above, which now records its retirement (2026-10-21).
 MIT permits modification; attribution above is unchanged.
 

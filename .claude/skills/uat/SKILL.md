@@ -7,17 +7,14 @@ description: Run a UAT session with David step by step, in chat, instead of hand
 
 # /uat — I run the test session, David does the judging
 
-The UAT script stopped being something David reads and became the **script
-I drive** (David, 2026-08-21). He used to open a markdown file in one window
-and the app in another, keep his own place, and remember what failed. Now he
-tells me what he saw and I own everything else: the setup, the place, the
-record, the bug intake, and the way back.
+The UAT script is the **script I drive**. David tells me what he saw and I
+own everything else: the setup, the place, the record, the bug intake, and
+the way back.
 
-**What has not changed:** the script is still written per
-[`pr-docs`](../pr-docs/SKILL.md), still on its PR before merge, still the
-script his judgement steps come from (the machine-lane steps in it are
-mine, section 3). **Where it lives changed (David, 2026-10-21): it is the
-`## UAT` section of the PR body**, not a file under `docs/tests/UAT/`, so
+The script is written per [`pr-docs`](../pr-docs/SKILL.md), on its PR before
+merge, and is the script his judgement steps come from (the machine-lane
+steps in it are mine, section 3). **It is the `## UAT` section of the PR
+body**, not a file under `docs/tests/UAT/`, so
 there is nothing to delete when a run completes — the workstream's
 `stage:uat` label says a run is owed, and section 1 reads that. A **legacy
 doc** still in `docs/tests/UAT/` on a consumer's `main` is the one case the
@@ -26,20 +23,15 @@ its run complete (section 6). Everywhere below, "the script" is the body
 section or that legacy file, and the format is the same one heading level
 apart ([`uat-doc-format.md`](../../../docs/tests/uat-doc-format.md)).
 
-**The UAT script is no longer published as an Artifact page (David,
-2026-08-21).** That reading surface existed because he was reading alone; the
-session replaced it. If he ever wants one for a solo run he asks.
+**The UAT script is not published as an Artifact page.** If he wants one
+for a solo run he asks.
 
 ## 1. Find the run, confirm it, preview it
 
 An invocation may name a PR, an issue, or nothing. One that names a PR or
 an issue is the run, whatever this session did. One that names nothing
 starts with this session, and only reaches the repository-wide search when
-the session holds nothing to test (David, 2026-11-21: *"The very first
-thing it should do is check to see if there is work that has just been
-completed that needs to be tested, rather than going and searching for
-every possible thing that could be tested … If it's activated in a new
-session, then it should do what it does today."*).
+the session holds nothing to test.
 
 0. **First, the work this session just finished.** Before any search, read
    my own context for the units of work this session took to a merge or
@@ -96,10 +88,7 @@ session, then it should do what it does today."*).
    before the label moved, or a PR merged by hand with no session to finish
    it, still shows its run rather than hiding it; the merged test keeps an
    ordinary PR still in review out. David can override explicitly, and that
-   override goes in the run record. (Until 2026-10-21 discovery globbed the
-   directory first and filtered by label second, so a merged run not yet at
-   `stage:uat` still surfaced as held, whatever its stage; this second query
-   is what keeps that net now the file is gone.)
+   override goes in the run record.
 2. **Check for an interrupted run first.** Read the workstream issue body for
    a `## UAT run` section (section 5) whose verdict is `in progress`. If one
    exists, offer to **resume at its recorded step** — and re-do any setup it
@@ -115,8 +104,7 @@ narrative preamble is mine to have read, not his to sit through.
 
 ## 2. Setup is mine, and so is putting it back
 
-**Anything mechanical that stands between David and the first step, I do** (David,
-2026-08-21). Seeding rows, creating a test account, putting config in a
+**Anything mechanical that stands between David and the first step, I do.** Seeding rows, creating a test account, putting config in a
 known state, confirming the Repl is synced and the app is up. He should
 arrive at the first step with the app already in the state the test needs.
 
@@ -138,12 +126,9 @@ Four rules, because setup writes to the live app:
   restore. If something can't be cleanly undone, say so *before* doing it
   and let him decide.
 - **Teardown runs before the run stops — at the end, and equally before a
-  pause.** This is not a tidiness rule, it's a production-safety one: real
-  UAT scripts put the live app into deliberately wrong states, and
-  Overhype.me PR #443's script (the budget gate failing closed) is the
-  worked example — it lowers
-  `budget_limit_legendary_usd`, the **real** Legendary spend limit, and puts
-  it back at the end. A run paused mid-bugfix can sit for days, so a pause
+  pause.** A production-safety rule: UAT scripts put the live app into
+  deliberately wrong states (e.g. Overhype.me's PR #443 script lowers `budget_limit_legendary_usd`, the
+  **real** Legendary spend limit, and putting it back at the end). A run paused mid-bugfix can sit for days, so a pause
   that skipped teardown would leave production mis-configured for exactly
   that long. Tear down, record in the run what setup is owed on resume, and
   re-create it when he comes back.
@@ -153,14 +138,11 @@ Four rules, because setup writes to the live app:
   preview, not as a vague "get the app ready." That is the deployed build
   only. On a local stack at the commit under test, the test identity the
   consumer's per-PR browser job already signs in with is mine (Overhype.me:
-  the seeded test accounts and the dev-admin login, #631 increment 2), which
+  the seeded test accounts and the dev-admin login), which
   is what lets me run a screen check myself (*Where the browser automation
   lives*, below); a consumer whose gate has no such identity has not settled
   it, and a screen check behind a login there is a `[david]` setup line or
-  stays his, never an identity I invent. Until
-  2026-10-15 this bullet called the missing admin session "the same
-  limitation that made admin click-throughs UAT-shaped", a reason that
-  section retires.
+  stays his, never an identity I invent.
 
 Setup for a step read on the deployed build runs through the Replit
 connector per CLAUDE.md's connector policy, and it is a **deliberately
@@ -194,16 +176,8 @@ lane a step is in is a different reading — its `Expect`'s clauses, below —
 and a label that disagrees with them is the script-wrong case, not the
 authority.)
 
-**That determinism is the point, and it was bought the hard way.** The first
-version of this skill tried to infer coverage from whatever shape a doc
-happened to have, back when the script was a file. It couldn't — six-plus conventions for the regression
-section, eleven docs with no numbered steps — and the failure mode was the
-worst available: pass every feature step, declare `Accepted`, never run the
-sweep. A false pass makes this session *worse* than the file it replaced.
-Hence one format, one rule (David, 2026-08-22; #554, #560).
-
 **Lanes decide who verifies each step, and only `human` reaches David**
-(David, 2026-10-07; [`uat-doc-format.md`](../../../docs/tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07))
+([`uat-doc-format.md`](../../../docs/tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07))
 — and a `human` step whose `Expect` a screen can answer is read as a
 machine step, whatever its label, except what an AI-generated image shows,
 which stays his (the bullet below; *Where the browser automation lives*).
@@ -221,8 +195,7 @@ earlier result keeps the commit it ran at rather than becoming evidence
 for the new one.
 
 **`/uat` runs a machine check only when nothing earlier in the lifecycle
-has run it** (David, 2026-11-13: *"All the other tests that it runs should
-have already been run as part of the standard development lifecycle."*). A
+has run it.** A
 check is worth running again only when something it depends on changed
 since it last ran, and by the time a workstream reaches `stage:uat` the
 lifecycle has already run nearly all of them: the PR's required gate ran
@@ -244,10 +217,7 @@ run early:
   gate` and counts as a Pass. A `**Check:**` written into the body after
   the merge, retiring a `Deferred:` line, was never seen by this PR's gate
   or guard, so the merge is no evidence for it: the `Deferred:` bullet
-  below governs it. (Until
-  2026-11-13 this lane re-confirmed the check on the commit under test,
-  which repeated the gate and bought only what `main`'s CI already
-  watches.)
+  below governs it.
 - **`scripted`** — **cited, not re-run, when the PR recorded its output
   at the merged head**: close-out posts that record before it merges
   (`pr-watch` step 8; `pr-docs` gives its shape), and the row quotes it and
@@ -296,8 +266,8 @@ run early:
   Blocked, never Pass; a reading that contradicts the `Expect` is a Fail,
   filed before he sees anything (section 4). **A capture that needs a paid vendor runs within David's monthly paid-run
   budget — $100 a calendar month across every product, no per-run cap** — as
-  does any check, in any lane, that would start a paid AI run (David,
-  2026-11-17: *"just do what is needed"*; `uat-doc-format.md`, *Lanes*):
+  does any check, in any lane, that would start a paid AI run
+  (`uat-doc-format.md`, *Lanes*):
   within it the capture runs without asking, inside the cap the declaration
   names, and its cost goes in the run record and as a comment on the fleet's
   paid-run ledger, which is read before the run. One that would take the
@@ -306,7 +276,7 @@ run early:
   steps from an image he makes himself in the product. A consumer with no such declaration has no
   capture run, and its `capture` steps are Blocked on that, never handed to
   him. **A real AI render is read only for what anyone would verify the
-  same way** (David, 2026-10-17; `uat-doc-format.md`, *An image an AI model
+  same way** (`uat-doc-format.md`, *An image an AI model
   generated*): the render completed, the image decodes at the size asked
   for, a bubble reads the given text. I make no judgement about generated
   content — likeness, scene, humour, quality, whether something is shown,
@@ -330,12 +300,9 @@ run early:
   when its `Do` is one I can perform**: the lane is read from the
   `Expect`'s clauses and from who can perform the `Do`, never from the
   heading or the verb (the rule's home is *Where the browser automation
-  lives*, below; David, 2026-10-15: *"any tests that require checking that
-  a button exists or an error message is showing or any other UI element
-  testing that doesn't require taste input from me"* are run
-  automatically). **Not an interpretive clause about an image an AI model
-  generated**: that stays his whatever its wording (David, 2026-10-17;
-  the `capture` bullet above). A `Do` only his own account or device can perform keeps
+  lives*, below). **Not an interpretive clause about an image an AI model
+  generated**: that stays his whatever its wording (the `capture` bullet
+  above). A `Do` only his own account or device can perform keeps
   the step `human`, and its screen-fact `Expect` is read after his "yes"
   (the format's self-contained rule, `uat-doc-format.md`, *Lanes*). I run
   the step in a real browser at the commit under test, in this block,
@@ -359,9 +326,7 @@ run early:
   among his. Such a step was mislabelled
   (`uat-doc-format.md`, *A step is `human` only when no machine can answer
   it*): it is the script-wrong case, and the lane fix is an edit of the PR
-  body at close-out (section 6). Measured once before the rule: Overhype.me #685's run,
-  2026-10-15, two `human` steps read from the screen in Chromium in fourteen
-  minutes once David asked; the rule removes the ask.
+  body at close-out (section 6).
 
 Each gets the same four statuses as a human step, with its evidence in the
 record. A machine-lane step that fails is a failure like any other: section 4
@@ -371,10 +336,7 @@ label over a screen fact went into the machine block, above — so the
 preview says both counts ("9 machine-lane checks — 7 settled at merge and
 close-out, 2 run now, all passed; 3 steps for you").
 
-**Every step is shown under its static ID** (David, 2026-11-23: *"the test
-steps should be numbered in the same way that questions you ask me are
-numbered so I can respond to them accurately. Let's use T1, T2, etc."*):
-`T1`, `T2`, … for `### Steps` and `R1`, `R2`, … for `### Regression`, read
+**Every step is shown under its static ID**: `T1`, `T2`, … for `### Steps` and `R1`, `R2`, … for `### Regression`, read
 from the script's own headings (`uat-doc-format.md`, *The rule that makes it
 deterministic*), so a step keeps its ID when machine-lane steps are settled
 around it, when the run pauses and resumes, and when it is re-presented. A
@@ -437,10 +399,9 @@ in both directions:
 
 ## 4. When a step fails — file it now, then ask
 
-David wants the fix started while the context is hot, and he's right: a
-bugfix session starts immediately — I start it (item 6 below). My job is to make sure the report that
-session inherits is a real one and that the way back to *this* run survives
-(David, 2026-08-21).
+A bugfix session starts immediately — I start it (item 6 below). My job is
+to make sure the report that session inherits is a real one and that the
+way back to *this* run survives.
 
 In order, in the same turn:
 
@@ -571,9 +532,7 @@ have no reliable way to tell which is current.
 **Resume at:** T4 (2 judgement steps remaining, T4 and R3; T2's screen fact was mine and is recorded; the 3 machine-lane checks are settled: 2 at merge, the capture at this commit)
 ```
 
-**The `Lifecycle gaps` line is how the scripts learn** (my recommendation,
-which David approved on 2026-11-13: log each authoring error so `pr-docs`
-learns). It lists every check this
+**The `Lifecycle gaps` line is how the scripts learn.** It lists every check this
 run had to do because the script or the PR left it to the session — a
 screen fact labelled `human`, a `scripted` step with no recoverable
 output, a `live` step whose check was missing from Post-merge
@@ -611,7 +570,7 @@ never from a general impression of how it went:
 
 | Verdict | When |
 | --- | --- |
-| **Accepted** | Every step executed and Passed — **every step section 3 enumerated, regression checks and machine lanes included**; a `Deferred:` step is never a pass: it is left out of "every step" only when another step in the same run Passed the behaviour it would check; when it is the only evidence for a behaviour the PR claims, the run is **Blocked**, resuming after its owner issue lands. A mechanical step is never turned into a human one to get past a deferral: David's share is judgement only (his words, 2026-10-04: "anything mechanical is truly verified by scripting"). A Skip counts toward this only when **David explicitly called the step not-applicable** — a reason alone doesn't qualify, or a run where he lacked a phone or a test account could skip its way to a clean acceptance without exercising anything. A step he *couldn't* do is `Blocked`, which never counts. The script-wrong case counts only re-run per section 3 |
+| **Accepted** | Every step executed and Passed — **every step section 3 enumerated, regression checks and machine lanes included**; a `Deferred:` step is never a pass: it is left out of "every step" only when another step in the same run Passed the behaviour it would check; when it is the only evidence for a behaviour the PR claims, the run is **Blocked**, resuming after its owner issue lands. A mechanical step is never turned into a human one to get past a deferral: David's share is judgement only. A Skip counts toward this only when **David explicitly called the step not-applicable** — a reason alone doesn't qualify, or a run where he lacked a phone or a test account could skip its way to a clean acceptance without exercising anything. A step he *couldn't* do is `Blocked`, which never counts. The script-wrong case counts only re-run per section 3 |
 | **Accepted with issues** | Failures exist and **David explicitly accepts each one as shippable**. Minor/cosmetic is the normal case; accepting a major is his call to make in so many words, never a default |
 | **Blocked** | Any failure David hasn't accepted — a showstopper or an unaccepted major ends the run here even when more steps were testable — or too much skipped/untestable to honestly call it either way |
 
@@ -677,8 +636,7 @@ Then, in one edit:
   issue** — one comment there naming the PR, the step and the check still
   owed — so the obligation does not depend on anyone re-reading a merged
   PR's body. A step not yet recorded there blocks the close-out.
-- **Nothing is deleted** (David, 2026-10-21, retiring the 2026-08-22
-  deletion rule along with the file it deleted). The script stays in the
+- **Nothing is deleted.** The script stays in the
   merged PR's body as history; the `stage:uat` label leaving is what says
   the run is no longer owed, and section 1 discovers from the label. **A
   legacy doc is the exception**: a run driven from a file under
@@ -710,7 +668,7 @@ session. The alert hook rings nothing on those turns either: a walkthrough
 turn carries no banner and no plan-done line, which are the only hand-backs
 the hook rings for — beyond a permission prompt the session parks on and a
 turn that dies on an error, which ring whenever they happen
-(`claude-core.md`, interaction rule 6; David, 2026-11-02 and 2026-11-04).
+(`claude-core.md`, interaction rule 6).
 
 The banner and the push fire normally when the **run ends** needing a
 decision from him, when an ask would hold work up after he's walked away, or
@@ -720,24 +678,19 @@ written down so a later session doesn't "fix" it back.
 
 ## Where the browser automation lives
 
-**Driving a browser for the mechanical steps is not a later phase** (David,
-2026-08-21, asking for it; 2026-10-14 and 2026-10-15, asking again after
-screen checks reached him). Until 2026-10-15 this section said it waited on
-one decision — an admin identity that is not David's personal login — and
-that decision is settled wherever the consumer's per-PR browser job already
+**Driving a browser for the mechanical steps is not a later phase.** The
+admin identity is settled wherever the consumer's per-PR browser job already
 signs in as a test identity, which is the identity I use (Overhype.me: the
-seeded test accounts and the dev-admin login, #631 increment 2), so the
-paragraph was a stale reason not to open a browser; a consumer whose gate
-has no such identity has not settled it, and section 3's machine block says
-what happens there. **The rule (David, 2026-10-15): a step's lane is read
+seeded test accounts and the dev-admin login); a consumer whose gate has no
+such identity has not settled it, and section 3's machine block says what
+happens there. **The rule: a step's lane is read
 from its `Expect`'s clauses and from who can perform its `Do`, never from
 its heading or its verb. A screen fact — an element is there, a message
-reads a given sentence, a status or an error shows, a layout holds — is
-machine-lane; a `Do` only David's own account or device can perform keeps
+reads a given sentence, a status or an error shows, a layout holds, or any
+other UI check that needs no taste input from him — is machine-lane; a `Do` only David's own account or device can perform keeps
 the step `human`; the clause that is judgement is a `human` step of its
 own, and what an image an AI model generated shows, beyond what anyone
-would verify the same way, is always judgement (David, 2026-10-17;
-`uat-doc-format.md`, *Lanes*, *An image an AI model generated*); and a screen fact that reaches a run labelled `human` is run by me, in
+would verify the same way, is always judgement (`uat-doc-format.md`, *Lanes*, *An image an AI model generated*); and a screen fact that reaches a run labelled `human` is run by me, in
 a real browser at the commit under test, before he sees anything (section
 3's machine block says how).** What remains is where each check lives, and
 that is three places:
@@ -747,12 +700,10 @@ that is three places:
   (`pr-docs`): it runs on every change forever instead of once.
 - **A screen fact that reached a run as a `human` step is run by me at run
   time**, in the machine block above, and the step's lane is corrected.
-- **An answer only pixels hold is the `capture` lane** (David,
-  2026-10-16): a script captures the named image at the commit under test,
+- **An answer only pixels hold is the `capture` lane**: a script captures the named image at the commit under test,
   I read it, and the consumer's evidence store keeps it once the disclosure
   check has passed it — section 3's machine block says how. The consumer declares the command, the evidence
-  store and any paid-render cap in its `overlay-declarations.md`
-  (Overhype.me #631, increment 8, built the first). For an image an AI
+  store and any paid-render cap in its `overlay-declarations.md`. For an image an AI
   model generated, the reading is limited to what anyone would verify the
   same way; everything interpretive is David's (`uat-doc-format.md`,
   *Lanes*, *An image an AI model generated*).

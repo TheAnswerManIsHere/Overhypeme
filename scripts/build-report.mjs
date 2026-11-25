@@ -10,7 +10,7 @@
  * issue, every pull request and its review rounds, the commits) and writes an
  * answer in fixed sections, in a fixed order, so David can scan it: what was
  * built, the decisions taken on the builder's recommendation with their undo,
- * the ramifications, what ships unfixed, and where the plan stands.
+ * what ships unfixed, and where the plan stands.
  *
  * WHAT SURVIVES FROM THE TRANSLATION, AND WHY IT IS MACHINERY. One property:
  * the role's account reaches David unedited. `chatReport` composes the message
@@ -487,27 +487,28 @@ export function chatReport(report, { askedModel = null, session = null, coords =
     );
     return out.join("\n");
   }
+  // SHORT BY DESIGN (David, 2026-11-25: the report was "extremely wordy" and
+  // "overbuilt as far as detail that I care about"). Four sections always;
+  // the rest appear only when they hold something, so an empty one costs
+  // nothing to read. The verdict line already says when they are empty.
   const a = report.answer;
-  out.push(`*${a.about}*`, "");
   if (coords !== undefined) out.push(evidenceLine(coords), "");
   out.push(`**Needs you:** ${a.needs_you}`, "", "**What was built**", "", a.what_was_built);
 
   out.push("", "**Decisions taken on my recommendation**", "");
   if (a.decisions.length) {
     for (const d of a.decisions) out.push(`- **${d.choice}** — undo: ${d.undo}${d.concern ? ` · *Concern:* ${d.concern}` : ""}`);
-  } else out.push("*None recorded.*");
+  } else out.push("*None.*");
 
-  out.push("", "**Ramifications**", "", a.ramifications);
-
-  out.push("", "**Shipping unfixed**", "");
-  if (a.shipping_unfixed.length) {
-    for (const g of a.shipping_unfixed) out.push(`- ${g.reasonable ? "Reasonable" : "**Not reasonable**"}: ${g.what} — ${g.why}`);
-  } else out.push(f.unassessed ? "*Nothing reported, on what could be assessed.*" : "*Nothing reported.*");
-
-  out.push("", `**Where it disagrees with the builder** (${f.disagreements})`, "");
   if (a.disagreements.length) {
+    out.push("", `**Where it disagrees with the builder** (${f.disagreements})`, "");
     for (const d of a.disagreements) out.push(`- **${d.what}** — ${d.why_it_matters}`);
-  } else out.push(f.unassessed ? "*No disagreements reported, on what could be assessed.*" : "*No disagreements reported.*");
+  }
+
+  if (a.shipping_unfixed.length) {
+    out.push("", "**Shipping unfixed**", "");
+    for (const g of a.shipping_unfixed) out.push(`- ${g.reasonable ? "Reasonable" : "**Not reasonable**"}: ${g.what} — ${g.why}`);
+  }
 
   if (a.overbuilt.length) {
     out.push("", "**Overbuilt**", "");
@@ -522,8 +523,6 @@ export function chatReport(report, { askedModel = null, session = null, coords =
     `- *Done:* ${a.where_we_are.done}`,
     `- *Next:* ${a.where_we_are.next}`,
   );
-
-  out.push("", `*Does not do:* ${a.what_landed.does_not_do}`, "", `*You are now trusting:* ${a.what_landed.now_trusting}`);
 
   // THE SESSION LINE IS THE BUILDER'S, AND SAYS SO. Only the builder's session
   // can see its own context, so the role cannot judge continue, hand off or
