@@ -37,6 +37,7 @@ export const ADMIN_ACTION_VALUES = [
   "gag_render_approval",
   "gag_ideas_requested",
   "gag_renders_requested",
+  "render_delete",
   // Imports
   "import",
   // A member's meme or photo taken down (image-surface audit R9, #875)

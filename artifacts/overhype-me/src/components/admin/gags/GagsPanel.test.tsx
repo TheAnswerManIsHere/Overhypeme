@@ -24,6 +24,7 @@ import { GagsPanel } from "./GagsPanel";
 
 const scene = (text: string): VisualPromptStrategyOverride => ({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: text });
 const NONE = { male: null, female: null, pet: null };
+const NO_ROLES = { live: null, approvedNext: null, working: null };
 const ex = (attemptId: number): GagExample => ({ attemptId, imageUrl: `/api/admin/gags/1/renders/${attemptId}/image` });
 function card(key: RenderScenarioCard["key"], over: Partial<RenderScenarioCard> = {}): RenderScenarioCard {
   return {
@@ -47,6 +48,7 @@ function gag(over: Partial<GagView> & Pick<GagView, "id" | "slot">): GagView {
     draftRemoved: false,
     prefilledUntouched: false,
     renders: NONE,
+    roles: { male: NO_ROLES, female: NO_ROLES, pet: NO_ROLES },
     ...over,
   };
 }

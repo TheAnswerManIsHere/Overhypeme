@@ -14,8 +14,8 @@ import {
   imagePromptAttemptsTable,
   type FactGag,
 } from "@workspace/db";
-import { GAG_EXAMPLE_KINDS, MAX_GAGS_PER_FACT, mapKinds, type FactGagsView, type GagExample, type GagView, type PerKind } from "@workspace/api-zod";
-import { buildGagKindCards, gagRenderImageUrl } from "../reviewRenderScenarios";
+import { GAG_EXAMPLE_KINDS, MAX_GAGS_PER_FACT, mapKinds, type FactGagsView, type GagExample, type GagPictureRoles, type GagView, type PerKind } from "@workspace/api-zod";
+import { buildGagKindCards, buildGagWorkingCards, gagRenderImageUrl } from "../reviewRenderScenarios";
 import { loadGags, normaliseGagContent, openReviewForFact } from "./resolver";
 import { fillState, isUntouchedPrefill } from "./prefill";
 import { examplesFor, isGrandfathered, loadExamples, type GagExamples } from "./examples";
@@ -104,6 +104,8 @@ async function viewOf(
 ): Promise<GagView> {
   const approved = g.approvedContent != null;
   const state = !approved ? "new" : g.pendingContent != null || g.draftRemoved ? "approved_with_change" : "approved";
+  // The view is polled while renders draw: its two render reads run together.
+  const [renders, roles] = await Promise.all([buildGagKindCards(g.id), rolesView(g.id, set, ex)]);
   return {
     id: g.id,
     slot: g.slot,
@@ -118,6 +120,23 @@ async function viewOf(
     pendingExamples: perKind(set.pending, ex),
     draftRemoved: g.draftRemoved,
     prefilledUntouched: isUntouchedPrefill(g),
-    renders: await buildGagKindCards(g.id),
+    renders,
+    roles,
   };
+}
+
+/**
+ * Each picture's roles (plan PLAN_RENDER_HISTORY.md D1): the published pick
+ * (live), the draft pick when it differs (approved for the next publish), and
+ * the newest render (working). One render can hold several.
+ */
+async function rolesView(gagId: number, set: GagExamples, ex: Map<number, GagExample>): Promise<PerKind<GagPictureRoles>> {
+  const working = await buildGagWorkingCards(gagId);
+  const live = perKind(set.approved, ex);
+  const pending = perKind(set.pending, ex);
+  return mapKinds((k) => ({
+    live: live[k],
+    approvedNext: pending[k] && pending[k]!.attemptId !== live[k]?.attemptId ? pending[k] : null,
+    working: working[k],
+  }));
 }

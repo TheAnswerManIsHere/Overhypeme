@@ -25,9 +25,11 @@
 import { and, eq, isNull } from "drizzle-orm";
 import {
   db,
+  factGagExamplesTable,
   factGagsTable,
   factsTable,
   imagePromptAttemptsTable,
+  userAiImagesTable,
   type FactGag,
 } from "@workspace/db";
 import {
@@ -42,11 +44,14 @@ import {
 } from "@workspace/api-zod";
 import { validateVisualStrategyOverridePersistence } from "../imagePrompt/promptBudget";
 import { renderedGagProjection } from "../imagePrompt/directInput";
-import { stableStringify } from "../factRenderScenarios";
+import { deriveScenarioStatus, stableStringify } from "../factRenderScenarios";
 import { openReviewForFact, type GagContent } from "./resolver";
 import { CANONICAL_SUBJECT_NAME_FORMS_LC } from "../renderCanonical";
 import { lockFactRow, lockReview } from "../reviewLocks";
 import { recordAdminAction } from "../adminActions";
+import { isGagModerationRender } from "../imagePromptAttempts";
+import { queueStoredFileDeletions, renderFilePaths } from "../storedFileDeletions";
+import { renderProgressByAttempt } from "../renderProgress";
 import { clearPendingExamples, copyPublishedExamplesToDraft, putExample } from "./examples";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -63,6 +68,9 @@ export type GagErrorCode =
   | "RETIRED_FIELD"
   | "REVIEW_NOT_EDITABLE"
   | "RENDER_NOT_APPROVABLE"
+  | "RENDER_NOT_FOUND"
+  | "RENDER_IN_USE"
+  | "RENDER_RUNNING"
   | "CONTENT_CHANGED"
   | "CAST_MISSING"
   | "CAST_STALE"
@@ -376,6 +384,66 @@ export async function approveGagRender(factId: number, gagId: number, attemptId:
     // reads to say a render was approved.
     await recordAdminAction({ factId, reviewId: actor.reviewId ?? null }, actor.adminId, "gag_render_approval", { gagId, attemptId }, tx);
     return touched!;
+  });
+}
+
+/**
+ * Delete one of a gag's renders for good (plan PLAN_RENDER_HISTORY.md D6;
+ * David, Q47): its row goes, and every picture file it owns goes onto the
+ * durable cleanup list in the same transaction (lib/storedFileDeletions.ts),
+ * for the caller to remove once this commits. Provenance records stay.
+ *
+ * Refused, saying why, inside one transaction under the fact lock every gag
+ * action and the render worker's final store take, so it holds against an
+ * approval, a publish or a finishing render at the same moment:
+ *   - a render of another fact or gag, or anything that is not an admin's
+ *     render of this gag — a member's picture above all (as not found);
+ *   - any gag's pick, live or for the next publish (`fact_gag_examples`'
+ *     foreign key enforces this too);
+ *   - a render still queued or drawing;
+ *   - a render a member's picture names (re-checked inventory: members' memes
+ *     need their own upload, and gag renders are not mirrored to members'
+ *     content, so this catches only an older mirror).
+ * A removed gag's renders can be deleted too; the gag row may be gone.
+ */
+export async function deleteGagRender(factId: number, gagId: number, attemptId: number, actor: GagActor): Promise<{ files: string[] }> {
+  return db.transaction(async (tx) => {
+    await lockFact(tx, factId);
+    await resolveScope(tx, factId, actor);
+    const [attempt] = await tx.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.id, attemptId)).limit(1);
+    // Only an admin's render of this gag: never a member's picture, which
+    // also names the gag it drew (fails closed on anything not positively one).
+    if (!attempt || attempt.factId !== factId || attempt.gagId !== gagId || !isGagModerationRender(attempt)) {
+      throw new GagError("RENDER_NOT_FOUND", "That render is not one of this gag's.", 404);
+    }
+    const picks = await tx.select({ stage: factGagExamplesTable.stage }).from(factGagExamplesTable)
+      .where(eq(factGagExamplesTable.attemptId, attemptId));
+    if (picks.some((p) => p.stage === "approved")) {
+      throw new GagError("RENDER_IN_USE", "This render is a live example members are offered. Approve a newer render to replace it first.");
+    }
+    if (picks.length > 0) {
+      throw new GagError("RENDER_IN_USE", "This render is approved for the next publish. Approve another render for this picture first.");
+    }
+    const progress = (await renderProgressByAttempt(attempt.generatedImageObjectPath ? [] : [attemptId])).get(attemptId) ?? null;
+    const status = deriveScenarioStatus(attempt, progress);
+    if (status === "queued" || status === "rendering") {
+      throw new GagError("RENDER_RUNNING", "This render is still drawing. Delete it once it has finished.");
+    }
+    if (attempt.generatedImageObjectPath) {
+      const [member] = await tx.select({ id: userAiImagesTable.id }).from(userAiImagesTable)
+        .where(eq(userAiImagesTable.storagePath, attempt.generatedImageObjectPath)).limit(1);
+      if (member) throw new GagError("RENDER_IN_USE", "A member's picture uses this render, so it can't be deleted.");
+    }
+    // The legacy recovery columns that point at it (read only as approval
+    // evidence, by the history) are cleared with it, as D6 says.
+    await tx.update(factGagsTable).set({ approvedExampleAttemptId: null }).where(eq(factGagsTable.approvedExampleAttemptId, attemptId));
+    await tx.update(factGagsTable).set({ pendingExampleAttemptId: null }).where(eq(factGagsTable.pendingExampleAttemptId, attemptId));
+    const files = await queueStoredFileDeletions(tx, await renderFilePaths(tx, [attemptId]), "render_delete");
+    await tx.delete(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.id, attemptId));
+    await recordAdminAction({ factId, reviewId: actor.reviewId ?? null }, actor.adminId, "render_delete", {
+      gagId, attemptId, kind: kindForScenario(attempt.reviewRenderScenarioKey), drawnAt: attempt.createdAt.toISOString(),
+    }, tx);
+    return { files };
   });
 }
 

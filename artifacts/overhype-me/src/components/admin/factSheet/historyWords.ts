@@ -104,6 +104,7 @@ export const HISTORY_WORDS: Record<AdminAction, { title: string; detail?: (d: De
   gag_discard: { title: "Gag change discarded" },
   gag_remove: { title: "Gag removed" },
   gag_render_approval: { title: "Render approved" },
+  render_delete: { title: "Render deleted", detail: (d) => [str(d["kind"]), str(d["drawnAt"]) ? `drawn ${String(d["drawnAt"]).slice(0, 10)}` : null].filter(Boolean).join(", ") || null },
   gag_ideas_requested: { title: "Gag ideas requested", detail: (d) => (d["noteChanged"] === true ? "after the Humor Note changed" : null) },
   gag_renders_requested: {
     title: "Renders requested",
@@ -168,7 +169,7 @@ const FIELD_LABEL: Record<string, string> = {
   redraw: "Redraw", stage: "Step", gagsDiscarded: "Gags discarded", published: "Gags published",
   reverted: "Gags put back", edited: "Edited", withDraft: "With a draft", noteChanged: "After the Humor Note changed",
   referenceIdentityType: "Picture", lookStyleId: "Look", readingId: "Reading", attemptId: "Picture id",
-  gagId: "Gag id", changed: "Changed", after: "After", factId: "Fact",
+  gagId: "Gag id", changed: "Changed", after: "After", factId: "Fact", kind: "Picture", drawnAt: "Drawn",
   purgedFactId: "Fact purged", rendersPurged: "Renders purged", filesPurged: "Picture files removed",
   purgeSkipped: "Not purged because",
 };

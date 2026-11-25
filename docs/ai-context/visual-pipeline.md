@@ -790,6 +790,28 @@ A moderator authors a gag directly in the **Gags panel**
 editor), or **uses a candidate** (next section) on a gag, via the same cap and
 token rules.
 
+## A gag's render history, roles and cost (Issue #1304)
+
+Plan `docs/plans/PLAN_RENDER_HISTORY.md`; server side in increment B, screens in C.
+
+- **Renders are kept.** "Draw again" adds a render beside the old one, and nothing deletes one except an admin's delete or a rejection's purge. The history is a view over stored renders: `artifacts/api-server/src/lib/gags/renderHistory.ts`, newest first, 50 a page, failed ones included. A removed gag keeps its history under its own id.
+- **"A gag's renders" means its moderation renders**, `GAG_MODERATION_RENDER` in `lib/imagePromptAttempts.ts`: a moderation scenario key or the admin render audit, and never a member's picture, which also stores the gag it drew. The history, the removed-gag counts, the delete and the admin image route all read through it.
+- **Roles are computed, never stored** (D1):
+  - **live:** the published pick;
+  - **approved for next publish:** the draft pick when it differs from the published one;
+  - **working:** the newest render of the picture, whatever its content. It is marked stale when drawn from another version of the gag.
+  - The gag view carries them as `roles`, beside the older `renders`.
+- **Approval** (D4) reads "approved" from any evidence: a current pick, the gag's legacy `approved_/pending_example_attempt_id`, or a `gag_render_approval` record. Without evidence a render reads "not recorded" before `render_approval_audit_complete_since`, and "not approved" after it. That boundary is the first boot of the release that records approvals in the pick's own transaction, plus an hour.
+- **Cost** (D5) is what fal billed: `image_generation_requests.billed_usd` and `billing_checked_at` (migration 0175).
+  - An hourly task (`lib/renderBilling.ts`) fills them for review renders, using the comparison's billing reader and `FAL_BILLING_API_KEY`.
+  - Lookups run in windows of at most 90 days. A failed lookup changes nothing.
+  - Viewing calls nobody.
+  - The states are `billed`, `not_checked`, `no_bill_found`, `billing_key_not_set`, `not_recorded` and `never_sent`. `billed` also counts the requests still unbilled and those whose receipt is unknown.
+  - A request with no fal id is `never_sent` only when fal refused it at submission (`FAILED`). Any other request with no id may have been charged, so it counts against completeness. A render with only such requests, or a picture and no request records (drawn before tracing), is `not_recorded`, never guessed.
+- **Delete** (D6) is `deleteGagRender` in `lib/gags/gagStore.ts`, under the fact lock.
+  - It refuses a pick, a render still drawing, a render a member's picture names, and anything that is not this gag's moderation render, members' own pictures included.
+  - It queues the render's files on `stored_file_deletions` in the same transaction, and records `render_delete`.
+
 ## A gag's cast, and the fold (PLAN_GAG_DIRECT_RENDER.md, increment 2)
 
 **The cast** is who is in a gag's scene besides the subject: a list of

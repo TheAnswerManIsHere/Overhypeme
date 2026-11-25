@@ -1,4 +1,4 @@
-import { pgTable, bigserial, bigint, integer, varchar, text, jsonb, timestamp, index, check } from "drizzle-orm/pg-core";
+import { pgTable, bigserial, bigint, integer, varchar, text, jsonb, timestamp, index, check, numeric } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 /**
@@ -66,6 +66,13 @@ export const imageGenerationRequestsTable = pgTable("image_generation_requests",
   sourceCommitAt: timestamp("source_commit_at", { withTimezone: true }),
   sourceCommitTitle: text("source_commit_title"),
   deploymentId: text("deployment_id"),
+  /**
+   * What fal billed for this request, from its Billing Events API (migration
+   * 0175, Issue #1304 D5): null until a lookup finds a bill.
+   */
+  billedUsd: numeric("billed_usd", { precision: 10, scale: 4 }),
+  /** When a lookup last succeeded whose window covered this request; null = not checked yet. */
+  billingCheckedAt: timestamp("billing_checked_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index("IDX_igr_attempt_id").on(t.attemptId),

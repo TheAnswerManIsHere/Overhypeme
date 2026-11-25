@@ -167,6 +167,27 @@ export const MEMBER_PICTURE_IN_PROGRESS = sql`${imagePromptAttemptsTable.memberR
   AND ${imagePromptAttemptsTable.error} IS NULL AND ${imagePromptAttemptsTable.generatedImageObjectPath} IS NULL
   AND NOT ${pictureHasLedgerRow("picture_return", imagePromptAttemptsTable.id)}`;
 
+/**
+ * The one statement of "a gag's moderation render" (Issue #1304, PR #1316
+ * round 1): a render an admin drew for a gag, from moderation's Test Renders
+ * step or the fact sheet. It carries a moderation scenario key or the admin
+ * render audit, and is never a member's picture, which also stores the gag it
+ * drew. The render history, its removed-gag counts, the delete and the admin
+ * image route all read through this, so none of them can reach a member's
+ * picture, and the delete fails closed on anything not positively one.
+ */
+export const GAG_MODERATION_RENDER = sql`(${imagePromptAttemptsTable.reviewRenderScenarioKey} IS NOT NULL
+  OR (${imagePromptAttemptsTable.renderControls} -> 'reviewAudit') IS NOT NULL)
+  AND ${imagePromptAttemptsTable.memberRequestId} IS NULL`;
+
+export function isGagModerationRender(
+  a: Pick<ImagePromptAttempt, "reviewRenderScenarioKey" | "renderControls" | "memberRequestId">,
+): boolean {
+  if (a.memberRequestId != null) return false;
+  const audit = (a.renderControls as { reviewAudit?: unknown } | null)?.reviewAudit;
+  return a.reviewRenderScenarioKey != null || audit != null;
+}
+
 export async function buildAndEnqueueImagePromptAttempt(
   args: BuildImagePromptAttemptArgs,
 ): Promise<{ renderJobId: string; attemptId: number }> {

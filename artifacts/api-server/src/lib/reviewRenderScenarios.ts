@@ -512,6 +512,36 @@ export async function buildGagKindCards(gagId: number): Promise<PerKind<RenderSc
   return Object.fromEntries(cards) as PerKind<RenderScenarioCard | null>;
 }
 
+/** The newest render of each picture (male, female, pet) of a gag: its working renders (D1). */
+export async function newestRendersPerKind(gagId: number): Promise<ImagePromptAttempt[]> {
+  const keys = GAG_EXAMPLE_KINDS.map((k) => SCENARIO_FOR_KIND[k]);
+  return db.selectDistinctOn([imagePromptAttemptsTable.reviewRenderScenarioKey]).from(imagePromptAttemptsTable)
+    .where(and(eq(imagePromptAttemptsTable.gagId, gagId), inArray(imagePromptAttemptsTable.reviewRenderScenarioKey, keys)))
+    .orderBy(imagePromptAttemptsTable.reviewRenderScenarioKey, desc(imagePromptAttemptsTable.createdAt), desc(imagePromptAttemptsTable.id));
+}
+
+/**
+ * A gag's working render per kind (plan PLAN_RENDER_HISTORY.md D1; Issue
+ * #1304): the newest render of that picture for this gag, whatever its
+ * content or status. Approval never moves it back to an older render, and a
+ * draw from the working area always makes a new one, so the newest is the
+ * working one. `stale` when it was drawn from a different version of the gag
+ * than the one being worked on ("drawn from an earlier version").
+ */
+export async function buildGagWorkingCards(gagId: number): Promise<PerKind<RenderScenarioCard | null>> {
+  const [loaded, rows] = await Promise.all([loadGagRenderTarget(gagId), newestRendersPerKind(gagId)]);
+  const want = loaded.ok ? pictureIdentity(loaded.target.enrichment) : null;
+  const newest = new Map(rows.map((r) => [r.reviewRenderScenarioKey, r]));
+  const progress = await renderProgressByAttempt(rows.filter((r) => !r.generatedImageObjectPath).map((r) => r.id));
+  return mapKinds((kind) => {
+    const key = SCENARIO_FOR_KIND[kind];
+    const attempt = newest.get(key);
+    if (!attempt) return null;
+    const stale = want == null || pictureIdentity(attempt.factEnrichmentSnapshot as GagRenderInput) !== want;
+    return cardFor(gagId, key, attempt, progress.get(attempt.id) ?? null, stale);
+  });
+}
+
 /** The attempts of a gag's examples for the version being worked on: the draft's picks, else the published set's. */
 async function examplesStandingIn(gag: FactGag): Promise<PerKind<ImagePromptAttempt | null>> {
   const set = await loadGagExamples(gag.id);
