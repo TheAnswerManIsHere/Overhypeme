@@ -405,6 +405,7 @@ re-gather it when the work is scheduled.
 
 - **~40 lower-severity Dependabot alerts — DECIDED 2026-10-12: one grouped sweep, not individual triage.**
   - **Launch plan gate (David, 2026-10-13):** the `/maintenance` sweep stays; Phase 15's bar is `pnpm audit --prod` showing no High or Critical. Measured on `main` 2026-10-13: 0 critical, 3 high (all `sharp`, fixed in Phase 7), 17 moderate, 2 low.
+  - **Enforced in CI since launch Phase 15, increment 4 (2026-11-25).** The `Build` job's "Production dependency audit (High/Critical)" step (`pnpm run check:prod-audit`, `scripts/check-prod-audit.mjs`) fails on any High or Critical production advisory that is not a named, owned exception in `scripts/prod-audit-exceptions.json`, and fails closed when the audit cannot be read. Measured 2026-11-25: 3 high, all `sharp` 0.34.5 (GHSA-f88m-g3jw-g9cj, GHSA-rgj7-g3m4-5g8c, GHSA-wq5f-xc86-pv6w), excepted with Launch Phase 7 as owner; Phase 7's `sharp` upgrade deletes them (the gate reports a stale exception).
   - **What.** Of the repo's 54 open Dependabot alerts as of 2026-07-24, 9 CVEs
     across 5 packages were triaged and fixed (PR #246, see above). The
     remaining ~40, mostly Moderate/Low, were never triaged individually. They

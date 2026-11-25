@@ -202,6 +202,9 @@ jobs:
       - name: Check script entry points
         run: node --test scripts/__tests__/entry-point-comparison.test.mjs
 
+      - name: Check the dependency gate's logic
+        run: node --test scripts/__tests__/check-prod-audit.test.mjs
+
       # Every agent session builds its test database with this script; on a
       # fresh container it failed before Postgres started because it installed
       # pgvector without refreshing the package index. Stubbed, so it touches
@@ -230,6 +233,14 @@ jobs:
       # Guard against hand-edits to codegen-owned files (known-failure-patterns.md
       # → "Manual api-zod/src/index.ts export silently reverted by codegen").
       # Same script as the local ritual: rerun codegen, fail on any diff.
+      # The dependency gate (launch Phase 15, increment 4; readiness row 5):
+      # any High or Critical advisory in production dependencies fails the
+      # build unless it is a named, owned exception in
+      # scripts/prod-audit-exceptions.json. Fails closed if the audit cannot
+      # be read.
+      - name: Production dependency audit (High/Critical)
+        run: pnpm run check:prod-audit
+
       - name: Codegen drift check
         run: pnpm run check:codegen-drift
 
