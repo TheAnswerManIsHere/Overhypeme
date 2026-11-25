@@ -140,7 +140,6 @@ export const TABLE_CLASSIFICATION: Readonly<Record<string, TableEntry>> = {
   comparison_reservations: { class: "product" },
   comparison_runs: { class: "product" },
   comparison_sets: { class: "product" },
-  eval_runs: { class: "product" },
   external_links: { class: "product" },
   fact_taxonomy_runs: { class: "product" },
   fact_gags: { class: "product" },

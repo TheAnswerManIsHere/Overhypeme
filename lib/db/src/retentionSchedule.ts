@@ -294,7 +294,6 @@ export const RETENTION_SCHEDULE: Readonly<Record<string, RetentionEntry>> = {
   fact_readings: adminRecord("facts", "a fact's readings: the research and draft humor note of each run"),
   fact_gags: adminRecord("facts", "a fact's gags"),
   fact_gag_examples: adminRecord("fact_gags", "a gag's examples"),
-  eval_runs: adminRecord(null, "prompt evaluation results"),
   prompt_recipe_versions: adminRecord(null, "prompt wording, never edited"),
   prompt_recipe_promotions: adminRecord(null, "which prompt wording was live when"),
   comparison_sets: adminRecord(null, "engine comparison data"),

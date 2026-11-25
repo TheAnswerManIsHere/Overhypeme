@@ -1191,6 +1191,13 @@
       "when": 1790200000000,
       "tag": "0169_drop_legacy_ai_meme_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 170,
+      "version": "7",
+      "when": 1790300000000,
+      "tag": "0170_drop_eval_harness",
+      "breakpoints": true
     }
   ]
 }

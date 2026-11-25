@@ -13,7 +13,7 @@
  *   - a second run changes nothing;
  *   - a render that is a gag's example is never deleted: the migration refuses.
  */
-import { describe, it, before } from "node:test";
+import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
+import { restoreEvalHarnessSchema, dropEvalHarnessSchema } from "./helpers/evalHarnessSchema.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../../../..");
@@ -78,7 +79,11 @@ async function recipe(pieces: Record<string, string>): Promise<number> {
 describe("migration 0145: people and pets only", () => {
   const ids: Record<string, number> = {};
 
+  // 0145 reads eval_scenario_key, which 0170 dropped: put it back for the run, drop it after.
+  after(async () => { await dropEvalHarnessSchema(); });
+
   before(async () => {
+    await restoreEvalHarnessSchema();
     const f = await fact("matrix");
     ids.f = f;
     ids.ovScenario = await attempt(f, { scenarioKey: OV, identityType: "nonhuman_object_vehicle" });

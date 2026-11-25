@@ -192,7 +192,7 @@ export const PRIVACY_RETENTION_ROWS: readonly PrivacyRetentionRow[] = [
     howLong: "Kept; a staff member's name is removed when their account is deleted",
     covers: [
       "admin_actions", "tier_feature_permission_audit", "fact_taxonomy_runs", "fact_readings", "fact_gags", "fact_gag_examples",
-      "eval_runs", "prompt_recipe_versions", "prompt_recipe_promotions", "comparison_sets", "comparison_panels",
+      "prompt_recipe_versions", "prompt_recipe_promotions", "comparison_sets", "comparison_panels",
       "comparison_cells", "comparison_picks", "comparison_runs", "comparison_reservations",
     ],
   },

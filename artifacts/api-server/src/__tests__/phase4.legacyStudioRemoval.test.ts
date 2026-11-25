@@ -27,7 +27,6 @@ import {
   pendingReviewsTable,
   imagePromptAttemptsTable,
   asyncJobsTable,
-  evalRunsTable,
 } from "@workspace/db/schema";
 import { eq, inArray, like, sql } from "drizzle-orm";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
@@ -36,6 +35,7 @@ import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/
 import { createApp } from "../app.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 import { acceptCurrentLegal } from "./helpers/legalAcceptance.js";
+import { restoreEvalHarnessSchema, dropEvalHarnessSchema } from "./helpers/evalHarnessSchema.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATION_SQL = readFileSync(
@@ -79,7 +79,6 @@ async function cleanup() {
     await db.delete(pendingReviewsTable).where(inArray(pendingReviewsTable.stagingFactId, factIds));
     await db.delete(factsTable).where(inArray(factsTable.id, factIds));
   }
-  await db.delete(evalRunsTable).where(like(evalRunsTable.label, `${USER_PREFIX}%`));
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
   jobIds.length = 0;
   factIds.length = 0;
@@ -141,8 +140,8 @@ describe("migration 0102 retires the studio's render jobs by provenance", () => 
         reviewId: kind === "scenario" ? reviewId : null,
       })
       .returning({ id: imagePromptAttemptsTable.id });
-    // eval_run_id is no longer in the Drizzle model (launch Phase 8 part 4); the
-    // column stays in the database until its drop, so it is set directly.
+    // eval_run_id left the model and was dropped by 0170; this test puts it back
+    // (restoreEvalHarnessSchema) so 0102 has the shape it ran against.
     if (kind === "eval") await db.execute(sql`UPDATE image_prompt_attempts SET eval_run_id = ${evalRunId} WHERE id = ${row!.id}`);
     return row!.id;
   }
@@ -164,7 +163,13 @@ describe("migration 0102 retires the studio's render jobs by provenance", () => 
     return row!;
   }
 
+  after(async () => {
+    // 0170 drops the eval harness again, so the shared database ends as the migrations leave it.
+    await dropEvalHarnessSchema();
+  });
+
   before(async () => {
+    await restoreEvalHarnessSchema();
     const [review] = await db
       .insert(pendingReviewsTable)
       .values({
@@ -176,7 +181,7 @@ describe("migration 0102 retires the studio's render jobs by provenance", () => 
         stagingFactId: activeFactId,
       })
       .returning({ id: pendingReviewsTable.id });
-    const [run] = await db.insert(evalRunsTable).values({ label: `${USER_PREFIX}run` }).returning({ id: evalRunsTable.id });
+    const run = (await db.execute(sql`INSERT INTO eval_runs (label) VALUES (${`${USER_PREFIX}run`}) RETURNING id::integer AS id`)).rows[0] as { id: number } | undefined;
     for (const kind of ["studio", "scenario", "single-review", "eval"] as Kind[]) {
       attempts.set(kind, await seedAttempt(kind, review!.id, run!.id));
     }
