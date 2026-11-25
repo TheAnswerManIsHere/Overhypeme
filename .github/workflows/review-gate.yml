@@ -2,8 +2,9 @@
 #
 # The review gate ("Devon", KITT #293). Posts the commit status `Review gate`
 # on a pull request's head: failure while a Codex findings round lacks its
-# Astra and Fable assessments, or a push landed between such a review and
-# them. The decision and its limits are in scripts/review-gate.mjs.
+# Astra and Fable assessments. A push that landed between such a review and
+# them is noted, not failed (plan amendment 1, 2026-11-25). The decision and
+# its limits are in scripts/review-gate.mjs.
 #
 # ONE TRIGGER PER INPUT THE DECISION READS: pushes, body and labels
 # (pull_request_target); reviews (pull_request_review); finding membership

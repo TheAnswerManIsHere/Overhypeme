@@ -580,8 +580,9 @@ rule 2 — a sentence or two, saying only what he must know or do).
 - **Clear mechanical issue** (off-by-one, missing await, dead import, obvious lint,
   a clear logic bug) → fix it, push, mention briefly — on a PR in the
   standard loop, once both of the round's assessments are posted: "clear" is
-  the judgement they exist to check, and a push before them fails the
-  review gate for good, short of David's waiver
+  the judgement they exist to check, and a push before them breaks the
+  write-gate rule, which the review gate notes rather than blocks and the
+  round's `review-action` block discloses
   ([`claude-core.md`](../../.agents/core/claude-core.md), *Shared judgement
   on a review round*); on a prototype-phase PR Codex's automatic pass is read for one
   thing — a finding that reports a defect stopping the built feature running

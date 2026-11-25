@@ -386,10 +386,11 @@ David-gate value (`waiting:david`):
   and waiting on his feedback through the rail) with no open question — say
   so plainly, and **match the example to the gate actually held**, since none
   of the four is a merge gate. The one merge gate he holds is the
-  review gate's waiver, when a push came before a round's assessments
+  review gate's waiver, when the assessors genuinely cannot run
   (`claude-core.md`, *Shared judgement on a review round*): say "the review
-  gate failed because fixes were pushed before both reviews; only your
-  waiver releases it". The structural examples:
+  gate is failing because Astra or Fable could not run; only your waiver
+  releases it". A push that came before a round's assessments is never this
+  gate: the review gate only notes it. The structural examples:
   "scope agreed in outline, waiting on your go-ahead before the plan is
   drafted" / "plan v3 delivered in chat, waiting on your approval" /
   "merged — UAT section on PR #<N> — <title>, not yet run". Read the PR body for

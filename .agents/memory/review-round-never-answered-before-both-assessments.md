@@ -1,6 +1,6 @@
 ---
 name: A review round with findings is never answered before both assessments are in
-description: Every Codex round that returns findings gets the Astra and Fable assessments posted before anything is pushed for it, with no exception for an "obvious" fix. The review gate (KITT #293) now fails a PR that breaks this, and a late assessment cannot repair it. Also, a branch switch while an assessor runs silently changes the code it reads.
+description: Every Codex round that returns findings gets the Astra and Fable assessments posted before anything is pushed for it, with no exception for an "obvious" fix. The review gate (KITT #293) fails a PR while either assessment is missing; a push that came before them is a note on the gate and a disclosure in the round's review-action block, not a failure (2026-11-25). Also, a branch switch while an assessor runs silently changes the code it reads.
 ---
 
 <!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
@@ -24,10 +24,13 @@ Astra is signed out, the sign-in is the next step (a 🛑 to David), not a
 reason to proceed on one assessment or none (`claude-core.md`, *Shared
 judgement on a review round*).
 
-The review gate (`scripts/review-gate.mjs`) now checks this from GitHub's
-record. A push between a findings review and its two assessments fails the
-PR, and the failure stays: a late assessment cannot repair a push already
-made. The only release is David's waiver.
+The review gate (`scripts/review-gate.mjs`) checks the assessments from
+GitHub's record: it fails a PR while a findings round lacks either one. A push
+between a findings review and its two assessments is listed by the gate as a
+note, not a failure (David, 2026-11-25), so nothing mechanical stops it: the
+rule above is what does, and a push that lands early anyway is disclosed in
+that round's `review-action` block (`claude-core.md`, *Shared judgement on a
+review round*).
 
 ## What happened
 
