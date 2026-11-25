@@ -267,11 +267,12 @@ beside the eval run rather than inside it (plan
   set each version has a **Promote** button, with the same confirmations as the
   editor.
 - **Read-only dry run**: `artifacts/api-server/scripts/comparison-dry-run.ts`
-  derives rounds 1 and 2 against a database's real catalogue and checks 33
-  panels and 198 cells, reporting the worst case.
-- **FLUX 3 is judged at `safety_tolerance` 3**, not fal's default 2: the same
+  derives rounds 1 and 2 against the code catalogue and checks 27 panels
+  and 108 cells (four engine families), reporting the worst case.
+- **FLUX 3 was judged at `safety_tolerance` 3**, not fal's default 2: the same
   rank (second-most permissive) as the Nano Banana engines' 5 of 1–6, so the
-  comparison judges its drawing, not a stricter filter.
+  comparison judged its drawing, not a stricter filter. FLUX 3 is now retired
+  (below).
 
 ## Image provenance: every picture traceable to how it was made
 
@@ -682,6 +683,13 @@ or `nano-banana-2-edit` by string. Now:
   place of 2.5, whose pair stays in the catalogue unused; David, 2026-11-10),
   Nano Banana 2.1, FLUX 3 Image, Seedream 5.0 Pro and Meta Muse Image, beside
   the Nano Banana 2 control.
+- **Retired engines** (prompt tuner plan, *E. Retirements*): FLUX 1.1 Pro,
+  FLUX 2 Pro, FLUX 3, Seedream 5.0 Pro, Nano Banana Pro, GPT Image 2 and GPT
+  Image 2.5, each with its edit or text-to-image twin, are `isActive: false`
+  in code. They stay in the catalogue so old comparison results still name
+  them; nothing can draw with one, the Eval page never offers one, and a test
+  pins the active image set to Nano Banana 2, Nano Banana 2.1, GPT Image 2.6
+  and Muse Image (each pair).
   Each carries a `priceModel`, a complete per-call bound at the comparison
   settings with each component's source, and nothing routes to one until it
   becomes an engine in `IMAGE_ENGINE_IDS`, a code change. The one compiler is

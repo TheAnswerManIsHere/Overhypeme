@@ -24,7 +24,7 @@ import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { db, factsTable, usersTable, factGagsTable, factGagExamplesTable } from "@workspace/db";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
-import { imagePromptAttemptsTable, evalRunsTable } from "@workspace/db/schema";
+import { imagePromptAttemptsTable } from "@workspace/db/schema";
 import { eq, inArray, sql } from "drizzle-orm";
 import {
   buildPlaceholderFactEnrichment,
@@ -69,7 +69,6 @@ interface RenderOpts {
   fallback?: { routedEngineId: string } | null;
   generation?: string | null;
   plan?: boolean;
-  evalRunId?: number;
   at?: Date;
 }
 
@@ -99,7 +98,6 @@ async function render(factId: number, gagId: number | null, o: RenderOpts = {}):
     generatedImageObjectPath: finishedOk ? `/objects/ai-bg-v2/${factId}/${randomUUID()}.png` : null,
     error: o.failed || o.refused ? "vendor failed" : null,
     errorCode: o.refused ? "vendor_content_refused" : null,
-    evalRunId: o.evalRunId ?? null,
     ...(o.at ? { createdAt: o.at } : {}),
   }).returning({ id: imagePromptAttemptsTable.id });
   return row!.id;
@@ -282,20 +280,13 @@ describe("the needs-attention checks (2C)", () => {
       await expectReasons(f.factId, []);
     });
 
-    it("counts a picture the fallback drew as a success, and leaves out queued renders and eval runs", async () => {
+    it("counts a picture the fallback drew as a success, and leaves out queued renders", async () => {
       const f = await healthyFact();
-      const [evalRun] = await db.insert(evalRunsTable).values({} as never).returning({ id: evalRunsTable.id });
-      for (let i = 0; i < 3; i++) await render(f.factId, null, { failed: true, evalRunId: evalRun!.id, at: minutesAgo(5 - i) });
       for (let i = 0; i < 3; i++) await render(f.factId, null, { queued: true, at: minutesAgo(4 - i) });
       await render(f.factId, null, { failed: true, at: minutesAgo(1) });
       await render(f.factId, null, { failed: true, at: minutesAgo(1) });
       await render(f.factId, null, { engine: T2I_FALLBACK, fallback: { routedEngineId: T2I }, at: minutesAgo(0) });
-      try {
-        await expectReasons(f.factId, []);
-      } finally {
-        await db.delete(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.evalRunId, evalRun!.id));
-        await db.delete(evalRunsTable).where(eq(evalRunsTable.id, evalRun!.id));
-      }
+      await expectReasons(f.factId, []);
     });
 
     it("does not trip on a deactivated fact", async () => {

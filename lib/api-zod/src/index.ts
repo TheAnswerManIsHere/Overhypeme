@@ -17,7 +17,6 @@ export * from "./referenceResearch";
 export * from "./renderPolicyEnums";
 export * from "./visualStrategyOverride";
 export * from "./visualConcepts";
-export * from "./eval";
 export * from "./engineComparison";
 export * from "./promptRecipes";
 export * from "./moderationWorkflow";

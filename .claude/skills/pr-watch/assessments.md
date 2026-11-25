@@ -111,8 +111,7 @@ findings, before anything is written for them.
       alias, which is David's one-line edit. A **different** family rules that
       out entirely: `fable` cannot resolve to an Opus model, so the platform
       served something else, which `model-routing` records as a content refusal.
-      The build report's `chatReport` applies exactly this test, so the FYI
-      follows the line rather than second-guessing it. And `definition …` never
+      The FYI follows that line rather than second-guessing it. And `definition …` never
       means "what ran": definitions are cached, so the file on disk may not be
       the one that answered, and the assessor's own line is the only
       observation there is.

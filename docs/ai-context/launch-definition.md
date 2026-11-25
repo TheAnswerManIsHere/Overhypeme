@@ -154,7 +154,7 @@ with AI-assisted triage, keyboard review and batch render approval); Billing;
 Refunds & Disputes; Config (Zazzle keys and Debug mode removed); AI Settings,
 read-only (the Engines page went on 2026-11-14: every engine and AI setting is in
 code, per [decisions.md, 2026-11-14](./decisions.md#2026-11-14--the-stored-ai-settings-and-the-engines-table-are-deleted-a-read-only-page-shows-the-values)); Taxonomy Health;
-Features; Email Queue; Queue Health; the Eval dashboard (admin-only); Help,
+Features; Email Queue; Queue Health; the Eval page, where engines and prompt wordings are evaluated (admin-only); Help,
 plus a **user-facing help/guide derived from the same Manual source** on every
 user page; and four new screens: **Reports/takedown queue, Invites, a
 Read-only mode switch, Safety**.

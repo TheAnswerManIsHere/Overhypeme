@@ -69,7 +69,7 @@ payload, which delivers fleet machinery rather than a workstream (the
   internal (per `working-modes.md`'s Tier B exception): all three go
   straight to `stage:close-out` instead, since holding them at `uat` would
   be a gate with nothing to run against it (a prototype-phase PR ships none
-  either, and never reaches this step — top of this file). "Has product-visible behavior"
+  either, and never reaches this step — the top of [`SKILL.md`](SKILL.md)). "Has product-visible behavior"
   is *not* the test by itself — a Tier A fix can be product-visible and
   still ship no UAT section, which is what makes checking for the section
   the right test, not the behavior. **The straight-to-close-out case does not

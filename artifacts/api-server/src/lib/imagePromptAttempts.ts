@@ -110,18 +110,6 @@ export interface BuildImagePromptAttemptArgs {
    * (lib/gags/resolver.ts, `gagRenderInput`).
    */
   gagId?: number | null;
-  /**
-   * Eval-run render-scenario metadata (Slice 2B). Set ONLY for controlled
-   * eval-run renders of the golden set — mutually exclusive with `scenario`
-   * (which is review-scoped). Tags the attempt with `eval_run_id` /
-   * `eval_scenario_key` / `eval_input_hash` and leaves `review_id` NULL, so eval
-   * renders never appear in the moderation grid.
-   */
-  eval?: {
-    evalRunId: number;
-    scenarioKey: string;
-    inputHash: string;
-  };
 }
 
 /**
@@ -197,9 +185,6 @@ export async function buildAndEnqueueImagePromptAttempt(
       reviewReferenceAssetVersion: args.scenario?.referenceAssetVersion ?? null,
       reviewReferenceIdentityType: args.scenario?.referenceIdentityType ?? null,
       reviewRenderBatchId: args.scenario?.batchId ?? null,
-      evalRunId: args.eval?.evalRunId ?? null,
-      evalScenarioKey: args.eval?.scenarioKey ?? null,
-      evalInputHash: args.eval?.inputHash ?? null,
     })
     .returning({ id: imagePromptAttemptsTable.id });
 
@@ -249,11 +234,6 @@ export function buildRenderStatusPayload(attempt: ImagePromptAttempt): {
   error: string | null;
   /** Typed terminal failure code (§12), NULL for success / transient / legacy. */
   errorCode: string | null;
-  // Eval harness (Slice 2B): the moderator's verdict on this attempt, surfaced so
-  // the Step-2 tile (and eval dashboard) can render the rating control + chips.
-  moderatorRating: number | null;
-  failureTag: string | null;
-  evalNotes: string | null;
 } {
   const blockedPoor = attempt.error === "subject_fact_compatibility_poor";
   let status: RenderStatus;
@@ -278,9 +258,6 @@ export function buildRenderStatusPayload(attempt: ImagePromptAttempt): {
     blockReason: blockedPoor ? "subject_fact_compatibility_poor" : null,
     error: blockedPoor ? null : (attempt.error ?? null),
     errorCode: blockedPoor ? null : (attempt.errorCode ?? null),
-    moderatorRating: attempt.moderatorRating ?? null,
-    failureTag: attempt.failureTag ?? null,
-    evalNotes: attempt.evalNotes ?? null,
   };
 }
 

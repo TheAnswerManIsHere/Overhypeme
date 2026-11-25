@@ -138,7 +138,7 @@ changes for printed cards and merch; insurance.
 
 Blind moderation and the legal-safety rules; faces only from photos a user
 supplies; the existing membership payment system and its safeguards; no
-spending by anyone without an account.
+spending by anyone without an account. A signed-out visitor browses, personalises text and sees examples, but makes no picture (David, 2026-11-11; [launch definition](./launch-definition.md)).
 
 ## Still to be decided with data or counsel
 
@@ -150,8 +150,8 @@ spending by anyone without an account.
 
 Each piece gets its own plan, reviewed and brought to David before building:
 
-- **Phase 8, finishing the engine work:** the prompt tuner on the Eval page,
-  and the old Eval harness removed.
+- **Phase 8, finishing the engine work:** the prompt tuner on the Eval page;
+  the unused engines retired in code; the old Eval harness removed.
 - **Phase 7, the paid layer and the friend flow:** credits, the pack,
   membership with credits, the free picture, the "who is this for?" flow,
   examples in place of hero backgrounds.

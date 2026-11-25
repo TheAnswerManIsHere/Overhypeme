@@ -105,13 +105,13 @@ const exampleStale = sql`(${approved} AND EXISTS (
  * member and admin alike (every render is an `image_prompt_attempts` row;
  * `user_ai_images` mirrors successes only), hold at least the minimum
  * failures. Finished is a picture or an error; a picture the photoreal
- * fallback drew is a success; eval-harness runs are left out.
+ * fallback drew is a success.
  */
 const picturesFailing = sql`(${live} AND (
   SELECT count(*) FILTER (WHERE r.failed) FROM (
     SELECT (a.generated_image_object_path IS NULL) AS failed
     FROM image_prompt_attempts a
-    WHERE a.fact_id = ${factsTable.id} AND a.eval_run_id IS NULL
+    WHERE a.fact_id = ${factsTable.id}
       AND (a.generated_image_object_path IS NOT NULL OR a.error IS NOT NULL)
     ORDER BY a.created_at DESC, a.id DESC
     LIMIT ${ATTENTION_FAIL_WINDOW}

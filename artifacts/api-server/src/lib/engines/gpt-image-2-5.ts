@@ -85,7 +85,9 @@ export const GPT_IMAGE_2_5: EngineDefinition = {
   imageMode: "t2i",
   family: "gpt-image-2-5",
   tierRequirement: "legendary",
-  isActive: true,
+  // Retired by the prompt tuner plan, *E. Retirements* (launch Phase 8): kept
+  // so old comparison results still name it; nothing can draw with it.
+  isActive: false,
   sortOrder: 60,
   featureFlagRequired: null,
   allowedResolutions: null,

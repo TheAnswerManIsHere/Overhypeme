@@ -139,9 +139,11 @@ describe("migration 0102 retires the studio's render jobs by provenance", () => 
         renderedFactText: "x.",
         archetypeStrategyVersion: "v2",
         reviewId: kind === "scenario" ? reviewId : null,
-        evalRunId: kind === "eval" ? evalRunId : null,
       })
       .returning({ id: imagePromptAttemptsTable.id });
+    // eval_run_id is no longer in the Drizzle model (launch Phase 8 part 4); the
+    // column stays in the database until its drop, so it is set directly.
+    if (kind === "eval") await db.execute(sql`UPDATE image_prompt_attempts SET eval_run_id = ${evalRunId} WHERE id = ${row!.id}`);
     return row!.id;
   }
 

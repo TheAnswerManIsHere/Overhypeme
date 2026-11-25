@@ -56,7 +56,9 @@ export const SEEDREAM_5_PRO: EngineDefinition = {
   imageMode: "t2i",
   family: "seedream-5-pro",
   tierRequirement: "legendary",
-  isActive: true,
+  // Retired by the prompt tuner plan, *E. Retirements* (launch Phase 8): kept
+  // so old comparison results still name it; nothing can draw with it.
+  isActive: false,
   sortOrder: 66,
   featureFlagRequired: null,
   allowedResolutions: null,
