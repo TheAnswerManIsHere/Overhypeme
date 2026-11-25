@@ -74,7 +74,6 @@ import { validateVisualStrategyOverridePersistence } from "../lib/imagePrompt/pr
 import {
   getScenarioAttemptDiagnostics,
   reviewRenderStates,
-  enqueueReviewIterationRenders,
   syntheticAnalysisForReference,
 } from "../lib/reviewRenderScenarios";
 import { resolveDefaultReferenceUrl, ReferenceAssetUnavailableError } from "../lib/defaultReferenceResolver";
@@ -1001,24 +1000,11 @@ router.post("/admin/reviews/:id/approve-visual-concept", requireAdmin, async (re
     return;
   }
 
-  // Post-commit — ONLY because THIS request made the transition: draw the
-  // iteration render (one male render) of each new or changed gag that lacks
-  // one for its content. Existing renders are kept and reused; an unchanged
-  // gag gets nothing (plan PLAN_GAG_EXAMPLES.md, section C).
-  let renderPrepareJobId: number | undefined;
-  try {
-    const enq = await enqueueReviewIterationRenders(id, req.user.id);
-    renderPrepareJobId = enq.jobId;
-  } catch (err) {
-    logger.error({ err, reviewId: id }, "[moderation] failed to enqueue iteration renders (stage advance kept)");
-  }
-  logger.info({ reviewId: id, renderPrepareJobId, adminUserId: req.user.id }, "[moderation] gags approved, iteration renders enqueued");
+  // Arriving at Test Renders draws nothing: every render is asked for there
+  // (Issue #1282, plan PLAN_RENDERS_MANUAL.md, amending 1E).
+  logger.info({ reviewId: id, adminUserId: req.user.id }, "[moderation] gags approved, on to Test Renders");
 
-  res.json({
-    success: true,
-    workflowStage: "test_renders",
-    ...(renderPrepareJobId != null ? { renderPrepareJobId } : {}),
-  });
+  res.json({ success: true, workflowStage: "test_renders" });
 });
 
 // ─── Back to gags: Test Renders → Gags ────────────────────────────────────────

@@ -287,7 +287,7 @@ describe("GagsPanel", () => {
     for (const id of ["visual-concept-textarea", "gag-save", "gag-remove", "gag-undo", "gag-state", "gag-availability", "gag-default", "gag-example-words", "gag-add", "gag-new"]) {
       expect(screen.queryAllByTestId(id), id).toHaveLength(0);
     }
-    // Female and pet are drawn on request.
+    // Every render is drawn on request (Issue #1282); female and pet can be asked for together.
     expect(within(cards[0]!).getByTestId("gag-render-rest").textContent).toMatch(/Render female and pet/);
   });
 
@@ -324,64 +324,70 @@ describe("GagsPanel", () => {
     await waitFor(() => expect(onUnsaved).toHaveBeenLastCalledWith(["the new visual gag"]));
   });
 
-  describe("reloading while an iteration render is on its way (Codex, PR #956 round 1)", () => {
+  // Issue #1282 (plan PLAN_RENDERS_MANUAL.md): no render starts by itself, so
+  // the panel never waits for one nobody asked for; it reloads only while a
+  // render that was asked for is drawing.
+  describe("every render is drawn on request", () => {
     const male = card("i2i_male_default", { latestAttemptId: 950 });
     const pendingGag = (m: RenderScenarioCard | null) => gag({
       id: 2, slot: 1, state: "new", availableToUsers: false, approvedContent: null, approvedAt: null,
       pendingContent: scene("{NAME} juggles planets."), renders: { ...NONE, male: m },
     });
-    /** GET answers each view in turn, then repeats the last. */
+    /** GET answers each view in turn, then repeats the last; POSTs are recorded. */
     function stubSequence(views: FactGagsView[]) {
       let n = 0;
       const gets = vi.fn();
-      vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
-        gets();
+      const posts: { url: string; body: unknown }[] = [];
+      vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? "GET";
+        if (method === "GET") gets(); else posts.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null });
         const v = views[Math.min(n, views.length - 1)]!;
-        if ((init?.method ?? "GET") === "GET") n++;
+        if (method === "GET") n++;
         return new Response(JSON.stringify(v), { status: 200, headers: { "Content-Type": "application/json" } });
       }));
-      return gets;
+      return { gets, posts };
     }
     afterEach(() => vi.useRealTimers());
 
-    it("at Test Renders, a gag with no male render yet reloads until it appears, and offers its approval", async () => {
+    it("at Test Renders, a gag with nothing drawn shows three undrawn windows with no spinner, and the panel does not reload waiting for one", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
-      const gets = stubSequence([view([pendingGag(null)], { isActive: false }), view([pendingGag(male)], { isActive: false })]);
-      render(<GagsPanel factId={5} reviewId={77} rendersEnabled rendersExpected subjectNames={[]} />);
+      const { gets } = stubSequence([view([pendingGag(null)], { isActive: false })]);
+      render(<GagsPanel factId={5} reviewId={77} rendersEnabled subjectNames={[]} />);
+      const tiles = await screen.findAllByTestId("gag-render");
+      expect(tiles.map((t) => within(t).getByTestId("gag-render-status").textContent)).toEqual(["Not drawn yet.", "Not drawn yet.", "Not drawn yet."]);
+      expect(tiles.map((t) => within(t).getByTestId("gag-redraw-render").textContent?.trim())).toEqual(["Draw this render", "Draw this render", "Draw this render"]);
+      expect(document.querySelector(".animate-spin")).toBeNull();
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(gets).toHaveBeenCalledTimes(1);
+    });
+
+    it("a first male render is drawn from its own window, asking for male only", async () => {
+      const { posts } = stubSequence([view([pendingGag(null)], { isActive: false })]);
+      render(<GagsPanel factId={5} reviewId={77} rendersEnabled subjectNames={[]} />);
+      const maleTile = (await screen.findAllByTestId("gag-render")).find((t) => t.getAttribute("data-kind") === "male")!;
+      fireEvent.click(within(maleTile).getByTestId("gag-redraw-render"));
+      await waitFor(() => expect(posts.filter((p) => p.url.endsWith("/renders"))).toHaveLength(1));
+      expect(posts.find((p) => p.url.endsWith("/renders"))!.body).toEqual({ kinds: ["male"], reviewId: 77 });
+    });
+
+    it("keeps reloading while a render that was asked for is drawing, and shows its approval when it lands", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const { gets } = stubSequence([view([pendingGag({ ...male, status: "queued", imageUrl: null })], { isActive: false }), view([pendingGag(male)], { isActive: false })]);
+      render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
       await screen.findByTestId("gag-card");
-      expect(screen.queryByTestId("gag-approve-render")).toBeNull();
       await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
       expect(gets.mock.calls.length).toBeGreaterThanOrEqual(2);
       expect(await screen.findByTestId("gag-approve-render")).toBeTruthy();
     });
 
-    it("keeps reloading while a render is drawing", async () => {
+    it("a reload from outside the panel (an idea used on a gag) does not make it wait for a render", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
-      const gets = stubSequence([view([pendingGag({ ...male, status: "queued", imageUrl: null })], { isActive: false })]);
-      render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
-      await screen.findByTestId("gag-card");
-      await act(async () => { await vi.advanceTimersByTimeAsync(4500); });
-      expect(gets.mock.calls.length).toBeGreaterThanOrEqual(3);
-    });
-
-    it("in the Facts editor, an idea applied from outside the panel (a reload) keeps it looking until the render appears (Codex, PR #972 round 1)", async () => {
-      vi.useFakeTimers({ shouldAdvanceTime: true });
-      const gets = stubSequence([view([pendingGag(null)]), view([pendingGag(null)]), view([pendingGag(male)])]);
+      const { gets } = stubSequence([view([pendingGag(null)])]);
       const first = render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} reloadKey={0} />);
       await screen.findByTestId("gag-card");
       first.rerender(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} reloadKey={1} />);
-      await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
-      expect(gets.mock.calls.length).toBeGreaterThanOrEqual(3);
-      expect(await screen.findByTestId("gag-approve-render")).toBeTruthy();
-    });
-
-    it("in the Facts editor, a gag never drawn does not make the panel poll until an action asks for a render", async () => {
-      vi.useFakeTimers({ shouldAdvanceTime: true });
-      const gets = stubSequence([view([pendingGag(null)])]);
-      render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
-      await screen.findByTestId("gag-card");
       await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
-      expect(gets).toHaveBeenCalledTimes(1);
+      expect(gets).toHaveBeenCalledTimes(2);
     });
   });
 

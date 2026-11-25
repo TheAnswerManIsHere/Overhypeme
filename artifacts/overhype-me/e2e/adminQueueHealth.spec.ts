@@ -39,7 +39,6 @@ const REGISTERED_QUEUES = [
   "image_generation",
   "image_prompt_generation",
   "operations_drill",
-  "review_render_scenarios_prepare",
 ] as const;
 
 const HEALTH_URL = /\/api\/admin\/queue-health(\?.*)?$/;

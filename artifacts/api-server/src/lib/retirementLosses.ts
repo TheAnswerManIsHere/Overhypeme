@@ -9,7 +9,8 @@
  * and 0169 (fact administration's drops, 3.2e: the edit history declared in
  * RETIRED_TABLES, the backfill queue's jobs counted by aiMemeBackfillDropLosses),
  * and 0170 (the eval harness's data, launch Phase 8 part 4: eval_runs declared in
- * RETIRED_TABLES; it deletes no rows).
+ * RETIRED_TABLES; it deletes no rows), and 0171 (the automatic-render queue's
+ * jobs, plan PLAN_RENDERS_MANUAL.md D2, counted by reviewRenderPrepareDropLosses).
  *
  * For 0142:
  * Read on the restored snapshot while `facts.parent_id` still exists, using
@@ -209,6 +210,19 @@ export async function taxonomyDropLosses(c: pg.ClientBase): Promise<RetirementLo
 export async function aiMemeBackfillDropLosses(c: pg.ClientBase): Promise<RetirementLosses> {
   const { rows } = await c.query<{ n: string }>(
     `SELECT count(*)::text AS n FROM async_jobs WHERE queue = 'fact_ai_meme_backfill'`,
+  );
+  const n = Number(rows[0]?.n ?? 0);
+  return n > 0 ? new Map([["async_jobs", n]]) : new Map();
+}
+
+/**
+ * The async jobs migration 0171 will delete: every job on the retired
+ * automatic-render queue, whose producers and handler were removed when every
+ * render became a request (plan PLAN_RENDERS_MANUAL.md, D2; Issue #1282).
+ */
+export async function reviewRenderPrepareDropLosses(c: pg.ClientBase): Promise<RetirementLosses> {
+  const { rows } = await c.query<{ n: string }>(
+    `SELECT count(*)::text AS n FROM async_jobs WHERE queue = 'review_render_scenarios_prepare'`,
   );
   const n = Number(rows[0]?.n ?? 0);
   return n > 0 ? new Map([["async_jobs", n]]) : new Map();

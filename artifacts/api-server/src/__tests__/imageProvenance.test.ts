@@ -32,8 +32,6 @@ import { parseTraceInput, traceIdOrLink } from "../lib/provenance/trace.js";
 import { attemptProvenanceContext } from "../lib/provenance/attemptActor.js";
 import { runProvenanceRetentionPurge } from "../jobs/provenanceRetentionPurger.js";
 import { codeVersion } from "../lib/codeVersion.js";
-import { enqueueReviewIterationRenders } from "../lib/reviewRenderScenarios.js";
-import { asyncJobsTable } from "@workspace/db/schema";
 import adminProvenanceRouter from "../routes/adminProvenance.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 
@@ -170,19 +168,6 @@ describe("who made it", () => {
     const product = await attemptProvenanceContext({ userId: memberId, renderControls: {} });
     assert.equal(product.producer, "product_render");
     assert.equal(product.actor.kind, "member");
-  });
-});
-
-describe("the moderation hand-off", () => {
-  it("a visual-concept approval's render batch carries the approving admin, not \"system\"", async () => {
-    const enq = await enqueueReviewIterationRenders(987_654_321, adminId);
-    const jobId = enq.jobId;
-    const rows = await db.select().from(asyncJobsTable).where(eq(asyncJobsTable.id, jobId));
-    try {
-      assert.equal((rows[0]!.payload as { adminUserId?: string }).adminUserId, adminId);
-    } finally {
-      await db.delete(asyncJobsTable).where(eq(asyncJobsTable.id, jobId));
-    }
   });
 });
 
