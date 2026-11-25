@@ -463,7 +463,8 @@ spec runs outside the outbound-request detector (a browser's own traffic is
 not the application's) and is not part of the acceptance run's green.
 
 **The Stripe fake** (#566, `docs/plans/PLAN_STRIPE_FAKE.md`) is a credential-free
-Stripe for the read path: account verification, managed-webhook registration,
+Stripe for the read path: account verification, the webhook endpoint check (its
+account holds one operator-provisioned endpoint, and a placeholder signing secret),
 backfill into the `stripe.*` mirror, the catalog and the Billing sync all work
 against a fixed catalog (`lib/stripeFakeFixture.ts`, one membership product with
 monthly, annual and lifetime prices). It is test-mode only. Payment mutations

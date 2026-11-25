@@ -254,7 +254,7 @@ down.
 - **No repair for a webhook Stripe never successfully delivers, or for an
   event type membership doesn't model.** Every event type this system
   handles is applied correctly, including duplicates and events arriving out
-  of order. The managed webhook endpoint is subscribed to every event type
+  of order. The webhook endpoint (the operator's, in Stripe) must be subscribed to every event type
   the sync library supports, not just the ones membership models — so an
   event type without a handler (e.g. a `customer.updated` or a
   `product.updated`) is delivered and silently ignored today, not merely a

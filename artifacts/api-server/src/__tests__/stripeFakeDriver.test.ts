@@ -46,7 +46,14 @@ import adminRouter from "../routes/admin.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 import { __setStripeDriverForTests } from "../lib/stripeDriver.js";
 import { realStripeDriver } from "../lib/stripeRealDriver.js";
-import { FAKE_SECRET_KEY, __forgetFakeWebhookEndpointsForTests, fakeStripeDriver } from "../lib/stripeFakeDriver.js";
+import {
+  FAKE_SECRET_KEY,
+  FAKE_WEBHOOK_ENDPOINT_ID,
+  __forgetFakeWebhookEndpointsForTests,
+  fakeStripeDriver,
+} from "../lib/stripeFakeDriver.js";
+import { checkOperatorWebhookEndpoint } from "../lib/stripeWebhookEndpoint.js";
+import { getSiteBaseUrl } from "../lib/siteUrl.js";
 import { FAKE_ACCOUNT_ID } from "../lib/stripeFakeFixture.js";
 import { isAdaptedStripeSync } from "../lib/stripeSyncAdaptations.js";
 import { StripeFakeUnsupportedError } from "../lib/stripeFakeErrors.js";
@@ -324,7 +331,7 @@ describe("the fake Stripe driver and the database partition", () => {
       restores.push(
         __setStripeInitDepsForTests({
           runSyncMigrations: async () => {},
-          getSync: async () => ({ findOrCreateManagedWebhook: async () => ({}), syncBackfill: async () => ({}), liveMode: false }),
+          getSync: async () => ({ checkWebhookEndpoint: async () => ({ ok: true as const, endpointId: "we_test" }), syncBackfill: async () => ({}), liveMode: false }),
           getSiteBaseUrl: () => "http://localhost",
         } as unknown as Parameters<typeof __setStripeInitDepsForTests>[0]),
       );
@@ -396,19 +403,19 @@ describe("the fake Stripe driver and the database partition", () => {
       await clearFakeAccountRows();
     });
 
-    it("verifies, registers the webhook, backfills the mirror, serves the catalog and runs a scoped sync", async () => {
+    it("verifies, backfills the mirror, serves the catalog and runs a scoped sync — and registers no webhook", async () => {
       useFake();
       partitionAnswers(FAKE_OWNED);
 
       const sync = await getStripeSync();
-      await sync.findOrCreateManagedWebhook("http://localhost/api/stripe/webhook");
       await sync.syncBackfill({ object: "all" });
 
       const counts = await db.execute(sql`
         SELECT (SELECT count(*) FROM stripe.products WHERE _account_id = ${FAKE_ACCOUNT_ID})::int AS products,
                (SELECT count(*) FROM stripe.prices WHERE _account_id = ${FAKE_ACCOUNT_ID})::int AS prices,
                (SELECT count(*) FROM stripe._managed_webhooks WHERE account_id = ${FAKE_ACCOUNT_ID})::int AS webhooks`);
-      assert.deepEqual(counts.rows[0], { products: 1, prices: 3, webhooks: 1 });
+      // No managed-webhook row: start-up never creates an endpoint (Phase 15, increment 4).
+      assert.deepEqual(counts.rows[0], { products: 1, prices: 3, webhooks: 0 });
 
       const catalog = await stripeStorage.listProductsWithPrices(false);
       const legendary = catalog.find((p) => p.id === "prod_fake_legendary");
@@ -475,7 +482,6 @@ describe("the fake Stripe driver and the database partition", () => {
       useFake();
       partitionAnswers(FAKE_OWNED);
       const sync = await getStripeSync();
-      await sync.findOrCreateManagedWebhook("http://localhost/api/stripe/webhook");
       await assert.rejects(
         sync.processWebhook(Buffer.from(JSON.stringify({ id: "evt_fake", type: "charge.refunded" })), "t=1,v1=x"),
         (err: unknown) => err instanceof StripeFakeUnsupportedError && err.member === "webhooks.constructEventAsync",
@@ -489,22 +495,23 @@ describe("the fake Stripe driver and the database partition", () => {
       assert.ok(isAdaptedStripeSync(sync), "getStripeSync() handed out an instance without adaptStripeSync applied");
     });
 
-    it("a reboot after the fake's memory is gone re-registers the webhook instead of failing setup", async () => {
+    it("a reboot after the fake's memory is gone still finds the operator's endpoint, and creates none", async () => {
       useFake();
       partitionAnswers(FAKE_OWNED);
-      const first = await getStripeSync();
-      await first.findOrCreateManagedWebhook("http://localhost/api/stripe/webhook");
-
-      // What a restart does: the fake's in-memory endpoints vanish, the
-      // `_managed_webhooks` row stays, and the process builds a new sync.
+      // What a restart does to the fake: its in-memory endpoints vanish. The
+      // operator's endpoint is not one of them, as a real one outlives a process.
       __forgetFakeWebhookEndpointsForTests();
-      invalidateStripeSync();
-      const second = await getStripeSync();
-      const endpoint = await second.findOrCreateManagedWebhook("http://localhost/api/stripe/webhook");
-      assert.equal((endpoint as { status?: string }).status, "enabled");
-
+      const check = await checkOperatorWebhookEndpoint({
+        stripe: fakeStripeDriver.createClient(FAKE_SECRET_KEY),
+        url: `${getSiteBaseUrl()}/api/stripe/webhook`,
+        secretConfigured: fakeStripeDriver.webhookSecret(false) !== null,
+        endpointId: fakeStripeDriver.webhookEndpointId(false),
+        settings: fakeStripeDriver.settingNames(false),
+        requiredEvents: (await getStripeSync()).getSupportedEventTypes(),
+      });
+      assert.deepEqual(check, { ok: true, endpointId: FAKE_WEBHOOK_ENDPOINT_ID });
       const rows = await db.execute(sql`SELECT count(*)::int AS n FROM stripe._managed_webhooks WHERE account_id = ${FAKE_ACCOUNT_ID}`);
-      assert.deepEqual(rows.rows[0], { n: 1 });
+      assert.deepEqual(rows.rows[0], { n: 0 });
     });
   });
 

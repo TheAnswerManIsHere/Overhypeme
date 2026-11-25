@@ -43,14 +43,24 @@ export interface StripeApi {
   products: Pick<Stripe["products"], "retrieve">;
   subscriptionItems: Pick<Stripe["subscriptionItems"], "list">;
   subscriptions: Pick<Stripe["subscriptions"], "cancel" | "retrieve" | "update">;
+  /**
+   * `retrieve` only: start-up READS the operator-provisioned endpoint to check
+   * it (launch Phase 15, increment 4). Nothing here creates, enables or deletes
+   * one — the operator owns endpoints, in Stripe's dashboard.
+   */
+  webhookEndpoints: Pick<Stripe["webhookEndpoints"], "retrieve">;
 }
 
-/** What the application may call on a published sync. No `stripe` field. */
+/**
+ * What the application may call on a published sync. No `stripe` field, and no
+ * `findOrCreateManagedWebhook`: start-up never creates, re-enables or replaces a
+ * webhook endpoint (launch Phase 15, increment 4), and leaving the method out of
+ * this type makes a call to it a compile error rather than a review finding.
+ */
 export type StripeSyncApi = Pick<
   StripeSyncInstance,
   | "getAccountId"
   | "getSupportedEventTypes"
-  | "findOrCreateManagedWebhook"
   | "syncBackfill"
   | "processWebhook"
   | "processEvent"

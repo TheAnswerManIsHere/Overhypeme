@@ -360,7 +360,7 @@ describe("the mode toggle verifies BEFORE it writes", () => {
         runSyncMigrations: async () => { sequence.push("migrations"); },
         getSync: async () => ({
           liveMode: await readStripeLiveModeStrict(),
-          findOrCreateManagedWebhook: async () => { sequence.push("webhook"); },
+          checkWebhookEndpoint: async () => { sequence.push("webhook"); return ({ ok: true as const, endpointId: "we_test" }); },
           syncBackfill: async () => { sequence.push("backfill"); },
         }),
         getSiteBaseUrl: () => "https://example.test",
@@ -453,7 +453,7 @@ describe("the construction boundary is mode-coherent", () => {
         runSyncMigrations: async () => {},
         getSync: async () => ({
           liveMode: await readStripeLiveModeStrict(),
-          findOrCreateManagedWebhook: async () => {},
+          checkWebhookEndpoint: async () => ({ ok: true as const, endpointId: "we_test" }),
           syncBackfill: async () => {},
         }),
         getSiteBaseUrl: () => "https://example.test",
@@ -866,9 +866,10 @@ describe("a mode change initializes the newly active mode", () => {
           const mode = liveMode ? "live" : "test";
           return {
             liveMode,
-            findOrCreateManagedWebhook: async () => {
+            checkWebhookEndpoint: async () => {
               await hooks.onWebhook?.(mode);
               webhookModes.push(mode);
+              return ({ ok: true as const, endpointId: "we_test" });
             },
             syncBackfill: async () => {},
           };
@@ -1308,7 +1309,7 @@ describe("a mode change initializes the newly active mode", () => {
     assert.equal(failing.status, 200, JSON.stringify(failing.body));
     assert.equal(failing.body.verification.state, "verified");
     assert.equal(failing.body.verification.setup?.state, "failing", "a failing setup must show, not hide behind `verified`");
-    assert.match(failing.body.verification.setup.reason, /registering the webhook/);
+    assert.match(failing.body.verification.setup.reason, /could not read the webhook endpoint/);
     assert.ok(failing.body.verification.setup.lastFailureAt);
     assert.doesNotMatch(
       JSON.stringify(failing.body.verification),

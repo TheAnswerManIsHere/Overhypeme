@@ -44,6 +44,8 @@ import {
 } from "./stripeAccountGuard.js";
 import { isDefiniteVerificationFailure } from "./stripeVerificationErrors.js";
 import { getStripeSecretKey } from "./stripeClient.js";
+import { stripeDriver } from "./stripeDriver.js";
+import { checkOperatorWebhookEndpoint, type WebhookEndpointCheck } from "./stripeWebhookEndpoint.js";
 import type { StripeSetupSnapshot } from "@workspace/api-zod";
 
 export type StripeBootOutcome =
@@ -53,8 +55,8 @@ export type StripeBootOutcome =
   | { kind: "fatal"; reason: string };
 
 /**
- * The remaining initialization — Stripe schema migrations, managed-webhook
- * registration, then the full backfill, in that order.
+ * The remaining initialization — Stripe schema migrations, the read-only
+ * check of the operator's webhook endpoint, then the full backfill, in that order.
  *
  * Guarded to run **exactly once** across boot and every later retry. Before
  * this guard existed, a recovered retry restored client availability and left
@@ -72,7 +74,8 @@ export type StripeBootOutcome =
  * was never registered. That is precisely the outcome settled decision 9 exists
  * to prevent, reached through a transient error instead of a missing hook.
  *
- * Required means webhook registration. The backfill stays fire-and-forget, as
+ * Required means the operator's webhook endpoint checked and found usable
+ * (launch Phase 15, increment 4: it used to mean registering one). The backfill stays fire-and-forget, as
  * it has always been — awaiting it here would change the boot sequence's
  * timing, which *Must Not Change* item 2 pins.
  */
@@ -106,25 +109,37 @@ const SETUP_FAILURE_REASONS: Record<SetupStep, string> = {
   sync:
     "Stripe setup failed connecting to the verified Stripe account; retrying automatically. Details are in the server log.",
   webhook:
-    "Stripe setup failed registering the webhook, so Stripe's events (new subscriptions, refunds) are not reaching this instance; retrying automatically. Details are in the server log.",
+    "Stripe setup could not read the webhook endpoint from Stripe, so it cannot confirm Stripe's events (new subscriptions, refunds) reach this instance; retrying automatically. Details are in the server log.",
 };
+
+/**
+ * The operator's webhook endpoint is not set up for a mode. Not a transient
+ * failure: the server never creates, enables or replaces an endpoint, so this
+ * clears only when the operator fixes the endpoint or its settings. The check
+ * still re-runs on the retry interval (it only reads), so a fix made in Stripe's
+ * dashboard is picked up without a restart; a changed setting needs one.
+ */
+function notSetUpReason(detail: string): string {
+  return `Stripe webhooks are not set up for this mode: ${detail}. Stripe's events (new subscriptions, refunds) are not reaching this instance. The operator provisions the endpoint in Stripe and its settings here; this server never creates one.`;
+}
 
 /**
  * The last setup failure per mode, cleared when setup completes for that mode.
  * Without it, a setup that kept failing was visible only in the log while the
  * Billing panel read `verified` — the observability half of #577's P1.
  */
-const setupFailures = new Map<"live" | "test", { step: SetupStep; at: number }>();
+const setupFailures = new Map<"live" | "test", { step: SetupStep; at: number; notSetUp?: string }>();
 
 /**
  * The three effects the remaining initialization performs, injectable so a test
- * can assert the SEQUENCE and the exactly-once property without registering a
- * webhook on a real Stripe account. Production never passes anything.
+ * can assert the SEQUENCE and the exactly-once property without reaching a
+ * real Stripe account. Production never passes anything.
  */
 export interface StripeInitDeps {
   runSyncMigrations: (opts: { databaseUrl: string }) => Promise<unknown>;
   getSync: () => Promise<{
-    findOrCreateManagedWebhook: (url: string) => Promise<unknown>;
+    /** Read-only: never creates, enables or replaces an endpoint. */
+    checkWebhookEndpoint: (url: string) => Promise<WebhookEndpointCheck>;
     syncBackfill: (opts: { object: "all" }) => Promise<unknown>;
     /** The mode this sync was verified for; `null` when it is no longer published. */
     liveMode: boolean | null;
@@ -146,10 +161,25 @@ const productionDeps: Omit<StripeInitDeps, "getSiteBaseUrl"> = {
   getSync: async () => {
     const { getStripeSync, liveModeOfPublishedStripeSync } = await import("./stripeClient");
     const sync = await getStripeSync();
+    const liveMode = liveModeOfPublishedStripeSync(sync);
     return {
-      findOrCreateManagedWebhook: (url: string) => sync.findOrCreateManagedWebhook(url),
+      checkWebhookEndpoint: async (url: string) => {
+        // The sync's own mode, never the stored one: the caller has already
+        // refused a sync built for another mode, and a `null` here (no longer
+        // published) is answered the same way, before anything is read.
+        if (liveMode === null) throw new Error("Stripe sync is no longer published; not checking its webhook endpoint");
+        const driver = stripeDriver();
+        return checkOperatorWebhookEndpoint({
+          stripe: driver.createClient(await getStripeSecretKey(liveMode)),
+          url,
+          secretConfigured: driver.webhookSecret(liveMode) !== null,
+          endpointId: driver.webhookEndpointId(liveMode),
+          settings: driver.settingNames(liveMode),
+          requiredEvents: sync.getSupportedEventTypes(),
+        });
+      },
       syncBackfill: (opts: { object: "all" }) => sync.syncBackfill(opts),
-      liveMode: liveModeOfPublishedStripeSync(sync),
+      liveMode,
     };
   },
 };
@@ -198,20 +228,20 @@ export function getStripeSetupStatus(liveMode: boolean): StripeSetupSnapshot {
   if (failure) {
     return {
       state: "failing",
-      reason: SETUP_FAILURE_REASONS[failure.step],
+      reason: failure.notSetUp ? notSetUpReason(failure.notSetUp) : SETUP_FAILURE_REASONS[failure.step],
       lastFailureAt: new Date(failure.at).toISOString(),
     };
   }
   return {
     state: "in_progress",
-    reason: "Stripe setup (webhook registration) has not finished on this instance yet.",
+    reason: "Stripe setup (the webhook endpoint check) has not finished on this instance yet.",
     lastFailureAt: null,
   };
 }
 
 /**
- * Run the remaining initialization — Stripe schema migrations, managed-webhook
- * registration, then the full backfill, in that order.
+ * Run the remaining initialization — Stripe schema migrations, the read-only
+ * check of the operator's webhook endpoint, then the full backfill, in that order.
  *
  * Resolves `true` when the required setup completed (now or earlier), `false`
  * when it failed and is still owed. The caller keeps the retry loop armed on
@@ -274,21 +304,22 @@ export async function resumeStripeInitialization(): Promise<boolean> {
       }
 
       const webhookUrl = `${active.getSiteBaseUrl()}/api/stripe/webhook`;
-      // findOrCreateManagedWebhook registers the webhook endpoint and subscribes it to all
-      // event types returned by getSupportedEventTypes() in stripe-replit-sync.  That list
-      // must include every event that webhookHandlers.ts handles (currently:
-      //   charge.refunded, charge.dispute.created, charge.dispute.closed,
-      //   plus subscription/invoice events).
-      // When adding a new handler, ensure the matching event type is also present in
-      // getSupportedEventTypes() so Stripe actually delivers the event to this endpoint.
-      //
-      // This is the first Stripe MUTATION of the boot sequence, and the whole
-      // reason verification is awaited before the port binds: it used to run
-      // BEFORE the account comparison, so a live key in the test variable
-      // registered a webhook on the live account and then backfilled it.
+      // The operator's endpoint, READ and checked: enabled, delivering to this
+      // URL, subscribed to every event type the library's handlers cover (the
+      // list webhookHandlers.ts relies on — getSupportedEventTypes()), with a
+      // configured signing secret. Start-up never creates, re-enables or
+      // replaces an endpoint (launch Phase 15, increment 4): it used to call
+      // findOrCreateManagedWebhook, which did all three and kept the secret in
+      // the database. A problem here is the mode NOT SET UP — reported on the
+      // Billing panel and retried, since a dashboard fix needs no restart.
       step = "webhook";
-      await stripeSync.findOrCreateManagedWebhook(webhookUrl);
-      logger.info({ webhookUrl }, "Stripe webhook configured");
+      const check = await stripeSync.checkWebhookEndpoint(webhookUrl);
+      if (!check.ok) {
+        setupFailures.set(mode, { step, at: Date.now(), notSetUp: check.detail });
+        logger.warn({ mode, problem: check.problem, webhookUrl }, `Stripe webhooks are not set up: ${check.detail}`);
+        return false;
+      }
+      logger.info({ webhookUrl, endpointId: check.endpointId }, "Stripe webhook endpoint checked");
 
       // Required setup is done. The backfill below is fire-and-forget exactly as
       // it has always been, so its failure logs and does not reopen this.

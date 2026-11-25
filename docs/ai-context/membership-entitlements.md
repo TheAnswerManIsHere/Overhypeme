@@ -130,21 +130,30 @@ the only construction site, and both of its exported constructors go through
 `verifyStripeAccount`, so boot, the mode toggle, checkout, webhooks and the
 admin mutation routes are covered by one boundary, not by a list of callers
 that has to stay complete. **The dev app and production use different test-mode
-sandboxes** (Issue #1220, David's Q34, 2026-11-24): the sync library deletes
-every managed webhook its own database does not know, so two environments
-on one sandbox delete each other's endpoint at every boot. `.replit` declares
+sandboxes** (Issue #1220, David's Q34, 2026-11-24). `.replit` declares
 `STRIPE_ACCOUNT_ID_TEST` per environment (`[userenv.development]`: the
 Development Sandbox; `[userenv.production]`: the Production Sandbox), and
 `STRIPE_SECRET_KEY_TEST` and `STRIPE_PUBLISHABLE_KEY_TEST` are unsynced in
 Production app secrets (since the publish of 2026-11-24), so each environment
-keeps its own keys under the same names. Neither environment sets
-`STRIPE_WEBHOOK_SECRET_TEST`: the library verifies events with the signing
-secret it stored when it created that environment's endpoint. When the
-variable is set it replaces that stored secret, and a workspace secret syncs to
-production by default, so one value under that name fails verification in the
-environment whose endpoint did not issue it. The admin Billing page's
-unchecked `STRIPE_WEBHOOK_SECRET_TEST` row and "Action required" box, and the
-boot warning, still ask for it and are expected for now (Issue #1232). A publish that
+keeps its own keys under the same names. **Webhook endpoints are the
+operator's, and their secrets live only in the environment** (launch Phase 15,
+increment 4, C2). Each environment and mode has one endpoint, provisioned in
+Stripe's dashboard by the operator and named to the server by two settings:
+`STRIPE_WEBHOOK_ENDPOINT_ID_{TEST,LIVE}` (the endpoint's `we_…` id) and
+`STRIPE_WEBHOOK_SECRET_{TEST,LIVE}` (its signing secret), unsynced per
+environment like the keys, since each environment's endpoint issues its own
+secret. With no secret configured, verification **refuses every delivery**: the
+library's fallback to the secret it stored in `stripe._managed_webhooks` is
+closed on every sync build (`refuseWithoutWebhookSecret`, `stripeClient.ts`).
+Start-up never creates, re-enables or replaces an endpoint — it no longer calls
+`findOrCreateManagedWebhook`, which also deleted any managed endpoint its own
+database did not know (the cause of #1220's cross-environment deletions) — and
+only READS the named endpoint (`stripeWebhookEndpoint.ts`): enabled, delivering
+to this server's URL, subscribed to every event type the library handles. Any
+other answer reports the mode **not set up** on the Billing panel and is
+re-checked on the retry interval, so a dashboard fix needs no restart (a changed
+setting does). The library's tables stay; nothing writes or reads the managed
+row for verification. A publish that
 shows these two as synced again hands production the dev keys, and the guard
 then refuses to boot it. Live mode is one account,
 shared. The catalog read (`stripeStorage.listProductsWithPrices`) filters by
@@ -208,9 +217,9 @@ header of `stripeAccountGuard.ts` carries the evidence for each:
    on their own.
 
 **Required initialization finishes once per mode, and only after it actually
-succeeds.** Stripe schema migrations and managed-webhook registration are
-retried until they succeed (so migrations can run again after a registration
-failure), and once marked done for a mode they are not repeated for it
+succeeds.** Stripe schema migrations and the read-only check of the
+operator's webhook endpoint are retried until they succeed (so migrations can
+run again after a failed check), and once marked done for a mode they are not repeated for it
 (`stripeInit.ts`). Completion is tracked **per mode** because each mode is a
 different Stripe account with its own webhook: until the bugfix that followed
 #577, one process-wide flag meant a switch of the active mode — a toggle on
@@ -658,8 +667,8 @@ them without archaeology:
    handles is authoritative, fenced and idempotent. But `prepareDomainEvent`'s
    `default: break` silently no-ops any event type it doesn't recognize,
    while the event is still claimed as processed — and this is reachable
-   today, not merely theoretical: the managed webhook endpoint subscribes to
-   every event type the sync library supports, which includes types with no
+   today, not merely theoretical: the webhook endpoint is required to subscribe
+   to every event type the sync library supports, which includes types with no
    `prepareDomainEvent` case (e.g. `customer.updated`, `product.updated`), so
    Stripe delivers and this path silently no-ops them in production now.
    Card-only checkout narrows only one specific corner of this — the

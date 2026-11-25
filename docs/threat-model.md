@@ -184,12 +184,13 @@ these is a finding regardless of how it arises:
    `Set-Cookie` on public-asset paths.
 6. **Secrets stay in env, with one tracked exception** — no committed env
    files, DB dumps, or keys; the narrow `.gitignore` rules stay narrow (a
-   blanket `*.sql` would hide real migrations). When no
-   `STRIPE_WEBHOOK_SECRET_{LIVE,TEST}` is configured for the active mode,
-   `stripe-replit-sync` falls back to a managed webhook signing secret stored
-   in `stripe._managed_webhooks` — so in that configuration, live webhook
-   signing material lives in the database, and a DB/backup exposure carries
-   that additional blast radius.
+   blanket `*.sql` would hide real migrations). Stripe webhook signing
+   secrets are environment-only (`STRIPE_WEBHOOK_SECRET_{LIVE,TEST}`): with
+   none configured every delivery is refused, never verified against the
+   secret `stripe-replit-sync` may hold in `stripe._managed_webhooks`, and
+   start-up never creates an endpoint that would store one there (launch
+   Phase 15, increment 4). Rows an earlier boot stored stay in that table until
+   rotation retires their endpoints.
 7. **A submitted fact reaches the public catalogue only through the
    moderation pipeline's single activation chokepoint** (`facts.is_active`)
    — no direct toggles around it. This governs fact-catalogue activation

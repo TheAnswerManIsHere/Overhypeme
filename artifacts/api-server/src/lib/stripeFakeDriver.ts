@@ -41,10 +41,15 @@ import type { StripeApi } from "./stripeApi.js";
 import type { StripeDriver } from "./stripeDriverTypes.js";
 import { StripeFakeUnsupportedError } from "./stripeFakeErrors.js";
 import { FAKE_ACCOUNT_ID, FAKE_PRICES, FAKE_PRODUCTS } from "./stripeFakeFixture.js";
+import { getSiteBaseUrl } from "./siteUrl.js";
 
 /** A placeholder, not a credential: it identifies the fake and reaches no account. */
 export const FAKE_SECRET_KEY = "sk_test_fake_double_reaches_no_account";
 const FAKE_PUBLISHABLE_KEY = "pk_test_fake_double";
+/** The fake's configured webhook signing secret: a placeholder, like the key. */
+export const FAKE_WEBHOOK_SECRET = "whsec_fake_double_placeholder";
+/** The endpoint the fake account's "operator" provisioned, named as an operator names theirs. */
+export const FAKE_WEBHOOK_ENDPOINT_ID = "we_fake_operator_provisioned";
 
 const NEXT_INCREMENT = "payment flows on the fake arrive with the event-channel increment (#566 next)";
 
@@ -110,6 +115,42 @@ const noneById = (kind: string) => (id: string) => Promise.reject(resourceMissin
  */
 const webhookEndpoints = new Map<string, Stripe.WebhookEndpoint>();
 let webhookSeq = 0;
+
+/**
+ * The endpoint an operator provisioned on the fake account, as one is on a real
+ * account: enabled, at this server's own webhook URL, subscribed to every event.
+ * It is not in the map above, so a restart does not lose it — an operator's
+ * endpoint outlives a process. A test reshapes it (disabled, elsewhere, gone)
+ * through `__setFakeOperatorWebhookEndpointForTests`.
+ */
+type OperatorEndpointOverride = Partial<Pick<Stripe.WebhookEndpoint, "status" | "url" | "enabled_events">> | "missing" | null;
+let operatorEndpointOverride: OperatorEndpointOverride = null;
+export function __setFakeOperatorWebhookEndpointForTests(next: OperatorEndpointOverride): void {
+  operatorEndpointOverride = next;
+}
+
+function operatorEndpoint(): Stripe.WebhookEndpoint | null {
+  if (operatorEndpointOverride === "missing") return null;
+  return {
+    id: FAKE_WEBHOOK_ENDPOINT_ID,
+    object: "webhook_endpoint",
+    api_version: null,
+    application: null,
+    created: 0,
+    description: "Provisioned by the operator",
+    enabled_events: ["*"],
+    livemode: false,
+    metadata: {},
+    status: "enabled",
+    url: `${getSiteBaseUrl()}/api/stripe/webhook`,
+    ...(operatorEndpointOverride ?? {}),
+  } as Stripe.WebhookEndpoint;
+}
+
+function retrieveWebhookEndpoint(id: string): Promise<Stripe.Response<Stripe.WebhookEndpoint>> {
+  const found = id === FAKE_WEBHOOK_ENDPOINT_ID ? operatorEndpoint() : webhookEndpoints.get(id);
+  return found ? respond(found) : Promise.reject(resourceMissing("webhook_endpoint", id));
+}
 
 /**
  * Events the fake account holds, newest first, as Stripe lists them. Empty
@@ -193,6 +234,7 @@ const appSurface: StripeApi = {
     retrieve: noneById("subscription"),
     update: () => refuse("subscriptions.update"),
   },
+  webhookEndpoints: { retrieve: retrieveWebhookEndpoint },
 };
 
 // ── What the sync library calls on its read path ────────────────────────────
@@ -217,10 +259,7 @@ const librarySurface = {
   refunds: { list: empty },
   radar: { earlyFraudWarnings: { list: empty } },
   webhookEndpoints: {
-    retrieve: (id: string) => {
-      const found = webhookEndpoints.get(id);
-      return found ? respond(found) : Promise.reject(resourceMissing("webhook_endpoint", id));
-    },
+    retrieve: retrieveWebhookEndpoint,
     list: (params?: unknown) => list([...webhookEndpoints.values()], params),
     create: (params: { url: string; enabled_events: string[]; metadata?: Record<string, string> }) => {
       webhookSeq++;
@@ -298,6 +337,7 @@ const fakeClient = guarded(merge(appSurface as unknown as Surface, librarySurfac
 /** Test seam: drop the in-memory webhook endpoints, as a restart does. */
 export function __forgetFakeWebhookEndpointsForTests(): void {
   webhookEndpoints.clear();
+  operatorEndpointOverride = null;
 }
 
 // ── The driver ──────────────────────────────────────────────────────────────
@@ -318,6 +358,8 @@ export const fakeStripeDriver: StripeDriver = {
       secret: "the fake Stripe driver's placeholder key",
       publishable: "the fake Stripe driver's placeholder key",
       account: "the fake Stripe account",
+      webhookSecret: "the fake Stripe driver's placeholder webhook secret",
+      webhookEndpoint: "the fake account's operator-provisioned endpoint",
     };
   },
 
@@ -330,8 +372,12 @@ export const fakeStripeDriver: StripeDriver = {
     return { secretKey: FAKE_SECRET_KEY, publishableKey: FAKE_PUBLISHABLE_KEY };
   },
 
-  webhookSecret() {
-    return null;
+  webhookSecret(liveMode) {
+    return liveMode ? null : FAKE_WEBHOOK_SECRET;
+  },
+
+  webhookEndpointId(liveMode) {
+    return liveMode ? null : FAKE_WEBHOOK_ENDPOINT_ID;
   },
 
   expectedAccountId(liveMode) {
@@ -347,7 +393,7 @@ export const fakeStripeDriver: StripeDriver = {
     return fakeClient;
   },
 
-  async buildSync({ secretKey }) {
+  async buildSync({ secretKey, webhookSecret }) {
     if (secretKey !== FAKE_SECRET_KEY) {
       throw new StripeFakeUnsupportedError("buildSync", "the fake driver accepts only its own placeholder key");
     }
@@ -355,6 +401,7 @@ export const fakeStripeDriver: StripeDriver = {
     const sync = new StripeSync({
       poolConfig: { connectionString: process.env.DATABASE_URL!, max: 2 },
       stripeSecretKey: secretKey,
+      ...(webhookSecret ? { stripeWebhookSecret: webhookSecret } : {}),
     });
     // The library builds its own SDK client in its constructor, with no way to
     // inject one; it keeps it in a public `stripe` field that every later call
@@ -370,8 +417,10 @@ export const fakeStripeDriver: StripeDriver = {
       secretKeyLive: false,
       publishableKeyTest: true,
       publishableKeyLive: false,
-      webhookSecretTest: false,
+      webhookSecretTest: true,
       webhookSecretLive: false,
+      webhookEndpointTest: true,
+      webhookEndpointLive: false,
     };
   },
 };
