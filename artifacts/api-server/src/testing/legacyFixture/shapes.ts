@@ -73,8 +73,8 @@ export interface ShapeDef {
   validate?(value: unknown): string | null;
 }
 
-const issues = (r: { success: boolean; error?: { issues: Array<{ path: (string | number)[]; message: string }> } }) =>
-  r.success ? null : r.error!.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ");
+const issues = (r: { success: boolean; error?: { issues: Array<{ path: PropertyKey[]; message: string }> } }) =>
+  r.success ? null : r.error!.issues.map((i) => `${i.path.map(String).join(".") || "(root)"}: ${i.message}`).join("; ");
 
 // ─── factEnrichment (taxonomy.ts:504-577) ──────────────────────────────────
 
