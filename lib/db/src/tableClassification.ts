@@ -123,6 +123,7 @@ export const TABLE_CLASSIFICATION: Readonly<Record<string, TableEntry>> = {
   quarantined_memes: { class: "excluded", excluded: "childSafety" },
   entitlement_source_disputes: { class: "excluded", excluded: "payments" },
   membership_entitlements: { class: "excluded", excluded: "payments" },
+  credit_ledger: { class: "excluded", excluded: "payments" },
   membership_history: { class: "excluded", excluded: "payments" },
   membership_leases: { class: "excluded", excluded: "payments" },
   stripe_checkout_request_ledger: { class: "excluded", excluded: "payments" },

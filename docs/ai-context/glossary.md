@@ -1211,6 +1211,26 @@ episode](#grace-episode) demotes on every request via a live deadline check,
 regardless of what the column says.
 → [membership-entitlements](./membership-entitlements.md)
 
+### Credit
+
+What an AI picture is paid with: one credit, one picture (launch Phase 7,
+[product strategy](./product-strategy.md#what-is-paid)). An account has one
+balance, which never expires: the sum of its `credit_ledger` rows. Credits come
+free once (when the account is first verified), in a pack, or with a membership,
+and an admin can add or remove them with a note. Separate from the
+[membership tier](#membership-tier): credits never make an account Legendary,
+and being Legendary is not a balance.
+→ [membership-entitlements](./membership-entitlements.md#credits)
+
+### Credit lot
+
+One grant of credits, remembered with its source (the free credit, a pack's
+payment, a membership invoice, an admin's addition). Spending and removals draw
+on the oldest lots first and name the lot they drew on, so the ledger can say
+how many of a purchase's credits are unspent, which a refund of that purchase
+needs.
+→ [membership-entitlements](./membership-entitlements.md#credits)
+
 ### Legendary for Life
 
 The one-time purchase alternative to a recurring subscription. A **full** refund

@@ -237,6 +237,7 @@ export const RETENTION_SCHEDULE: Readonly<Record<string, RetentionEntry>> = {
 
   // ── Payments ─────────────────────────────────────────────────────────────
   membership_entitlements: { personal: "the account and its Stripe references", rules: [{ kind: "account-deletion", effect: "deleted" }] },
+  credit_ledger: { personal: "the account, its credits and the admins who adjusted them", rules: [{ kind: "account-deletion", effect: "deleted" }] },
   entitlement_source_disputes: {
     personal: "a Stripe dispute reference",
     rules: [

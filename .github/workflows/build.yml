@@ -286,6 +286,12 @@ jobs:
       - name: Ledger write unconditional check
         run: pnpm run check:record-cost
 
+      # Credits have one writer (launch Phase 7, plan §1): a write to
+      # credit_ledger outside artifacts/api-server/src/lib/credits/ would be a
+      # second definition of when credits are granted or spent.
+      - name: Credit ledger single-writer check
+        run: pnpm run check:credit-ledger-writer
+
       # Third in the same family, and the one that had been missing. checkBudget
       # returns the ADMIN EXEMPTION before resolving the proposed cost, which is
       # worth nothing if the caller resolves it eagerly — arguments evaluate
