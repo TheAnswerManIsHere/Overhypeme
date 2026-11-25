@@ -72,7 +72,7 @@ test.describe("Library — Submissions", () => {
     await page.route("**/api/auth/user", async (route) => {
       const res = await route.fetch();
       const body = await res.json() as { user?: Record<string, unknown> | null };
-      if (body.user) body.user = { ...body.user, displayName: body.user["displayName"] || "Nick Baron", pronouns: body.user["pronouns"] || "he/him" };
+      if (body.user) body.user = { ...body.user, displayName: body.user["displayName"] || "David Franklin", pronouns: body.user["pronouns"] || "he/him" };
       await route.fulfill({ response: res, json: body });
     });
     await stubSubmissions(page);

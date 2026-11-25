@@ -133,7 +133,7 @@ describe("MemeShareModal — Web Share button", () => {
     withWebShare(shareSpy);
     mockFetch((url) => {
       if (url.includes("/api/share-copy/")) {
-        return { platform: "web_share", url: FALLBACK, title: "Alice on overhype.me", text: "did a thing" };
+        return { platform: "web_share", url: FALLBACK, title: "Raena on overhype.me", text: "did a thing" };
       }
       return {}; // intent-log POST
     });
@@ -145,7 +145,7 @@ describe("MemeShareModal — Web Share button", () => {
     await waitFor(() => expect(shareSpy).toHaveBeenCalled());
 
     expect(shareSpy).toHaveBeenCalledWith({
-      title: "Alice on overhype.me",
+      title: "Raena on overhype.me",
       text: "did a thing",
       url: FALLBACK,
     });
@@ -296,13 +296,13 @@ describe("MemeShareModal — calls the browser API inside the tap (#854)", () =>
     withWebShare(shareSpy);
     mockFetch((url) =>
       url.includes("/api/share-copy/") && url.endsWith("/web_share")
-        ? { platform: "web_share", url: FALLBACK, title: "Alice on overhype.me", text: "did a thing" }
+        ? { platform: "web_share", url: FALLBACK, title: "Raena on overhype.me", text: "did a thing" }
         : {},
     );
     await renderOpen();
     const fetchesBefore = fetchSpy.mock.calls.filter(([u]) => String(u).includes("/api/share-copy/")).length;
     fireEvent.click(screen.getByTestId("share-modal-web-share"));
-    expect(shareSpy).toHaveBeenCalledWith({ title: "Alice on overhype.me", text: "did a thing", url: FALLBACK });
+    expect(shareSpy).toHaveBeenCalledWith({ title: "Raena on overhype.me", text: "did a thing", url: FALLBACK });
     const fetchesAfter = fetchSpy.mock.calls.filter(([u]) => String(u).includes("/api/share-copy/")).length;
     expect(fetchesAfter).toBe(fetchesBefore);
   });

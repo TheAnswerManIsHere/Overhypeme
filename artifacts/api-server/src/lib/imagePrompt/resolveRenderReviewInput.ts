@@ -107,14 +107,18 @@ export function defaultPreviewSubjectForGender(
   }
 }
 
+/** The pet reference photo's sample subject: Mango, the cat, he/him (David, 2026-11-17, Issue #983). */
+export const PET_PREVIEW_SUBJECT = { name: "Mango", pronouns: "he/him" } as const;
+
 /**
- * The sample subject for a fixed reference photo: the wife's renders as Raena
- * Franklin, she/her, so the fact text agrees with the face; David's, the
- * pet's and the object's as the historical default.
+ * The sample subject for a fixed reference photo, so the fact text agrees
+ * with the face: the wife's renders as Raena Franklin, she/her; the pet's as
+ * Mango, he/him; David's as the historical default.
  */
 export function defaultPreviewSubjectForReference(
   identityType: ReferenceIdentityType | null | undefined,
 ): { name: string; pronouns: string } {
+  if (identityType === "nonhuman_animal") return { ...PET_PREVIEW_SUBJECT };
   return defaultPreviewSubjectForGender(identityType === "female" ? "female" : null);
 }
 

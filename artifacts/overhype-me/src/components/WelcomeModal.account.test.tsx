@@ -15,7 +15,7 @@ const setName = vi.fn();
 const setPronouns = vi.fn();
 let signedIn = true;
 let accountUser: { displayName: string | null; pronouns: string | null } | null = null;
-let browser = { name: "Ada", pronouns: "she/her", pronounsSupplied: true };
+let browser = { name: "Raena", pronouns: "she/her", pronounsSupplied: true };
 
 vi.mock("@workspace/api-client-react", () => ({ useUpdateMyProfile: () => ({ mutateAsync }) }));
 vi.mock("@workspace/replit-auth-web", () => ({ useAuth: () => ({ isAuthenticated: signedIn, refreshUser, user: accountUser }) }));
@@ -39,7 +39,7 @@ beforeEach(() => {
   setPronouns.mockReset();
   signedIn = true;
   accountUser = null;
-  browser = { name: "Ada", pronouns: "she/her", pronounsSupplied: true };
+  browser = { name: "Raena", pronouns: "she/her", pronounsSupplied: true };
 });
 
 describe("the welcome sheet for a signed-in account", () => {
@@ -47,7 +47,7 @@ describe("the welcome sheet for a signed-in account", () => {
     mutateAsync.mockResolvedValue({});
     refreshUser.mockResolvedValue(true);
     await openAndSave();
-    await waitFor(() => expect(mutateAsync).toHaveBeenCalledWith({ data: { displayName: "Ada", pronouns: "she/her" } }));
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledWith({ data: { displayName: "Raena", pronouns: "she/her" } }));
     await waitFor(() => expect(refreshUser).toHaveBeenCalled());
     // The browser copy comes from the account mirror, not from this sheet.
     expect(setName).not.toHaveBeenCalled();
@@ -59,7 +59,7 @@ describe("the welcome sheet for a signed-in account", () => {
     await openAndSave();
     expect((await screen.findAllByTestId("identity-save-error"))[0]!.textContent).toContain("disallowed");
     expect(screen.getAllByTestId("identity-save")[0]).not.toHaveProperty("disabled", true);
-    expect((screen.getAllByTestId("identity-name-input")[0] as HTMLInputElement).value).toBe("Ada");
+    expect((screen.getAllByTestId("identity-name-input")[0] as HTMLInputElement).value).toBe("Raena");
   });
 
   it("does not close when the re-read does not land", async () => {
@@ -74,20 +74,20 @@ describe("the welcome sheet for a signed-in account", () => {
 describe("the welcome sheet keeps what the account already holds", () => {
   it("a nameless account keeps its own pronouns, not this browser's", async () => {
     accountUser = { displayName: null, pronouns: "she/her" };
-    browser = { name: "Bob", pronouns: "he/him", pronounsSupplied: true };
+    browser = { name: "David", pronouns: "he/him", pronounsSupplied: true };
     mutateAsync.mockResolvedValue({});
     refreshUser.mockResolvedValue(true);
     await openAndSave();
-    await waitFor(() => expect(mutateAsync).toHaveBeenCalledWith({ data: { displayName: "Bob", pronouns: "she/her" } }));
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledWith({ data: { displayName: "David", pronouns: "she/her" } }));
   });
 
   it("an account missing pronouns keeps its own name, not this browser's", async () => {
-    accountUser = { displayName: "Ada Lovelace", pronouns: null };
-    browser = { name: "Bob", pronouns: "he/him", pronounsSupplied: true };
+    accountUser = { displayName: "Raena Franklin", pronouns: null };
+    browser = { name: "David", pronouns: "he/him", pronounsSupplied: true };
     mutateAsync.mockResolvedValue({});
     refreshUser.mockResolvedValue(true);
     await openAndSave();
-    await waitFor(() => expect(mutateAsync).toHaveBeenCalledWith({ data: { displayName: "Ada Lovelace", pronouns: "he/him" } }));
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledWith({ data: { displayName: "Raena Franklin", pronouns: "he/him" } }));
   });
 });
 
@@ -95,7 +95,7 @@ describe("the welcome sheet signed out", () => {
   it("saves to the browser only", async () => {
     signedIn = false;
     await openAndSave();
-    await waitFor(() => expect(setName).toHaveBeenCalledWith("Ada"));
+    await waitFor(() => expect(setName).toHaveBeenCalledWith("Raena"));
     expect(mutateAsync).not.toHaveBeenCalled();
   });
 });

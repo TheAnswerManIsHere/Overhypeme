@@ -258,6 +258,7 @@ test("a submitted fact, a made meme and an upgrade each reach both vendors, file
   test.setTimeout(150_000);
   const { phEvents, gaCommands, gaHits, gaWire, googleScript } = await captureAnalytics(page);
   const FACT_TEXT = "{NAME} out-ran the weekend and {SUBJ} never looked back";
+  // Kept under David's Q27 (Issue #983): a name rare enough that finding it proves it leaked; a set name appears in product defaults.
   const TYPED = "Quentin Zyxwv once out-ran the weekend and never looked back";
   const CHECKOUT_SESSION = "cs_test_e2e_wire_proof";
   await stubPublicFacts(page, { facts: [factDetail({ id: 1, text: FACT_TEXT })], images: ["/api/storage/objects/uploads/e2e-photo.jpg"] });
@@ -312,7 +313,7 @@ test("a submitted fact, a made meme and an upgrade each reach both vendors, file
     test.info().annotations.push({ type: "skipped: Google's hits on the wire", description: message });
     console.warn(`[analyticsOutbound] ${message}`);
   }
-  await page.getByPlaceholder(/When John does pushups/).fill(TYPED);
+  await page.getByPlaceholder(/When David does pushups/).fill(TYPED);
   await page.getByRole("button", { name: /Preview/ }).click();
   await expect(page.getByRole("heading", { name: "Does this look right?" })).toBeVisible();
   await page.getByRole("button", { name: /submit/i }).filter({ visible: true }).last().click();

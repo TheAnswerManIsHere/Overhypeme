@@ -6,5 +6,5 @@ export const CURRENT_LEGAL_VERSIONS = {
   "terms": "2026-11-18",
   "privacy": "2026-11-20.3",
   "copyright": "2026-11-18",
-  "guidelines": "2026-11-17"
+  "guidelines": "2026-11-24"
 } as const;

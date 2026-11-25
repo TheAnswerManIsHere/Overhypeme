@@ -148,7 +148,7 @@ describe("GET /memes/:slug — creator personalization", () => {
   it("renders the fact's {NAME} template with the creator's name and pronouns as factText", async () => {
     const userId = await createTestUser();
     await db.update(usersTable)
-      .set({ displayName: "Nick Baron", pronouns: "he/him" })
+      .set({ displayName: "David Franklin", pronouns: "he/him" })
       .where(eq(usersTable.id, userId));
     const factId = await insertFact("{NAME} makes onions cry.", { submittedById: userId });
     // No frozen renderedFactText, so the route renders the template for the creator.
@@ -156,7 +156,7 @@ describe("GET /memes/:slug — creator personalization", () => {
 
     const res = await request(makeApp()).get(`/memes/${meme.permalinkSlug}`);
     assert.equal(res.status, 200);
-    assert.equal(res.body.factText, "Nick Baron makes onions cry.");
+    assert.equal(res.body.factText, "David Franklin makes onions cry.");
     assert.doesNotMatch(res.body.factText, /\{NAME\}/);
   });
 });

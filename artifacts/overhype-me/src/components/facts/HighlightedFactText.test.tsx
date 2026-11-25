@@ -20,22 +20,22 @@ describe("HighlightedFactText", () => {
     const { container } = render(
       <HighlightedFactText
         template="{NAME_POSSESSIVE} PIN is the last four digits of pi."
-        name="John James"
+        name="David James"
         pronouns="they/them"
       />,
     );
-    expect(highlightedSpans(container)).toEqual(["John James's"]);
+    expect(highlightedSpans(container)).toEqual(["David James's"]);
     expect(container.textContent).toBe(
-      "John James's PIN is the last four digits of pi.",
+      "David James's PIN is the last four digits of pi.",
     );
   });
 
   it("highlights a plain {NAME} substitution", () => {
     const { container } = render(
-      <HighlightedFactText template="{NAME} once punched a shark" name="Sam" pronouns="she/her" />,
+      <HighlightedFactText template="{NAME} once punched a shark" name="Alex" pronouns="she/her" />,
     );
-    expect(highlightedSpans(container)).toEqual(["Sam"]);
-    expect(container.textContent).toBe("Sam once punched a shark");
+    expect(highlightedSpans(container)).toEqual(["Alex"]);
+    expect(container.textContent).toBe("Alex once punched a shark");
   });
 
   it("highlights both a name and its possessive in the same fact", () => {

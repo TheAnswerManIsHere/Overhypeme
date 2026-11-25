@@ -129,14 +129,14 @@ after(async () => {
 
 describe("GET /og/m/:slug — live meme", () => {
   it("returns 200 with full og:* tags and 1h cache", async () => {
-    const userId = await createUser("Alice <Test>");
+    const userId = await createUser("Raena <Test>");
     const factId = await insertFact("{NAME} fought a bear");
     const slug = `${PREFIX}live01`;
     await insertMeme({
       factId,
       createdById: userId,
       slug,
-      renderedFactText: "Alice <Test> fought a bear",
+      renderedFactText: "Raena <Test> fought a bear",
     });
 
     const res = await request(makeApp()).get(`/og/m/${slug}`);
@@ -152,8 +152,8 @@ describe("GET /og/m/:slug — live meme", () => {
     assert.match(res.text, new RegExp(`/m/${slug}`));
     // The displayName has HTML-special characters; the response must escape
     // them before they reach the meta content attribute.
-    assert.match(res.text, /Alice &lt;Test&gt;/);
-    assert.doesNotMatch(res.text, /Alice <Test>/);
+    assert.match(res.text, /Raena &lt;Test&gt;/);
+    assert.doesNotMatch(res.text, /Raena <Test>/);
   });
 
   it("uses square aspect ratio 1080x1080 by default", async () => {
@@ -218,7 +218,7 @@ describe("GET /og/m/:slug — live meme", () => {
 
 describe("GET /og/m/:slug — soft-deleted", () => {
   it("returns 410 with generic card and does not leak the meme content", async () => {
-    const userId = await createUser("Bob");
+    const userId = await createUser("David");
     const factId = await insertFact("secret content nobody should see");
     const slug = `${PREFIX}gone03`;
     await insertMeme({

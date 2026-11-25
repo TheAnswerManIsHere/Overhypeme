@@ -29,7 +29,7 @@ async function user(opts: { verified?: boolean; onboarded?: boolean; pronouns?: 
   await db.insert(usersTable).values({
     id,
     email: `${id}@test.local`,
-    firstName: "Sarah",
+    firstName: "Raena",
     emailVerifiedAt: opts.verified === false ? null : new Date(),
     onboardingCompletedAt: opts.onboarded ? new Date() : null,
     dateOfBirth: opts.onboarded ? "1990-01-01" : null,
@@ -57,7 +57,7 @@ function yearsAgo(years: number, dayOffset = 0): { dobYear: string; dobMonth: st
   return { dobYear: String(d.getUTCFullYear()), dobMonth: String(d.getUTCMonth() + 1), dobDay: String(d.getUTCDate()) };
 }
 
-const COMPLETE = { displayName: "Sarah Connor", pronouns: "she/her", ...yearsAgo(30), marketingOptIn: true, captchaToken: "dev-bypass", legalAcceptance: ACCEPTED };
+const COMPLETE = { displayName: "Raena Franklin", pronouns: "she/her", ...yearsAgo(30), marketingOptIn: true, captchaToken: "dev-bypass", legalAcceptance: ACCEPTED };
 
 async function acceptances(userId: string) {
   return db.select().from(legalAcceptancesTable).where(eq(legalAcceptancesTable.userId, userId));
@@ -83,7 +83,7 @@ describe("GET /api/auth/onboarding", () => {
     assert.equal(us.body.accountPronouns, "he/him");
     // A provider first name is not the account's display name (Phase 2).
     assert.equal(us.body.displayName, null);
-    assert.equal(us.body.providerFirstName, "Sarah");
+    assert.equal(us.body.providerFirstName, "Raena");
     assert.equal(us.body.completed, false);
     const ca = await request(createApp()).get("/api/auth/onboarding").set("authorization", `Bearer ${sid}`).set("cf-ipcountry", "CA");
     assert.equal(ca.body.marketingDefault, false);
@@ -98,10 +98,10 @@ describe("PUT /api/users/me/onboarding/draft", () => {
     const sid = await bearer(id);
     const app = createApp();
     const put = await request(app).put("/api/users/me/onboarding/draft").set("authorization", `Bearer ${sid}`)
-      .send({ displayName: "Sar", pronouns: "they/them", dobYear: "1990", marketingOptIn: false });
+      .send({ displayName: "Rae", pronouns: "they/them", dobYear: "1990", marketingOptIn: false });
     assert.equal(put.status, 200);
     const got = await request(app).get("/api/auth/onboarding").set("authorization", `Bearer ${sid}`);
-    assert.deepEqual(got.body.draft, { displayName: "Sar", pronouns: "they/them", dobYear: "1990", marketingOptIn: false });
+    assert.deepEqual(got.body.draft, { displayName: "Rae", pronouns: "they/them", dobYear: "1990", marketingOptIn: false });
   });
 
   it("a date under 18 is refused and nothing is written, not even the other fields, and no refusal is recorded", async () => {
@@ -131,7 +131,7 @@ describe("POST /api/users/me/onboarding", () => {
   it("requires a display name, under the shared name rule, and writes nothing without one", async () => {
     const id = await user();
     const sid = await bearer(id);
-    for (const displayName of [undefined, "", "Sarah 😀", "x".repeat(51)]) {
+    for (const displayName of [undefined, "", "Raena 😀", "x".repeat(51)]) {
       const res = await request(createApp()).post("/api/users/me/onboarding").set("authorization", `Bearer ${sid}`).send({ ...COMPLETE, displayName });
       assert.equal(res.status, 400, JSON.stringify(displayName));
       assert.equal(res.body.field, "displayName");
@@ -151,7 +151,7 @@ describe("POST /api/users/me/onboarding", () => {
     const r = await row(id);
     assert.ok(r.onboardingCompletedAt instanceof Date);
     assert.equal(r.pronouns, "she/her");
-    assert.equal(r.displayName, "Sarah Connor");
+    assert.equal(r.displayName, "Raena Franklin");
     assert.equal(r.dateOfBirth, `${COMPLETE.dobYear}-${COMPLETE.dobMonth.padStart(2, "0")}-${COMPLETE.dobDay.padStart(2, "0")}`);
     assert.ok(r.marketingConsentAt instanceof Date);
     assert.equal(r.marketingConsentMethod, "default_checked");
@@ -201,7 +201,7 @@ describe("POST /api/users/me/onboarding", () => {
     const email = `${USER_PREFIX}${randomUUID()}@test.local`;
     const custom = "ze|hir|hir|hirs|hirself|s";
     const res = await request(createApp()).post("/api/auth/register")
-      .send({ email, password: "long-enough-1", firstName: "Zed", lastName: "Doe", displayName: "Zed", pronouns: custom });
+      .send({ email, password: "long-enough-1", firstName: "David", lastName: "Franklin", displayName: "David", pronouns: custom });
     assert.equal(res.status, 201, JSON.stringify(res.body));
     const [r] = await db.select({ pronouns: usersTable.pronouns, id: usersTable.id, registered: usersTable.registeredUnderOnboarding }).from(usersTable).where(eq(usersTable.email, email));
     assert.equal(r!.pronouns, custom);

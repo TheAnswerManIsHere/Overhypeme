@@ -265,7 +265,7 @@ test("read-only mode on a touch screen: a tap explains and does nothing else; si
   const page = await phone.newPage();
   try {
     await setSwitch(admin.page, true);
-    await seedIdentity(page, "Nick Baron");
+    await seedIdentity(page, "David Franklin");
     await stubFactPage(page);
     await page.goto(`/facts/${FACT.id}`);
     const make = paused(page, "MAKE A MEME OF THIS").first();

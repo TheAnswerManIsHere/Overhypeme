@@ -140,7 +140,7 @@ describe("C4: login/register throttling", () => {
       const res = await request(app)
         .post("/auth/register")
         .set("CF-Connecting-IP", ip)
-        .send({ email: `${PREFIX}reg${i}@nope.test`, password: "long-enough-pw", displayName: "Pat", firstName: "Pat", lastName: "Doe" });
+        .send({ email: `${PREFIX}reg${i}@nope.test`, password: "long-enough-pw", displayName: "Alex", firstName: "Alex", lastName: "Franklin" });
       if (res.status === 429) { throttled = true; break; }
     }
     assert.ok(throttled, "expected a 429 after exceeding the per-IP register limit");

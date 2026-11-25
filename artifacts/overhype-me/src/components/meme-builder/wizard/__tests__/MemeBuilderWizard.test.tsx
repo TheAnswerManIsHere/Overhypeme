@@ -12,7 +12,7 @@ const S2 = { timeout: 5000 };
 const VIEWER: ViewerContext = {
   tier: "registered",
   userId: "user-1",
-  name: "Quinn",
+  name: "Alex",
   pronouns: "they/them",
 };
 
@@ -180,7 +180,7 @@ describe("MemeBuilderWizard", () => {
         factId: "fact-42",
         entryFlow: "fact-detail",
         source: { kind: "self-upload", image: { kind: "library", objectPath: "/objects/uploads/777.jpg" } },
-        name: "Quinn",
+        name: "Alex",
         pronouns: "they/them",
       });
       return renderWizard({
@@ -276,7 +276,7 @@ describe("MemeBuilderWizard", () => {
       expect((screen.getByRole("button", { name: "Make my meme" }) as HTMLButtonElement).disabled).toBe(false);
       const draft = storedDraft();
       expect(draft.source).toEqual({ kind: "self-upload", image: { kind: "library", objectPath: "/objects/uploads/777.jpg" } });
-      expect(draft.name).toBe("Quinn");
+      expect(draft.name).toBe("Alex");
       expect(draft.isPublic).toBe(true);
       expect(onComplete).not.toHaveBeenCalled();
       expect(memeBodies).toHaveLength(0);
@@ -335,12 +335,12 @@ describe("MemeBuilderWizard", () => {
         entryFlow: "fact-detail",
         mode: "stock",
         source: { kind: "stock", stockImageId: "777" },
-        name: "Quinn",
+        name: "Alex",
         pronouns: "they/them",
       } as unknown as Parameters<typeof captureWizardState>[0]);
       renderWizard();
       await screen.findByRole("heading", { name: /build your meme/i }, S2);
-      await waitFor(() => expect(storedDraft().name).toBe("Quinn"), S2);
+      await waitFor(() => expect(storedDraft().name).toBe("Alex"), S2);
       expect(storedDraft().source).toBeUndefined();
       expect((screen.getByRole("button", { name: "Make my meme" }) as HTMLButtonElement).disabled).toBe(true);
       expect(screen.queryByTestId("source-tab-stock")).toBeNull();

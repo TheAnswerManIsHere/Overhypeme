@@ -788,8 +788,8 @@ describe("evidence never leaves this process by URL", () => {
 const ESP = {
   organizationName: "Availeron Consulting, Inc.",
   contactEmail: "cybertip@example.test",
-  contactFirstName: "Jane",
-  contactLastName: "Doe",
+  contactFirstName: "Raena",
+  contactLastName: "Franklin",
 };
 
 const BASE_REPORT = {
@@ -822,8 +822,8 @@ describe("buildReportXml", () => {
     </internetDetails>
     <reporter>
         <reportingPerson>
-            <firstName>Jane</firstName>
-            <lastName>Doe</lastName>
+            <firstName>Raena</firstName>
+            <lastName>Franklin</lastName>
             <email>cybertip@example.test</email>
         </reportingPerson>
         <companyTemplate>Availeron Consulting, Inc.</companyTemplate>

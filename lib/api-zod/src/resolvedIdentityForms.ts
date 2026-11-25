@@ -58,7 +58,7 @@ export function unresolvedSimpleTokens(): string[] {
 }
 
 /** Possessive form of a name. Per product decision we ALWAYS append "'s" —
- *  including names already ending in "s" (Chris → Chris's) — so the rule is
+ *  including names already ending in "s" (James → James's) — so the rule is
  *  unambiguous and viewer-independent. Empty input yields empty output. */
 export function possessive(name: string): string {
   return name ? `${name}'s` : "";

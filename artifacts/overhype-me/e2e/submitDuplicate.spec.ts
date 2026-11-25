@@ -22,7 +22,7 @@ async function preview(page: Page, verdict: Record<string, unknown>): Promise<vo
   await page.route("**/api/ai/check-duplicate", (route) => route.fulfill({ json: verdict }));
   await page.route("**/api/ai/suggest-hashtags", (route) => route.fulfill({ json: { hashtags: [] } }));
   await page.goto("/submit", { waitUntil: "domcontentloaded" });
-  await page.getByPlaceholder(/When John does pushups/).fill("Alex out-stared a lighthouse, and it looked away first.");
+  await page.getByPlaceholder(/When David does pushups/).fill("Alex out-stared a lighthouse, and it looked away first.");
   await page.getByRole("button", { name: /Preview/ }).click();
 }
 
@@ -41,7 +41,7 @@ test.describe("Submit · the duplicate message", () => {
     await expect(page.getByTestId("submit-fact")).toHaveText(/Submit anyway/);
     await expect(page.getByTestId("submit-fact")).toBeEnabled();
     await warning.getByTestId("duplicate-back-out").click();
-    await expect(page.getByPlaceholder(/When John does pushups/), "backing out returns to the wording").toBeVisible();
+    await expect(page.getByPlaceholder(/When David does pushups/), "backing out returns to the wording").toBeVisible();
   });
 
   test("an exact match is refused before the click, with no Submit", async ({ page }) => {

@@ -30,9 +30,9 @@ describe("WelcomeModal teaser", () => {
     });
 
     it(`reads about the typed name in the third person (${pronouns})`, () => {
-      const { text, highlighted } = renderTeaser("  Alex Rivera ", pronouns);
-      expect(text).toBe("The universe doesn't expand. Alex Rivera pushes it.");
-      expect(highlighted).toEqual(["Alex Rivera"]);
+      const { text, highlighted } = renderTeaser("  Alex Franklin ", pronouns);
+      expect(text).toBe("The universe doesn't expand. Alex Franklin pushes it.");
+      expect(highlighted).toEqual(["Alex Franklin"]);
     });
   }
 });

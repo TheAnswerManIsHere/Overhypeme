@@ -38,15 +38,15 @@ describe("the shared name table, in the browser", () => {
 describe("a name field", () => {
   it("refuses an emoji as it is typed, and says why", () => {
     render(<Field />);
-    fireEvent.change(input(), { target: { value: "Ada😀" } });
-    expect(input().value).toBe("Ada");
+    fireEvent.change(input(), { target: { value: "Raena😀" } });
+    expect(input().value).toBe("Raena");
     expect(screen.getByTestId("name-field-hint").textContent).toMatch(/letters, numbers/i);
   });
 
   it("drops brackets and quotes from a paste but keeps the rest", () => {
     render(<Field />);
-    fireEvent.change(input(), { target: { value: 'Ada "Countess" (Lovelace)' } });
-    expect(input().value).toBe("Ada Countess Lovelace");
+    fireEvent.change(input(), { target: { value: 'Raena "Countess" (Franklin)' } });
+    expect(input().value).toBe("Raena Countess Franklin");
   });
 
   it("converts the curly apostrophe iOS types", () => {
@@ -58,6 +58,7 @@ describe("a name field", () => {
 
   it("keeps accented English-script letters, and refuses another script", () => {
     render(<Field />);
+    // Kept under David's Q27 (Issue #983): accented and Cyrillic letters are what the field accepts or refuses.
     fireEvent.change(input(), { target: { value: "Zoë Łukasz" } });
     expect(input().value).toBe("Zoë Łukasz");
     fireEvent.change(input(), { target: { value: "Zoë Ольга" } });
@@ -118,11 +119,11 @@ describe("a name field", () => {
   });
 
   it("frees the room of a replaced selection without touching the rest", () => {
-    const full = "Ada " + "x".repeat(42) + " Zoë";
+    const full = "Alex " + "x".repeat(41) + " Zoë";
     render(<Field initial={full} />);
-    // "Ada" selected and replaced by "Augusta": three letters freed, so "Aug" fits.
-    edit("Augusta" + full.slice(3), 7);
-    expect(input().value).toBe("Aug" + full.slice(3));
+    // "Alex" selected and replaced by "Raena": four letters freed, so "Raen" fits.
+    edit("Raena" + full.slice(4), 5);
+    expect(input().value).toBe("Raen" + full.slice(4));
   });
 
   it("lets a stored name over the limit be shortened but not lengthened", () => {

@@ -949,7 +949,7 @@ ${opts.unfinished ? ctaButton(onboardUrl, "Finish Setting Up") : ctaButton(siteU
   return { subject, text, html };
 }
 
-/** "Hi Sam," or "Hi," when the account has no first name. */
+/** "Hi Alex," or "Hi," when the account has no first name. */
 function greetingLine(firstName: string | null | undefined): string {
   const name = firstName?.trim();
   return name ? `Hi ${name},` : "Hi,";

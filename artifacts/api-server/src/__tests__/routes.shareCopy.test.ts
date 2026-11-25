@@ -159,10 +159,10 @@ describe("GET /api/share-copy/:memeId/:platform — validation", () => {
 
 describe("GET /api/share-copy/:memeId/twitter", () => {
   it("returns text, hashtags, and a pre-built intentUrl", async () => {
-    const creatorId = await createUser("Alice");
+    const creatorId = await createUser("Raena");
     const factId = await insertFact("a fact");
     const slug = `${PREFIX}tw01`;
-    await insertMeme({ factId, createdById: creatorId, slug, renderedFactText: "Alice fought a bear" });
+    await insertMeme({ factId, createdById: creatorId, slug, renderedFactText: "Raena fought a bear" });
 
     const app = buildTestApp({ kind: "authenticated", userId: testerUserId }, shareCopyRouter);
     const res = await request(app).get(`/api/share-copy/${slug}/twitter`);
@@ -170,15 +170,16 @@ describe("GET /api/share-copy/:memeId/twitter", () => {
     assert.equal(res.status, 200);
     assert.equal(res.body.platform, "twitter");
     assert.equal(res.body.url, `https://overhype.me/m/${slug}`);
-    assert.equal(res.body.text, "Alice fought a bear");
+    assert.equal(res.body.text, "Raena fought a bear");
     assert.deepEqual(res.body.hashtags, ["overhype", "legendsaremadeup"]);
     assert.match(res.body.intentUrl, /^https:\/\/twitter\.com\/intent\/tweet\?/);
-    assert.match(res.body.intentUrl, /text=Alice\+fought\+a\+bear/);
+    assert.match(res.body.intentUrl, /text=Raena\+fought\+a\+bear/);
     assert.match(res.body.intentUrl, new RegExp(`url=${encodeURIComponent(`https://overhype.me/m/${slug}`).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
     assert.match(res.body.intentUrl, /hashtags=overhype%2Clegendsaremadeup/);
   });
 
   it("URL-encodes names with apostrophes and accented characters", async () => {
+    // Kept under David's Q27 (Issue #983): the é is what must survive URL encoding.
     const creatorId = await createUser("José O'Hara");
     const factId = await insertFact("a fact");
     const slug = `${PREFIX}tw02`;
@@ -208,10 +209,10 @@ describe("GET /api/share-copy/:memeId/twitter", () => {
 
 describe("GET /api/share-copy/:memeId/web_share", () => {
   it("returns title, text, and url", async () => {
-    const creatorId = await createUser("Bob");
+    const creatorId = await createUser("David");
     const factId = await insertFact("a fact");
     const slug = `${PREFIX}ws01`;
-    await insertMeme({ factId, createdById: creatorId, slug, renderedFactText: "Bob fought a bear" });
+    await insertMeme({ factId, createdById: creatorId, slug, renderedFactText: "David fought a bear" });
 
     const app = buildTestApp({ kind: "authenticated", userId: testerUserId }, shareCopyRouter);
     const res = await request(app).get(`/api/share-copy/${slug}/web_share`);
@@ -219,17 +220,17 @@ describe("GET /api/share-copy/:memeId/web_share", () => {
     assert.equal(res.status, 200);
     assert.equal(res.body.platform, "web_share");
     assert.equal(res.body.url, `https://overhype.me/m/${slug}`);
-    assert.equal(res.body.title, "Bob on overhype.me");
-    assert.equal(res.body.text, "Bob fought a bear");
+    assert.equal(res.body.title, "David on overhype.me");
+    assert.equal(res.body.text, "David fought a bear");
   });
 });
 
 describe("GET /api/share-copy/:memeId/copy_link", () => {
   it("returns just the absolute permalink", async () => {
-    const creatorId = await createUser("Carol");
+    const creatorId = await createUser("Raena");
     const factId = await insertFact("a fact");
     const slug = `${PREFIX}cl01`;
-    await insertMeme({ factId, createdById: creatorId, slug, renderedFactText: "Carol fought a bear" });
+    await insertMeme({ factId, createdById: creatorId, slug, renderedFactText: "Raena fought a bear" });
 
     const app = buildTestApp({ kind: "authenticated", userId: testerUserId }, shareCopyRouter);
     const res = await request(app).get(`/api/share-copy/${slug}/copy_link`);
@@ -240,30 +241,30 @@ describe("GET /api/share-copy/:memeId/copy_link", () => {
 
 describe("GET /api/share-copy/:memeId/email", () => {
   it("returns subject, body, and a pre-built mailto: intentUrl", async () => {
-    const creatorId = await createUser("Dave");
+    const creatorId = await createUser("David");
     const factId = await insertFact("a fact");
     const slug = `${PREFIX}em01`;
-    await insertMeme({ factId, createdById: creatorId, slug, renderedFactText: "Dave fought a bear" });
+    await insertMeme({ factId, createdById: creatorId, slug, renderedFactText: "David fought a bear" });
 
     const app = buildTestApp({ kind: "authenticated", userId: testerUserId }, shareCopyRouter);
     const res = await request(app).get(`/api/share-copy/${slug}/email`);
 
     assert.equal(res.status, 200);
     assert.equal(res.body.platform, "email");
-    assert.equal(res.body.subject, "A meme of Dave on overhype.me");
-    assert.ok(res.body.body.startsWith("Dave thought you"));
+    assert.equal(res.body.subject, "A meme of David on overhype.me");
+    assert.ok(res.body.body.startsWith("David thought you"));
     assert.ok(res.body.body.includes(`https://overhype.me/m/${slug}`));
     assert.ok(res.body.body.includes("legends are made up"));
     assert.match(res.body.intentUrl, /^mailto:\?/);
     // mailto: bodies must use %20, not + — Outlook renders the + literally.
     assert.doesNotMatch(res.body.intentUrl, /\+/);
-    assert.match(res.body.intentUrl, /subject=A%20meme%20of%20Dave/);
+    assert.match(res.body.intentUrl, /subject=A%20meme%20of%20David/);
   });
 });
 
 describe("GET /api/share-copy/:memeId/:platform — 410 soft-deleted", () => {
   it("returns 410 when the meme has been removed", async () => {
-    const creatorId = await createUser("Erin");
+    const creatorId = await createUser("Raena");
     const factId = await insertFact("a fact");
     const slug = `${PREFIX}gone01`;
     await insertMeme({ factId, createdById: creatorId, slug, deleted: true, renderedFactText: "x" });
@@ -276,10 +277,10 @@ describe("GET /api/share-copy/:memeId/:platform — 410 soft-deleted", () => {
 
 describe("GET /api/share-copy/:memeId/:platform — rate limit", () => {
   it("returns 429 after exceeding 60 requests in the window", async () => {
-    const creatorId = await createUser("Frank");
+    const creatorId = await createUser("David");
     const factId = await insertFact("a fact");
     const slug = `${PREFIX}rl01`;
-    await insertMeme({ factId, createdById: creatorId, slug, renderedFactText: "Frank fought a bear" });
+    await insertMeme({ factId, createdById: creatorId, slug, renderedFactText: "David fought a bear" });
 
     const app = buildTestApp({ kind: "authenticated", userId: testerUserId }, shareCopyRouter);
     // Exhaust the bucket (the limit is 60). Fire 60 then expect the 61st to 429.

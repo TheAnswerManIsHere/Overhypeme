@@ -21,7 +21,7 @@ import {
 } from "../lib/adminNotify.js";
 
 const BASE_OPTS: Omit<AdminNotifyOpts, "type"> = {
-  submitterName: "Jane Doe",
+  submitterName: "Raena Franklin",
   itemText: "This is the submitted content.",
   reviewUrl: "https://overhype.me/admin/moderation/item-42",
 };
@@ -76,7 +76,7 @@ describe("buildNotificationEmail – plain-text body", () => {
     for (const type of TYPES) {
       const { text } = build({ type });
       assert.ok(
-        text.includes("Submitted by: Jane Doe"),
+        text.includes("Submitted by: Raena Franklin"),
         `text for '${type}' should include the submitter line:\n${text}`,
       );
     }
@@ -104,8 +104,8 @@ describe("buildNotificationEmail – review URL", () => {
 
 describe("isTestAccount – synthetic-account suppression", () => {
   it("flags @test.local emails", () => {
-    assert.equal(isTestAccount({ email: "alice@test.local" }), true);
-    assert.equal(isTestAccount({ email: "ALICE@TEST.LOCAL" }), true);
+    assert.equal(isTestAccount({ email: "raena@test.local" }), true);
+    assert.equal(isTestAccount({ email: "RAENA@TEST.LOCAL" }), true);
   });
 
   it("flags t_-prefixed ids", () => {

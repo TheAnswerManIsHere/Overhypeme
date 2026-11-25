@@ -54,6 +54,7 @@ describe("caption fonts", () => {
   it("every face renders, and no two faces draw the same caption", async () => {
     const seen = new Map<string, string>();
     for (const font of CAPTION_FONTS) {
+      // Kept under David's Q27 (Issue #983): the accented letters are what every caption font must draw.
       const hash = sha(await render({ topText: "Zoë Nguyễn counted", bottomText: "to infinity twice", fontFamily: font.id }));
       assert.ok(!seen.has(hash), `${font.id} draws differently from ${seen.get(hash)}`);
       seen.set(hash, font.id);

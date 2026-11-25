@@ -71,6 +71,7 @@ describe("Phase 4 — NameSchema", () => {
   });
 
   it("accepts a name with spaces, apostrophes, hyphens, periods", () => {
+    // Kept under David's Q27 (Issue #983): the hyphen, apostrophe and suffix are what the validator accepts.
     const r = NameSchema.safeParse("Mary-Anne O'Neill Jr.");
     assert.equal(r.success, true);
   });
@@ -112,6 +113,7 @@ describe("Phase 4 — NameSchema", () => {
   });
 
   it("accepts non-ASCII letters", () => {
+    // Kept under David's Q27 (Issue #983): the accents are what the validator accepts.
     const r = NameSchema.safeParse("José Núñez");
     assert.equal(r.success, true);
   });

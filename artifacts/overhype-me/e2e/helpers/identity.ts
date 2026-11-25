@@ -4,7 +4,7 @@
  */
 import type { Page } from "@playwright/test";
 
-export async function seedIdentity(page: Page, name = "Nick Baron", pronouns = "he/him"): Promise<void> {
+export async function seedIdentity(page: Page, name = "David Franklin", pronouns = "he/him"): Promise<void> {
   await page.addInitScript(([n, p]) => {
     localStorage.setItem("fact_db_name", n);
     localStorage.setItem("fact_db_pronouns", p);

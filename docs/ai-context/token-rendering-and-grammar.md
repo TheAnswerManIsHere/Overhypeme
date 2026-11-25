@@ -47,7 +47,7 @@ reasoning.
 canonical renderer (`renderCanonical.ts`, via `possessive()`) and the
 user-facing renderer (`render-fact.ts`, via `possessiveName()`) substitute
 `{NAME_POSSESSIVE}` by **always appending `'s`** — including for names already
-ending in `s` (`James` → `James's`, `Chris` → `Chris's`) — so the rule is
+ending in `s` (`James` → `James's`) — so the rule is
 unambiguous and viewer-independent (product decision). In the segmented
 renderer (`renderFactSegments`) `{NAME}` and `{NAME_POSSESSIVE}` use **two
 distinct placeholder sentinels** so each becomes the right text (name vs.

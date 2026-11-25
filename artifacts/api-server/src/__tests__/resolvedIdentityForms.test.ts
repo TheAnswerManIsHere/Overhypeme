@@ -34,16 +34,16 @@ describe("resolveIdentityForms — grammatical number", () => {
 
   it("is singular for he/she", () => {
     assert.equal(resolveIdentityForms("David", "he/him").grammaticalNumber, "singular");
-    assert.equal(resolveIdentityForms("Sam", "she/her").grammaticalNumber, "singular");
+    assert.equal(resolveIdentityForms("Alex", "she/her").grammaticalNumber, "singular");
   });
 
   it("is singular for a neopronoun subject (NOT plural — the near-miss case)", () => {
-    assert.equal(resolveIdentityForms("Robin", "xe/xem").grammaticalNumber, "singular");
-    assert.equal(resolveIdentityForms("Robin", "ze/zir").grammaticalNumber, "singular");
+    assert.equal(resolveIdentityForms("Alex", "xe/xem").grammaticalNumber, "singular");
+    assert.equal(resolveIdentityForms("Alex", "ze/zir").grammaticalNumber, "singular");
   });
 
   it("is singular for malformed/unrecognized pronoun input", () => {
-    assert.equal(resolveIdentityForms("Robin", "???").grammaticalNumber, "singular");
+    assert.equal(resolveIdentityForms("Alex", "???").grammaticalNumber, "singular");
   });
 
   it("defaults to they/them (plural) when pronouns is absent", () => {
@@ -63,7 +63,7 @@ describe("resolveIdentityForms — token forms", () => {
   });
 
   it("resolves she/her to the historical possessive/reflexive set", () => {
-    const f = resolveIdentityForms("Sam", "she/her").tokens;
+    const f = resolveIdentityForms("Alex", "she/her").tokens;
     assert.equal(f.POSS, "her"); assert.equal(f.POSS_PRO, "hers"); assert.equal(f.REFL, "herself");
   });
 
@@ -71,10 +71,10 @@ describe("resolveIdentityForms — token forms", () => {
     // PR #398 round 1: these are two of PRONOUN_ALLOWLIST's own five options
     // (validators/memeBuilder.ts), not an obscure edge case — before this
     // fix they silently fell through to "their"/"theirs"/"themselves" here.
-    const ze = resolveIdentityForms("Robin", "ze/zir").tokens;
+    const ze = resolveIdentityForms("Alex", "ze/zir").tokens;
     assert.equal(ze.POSS, "zir"); assert.equal(ze.POSS_PRO, "zirs"); assert.equal(ze.REFL, "zirself");
 
-    const xe = resolveIdentityForms("Robin", "xe/xem").tokens;
+    const xe = resolveIdentityForms("Alex", "xe/xem").tokens;
     assert.equal(xe.POSS, "xyr"); assert.equal(xe.POSS_PRO, "xyrs"); assert.equal(xe.REFL, "xemself");
   });
 
@@ -84,13 +84,13 @@ describe("resolveIdentityForms — token forms", () => {
     // for — the fallback this whole describe block is about still applies to
     // it, same as any malformed/unrecognized input. That gap is real and
     // tracked separately; it is not what this test is pinning.
-    const f = resolveIdentityForms("Robin", "ey/em").tokens;
+    const f = resolveIdentityForms("Alex", "ey/em").tokens;
     assert.equal(f.POSS, "their"); assert.equal(f.POSS_PRO, "theirs"); assert.equal(f.REFL, "themselves");
   });
 
   it("resolves a custom pronoun set to its five forms, with either verb marker", () => {
     for (const [marker, number] of [["s", "singular"], ["p", "plural"]] as const) {
-      const r = resolveIdentityForms("Robin", `xe|xem|xyr|xyrs|xemself|${marker}`);
+      const r = resolveIdentityForms("Alex", `xe|xem|xyr|xyrs|xemself|${marker}`);
       const f = r.tokens;
       assert.equal(f.SUBJ, "xe"); assert.equal(f.OBJ, "xem");
       assert.equal(f.POSS, "xyr"); assert.equal(f.POSS_PRO, "xyrs"); assert.equal(f.REFL, "xemself");
@@ -100,22 +100,22 @@ describe("resolveIdentityForms — token forms", () => {
   });
 
   it("fills an empty custom form from they/them in its slot", () => {
-    const f = resolveIdentityForms("Robin", "fae||||faerself|s").tokens;
+    const f = resolveIdentityForms("Alex", "fae||||faerself|s").tokens;
     assert.equal(f.SUBJ, "fae"); assert.equal(f.OBJ, "them"); assert.equal(f.POSS, "their");
     assert.equal(f.POSS_PRO, "theirs"); assert.equal(f.REFL, "faerself");
   });
 
   it("never leaks a malformed pipe string into a token", () => {
     for (const bad of ["xe|xem|xyr", "xe|xem|xyr|xyrs|xemself|q", "|||||s"]) {
-      const f = resolveIdentityForms("Robin", bad).tokens;
+      const f = resolveIdentityForms("Alex", bad).tokens;
       assert.equal(f.SUBJ, "they", bad); assert.equal(f.OBJ, "them", bad);
     }
   });
 
   it("NAME and NAME_POSSESSIVE reflect the given name", () => {
-    const f = resolveIdentityForms("Chris", "he/him").tokens;
-    assert.equal(f.NAME, "Chris");
-    assert.equal(f.NAME_POSSESSIVE, "Chris's");
+    const f = resolveIdentityForms("James", "he/him").tokens;
+    assert.equal(f.NAME, "James");
+    assert.equal(f.NAME_POSSESSIVE, "James's");
   });
 
   it("every grammar simple token has a resolved-forms key (no drift)", () => {
@@ -142,10 +142,10 @@ describe("renderTemplateWithIdentityForms", () => {
     // exists for is about the VERB: it still takes the singular branch,
     // because "xe" is not literally "they" — that's unrelated to which
     // possessive form got substituted, and unchanged by PR #398 round 1.
-    const neo = resolveIdentityForms("Robin", "xe/xem");
+    const neo = resolveIdentityForms("Alex", "xe/xem");
     assert.equal(
       renderTemplateWithIdentityForms("{NAME} {gives|give} {POSS} best.", neo),
-      "Robin gives xyr best.",
+      "Alex gives xyr best.",
     );
   });
 
@@ -153,10 +153,10 @@ describe("renderTemplateWithIdentityForms", () => {
     // Same near-miss invariant, but for the they-style-fallback case (e.g.
     // "ey/em") rather than a set with its own forms — the verb-branch rule is
     // about literal-"they", not about whether POSS got a bespoke form.
-    const fallback = resolveIdentityForms("Robin", "ey/em");
+    const fallback = resolveIdentityForms("Alex", "ey/em");
     assert.equal(
       renderTemplateWithIdentityForms("{NAME} {gives|give} {POSS} best.", fallback),
-      "Robin gives their best.",
+      "Alex gives their best.",
     );
   });
 
@@ -175,7 +175,7 @@ describe("renderTemplateWithIdentityForms", () => {
 
 describe("possessive", () => {
   it("always appends 's, including names ending in s", () => {
-    assert.equal(possessive("Chris"), "Chris's");
+    assert.equal(possessive("James"), "James's");
     assert.equal(possessive("James"), "James's");
   });
 

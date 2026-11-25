@@ -14,7 +14,7 @@ import { AuthProvider, useAuth } from "@workspace/replit-auth-web";
 
 type Deferred = { resolve: (v: Response) => void; reject: (e: unknown) => void };
 
-const USER = { id: "u1", email: "a@example.com", displayName: "Ada", pronouns: "she/her" };
+const USER = { id: "u1", email: "a@example.com", displayName: "Raena", pronouns: "she/her" };
 const VERSION = { gridRevision: 1, principalFingerprint: "fp-u1" };
 
 function payload(user: unknown, version = VERSION): Response {
@@ -78,7 +78,7 @@ describe("auth reads in flight at sign-out (#725)", () => {
     act(() => void result.current.logout());
     await act(async () => authUserCalls[1]!.resolve(payload({ ...USER, displayName: "Changed" })));
     expect(await refreshed).toBe(false);
-    expect(result.current.user?.displayName).toBe("Ada");
+    expect(result.current.user?.displayName).toBe("Raena");
   });
 
   it("a late entitlement-poll refetch publishes nothing", async () => {
@@ -95,7 +95,7 @@ describe("auth reads in flight at sign-out (#725)", () => {
     act(() => void result.current.logout());
     await act(async () => authUserCalls[1]!.resolve(payload({ ...USER, displayName: "Changed" }, { ...VERSION, gridRevision: 2 })));
     await flush();
-    expect(result.current.user?.displayName).toBe("Ada");
+    expect(result.current.user?.displayName).toBe("Raena");
     versionResponse = () => new Response(JSON.stringify(VERSION), { status: 200 });
   });
 
@@ -111,7 +111,7 @@ describe("auth reads in flight at sign-out (#725)", () => {
     });
     await act(async () => authUserCalls[1]!.resolve(payload({ ...USER, displayName: "Changed" })));
     expect(await refreshed).toBe(false);
-    expect(result.current.user?.displayName).toBe("Ada");
+    expect(result.current.user?.displayName).toBe("Raena");
   });
 
   it("refreshUser reports a read that landed", async () => {
@@ -121,9 +121,9 @@ describe("auth reads in flight at sign-out (#725)", () => {
     act(() => {
       refreshed = result.current.refreshUser();
     });
-    await act(async () => authUserCalls[1]!.resolve(payload({ ...USER, displayName: "Grace" })));
+    await act(async () => authUserCalls[1]!.resolve(payload({ ...USER, displayName: "Alex" })));
     expect(await refreshed).toBe(true);
-    expect(result.current.user?.displayName).toBe("Grace");
+    expect(result.current.user?.displayName).toBe("Alex");
   });
 });
 

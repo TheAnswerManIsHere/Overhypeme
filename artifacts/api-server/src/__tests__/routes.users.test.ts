@@ -264,18 +264,18 @@ describe("PATCH /users/me — success", () => {
       .patch("/users/me")
       .set("authorization", `Bearer ${sid}`)
       .send({
-        displayName: "  Pat  ",
-        firstName: "  Pat  ",
-        lastName: "  Doe  ",
+        displayName: "  Alex  ",
+        firstName: "  Alex  ",
+        lastName: "  Franklin  ",
         pronouns: "  they/them  ",
       });
     assert.equal(res.status, 200);
     assert.equal(res.body.success, true);
 
     const [row] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
-    assert.equal(row.displayName, "Pat");
-    assert.equal(row.firstName, "Pat");
-    assert.equal(row.lastName, "Doe");
+    assert.equal(row.displayName, "Alex");
+    assert.equal(row.firstName, "Alex");
+    assert.equal(row.lastName, "Franklin");
     assert.equal(row.pronouns, "they/them");
   });
 

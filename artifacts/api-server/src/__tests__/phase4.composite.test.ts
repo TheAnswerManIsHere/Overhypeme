@@ -63,8 +63,8 @@ describe("Phase 4 — composeMeme", () => {
       imageSource: photo,
       aspectRatio: "landscape" as const,
     };
-    const a = await composeMeme({ ...base, name: "Alex" });
-    const b = await composeMeme({ ...base, name: "Jordan" });
+    const a = await composeMeme({ ...base, name: "David" });
+    const b = await composeMeme({ ...base, name: "Alex" });
     assert.notEqual(sha256(a.buffer), sha256(b.buffer));
   });
 
@@ -74,7 +74,7 @@ describe("Phase 4 — composeMeme", () => {
     // bytes for he/him vs they/them (the verb form differs).
     const base = {
       factTextTemplate: "{NAME} {pushes|push} the boundary.",
-      name: "Sam",
+      name: "Alex",
       imageSource: photo,
       aspectRatio: "landscape" as const,
     };

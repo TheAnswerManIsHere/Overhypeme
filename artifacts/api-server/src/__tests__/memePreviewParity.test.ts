@@ -166,7 +166,7 @@ describe("#870: caption runs are the renderer's words", () => {
     "",
   ];
   for (const pronouns of ["he/him", "she/her", "they/them", "xe|xem|xyr|xyrs|xemself|s"]) {
-    for (const name of ["David Franklin", "Ana"]) {
+    for (const name of ["David Franklin", "Raena"]) {
       it(`joins to renderTemplateWithIdentityForms (${name}, ${pronouns})`, () => {
         const forms = resolveIdentityForms(name, pronouns);
         for (const t of templates) {

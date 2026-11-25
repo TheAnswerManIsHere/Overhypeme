@@ -29,8 +29,8 @@ describe("identical conjugation branch renders the same collapsed or not", () =>
   });
 
   it("renderPersonalized: {can|can} === can for he/him AND they/them", () => {
-    assert.equal(renderPersonalized(dup, "Dave", "he/him"), renderPersonalized(flat, "Dave", "he/him"));
-    assert.equal(renderPersonalized(dup, "Sam", "they/them"), renderPersonalized(flat, "Sam", "they/them"));
+    assert.equal(renderPersonalized(dup, "David", "he/him"), renderPersonalized(flat, "David", "he/him"));
+    assert.equal(renderPersonalized(dup, "Alex", "they/them"), renderPersonalized(flat, "Alex", "they/them"));
   });
 });
 
@@ -108,35 +108,35 @@ describe("renderCanonical", () => {
 
 describe("renderPersonalized — he/him (singular)", () => {
   it("renders {NAME}", () => {
-    assert.equal(renderPersonalized("{NAME}", "Dave", "he/him"), "Dave");
+    assert.equal(renderPersonalized("{NAME}", "David", "he/him"), "David");
   });
 
   it("renders all lowercase pronoun tokens", () => {
-    assert.equal(renderPersonalized("{SUBJ}", "Dave", "he/him"), "he");
-    assert.equal(renderPersonalized("{OBJ}", "Dave", "he/him"), "him");
-    assert.equal(renderPersonalized("{POSS}", "Dave", "he/him"), "his");
-    assert.equal(renderPersonalized("{POSS_PRO}", "Dave", "he/him"), "his");
-    assert.equal(renderPersonalized("{REFL}", "Dave", "he/him"), "himself");
+    assert.equal(renderPersonalized("{SUBJ}", "David", "he/him"), "he");
+    assert.equal(renderPersonalized("{OBJ}", "David", "he/him"), "him");
+    assert.equal(renderPersonalized("{POSS}", "David", "he/him"), "his");
+    assert.equal(renderPersonalized("{POSS_PRO}", "David", "he/him"), "his");
+    assert.equal(renderPersonalized("{REFL}", "David", "he/him"), "himself");
   });
 
   it("renders capitalized pronoun tokens", () => {
-    assert.equal(renderPersonalized("{Subj}", "Dave", "he/him"), "He");
-    assert.equal(renderPersonalized("{Obj}", "Dave", "he/him"), "Him");
-    assert.equal(renderPersonalized("{Poss}", "Dave", "he/him"), "His");
-    assert.equal(renderPersonalized("{Poss_Pro}", "Dave", "he/him"), "His");
-    assert.equal(renderPersonalized("{Refl}", "Dave", "he/him"), "Himself");
+    assert.equal(renderPersonalized("{Subj}", "David", "he/him"), "He");
+    assert.equal(renderPersonalized("{Obj}", "David", "he/him"), "Him");
+    assert.equal(renderPersonalized("{Poss}", "David", "he/him"), "His");
+    assert.equal(renderPersonalized("{Poss_Pro}", "David", "he/him"), "His");
+    assert.equal(renderPersonalized("{Refl}", "David", "he/him"), "Himself");
   });
 
   it("uses singular verb form for {singular|plural}", () => {
-    assert.equal(renderPersonalized("{has|have}", "Dave", "he/him"), "has");
-    assert.equal(renderPersonalized("{doesn't|don't}", "Dave", "he/him"), "doesn't");
-    assert.equal(renderPersonalized("{was|were}", "Dave", "he/him"), "was");
+    assert.equal(renderPersonalized("{has|have}", "David", "he/him"), "has");
+    assert.equal(renderPersonalized("{doesn't|don't}", "David", "he/him"), "doesn't");
+    assert.equal(renderPersonalized("{was|were}", "David", "he/him"), "was");
   });
 
   it("handles a complete sentence", () => {
     assert.equal(
-      renderPersonalized("{NAME} {has|have} done {POSS} work {REFL}.", "Dave", "he/him"),
-      "Dave has done his work himself.",
+      renderPersonalized("{NAME} {has|have} done {POSS} work {REFL}.", "David", "he/him"),
+      "David has done his work himself.",
     );
   });
 });
@@ -147,8 +147,8 @@ describe("renderPersonalized — {NAME_POSSESSIVE} always appends 's", () => {
     assert.equal(renderPersonalized("{NAME_POSSESSIVE} Week", "David Franklin", "he/him"), "David Franklin's Week");
   });
 
-  it("ALSO appends 's to names already ending in 's (no James'/Chris' branching)", () => {
-    assert.equal(renderPersonalized("{NAME_POSSESSIVE}", "Chris", "he/him"), "Chris's");
+  it("ALSO appends 's to names already ending in 's (no James' branching)", () => {
+    assert.equal(renderPersonalized("{NAME_POSSESSIVE}", "James", "he/him"), "James's");
     assert.equal(renderPersonalized("{NAME_POSSESSIVE}", "James", "they/them"), "James's");
   });
 
@@ -172,38 +172,38 @@ describe("renderPersonalized — indefinite article agreement around {NAME}", ()
   });
 
   it("preserves sentence-start capitalization (A → An)", () => {
-    assert.equal(renderPersonalized("A {NAME} legend", "Owen", "she/her"), "An Owen legend");
+    assert.equal(renderPersonalized("A {NAME} legend", "Alex", "she/her"), "An Alex legend");
   });
 });
 
 describe("renderPersonalized — she/her (singular)", () => {
   it("renders all pronoun tokens", () => {
-    assert.equal(renderPersonalized("{SUBJ}", "Alice", "she/her"), "she");
-    assert.equal(renderPersonalized("{OBJ}", "Alice", "she/her"), "her");
-    assert.equal(renderPersonalized("{POSS}", "Alice", "she/her"), "her");
-    assert.equal(renderPersonalized("{POSS_PRO}", "Alice", "she/her"), "hers");
-    assert.equal(renderPersonalized("{REFL}", "Alice", "she/her"), "herself");
+    assert.equal(renderPersonalized("{SUBJ}", "Raena", "she/her"), "she");
+    assert.equal(renderPersonalized("{OBJ}", "Raena", "she/her"), "her");
+    assert.equal(renderPersonalized("{POSS}", "Raena", "she/her"), "her");
+    assert.equal(renderPersonalized("{POSS_PRO}", "Raena", "she/her"), "hers");
+    assert.equal(renderPersonalized("{REFL}", "Raena", "she/her"), "herself");
   });
 
   it("uses singular verb form", () => {
-    assert.equal(renderPersonalized("{has|have}", "Alice", "she/her"), "has");
-    assert.equal(renderPersonalized("{was|were}", "Alice", "she/her"), "was");
+    assert.equal(renderPersonalized("{has|have}", "Raena", "she/her"), "has");
+    assert.equal(renderPersonalized("{was|were}", "Raena", "she/her"), "was");
   });
 });
 
 describe("renderPersonalized — they/them (plural)", () => {
   it("renders all pronoun tokens", () => {
-    assert.equal(renderPersonalized("{SUBJ}", "Sam", "they/them"), "they");
-    assert.equal(renderPersonalized("{OBJ}", "Sam", "they/them"), "them");
-    assert.equal(renderPersonalized("{POSS}", "Sam", "they/them"), "their");
-    assert.equal(renderPersonalized("{POSS_PRO}", "Sam", "they/them"), "theirs");
-    assert.equal(renderPersonalized("{REFL}", "Sam", "they/them"), "themselves");
+    assert.equal(renderPersonalized("{SUBJ}", "Alex", "they/them"), "they");
+    assert.equal(renderPersonalized("{OBJ}", "Alex", "they/them"), "them");
+    assert.equal(renderPersonalized("{POSS}", "Alex", "they/them"), "their");
+    assert.equal(renderPersonalized("{POSS_PRO}", "Alex", "they/them"), "theirs");
+    assert.equal(renderPersonalized("{REFL}", "Alex", "they/them"), "themselves");
   });
 
   it("uses plural verb form", () => {
-    assert.equal(renderPersonalized("{has|have}", "Sam", "they/them"), "have");
-    assert.equal(renderPersonalized("{doesn't|don't}", "Sam", "they/them"), "don't");
-    assert.equal(renderPersonalized("{was|were}", "Sam", "they/them"), "were");
+    assert.equal(renderPersonalized("{has|have}", "Alex", "they/them"), "have");
+    assert.equal(renderPersonalized("{doesn't|don't}", "Alex", "they/them"), "don't");
+    assert.equal(renderPersonalized("{was|were}", "Alex", "they/them"), "were");
   });
 });
 
@@ -218,66 +218,66 @@ describe("renderPersonalized — they/them (plural)", () => {
 // as of this PR, the split-caption halves baked into a saved meme image.
 describe("renderPersonalized — ze/zir (singular, zir-family forms)", () => {
   it("renders SUBJ/OBJ from the input, POSS/POSS_PRO/REFL from the zir family", () => {
-    assert.equal(renderPersonalized("{SUBJ}", "Sam", "ze/zir"), "ze");
-    assert.equal(renderPersonalized("{OBJ}", "Sam", "ze/zir"), "zir");
-    assert.equal(renderPersonalized("{POSS}", "Sam", "ze/zir"), "zir");
-    assert.equal(renderPersonalized("{POSS_PRO}", "Sam", "ze/zir"), "zirs");
-    assert.equal(renderPersonalized("{REFL}", "Sam", "ze/zir"), "zirself");
+    assert.equal(renderPersonalized("{SUBJ}", "Alex", "ze/zir"), "ze");
+    assert.equal(renderPersonalized("{OBJ}", "Alex", "ze/zir"), "zir");
+    assert.equal(renderPersonalized("{POSS}", "Alex", "ze/zir"), "zir");
+    assert.equal(renderPersonalized("{POSS_PRO}", "Alex", "ze/zir"), "zirs");
+    assert.equal(renderPersonalized("{REFL}", "Alex", "ze/zir"), "zirself");
   });
 
   it("capitalized tokens", () => {
-    assert.equal(renderPersonalized("{Subj}", "Sam", "ze/zir"), "Ze");
-    assert.equal(renderPersonalized("{Poss}", "Sam", "ze/zir"), "Zir");
-    assert.equal(renderPersonalized("{Refl}", "Sam", "ze/zir"), "Zirself");
+    assert.equal(renderPersonalized("{Subj}", "Alex", "ze/zir"), "Ze");
+    assert.equal(renderPersonalized("{Poss}", "Alex", "ze/zir"), "Zir");
+    assert.equal(renderPersonalized("{Refl}", "Alex", "ze/zir"), "Zirself");
   });
 
   it("uses the singular branch for {singular|plural}", () => {
-    assert.equal(renderPersonalized("{keeps|keep}", "Sam", "ze/zir"), "keeps");
+    assert.equal(renderPersonalized("{keeps|keep}", "Alex", "ze/zir"), "keeps");
   });
 
   it("a complete sentence", () => {
     assert.equal(
-      renderPersonalized("{NAME} {has|have} done {POSS} work {REFL}.", "Sam", "ze/zir"),
-      "Sam has done zir work zirself.",
+      renderPersonalized("{NAME} {has|have} done {POSS} work {REFL}.", "Alex", "ze/zir"),
+      "Alex has done zir work zirself.",
     );
   });
 });
 
 describe("renderPersonalized — xe/xem (singular, xyr-family forms)", () => {
   it("renders SUBJ/OBJ from the input, POSS/POSS_PRO/REFL from the xyr family", () => {
-    assert.equal(renderPersonalized("{SUBJ}", "Sam", "xe/xem"), "xe");
-    assert.equal(renderPersonalized("{OBJ}", "Sam", "xe/xem"), "xem");
-    assert.equal(renderPersonalized("{POSS}", "Sam", "xe/xem"), "xyr");
-    assert.equal(renderPersonalized("{POSS_PRO}", "Sam", "xe/xem"), "xyrs");
-    assert.equal(renderPersonalized("{REFL}", "Sam", "xe/xem"), "xemself");
+    assert.equal(renderPersonalized("{SUBJ}", "Alex", "xe/xem"), "xe");
+    assert.equal(renderPersonalized("{OBJ}", "Alex", "xe/xem"), "xem");
+    assert.equal(renderPersonalized("{POSS}", "Alex", "xe/xem"), "xyr");
+    assert.equal(renderPersonalized("{POSS_PRO}", "Alex", "xe/xem"), "xyrs");
+    assert.equal(renderPersonalized("{REFL}", "Alex", "xe/xem"), "xemself");
   });
 
   it("capitalized tokens", () => {
-    assert.equal(renderPersonalized("{Subj}", "Sam", "xe/xem"), "Xe");
-    assert.equal(renderPersonalized("{Poss}", "Sam", "xe/xem"), "Xyr");
-    assert.equal(renderPersonalized("{Refl}", "Sam", "xe/xem"), "Xemself");
+    assert.equal(renderPersonalized("{Subj}", "Alex", "xe/xem"), "Xe");
+    assert.equal(renderPersonalized("{Poss}", "Alex", "xe/xem"), "Xyr");
+    assert.equal(renderPersonalized("{Refl}", "Alex", "xe/xem"), "Xemself");
   });
 
   it("uses the singular branch for {singular|plural}", () => {
-    assert.equal(renderPersonalized("{keeps|keep}", "Sam", "xe/xem"), "keeps");
+    assert.equal(renderPersonalized("{keeps|keep}", "Alex", "xe/xem"), "keeps");
   });
 
   it("a complete sentence", () => {
     assert.equal(
-      renderPersonalized("{NAME} {has|have} done {POSS} work {REFL}.", "Sam", "xe/xem"),
-      "Sam has done xyr work xemself.",
+      renderPersonalized("{NAME} {has|have} done {POSS} work {REFL}.", "Alex", "xe/xem"),
+      "Alex has done xyr work xemself.",
     );
   });
 });
 
 describe("renderPersonalized — edge cases", () => {
   it("null pronouns defaults to they/them (plural)", () => {
-    assert.equal(renderPersonalized("{SUBJ}", "Sam", null), "they");
-    assert.equal(renderPersonalized("{has|have}", "Sam", null), "have");
+    assert.equal(renderPersonalized("{SUBJ}", "Alex", null), "they");
+    assert.equal(renderPersonalized("{has|have}", "Alex", null), "have");
   });
 
   it("undefined pronouns defaults to they/them (plural)", () => {
-    assert.equal(renderPersonalized("{SUBJ}", "Sam", undefined), "they");
+    assert.equal(renderPersonalized("{SUBJ}", "Alex", undefined), "they");
   });
 
   // A custom pronoun set (the pronoun editor's six-part format) renders as
@@ -287,32 +287,32 @@ describe("renderPersonalized — edge cases", () => {
   // pipe string never leaks into a token.
   it("a custom pronoun set renders its own forms and verb number", () => {
     const singular = "xe|xem|xyr|xyrs|xemself|s";
-    assert.equal(renderPersonalized("{SUBJ}", "Sam", singular), "xe");
-    assert.equal(renderPersonalized("{OBJ}", "Sam", singular), "xem");
-    assert.equal(renderPersonalized("{POSS}", "Sam", singular), "xyr");
-    assert.equal(renderPersonalized("{POSS_PRO}", "Sam", singular), "xyrs");
-    assert.equal(renderPersonalized("{REFL}", "Sam", singular), "xemself");
-    assert.equal(renderPersonalized("{Subj} {keeps|keep}", "Sam", singular), "Xe keeps");
-    assert.equal(renderPersonalized("{Subj} {keeps|keep}", "Sam", "fae|faer|faer|faers|faerself|p"), "Fae keep");
+    assert.equal(renderPersonalized("{SUBJ}", "Alex", singular), "xe");
+    assert.equal(renderPersonalized("{OBJ}", "Alex", singular), "xem");
+    assert.equal(renderPersonalized("{POSS}", "Alex", singular), "xyr");
+    assert.equal(renderPersonalized("{POSS_PRO}", "Alex", singular), "xyrs");
+    assert.equal(renderPersonalized("{REFL}", "Alex", singular), "xemself");
+    assert.equal(renderPersonalized("{Subj} {keeps|keep}", "Alex", singular), "Xe keeps");
+    assert.equal(renderPersonalized("{Subj} {keeps|keep}", "Alex", "fae|faer|faer|faers|faerself|p"), "Fae keep");
   });
 
   it("a pipe with no slash at all still falls back cleanly (no crash, no leak)", () => {
-    assert.equal(renderPersonalized("{SUBJ}", "Sam", "garbled|input"), "they");
+    assert.equal(renderPersonalized("{SUBJ}", "Alex", "garbled|input"), "they");
   });
 
   it("unknown token is left unchanged", () => {
-    assert.equal(renderPersonalized("{UNKNOWN}", "Dave", "he/him"), "{UNKNOWN}");
+    assert.equal(renderPersonalized("{UNKNOWN}", "David", "he/him"), "{UNKNOWN}");
   });
 
   it("replaces all occurrences of the same token", () => {
     assert.equal(
-      renderPersonalized("{NAME} met {NAME}", "Dave", "he/him"),
-      "Dave met Dave",
+      renderPersonalized("{NAME} met {NAME}", "David", "he/him"),
+      "David met David",
     );
   });
 
   it("returns empty string unchanged", () => {
-    assert.equal(renderPersonalized("", "Dave", "he/him"), "");
+    assert.equal(renderPersonalized("", "David", "he/him"), "");
   });
 });
 
@@ -329,11 +329,11 @@ describe("hasUnresolvedFactTokens", () => {
   });
 
   it("flags leftover {singular|plural} pairs", () => {
-    assert.equal(hasUnresolvedFactTokens("Dave {run|runs} fast"), true);
+    assert.equal(hasUnresolvedFactTokens("David {run|runs} fast"), true);
   });
 
   it("passes fully-rendered text", () => {
-    assert.equal(hasUnresolvedFactTokens("Dave runs fast at night"), false);
+    assert.equal(hasUnresolvedFactTokens("David runs fast at night"), false);
   });
 
   it("does not flag legitimate braces (math / emoji shortcodes)", () => {
@@ -355,7 +355,7 @@ describe("hasSubjectIdentityToken", () => {
 
   it("does NOT flag {singular|plural} pairs (those are not the subject)", () => {
     assert.equal(hasSubjectIdentityToken("{has|have}"), false);
-    assert.equal(hasSubjectIdentityToken("Dave {run|runs} fast"), false);
+    assert.equal(hasSubjectIdentityToken("David {run|runs} fast"), false);
   });
 
   it("does not flag plain text or unrelated braces", () => {

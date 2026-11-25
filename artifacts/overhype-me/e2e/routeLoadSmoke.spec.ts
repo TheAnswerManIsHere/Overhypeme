@@ -265,7 +265,7 @@ test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
     const server = await stubFactWrites(page, [live]);
     // Its taxonomy run history (increment 2.1b): a failed Re-run after the stored one.
     await page.route("**/api/admin/facts/96201/taxonomy-runs", (route) => route.fulfill({ json: { runs: [
-      { id: 2, outcome: "failed", origin: "rerun", output: null, error: "the classifier timed out", requestedByName: "Dee Admin", createdAt: "2026-11-21T10:00:00Z" },
+      { id: 2, outcome: "failed", origin: "rerun", output: null, error: "the classifier timed out", requestedByName: "Raena Admin", createdAt: "2026-11-21T10:00:00Z" },
       { id: 1, outcome: "ok", origin: "provisional_approval", output: null, error: null, requestedByName: null, createdAt: "2026-11-20T10:00:00Z" },
     ] } }));
 
@@ -298,7 +298,7 @@ test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
     const runs = taxonomy.getByTestId("taxonomy-run");
     await expect(runs, "every run is listed, failures included").toHaveCount(2);
     await expect(runs.first(), "newest first, with who asked").toContainText("Failed");
-    await expect(runs.first()).toContainText("Re-run, by Dee Admin");
+    await expect(runs.first()).toContainText("Re-run, by Raena Admin");
     await expect(runs.first().getByTestId("taxonomy-run-error")).toHaveText("the classifier timed out");
     await expect(taxonomy.getByRole("button", { name: /save enrichment|revert to ai/i }), "nothing saves or overrides the taxonomy").toHaveCount(0);
   });

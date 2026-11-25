@@ -32,7 +32,7 @@ const meme = {
   id: 7,
   slug: "abc",
   factId: 42,
-  factText: "Sarah fought a bear and won.",
+  factText: "Raena fought a bear and won.",
   imageUrl: "https://example.test/m.jpg",
   createdById: "creator-9",
   heartCount: 0,
@@ -40,7 +40,7 @@ const meme = {
   originalWidth: 1080,
   originalHeight: 1080,
   createdAt: "2026-11-20T12:00:00.000Z",
-  createdByName: "Sarah",
+  createdByName: "Raena",
   isPublic: true,
 };
 
@@ -102,7 +102,7 @@ describe("MemePage — when it was made, and its fact (#875 R8)", () => {
     const desktop = screen.getByTestId("meme-made-on-desktop");
     for (const el of [phone, desktop]) {
       expect(el.textContent).toMatch(/2026/);
-      expect(el.textContent).toMatch(/Sarah/);
+      expect(el.textContent).toMatch(/Raena/);
     }
     const links = screen.getAllByRole("link", { name: /view full fact/i });
     expect(links.length).toBeGreaterThan(0);

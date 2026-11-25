@@ -20,11 +20,14 @@ test.describe("Submit · the house style in the preview", () => {
     await page.route("**/api/ai/check-duplicate", (route) => route.fulfill({ json: { outcome: "distinct", isDuplicate: false, confidence: 10, llmChecked: true } }));
     await page.route("**/api/ai/suggest-hashtags", (route) => route.fulfill({ json: { hashtags: [] } }));
     await page.goto("/submit", { waitUntil: "domcontentloaded" });
-    await page.getByPlaceholder(/When John does pushups/).fill("Alex out-stared a lighthouse");
+    await page.getByPlaceholder(/When David does pushups/).fill("Alex out-stared a lighthouse");
     await page.getByRole("button", { name: /Preview/ }).click();
 
-    const theyPreview = page.getByText("Alex Jordan out-stared a lighthouse", { exact: false }).first();
+    const theyPreview = page.getByText("Alex Franklin out-stared a lighthouse", { exact: false }).first();
     await expect(theyPreview, "the tokenizer's unpunctuated wording is previewed with a period").toContainText("out-stared a lighthouse.");
+    // The product's example people preview each pronoun set (Issue #983).
+    await expect(page.getByText("David Franklin out-stared a lighthouse.", { exact: false }).first()).toBeVisible();
+    await expect(page.getByText("Raena Franklin out-stared a lighthouse.", { exact: false }).first()).toBeVisible();
 
     await page.getByRole("button", { name: /Advanced — view & edit template/ }).click();
     const editor = page.locator("textarea");

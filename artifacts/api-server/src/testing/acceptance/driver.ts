@@ -110,7 +110,7 @@ const SCRIPTS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.
  * derives from it.
  */
 export const BASELINE_FACT =
-  "Chuck Norris once counted to infinity. Twice. The second time he did it backwards to check his work.";
+  "David once counted to infinity. Twice. The second time he did it backwards to check his work.";
 
 const accounts = JSON.parse(fs.readFileSync(path.join(SCRIPTS, "e2e-test-accounts.json"), "utf8")) as {
   password: string;

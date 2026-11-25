@@ -41,7 +41,7 @@ const FEMALE_NAMES = new Set([
   "laura","lauren","lea","leah","leslie","lily","linda","lisa","liz","lorraine","lucy",
   "madison","margaret","maria","megan","melanie","melissa","mia","michelle","miranda",
   "molly","monica","natalie","nichole","nicole","nina","nora","olivia","paige","patricia",
-  "phoebe","rachel","rebecca","riley","rose","ruby","ruth","samantha","sandra","sara","sarah",
+  "phoebe","rachel","raena","rebecca","riley","rose","ruby","ruth","samantha","sandra","sara","sarah",
   "savannah","shannon","shelby","sierra","sophia","stephanie","sue","summer","susan","sydney",
   "tamara","taylor","tiffany","tina","tracey","tracy","trinity","vanessa","veronica","victoria",
   "violet","virginia","wendy","whitney","zoe","zoey",

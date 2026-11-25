@@ -31,7 +31,7 @@ const factIds: number[] = [];
 
 async function createUser(): Promise<string> {
   const id = `${PREFIX}${randomUUID()}`;
-  await db.insert(usersTable).values({ id, email: `${id}@test.local`, displayName: "Bakey", pronouns: "they/them", membershipTier: "legendary" });
+  await db.insert(usersTable).values({ id, email: `${id}@test.local`, displayName: "Alex", pronouns: "they/them", membershipTier: "legendary" });
   return id;
 }
 
@@ -109,7 +109,7 @@ describe("a meme is a file from the moment it is saved (S16)", () => {
     const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, factId));
     const record = await memeRecord(saved.permalinkSlug, "meme_bake");
     const expected = await tracedRender({
-      fact, creator: { displayName: "Bakey", pronouns: "they/them" }, textOptions,
+      fact, creator: { displayName: "Alex", pronouns: "they/them" }, textOptions,
       imageSource: { type: "upload", uploadKey }, aspectRatio: "landscape", framingTransform: null,
     }, record.id);
     assert.ok(stored.equals(expected), "the stored file is the renderer's output for the recipe and the saver's identity, marked with its record id");
@@ -159,7 +159,7 @@ describe("a meme is a file from the moment it is saved (S16)", () => {
     assert.equal(bake.actorKind, "system", "the backfill is unattended work");
     const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, factId));
     const expected = await tracedRender({
-      fact, creator: { displayName: "Bakey", pronouns: "they/them" }, textOptions: recipe.textOptions,
+      fact, creator: { displayName: "Alex", pronouns: "they/them" }, textOptions: recipe.textOptions,
       imageSource: { type: "upload", uploadKey }, aspectRatio: "square", framingTransform: null,
     }, bake.id);
     assert.ok((await storedBytes(live!.permalinkSlug)).equals(expected), "the baked file is the renderer's output for the recipe, marked with its record id");
