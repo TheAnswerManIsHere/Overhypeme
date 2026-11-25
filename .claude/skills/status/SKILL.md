@@ -25,7 +25,7 @@ and the tracker are how it is collected, never how it is written.
 ## The briefing, in this order
 
 Fixed sections, fixed order, so he can find a line by position. Bold the
-first words of each line, since he scans (interaction rule 7's reason).
+first words of each line, since he scans (interaction rule 7).
 
 1. **Headline** — `📍 <product> — <what this session is doing, one line>`.
    Example: `📍 DojoOS — building the audio-transcription prototype`.

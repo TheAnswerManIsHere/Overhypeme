@@ -2,11 +2,6 @@
   "$comment": "SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead.",
   "type": "object",
   "properties": {
-    "about": {
-      "type": "string",
-      "minTrimmedLength": 1,
-      "description": "One sentence: what this unit of work was. It leads the report, so it is David's orientation."
-    },
     "needs_you": {
       "type": "string",
       "minTrimmedLength": 1,
@@ -15,7 +10,7 @@
     "what_was_built": {
       "type": "string",
       "minTrimmedLength": 1,
-      "description": "What the unit actually built, in product English, read from the diffs and commits rather than from the builder's description of them. A short paragraph."
+      "description": "What the unit actually built, in product English, read from the diffs and commits rather than from the builder's description of them. At most three sentences, including what it changes for David or users."
     },
     "decisions": {
       "type": "array",
@@ -30,11 +25,6 @@
         "required": ["choice", "undo", "concern"],
         "additionalProperties": false
       }
-    },
-    "ramifications": {
-      "type": "string",
-      "minTrimmedLength": 1,
-      "description": "What this unit changes for David, for users, or for the next unit of work: what is now possible, what is now harder, what now depends on it."
     },
     "shipping_unfixed": {
       "type": "array",
@@ -72,21 +62,11 @@
       "type": "object",
       "description": "Against the plan or the agreed scope the issue records.",
       "properties": {
-        "planned": { "type": "string", "minTrimmedLength": 1, "description": "What the plan or scope set out to do, in one or two sentences." },
-        "done": { "type": "string", "minTrimmedLength": 1, "description": "Where this unit leaves it: what is now finished." },
-        "next": { "type": "string", "minTrimmedLength": 1, "description": "The next unit against the plan, or 'the plan is complete'." }
+        "planned": { "type": "string", "minTrimmedLength": 1, "description": "What the plan or scope set out to do, in one sentence." },
+        "done": { "type": "string", "minTrimmedLength": 1, "description": "Where this unit leaves it, in one sentence." },
+        "next": { "type": "string", "minTrimmedLength": 1, "description": "The next unit against the plan, or 'the plan is complete', in one sentence." }
       },
       "required": ["planned", "done", "next"],
-      "additionalProperties": false
-    },
-    "what_landed": {
-      "type": "object",
-      "description": "The stated intent held against what the change does.",
-      "properties": {
-        "does_not_do": { "type": "string", "minTrimmedLength": 1, "description": "What it does not do that David might assume it does, given how it was described." },
-        "now_trusting": { "type": "string", "minTrimmedLength": 1, "description": "What David is now trusting that he was not before." }
-      },
-      "required": ["does_not_do", "now_trusting"],
       "additionalProperties": false
     },
     "took_on_trust": {
@@ -106,8 +86,8 @@
     }
   },
   "required": [
-    "about", "needs_you", "what_was_built", "decisions", "ramifications", "shipping_unfixed",
-    "overbuilt", "disagreements", "where_we_are", "what_landed", "took_on_trust",
+    "needs_you", "what_was_built", "decisions", "shipping_unfixed",
+    "overbuilt", "disagreements", "where_we_are", "took_on_trust",
     "could_not_assess", "model"
   ],
   "additionalProperties": false

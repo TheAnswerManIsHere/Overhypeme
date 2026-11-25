@@ -33,16 +33,13 @@ import {
 } from "../build-report.mjs";
 
 const answer = (over = {}) => ({
-  about: "The first version of the session ingest.",
   needs_you: "Nothing needed from you.",
   what_was_built: "A worker that downloads a session video, probes it and writes a proxy.",
   decisions: [{ choice: "The CI runner is pinned to ubuntu-24.04.", undo: "Revert the pin and bump Playwright.", concern: null }],
-  ramifications: "Step 2 can now read real proxies.",
   shipping_unfixed: [],
   overbuilt: [],
   disagreements: [],
   where_we_are: { planned: "Five steps to a usable ingest.", done: "Step 1 is finished.", next: "Step 2, the logging viewer." },
-  what_landed: { does_not_do: "It does not transcribe.", now_trusting: "That the proxy is faithful to the source." },
   took_on_trust: "That CI ran the worker tests; I did not read the logs.",
   could_not_assess: null,
   model: "claude-fable-5-1",
@@ -151,7 +148,7 @@ test("no file, bad JSON and a schema-invalid answer are each a visible failure",
   assert.match(chatReport(none), /not a sign that the work was quiet/);
   fs.writeFileSync(answerPath(root, "u"), "{");
   assert.match(readAnswer(root, "u").reason, /not valid JSON/);
-  fs.writeFileSync(answerPath(root, "u"), JSON.stringify({ about: "x" }));
+  fs.writeFileSync(answerPath(root, "u"), JSON.stringify({ needs_you: "x" }));
   assert.match(readAnswer(root, "u").reason, /expected shape/);
 });
 
@@ -178,7 +175,7 @@ test("the report prints the fixed sections in order, in the role's words", () =>
   const root = tmp();
   write(root, "c", answer());
   const text = chatReport(readAnswer(root, "c"), { askedModel: "claude-fable-5-1" });
-  const order = ["**Needs you:**", "**What was built**", "**Decisions taken on my recommendation**", "**Ramifications**", "**Shipping unfixed**", "**Where it disagrees with the builder**", "**Where we are**", "*Does not do:*", "**Session**"];
+  const order = ["**Needs you:**", "**What was built**", "**Decisions taken on my recommendation**", "**Where we are**", "**Session**"];
   let at = -1;
   for (const h of order) {
     const i = text.indexOf(h);
@@ -189,6 +186,26 @@ test("the report prints the fixed sections in order, in the role's words", () =>
   assert.doesNotMatch(text, /\*\*Spend\*\*/);
   assert.doesNotMatch(text, /took_on_trust|did not read the logs/, "took_on_trust is collected, not shown");
   assert.doesNotMatch(text, /Written by/, "a matching model prints nothing");
+});
+
+test("an empty optional section is omitted, and a filled one appears in order", () => {
+  const root = tmp();
+  write(root, "e0", answer());
+  const quiet = chatReport(readAnswer(root, "e0"));
+  for (const h of ["**Shipping unfixed**", "**Where it disagrees with the builder**", "**Overbuilt**"]) assert.ok(!quiet.includes(h), `${h} printed while empty`);
+  write(root, "e1", answer({
+    disagreements: [{ what: "The reply says fixed; the diff does not.", why_it_matters: "The bug ships." }],
+    shipping_unfixed: [{ what: "A slow page.", reasonable: true, why: "Rare." }],
+    overbuilt: ["A config key for a constant."],
+  }));
+  const loud = chatReport(readAnswer(root, "e1"));
+  const order = ["**Decisions taken on my recommendation**", "**Where it disagrees with the builder** (1)", "**Shipping unfixed**", "**Overbuilt**", "**Where we are**"];
+  let at = -1;
+  for (const h of order) {
+    const i = loud.indexOf(h);
+    assert.ok(i > at, `${h} out of order`);
+    at = i;
+  }
 });
 
 test("the session line is the builder's and is labelled so, or says it was not stated", () => {
