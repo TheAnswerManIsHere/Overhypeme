@@ -193,6 +193,16 @@ test("only questioned decisions, unreasonable unfixed items and overbuilt work a
   assert.match(loud, /- \*\*The URL shape is fixed\.\*\* — It locks in the URL shape\. · undo: Revert it\./);
   assert.match(loud, /- \*\*A crash on empty video\.\*\* — Users hit it\./);
   assert.doesNotMatch(loud, /Quiet choice|A slow page/);
+  assert.match(loud, /No dispute with the builder's account\*\*, but see its concerns below/);
+  assert.doesNotMatch(loud, /\*\*Agrees/, "never a bold Agrees above a concern");
+  for (const over of [
+    { decisions: [{ choice: "c", undo: "u", concern: "It locks in the URL shape." }] },
+    { shipping_unfixed: [{ what: "A crash.", reasonable: false, why: "Users hit it." }] },
+    { overbuilt: ["A config key for a constant."] },
+  ]) {
+    write(root, "e2", answer(over));
+    assert.doesNotMatch(chatReport(readAnswer(root, "e2")), /\*\*Agrees/);
+  }
 });
 
 test("a model mismatch or absence is a caveat, and a match prints nothing", () => {

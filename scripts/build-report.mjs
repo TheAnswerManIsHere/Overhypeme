@@ -453,6 +453,11 @@ export function chatReport(report, { askedModel = null, coords = undefined } = {
   if (a.disagreements.length) {
     out.push("**Where it disagrees with the builder**", "");
     for (const d of a.disagreements) out.push(`- **${d.what}** — ${d.why_it_matters}`);
+  } else if (f.concerns || f.notReasonable || f.overbuilt) {
+    // "AGREES" ONLY WHEN NOTHING BELOW IS A CONCERN: a bold "Agrees" above a
+    // questioned decision reads as the whole verdict (its own build report,
+    // KITT #334). David's Q15 ruling kept the old rule, "Agrees" otherwise.
+    out.push("**No dispute with the builder's account**, but see its concerns below.");
   } else {
     out.push(f.unassessed ? "**Agrees, as far as it could check** (see the caveat below)." : "**Agrees** with the builder's account.");
   }
