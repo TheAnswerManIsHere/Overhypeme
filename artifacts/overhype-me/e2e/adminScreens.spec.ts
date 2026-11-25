@@ -306,6 +306,30 @@ test.describe("Admin described screens", () => {
     await expect(sheet).toHaveCount(0);
   });
 
+  // Issue #1283: on a tablet the sheet is pinned near the top, so a short tab
+  // (History with nothing recorded) never moves the title or the tab row.
+  test("on a tablet the fact sheet stays pinned near the top: switching to a short tab never moves the tabs", async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 1366 });
+    await stubAdminFacts(page, [{
+      row: adminFactRow({ id: 97104, text: "{NAME} taught the tide to wait." }),
+      enrichment: enrichmentWithConcept("{NAME} holds up a hand at the shoreline."),
+    }]);
+    await page.goto("/admin/facts");
+    await page.getByTestId("fact-row-97104").click();
+    const sheet = page.getByTestId("fact-sheet");
+    const tabRow = sheet.getByRole("tablist");
+    await expect(sheet.getByTestId("sheet-panel-overview")).toBeVisible();
+    const sheetTop = (await sheet.boundingBox())!.y;
+    const tabsTop = (await tabRow.boundingBox())!.y;
+    expect(sheetTop, "the sheet sits near the top, not centred").toBeLessThan(1366 * 0.1);
+    for (const t of ["history", "reading", "renders", "gags", "overview"]) {
+      await sheet.getByTestId(`sheet-tab-${t}`).click();
+      await expect(sheet.getByTestId(`sheet-panel-${t}`)).toBeVisible();
+      expect((await sheet.boundingBox())!.y, `sheet top on ${t}`).toBe(sheetTop);
+      expect((await tabRow.boundingBox())!.y, `tab row on ${t}`).toBe(tabsTop);
+    }
+  });
+
   // PR #1217 round 1 (Codex 4684437665): a fact at the 2,000-character limit
   // keeps the tabs, the panel and Deactivate on a phone's screen; its wording
   // scrolls in its own box.

@@ -44,7 +44,7 @@ import {
   type FactLifecycleAction,
   type FactSheetView,
 } from "./factSheetView";
-import { describeHistory, type FactHistoryEntry } from "./historyWords";
+import { describeHistory, historyFields, type FactHistoryEntry } from "./historyWords";
 
 export const FACT_SHEET_TABS = [
   { id: "overview", label: "Overview" },
@@ -348,6 +348,8 @@ function HistoryTab({ factId }: { factId: number }) {
   const [entries, setEntries] = useState<FactHistoryEntry[] | null>(null);
   const [limit, setLimit] = useState(0);
   const [error, setError] = useState("");
+  // The one line opened to its full record (Issue #1284).
+  const [open, setOpen] = useState<number | null>(null);
   useEffect(() => {
     let live = true;
     loadFactHistory(factId)
@@ -363,19 +365,46 @@ function HistoryTab({ factId }: { factId: number }) {
     <div className="space-y-2">
       <ol className="divide-y divide-border border border-border rounded-sm" data-testid="sheet-history">
         {entries.map((e) => {
-          const { title, detail } = describeHistory(e);
+          const { title, subject, detail } = describeHistory(e);
+          const isOpen = open === e.id;
           return (
-            <li key={e.id} className="px-3 py-2.5" data-testid="sheet-history-entry">
-              <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-                <span className="text-sm font-semibold text-foreground">{title}</span>
-                <span className="text-xs font-mono text-muted-foreground">{when(e.createdAt)}</span>
-              </div>
-              {detail && <p className="text-sm text-muted-foreground break-words">{detail}</p>}
-              <p className="text-xs text-muted-foreground">
-                {/* A missing name says only that the admin cannot be named (a deleted account clears actor_id), never who or what acted. */}
-                {e.actorName ?? "No admin on record"}
-                {e.reviewId != null && <span className="font-mono"> · review #{e.reviewId}</span>}
-              </p>
+            <li key={e.id} data-testid="sheet-history-entry">
+              <button
+                type="button"
+                className="w-full text-left px-3 py-2.5 hover:bg-muted/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                aria-expanded={isOpen}
+                aria-controls={`history-detail-${e.id}`}
+                onClick={() => setOpen(isOpen ? null : e.id)}
+              >
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+                  <span className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                    {isOpen ? <ChevronDown className="w-3.5 h-3.5 shrink-0" aria-hidden /> : <ChevronRight className="w-3.5 h-3.5 shrink-0" aria-hidden />}
+                    {title}
+                    {subject && <span className="font-normal text-foreground" data-testid="sheet-history-subject">· {subject}</span>}
+                  </span>
+                  <span className="text-xs font-mono text-muted-foreground">{when(e.createdAt)}</span>
+                </div>
+                {detail && !isOpen && <p className="text-sm text-muted-foreground break-words">{detail}</p>}
+                <p className="text-xs text-muted-foreground">
+                  {/* A missing name says only that the admin cannot be named (a deleted account clears actor_id), never who or what acted. */}
+                  {e.actorName ?? "No admin on record"}
+                  {e.reviewId != null && <span className="font-mono"> · review #{e.reviewId}</span>}
+                </p>
+              </button>
+              {isOpen && (
+                <dl id={`history-detail-${e.id}`} data-testid="sheet-history-detail" className="px-3 pb-3 pl-8 space-y-2 text-sm">
+                  {historyFields(e).map((f, i) => (
+                    <div key={`${f.label}-${i}`}>
+                      <dt className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{f.label}</dt>
+                      {f.lines.map((line, j) => <dd key={j} className="text-foreground break-words whitespace-pre-wrap">{line}</dd>)}
+                    </div>
+                  ))}
+                  <div>
+                    <dt className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Recorded</dt>
+                    <dd className="text-foreground">{new Date(e.createdAt).toLocaleString()} · record #{e.id}</dd>
+                  </div>
+                </dl>
+              )}
             </li>
           );
         })}
@@ -609,7 +638,7 @@ export function FactSheet({
   return (
     <div
       data-modal-overlay
-      className="fixed inset-0 z-50 bg-black/60 flex items-stretch sm:items-center justify-center sm:p-4"
+      className="fixed inset-0 z-50 bg-black/60 flex items-stretch sm:items-start justify-center sm:p-4 sm:pt-[5vh]"
       onClick={close}
     >
       <div

@@ -51,19 +51,22 @@ credits, or $34.99 a year with 400.
   offered as meme backgrounds. David: *"The whole purpose of the site is that it
   is personalized TO YOU!"*
 - **GPT Image 2.6** draws photoreal pictures; **Nano Banana 2.1** draws styled
-  ones; the site picks by the look chosen. The engines are settled: no more
-  engine-selection rounds (David, 2026-11-12, prompt tuner plan).
+  ones; the site picks by the look chosen. Settled: there are no more engine
+  rounds (David, 2026-11-11;
+  [decisions.md](./decisions.md#2026-11-11--the-engines-are-settled-prompts-are-tuned-not-engines-re-run)).
 - Pictures are made near screen size. Larger sizes can return later as a
   feature. David: *"I'd rather produce higher quality, lower resolution images
   than lower quality, higher resolution images."*
-- Prompts are tuned to these two engines; a small check (a second face, screen
-  size, the three styles) replaces a third judging round.
+- Prompts are tuned to these two engines on the admin Eval page: a wording
+  version is drawn against the live one on the same facts and photo, judged
+  blind on the five categories below, and the winner is promoted.
 - FLUX 3 and Seedream 5.0 Pro are out; Muse Image is held in reserve as the
   low-cost option. No text-only winner is chosen.
 
 ## Quality
 
-Quality is judged on four things (David, 2026-11-11):
+Quality means four things (David, 2026-11-11); the blind judging categories
+below are how pictures are scored against them:
 
 1. **Scene fidelity.** Does the engine draw the scene as described: the
    details, the nuance, camera position, framing and where each character is
@@ -77,6 +80,13 @@ Quality is judged on four things (David, 2026-11-11):
 
 Whether a gag is funny is settled when the gag is approved at moderation; the
 engine's job is to draw that gag faithfully.
+
+A blind judging panel scores each picture 1–5 on five categories: visual
+quality, gag fidelity (against the gag, not the prompt), realism, style
+interpretation (skipped on unstyled pictures) and likeness (on any picture
+drawn from a photo); picks the
+one picture it would send; and flags any picture that is broken (David,
+2026-11-11).
 
 ## Gags and examples
 
@@ -128,7 +138,7 @@ changes for printed cards and merch; insurance.
 
 Blind moderation and the legal-safety rules; faces only from photos a user
 supplies; the existing membership payment system and its safeguards; no
-spending by anyone without an account.
+spending by anyone without an account. A signed-out visitor browses, personalises text and sees examples, but makes no picture (David, 2026-11-11; [launch definition](./launch-definition.md)).
 
 ## Still to be decided with data or counsel
 
@@ -140,9 +150,8 @@ spending by anyone without an account.
 
 Each piece gets its own plan, reviewed and brought to David before building:
 
-- **Phase 8, finishing the engine work:** adopt the two engines, screen-size
-  pictures and prompt tuning (the engines are settled; the unused ones are
-  retired in code).
+- **Phase 8, finishing the engine work:** the prompt tuner on the Eval page;
+  the unused engines retired in code; the old Eval harness removed.
 - **Phase 7, the paid layer and the friend flow:** credits, the pack,
   membership with credits, the free picture, the "who is this for?" flow,
   examples in place of hero backgrounds.

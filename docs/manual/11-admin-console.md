@@ -70,8 +70,9 @@ they happen.
 Three screens answer three different questions. None of them tunes the
 AI: which engine draws a picture or writes a gag, its model, its reasoning
 effort and its prompts all live in the code, so the version of the code
-says exactly how every AI step behaves, and changing one is a reviewed
-change rather than an edit here (David, November 2026; the decision log's
+says how every AI step behaves, and changing one is a reviewed change
+rather than an edit here. The one exception is the picture prompt's global
+wording, which the Eval page tunes (below) (David, November 2026; the decision log's
 2026-11-14 entry, *The stored AI settings and the engines table are
 deleted*). AI Settings shows those values without letting anyone change
 them: each AI step's model, the parameters its requests actually carry, and
@@ -90,11 +91,19 @@ this grid — keeping those two kinds of permission apart is what makes it
 impossible to configure your way into locking every admin out of the
 console.
 
+The **Eval page** is where the picture prompts are tuned. It has two tabs:
+*Evaluate Models* compares engines, and *Evaluate Prompts* compares wording
+versions of one engine's prompt. Each draws the same facts and photos, then
+you judge the pictures blind. An admin edits the prompt's global wording,
+saves it as a version, compares it with the live one, and promotes the
+winner from the results. Saving changes nothing; promoting makes that
+version the live wording for its engine, without a code release. The
+engines themselves are settled ([decisions.md](../ai-context/decisions.md#2026-11-11--the-engines-are-settled-prompts-are-tuned-not-engines-re-run)).
+
 ### Watching the machinery
 
 A handful of screens exist purely to keep an eye on things running in
-the background: the health of the [job queues](../ai-context/glossary.md#async-job-queue) that do async work, and the
-quality of AI-rendered images against a curated reference set. (The
+the background: the health of the [job queues](../ai-context/glossary.md#async-job-queue) that do async work. (The
 dashboard's count of which pages get the most visits was removed in launch
 Phase 4; [`docs/retired/README.md`](../retired/README.md).)
 
@@ -167,7 +176,7 @@ section.
   fields exist ahead of what they control. They look like any other
   setting in the list; nothing currently marks them as different.
 - **One screen's `?` points at a neighbouring chapter rather than its
-  own.** The render-quality eval dashboard has no chapter of its own yet,
+  own.** The Eval page (the prompt tuner) has no chapter of its own yet,
   so its `?` opens the [visual pipeline](./5-visual-pipeline.md)
   chapter — the nearest relevant explanation, but not a description of
   that screen. A real gap in this manual, recorded rather than papered

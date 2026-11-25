@@ -20,7 +20,10 @@
 > "how many options per fact" — examples are shown per approved gag, up to
 > three gags per fact, never used as backgrounds); **D16/K4** (the evaluation
 > winner as one default engine — GPT Image 2.6 photoreal and Nano Banana 2.1
-> styled, no text-only winner); **D21**, **D9** and **K2** where they treat
+> styled, no text-only winner), and with them **K3**, **K13** and the Eval
+> dashboard row wherever they name an engine evaluation still to run (the
+> engines are settled and the Eval page is the prompt tuner:
+> [decisions.md](./decisions.md#2026-11-11--the-engines-are-settled-prompts-are-tuned-not-engines-re-run)); **D21**, **D9** and **K2** where they treat
 > hero renders as the backgrounds that replace stock (heroes are examples
 > only, and a signed-out visitor renders nothing); and the "AI stock photo"
 > line. **B15, B18, B19 and F21's custom avatar** are superseded by
