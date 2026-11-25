@@ -20,7 +20,7 @@ import { sql } from "drizzle-orm";
 import { db, pool } from "@workspace/db";
 import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
-import { isRetiredSettingValue, mergeLosses, retiredSettingLosses, variantRetirementLosses } from "../lib/retirementLosses.js";
+import { isRetiredSettingValue, mergeLosses, refreshRetirementLosses, retiredSettingLosses, variantRetirementLosses } from "../lib/retirementLosses.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATION_SQL = readFileSync(path.resolve(__dirname, "../../../../lib/db/migrations/0142_retire_variants.sql"), "utf8");
@@ -185,5 +185,42 @@ describe("a retired setting is an intended deletion (0149)", () => {
     assert.equal(isRetiredSettingValue("admin_config/review_duplicate_threshold_other/value"), false);
     assert.equal(isRetiredSettingValue("admin_config/email_max_attempts/value"), false);
     assert.deepEqual([...mergeLosses(new Map([["facts", 2]]), new Map([["facts", 1], ["admin_config", 1]]))], [["facts", 3], ["admin_config", 1]]);
+  });
+});
+
+// Issue #1294: the rehearsal counts on the frozen snapshot, which predates
+// 0139 and 0143, so fact_gags and fact_gag_examples do not exist there. A
+// counting step that reads a table the database lacks must skip it, never throw.
+describe("refreshRetirementLosses on a database older than the gag tables (#1294)", () => {
+  const schema = `t_rl_old_${randomUUID().slice(0, 8)}`;
+
+  after(async () => {
+    await db.execute(sql.raw(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`));
+  });
+
+  it("counts the refresh reviews and skips the gag examples it cannot have", async () => {
+    // The shape the snapshot gives the tables this step reads; no fact_gags, no fact_gag_examples.
+    await db.execute(sql.raw(`
+      CREATE SCHEMA "${schema}";
+      CREATE TABLE "${schema}".facts (id serial PRIMARY KEY, created_at timestamptz NOT NULL DEFAULT now());
+      CREATE TABLE "${schema}".pending_reviews (
+        id serial PRIMARY KEY, staging_fact_id integer REFERENCES "${schema}".facts(id),
+        candidate_version_id integer, status varchar NOT NULL DEFAULT 'pending',
+        created_at timestamptz NOT NULL DEFAULT now());
+      CREATE TABLE "${schema}".async_jobs (id serial PRIMARY KEY, queue varchar NOT NULL, status varchar NOT NULL, payload jsonb NOT NULL DEFAULT '{}');
+      CREATE TABLE "${schema}".fact_enrichment_versions (id serial PRIMARY KEY, status varchar NOT NULL);
+      INSERT INTO "${schema}".facts DEFAULT VALUES;
+      INSERT INTO "${schema}".pending_reviews (staging_fact_id, candidate_version_id) VALUES (1, 7);
+      INSERT INTO "${schema}".fact_enrichment_versions (status) VALUES ('candidate'), ('current');
+    `));
+    const client = await pool.connect();
+    try {
+      await client.query(`SET search_path TO "${schema}"`);
+      const losses = await refreshRetirementLosses(client);
+      assert.deepEqual(Object.fromEntries(losses), { fact_enrichment_versions: 1, pending_reviews: 1 });
+    } finally {
+      await client.query("RESET search_path");
+      client.release();
+    }
   });
 });
