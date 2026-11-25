@@ -34,29 +34,6 @@ const KEY = "fact_enrichment_system";
 let existed = false;
 let savedValue = "";
 
-before(async () => {
-  const [row] = await db.select().from(adminConfigTable).where(eq(adminConfigTable.key, KEY));
-  if (row) {
-    existed = true;
-    savedValue = row.value;
-  } else {
-    await db.insert(adminConfigTable).values({
-      key: KEY,
-      value: "placeholder",
-      dataType: "string",
-      label: "test",
-    } as typeof adminConfigTable.$inferInsert);
-  }
-});
-
-after(async () => {
-  if (existed) {
-    await db.update(adminConfigTable).set({ value: savedValue }).where(eq(adminConfigTable.key, KEY));
-  } else {
-    await db.delete(adminConfigTable).where(eq(adminConfigTable.key, KEY));
-  }
-});
-
 async function setRow(value: string): Promise<void> {
   await db.update(adminConfigTable).set({ value }).where(eq(adminConfigTable.key, KEY));
 }
@@ -67,6 +44,32 @@ async function readRow(): Promise<{ value: string }> {
 }
 
 describe("migration 0080 — strip retired text modifiers from the classifier prompt", () => {
+  // Inside the suite, not at file level: the runner shares one process across
+  // files, where a file-level hook would hold this retired setting in place for
+  // every other file's tests too.
+  before(async () => {
+    const [row] = await db.select().from(adminConfigTable).where(eq(adminConfigTable.key, KEY));
+    if (row) {
+      existed = true;
+      savedValue = row.value;
+    } else {
+      await db.insert(adminConfigTable).values({
+        key: KEY,
+        value: "placeholder",
+        dataType: "string",
+        label: "test",
+      } as typeof adminConfigTable.$inferInsert);
+    }
+  });
+
+  after(async () => {
+    if (existed) {
+      await db.update(adminConfigTable).set({ value: savedValue }).where(eq(adminConfigTable.key, KEY));
+    } else {
+      await db.delete(adminConfigTable).where(eq(adminConfigTable.key, KEY));
+    }
+  });
+
   const cases: Array<{
     name: string;
     value: string;

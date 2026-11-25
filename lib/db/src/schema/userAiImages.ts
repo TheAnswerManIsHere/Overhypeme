@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, varchar, text, timestamp, index, check } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, bigint, varchar, text, timestamp, index, uniqueIndex, check } from "drizzle-orm/pg-core";
 import { isNotNull, isNull, sql } from "drizzle-orm";
 import { usersTable } from "./auth";
 import { factsTable } from "./facts";
@@ -22,7 +22,17 @@ export const userAiImagesTable = pgTable("user_ai_images", {
   purgeAfter: timestamp("purge_after", { withTimezone: true }),
   /** Who may see this once adult content exists (launch Phase 5, 0121): 'general' | 'adult'. Read by nothing yet. */
   audience: varchar("audience", { length: 10 }).notNull().default("general"),
+  /**
+   * The member's picture this row delivers (migration 0173, launch Phase 7
+   * increment 2): unique, so a picture is delivered once; a picture whose credit
+   * was returned can never get one (trigger). NULL on rows that predate it.
+   */
+  attemptId: bigint("attempt_id", { mode: "number" }),
+  /** The gag and the look it drew (migration 0173). NULL on rows that predate them. */
+  gagId: bigint("gag_id", { mode: "number" }),
+  lookStyleId: varchar("look_style_id", { length: 64 }),
 }, (table) => [
+  uniqueIndex("UQ_uai_attempt").on(table.attemptId).where(isNotNull(table.attemptId)),
   check("user_ai_images_audience_check", sql`${table.audience} IN ('general','adult')`),
   index("IDX_uai_user_id").on(table.userId),
   index("IDX_uai_user_live").on(table.userId).where(isNull(table.deletedAt)),

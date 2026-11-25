@@ -58,8 +58,14 @@ export function memeSnapshot(m: {
 }
 
 /** The stored photo a meme is drawn on: an upload's key, or (where the caller knows it) the profile photo an identity meme uses. */
-export function backgroundPathOf(source: { type: string; uploadKey?: string }, profileImageObjectPath?: string | null): string | null {
-  return source.type === "upload" ? source.uploadKey ?? null : profileImageObjectPath ?? null;
+export function backgroundPathOf(
+  source: { type: string; uploadKey?: string },
+  profileImageObjectPath?: string | null,
+  aiPictureObjectPath?: string | null,
+): string | null {
+  if (source.type === "upload") return source.uploadKey ?? null;
+  if (source.type === "ai_picture") return aiPictureObjectPath ?? null;
+  return profileImageObjectPath ?? null;
 }
 
 /** The latest record of the stored picture at `objectPath`, or null (a picture made before tracing began). */

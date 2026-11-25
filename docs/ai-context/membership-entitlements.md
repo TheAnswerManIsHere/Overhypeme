@@ -490,7 +490,7 @@ suggests "membership."
 |---|---|
 | `artifacts/api-server/src/middlewares/authMiddleware.ts` | everything downstream (~20 sites) |
 | `artifacts/api-server/src/lib/createMemeRecord.ts` | private visibility, rate limit |
-| `artifacts/api-server/src/lib/budgetGate.ts` | spend limit (period is `budget_period`-configured: monthly or rolling 30-day) |
+| `artifacts/api-server/src/lib/budgetGate.ts` | the admin exemption only: since launch Phase 7, increment 2, the spend limit is a backstop that follows the credits an account has been granted (`budget_per_credit_ceiling_usd` per credit, against the spend on record, which is kept 13 months), the same for every tier |
 | `artifacts/api-server/src/lib/stripeStorage.ts` | the fact-of-the-day mailing list, the revocation notice |
 | `artifacts/api-server/src/routes/admin.ts` | dashboard counts, the admin user list |
 | `artifacts/api-server/src/routes/users.ts`, `artifacts/api-server/src/routes/auth.ts`, `artifacts/api-server/src/routes/localAuth.ts` | login/profile payloads |

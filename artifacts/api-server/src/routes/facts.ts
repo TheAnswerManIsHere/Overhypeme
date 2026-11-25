@@ -3,8 +3,6 @@ import { profilePictureUrl } from "../lib/profilePicture";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { moderateComment, checkDuplicateInternal } from "./ai";
 import { logActivity } from "../lib/activity";
-import { trimAiMemeImages } from "../lib/trimFactImages";
-import { getConfigInt } from "../lib/adminConfig";
 import { db } from "@workspace/db";
 import {
   factsTable, hashtagsTable, factHashtagsTable,
@@ -56,8 +54,6 @@ async function buildFactSummaries(facts: (typeof factsTable.$inferSelect)[], use
     }
   }
 
-  const imageCap = await getConfigInt("api_images_per_gender_cap", 5);
-
   return facts.map((f) => ({
     id: f.id, text: f.text, upvotes: f.upvotes, downvotes: f.downvotes, score: f.score, wilsonScore: f.wilsonScore,
     commentCount: f.commentCount, shareCount: f.shareCount, hashtags: hMap.get(f.id) ?? [],
@@ -66,7 +62,6 @@ async function buildFactSummaries(facts: (typeof factsTable.$inferSelect)[], use
     userRating: userId ? (rMap.get(f.id) ?? null) : null,
     createdAt: f.createdAt.toISOString(),
     updatedAt: f.updatedAt.toISOString(),
-    aiMemeImages: trimAiMemeImages((f.aiMemeImages as import("../lib/aiMemePipeline").AiMemeImages | null) ?? null, imageCap),
   }));
 }
 

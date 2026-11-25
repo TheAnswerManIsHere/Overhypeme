@@ -16,7 +16,12 @@ import { usersTable } from "./auth";
  * trigger on `users` the first time an account is verified. The kinds and
  * their shape are the migration's `credit_ledger_lot_shape_check`.
  */
-export const CREDIT_LEDGER_KINDS = ["free_grant", "admin_grant", "admin_debit"] as const;
+/**
+ * `picture_spend` draws one credit for a member's AI picture from a lot, and
+ * `picture_return` restores it to the same lot; both carry ref
+ * `picture:<attempt id>` (migration 0173, plan §2).
+ */
+export const CREDIT_LEDGER_KINDS = ["free_grant", "admin_grant", "admin_debit", "picture_spend", "picture_return"] as const;
 export type CreditLedgerKind = (typeof CREDIT_LEDGER_KINDS)[number];
 
 export const creditLedgerTable = pgTable("credit_ledger", {

@@ -327,8 +327,9 @@ describe("a comparison run end to end, with fakes", () => {
       assert.ok(cells.every((c) => c.state === "rendered"), JSON.stringify(cells.map((c) => [c.state, c.error])));
       return cells.map((c) => c.requestSettings as { purpose: string; megapixels: number });
     };
+    // A member's picture is about one megapixel since launch Phase 7 (plan PLAN_PHASE7_IMAGE_OFFERING.md §2).
     const member = await sizesOf(await newSet("member size", "final"));
-    assert.ok(member.every((r) => r.purpose === "final" && r.megapixels >= 3), JSON.stringify(member));
+    assert.ok(member.every((r) => r.purpose === "final" && r.megapixels > 0.5 && r.megapixels < 2), JSON.stringify(member));
     const ordinary = await sizesOf(await newSet("comparison size"));
     assert.ok(ordinary.every((r) => r.purpose === "comparison" && r.megapixels < 2), JSON.stringify(ordinary));
   });

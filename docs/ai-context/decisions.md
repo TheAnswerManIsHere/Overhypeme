@@ -13,6 +13,13 @@
 
 ---
 
+### 2026-11-25 · The AI spending backstop counts the spend on record, which is kept 13 months
+- **Decision:** David, Q9: 1. The per-account backstop (`budget_per_credit_ceiling_usd` times the credits an account has ever been granted) is measured against the cost records on file, and those are deleted after 13 months under the retention decision (Q15, 2026-11-18). No per-account lifetime total is kept, and the privacy page's 13-month promise is unchanged. Spend older than 13 months stops counting against the cap.
+- **Why:** The exposure is cents per credit per year, the privacy promise stays exactly as written, and the service-wide ceiling (Phase 11) is the real guard against runaway cost. Either answer could have been built later with no data lost, since nothing differs until a record is 13 months old.
+- **Dissent:** Astra recommended keeping a compact lifetime total per account so the plan's "in total" holds for ever. Fable and Claude judged the choice David's, because it changes what the privacy page promises, and Claude recommended this option.
+- **Reference:** PR #1300, review thread 4692221129; `budgetGate.ts`; `dataLifecycle.ts`.
+- **Revisit if:** an account is seen spending past its grants after its records age out, or Phase 11's ceiling is designed and wants a lifetime figure.
+
 ### 2026-11-25 · Launch Phase 7: credits, the free picture, the pack, membership credits, and who keeps the watermark
 - **Decision:** David approved the Phase 7 plan, `docs/plans/PLAN_PHASE7_IMAGE_OFFERING.md` (sha256 `b25fec82…0615`, Issue #1289), rebased onto the [2026-11-11 product strategy](#2026-11-11--the-product-strategy-made-about-a-friend-credits-two-engines-up-to-three-gags). His answers:
   - **Q1: 1.** No friend-photo consent flow is built, not even switched off, until counsel answers.

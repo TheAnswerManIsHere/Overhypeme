@@ -58,7 +58,7 @@ export async function creditEntries(userId: string, limit = CREDIT_LEDGER_PAGE, 
 }
 
 /** Each lot of an account with credits left, oldest first: its credits plus every row that names it. */
-async function openLots(userId: string, executor: Executor): Promise<Array<{ lotId: number; remaining: number }>> {
+export async function openLots(userId: string, executor: Executor): Promise<Array<{ lotId: number; remaining: number }>> {
   const drawn = sql<number>`COALESCE((SELECT SUM(d.credits) FROM credit_ledger d WHERE d.lot_id = ${creditLedgerTable.id}), 0)::int`;
   const rows = await executor
     .select({ lotId: creditLedgerTable.id, remaining: sql<number>`(${creditLedgerTable.credits} + ${drawn})::int` })

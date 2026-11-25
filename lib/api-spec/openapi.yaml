@@ -1595,8 +1595,9 @@ components:
 
     MemeImageSource:
       description: >-
-        The meme's background: an uploaded photo the caller owns, or the
-        caller's profile photo. (Stock photos and the gradient templates were
+        The meme's background: an uploaded photo the caller owns, the
+        caller's profile photo, or one of the caller's own AI pictures of the
+        fact (launch Phase 7). (Stock photos and the gradient templates were
         deleted in launch Phase 4, removals 5 and 6.)
       oneOf:
         - type: object
@@ -1615,6 +1616,15 @@ components:
             type:
               type: string
               enum: [identity]
+        - type: object
+          required: [type, aiImageId]
+          properties:
+            type:
+              type: string
+              enum: [ai_picture]
+            aiImageId:
+              type: integer
+              minimum: 1
 
     CreateMemeRequest:
       type: object
