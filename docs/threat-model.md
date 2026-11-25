@@ -183,7 +183,10 @@ these is a finding regardless of how it arises:
    origin-side invariant, not a worker guarantee. The worker also strips
    `Set-Cookie` on public-asset paths.
 6. **Secrets stay in env, with one tracked exception** — no committed env
-   files, DB dumps, or keys; the narrow `.gitignore` rules stay narrow (a
+   files, DB dumps, or keys, except `artifacts/overhype-me/.env.local`, which
+   may hold only public `VITE_` build values (Vite ships those in the browser
+   bundle anyway); CI's `check:tracked-env` fails on any other tracked `.env*`
+   file or any non-`VITE_` key in it, naming the line, never the value; the narrow `.gitignore` rules stay narrow (a
    blanket `*.sql` would hide real migrations). Stripe webhook signing
    secrets are environment-only (`STRIPE_WEBHOOK_SECRET_{LIVE,TEST}`): with
    none configured every delivery is refused, never verified against the

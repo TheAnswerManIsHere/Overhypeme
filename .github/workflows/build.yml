@@ -205,6 +205,12 @@ jobs:
       - name: Check the dependency gate's logic
         run: node --test scripts/__tests__/check-prod-audit.test.mjs
 
+      # Tracked .env files may hold only public VITE_ build values, and only
+      # the files the guard names may be tracked (launch Phase 15, increment 4).
+      # Failures name the file and line, never the key or the value.
+      - name: Check tracked .env files hold only public build values
+        run: node --test scripts/__tests__/check-tracked-env.test.mjs && node scripts/check-tracked-env.mjs
+
       # Every agent session builds its test database with this script; on a
       # fresh container it failed before Postgres started because it installed
       # pgvector without refreshing the package index. Stubbed, so it touches
