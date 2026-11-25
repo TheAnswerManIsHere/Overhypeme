@@ -76,9 +76,9 @@ describe("wizardStorage", () => {
 
   it("isolates factIds", () => {
     captureWizardState(fixture({ factId: "fact-1" }));
-    captureWizardState(fixture({ factId: "fact-2", name: "Alex" }));
+    captureWizardState(fixture({ factId: "fact-2", name: "Raena" }));
     expect(restoreWizardState("fact-1")?.name).toBe("Alex");
-    expect(restoreWizardState("fact-2")?.name).toBe("Alex");
+    expect(restoreWizardState("fact-2")?.name).toBe("Raena");
   });
 
   it("does not collide with the v1 pendingBuilderState key prefix", () => {
