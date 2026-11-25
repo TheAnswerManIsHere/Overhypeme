@@ -199,6 +199,9 @@ describe("the durable cleanup list", () => {
     assert.ok(health.outstanding >= 1 && health.failing >= 1 && health.oldestQueuedAt);
 
     __setFileRemoverForTest(fakeRemover);
+    // An hour on, the hourly sweep: a row tried moments ago is left to the run
+    // that claimed it until its lease passes.
+    await db.update(storedFileDeletionsTable).set({ lastAttemptAt: new Date(Date.now() - 60 * 60_000) }).where(eq(storedFileDeletionsTable.path, path));
     await runStoredFileCleanup();
     const [after] = await db.select().from(storedFileDeletionsTable).where(eq(storedFileDeletionsTable.path, path));
     assert.ok(after!.doneAt, "the hourly sweep's retry removed it");

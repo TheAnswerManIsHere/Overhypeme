@@ -34,10 +34,9 @@
  */
 import { and, eq, ne, or, sql } from "drizzle-orm";
 import {
-  db, comparisonPanelsTable, factHashtagsTable, factsTable, imagePromptAttemptsTable, pendingReviewsTable,
+  db, comparisonPanelsTable, factsTable, imagePromptAttemptsTable, pendingReviewsTable,
 } from "@workspace/db";
-import { detachHashtags } from "./factHashtags";
-import { attachedContent } from "./factLifecycle";
+import { attachedContent, deleteFactRow } from "./factLifecycle";
 import { lockFactRow, lockReview } from "./reviewLocks";
 import { cleanUpQueuedFiles, queueStoredFileDeletions, renderFilePaths } from "./storedFileDeletions";
 import type { Executor } from "./visualConceptOwner";
@@ -49,7 +48,7 @@ export type PurgeOutcome =
   | { kind: "skipped"; factId: number; reason: PurgeSkipReason }
   | { kind: "gone"; factId: number };
 
-/** What a purge would hold, read without deleting: the dry run's numbers. */
+/** What a purge would hold, read without deleting: the dry run's numbers (zero unless it qualifies). */
 export interface PurgeAssessment {
   outcome: "qualifies" | PurgeSkipReason | "gone";
   renders: number;
@@ -70,11 +69,9 @@ export async function assessRejectedFact(
 ): Promise<PurgeAssessment> {
   const [fact] = await tx.select({ isActive: factsTable.isActive, approvedAt: factsTable.approvedAt })
     .from(factsTable).where(eq(factsTable.id, factId)).limit(1);
-  if (!fact) return { outcome: "gone", renders: 0, files: [] };
-  const attempts = await tx.select({ id: imagePromptAttemptsTable.id })
-    .from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.factId, factId));
-  const holds = { renders: attempts.length, files: await renderFilePaths(tx, attempts.map((a) => a.id)) };
-  if (fact.isActive || fact.approvedAt != null) return { outcome: "approved", ...holds };
+  const none = { renders: 0, files: [] };
+  if (!fact) return { outcome: "gone", ...none };
+  if (fact.isActive || fact.approvedAt != null) return { outcome: "approved", ...none };
   const r = pendingReviewsTable;
   const [open] = await tx.select({ id: r.id }).from(r)
     .where(and(
@@ -83,13 +80,16 @@ export async function assessRejectedFact(
       opts.excludeReviewId != null ? ne(r.id, opts.excludeReviewId) : undefined,
     ))
     .limit(1);
-  if (open) return { outcome: "open_review", ...holds };
+  if (open) return { outcome: "open_review", ...none };
   const attached = await attachedContent(factId, tx);
-  if (attached.memes + attached.aiPictures + attached.comments > 0) return { outcome: "member_content", ...holds };
+  if (attached.memes + attached.aiPictures + attached.comments > 0) return { outcome: "member_content", ...none };
   const [panel] = await tx.select({ id: comparisonPanelsTable.id }).from(comparisonPanelsTable)
     .where(eq(comparisonPanelsTable.factId, factId)).limit(1);
-  if (panel) return { outcome: "in_comparison", ...holds };
-  return { outcome: "qualifies", ...holds };
+  if (panel) return { outcome: "in_comparison", ...none };
+  // What it holds is read only for one that qualifies.
+  const attempts = await tx.select({ id: imagePromptAttemptsTable.id })
+    .from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.factId, factId));
+  return { outcome: "qualifies", renders: attempts.length, files: await renderFilePaths(tx, attempts.map((a) => a.id)) };
 }
 
 /**
@@ -108,11 +108,7 @@ export async function purgeRejectedFact(
   if (assessed.outcome === "gone") return { kind: "gone", factId };
   if (assessed.outcome !== "qualifies") return { kind: "skipped", factId, reason: assessed.outcome };
   const files = await queueStoredFileDeletions(tx, assessed.files, "rejected_submission_purge");
-  // The join rows would go by cascade, which skips each hashtag's fact count;
-  // detaching first lowers the counts through their one writer.
-  const tags = await tx.select({ id: factHashtagsTable.hashtagId }).from(factHashtagsTable).where(eq(factHashtagsTable.factId, factId));
-  await detachHashtags(tx, factId, tags.map((t) => t.id));
-  await tx.delete(factsTable).where(eq(factsTable.id, factId));
+  await deleteFactRow(tx, factId);
   return { kind: "purged", factId, renders: assessed.renders, files };
 }
 
@@ -164,15 +160,21 @@ export async function runRejectedSubmissionPurge(
   };
   const candidates = await rejectedReviewsWithStagingFacts(db);
   counts.matched = candidates.length;
+  const tally = (outcome: PurgeOutcome) => {
+    if (outcome.kind === "gone") counts.gone++;
+    else if (outcome.kind === "skipped") counts.skipped[outcome.reason]++;
+    else {
+      counts.purged++;
+      counts.renders += outcome.renders;
+      counts.files += outcome.files.length;
+    }
+  };
   for (const { reviewId, factId } of candidates) {
     if (!opts.apply) {
-      const assessed = await assessRejectedFact(db, factId, { excludeReviewId: reviewId });
-      if (assessed.outcome === "gone") counts.gone++;
-      else if (assessed.outcome === "qualifies") {
-        counts.purged++;
-        counts.renders += assessed.renders;
-        counts.files += assessed.files.length;
-      } else counts.skipped[assessed.outcome]++;
+      const a = await assessRejectedFact(db, factId, { excludeReviewId: reviewId });
+      tally(a.outcome === "gone" ? { kind: "gone", factId }
+        : a.outcome === "qualifies" ? { kind: "purged", factId, renders: a.renders, files: a.files }
+        : { kind: "skipped", factId, reason: a.outcome });
       continue;
     }
     const outcome = await db.transaction(async (tx): Promise<PurgeOutcome> => {
@@ -182,14 +184,8 @@ export async function runRejectedSubmissionPurge(
       if (!review || review.status !== "rejected" || review.stagingFactId !== factId) return { kind: "gone", factId };
       return purgeRejectedFact(tx, factId, { excludeReviewId: reviewId });
     });
-    if (outcome.kind === "gone") counts.gone++;
-    else if (outcome.kind === "skipped") counts.skipped[outcome.reason]++;
-    else {
-      counts.purged++;
-      counts.renders += outcome.renders;
-      counts.files += outcome.files.length;
-      counts.filesOutstanding += await cleanUp(outcome.files);
-    }
+    tally(outcome);
+    if (outcome.kind === "purged") counts.filesOutstanding += await cleanUp(outcome.files);
   }
   return counts;
 }

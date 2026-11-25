@@ -211,11 +211,19 @@ export async function deleteFact(factId: number, adminId: string): Promise<FactL
     const attached = await attachedContent(factId, tx);
     if (attached.memes + attached.aiPictures + attached.comments > 0) return { kind: "attached", attached } as const;
     await recordAdminAction({ factId }, adminId, "delete", { factId, text: fact.text }, tx);
-    // The join rows would go by cascade, which skips each hashtag's fact count;
-    // detaching first lowers the counts through their one writer.
-    const tags = await tx.select({ id: factHashtagsTable.hashtagId }).from(factHashtagsTable).where(eq(factHashtagsTable.factId, factId));
-    await detachHashtags(tx, factId, tags.map((t) => t.id));
-    await tx.delete(factsTable).where(eq(factsTable.id, factId));
+    await deleteFactRow(tx, factId);
     return { kind: "done", value: { deleted: true } } as const;
   });
+}
+
+/**
+ * Delete a fact row inside the caller's transaction, its hashtags detached
+ * first: the join rows would go by cascade, which skips each hashtag's fact
+ * count, so detaching lowers the counts through their one writer. Shared by
+ * the permanent delete and a rejected submission's purge.
+ */
+export async function deleteFactRow(tx: Executor, factId: number): Promise<void> {
+  const tags = await tx.select({ id: factHashtagsTable.hashtagId }).from(factHashtagsTable).where(eq(factHashtagsTable.factId, factId));
+  await detachHashtags(tx, factId, tags.map((t) => t.id));
+  await tx.delete(factsTable).where(eq(factsTable.id, factId));
 }

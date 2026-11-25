@@ -1410,6 +1410,9 @@ describe("image_generation — the final store and a rejection's purge never lea
     assert.equal(waiting!.attempts, 1);
     assert.match(waiting!.lastError ?? "", /storage unavailable/);
     assert.equal(await exists(path), true);
+    // An hour on, the hourly sweep: a row tried moments ago is left to the run
+    // that claimed it until its lease passes.
+    await db.update(storedFileDeletionsTable).set({ lastAttemptAt: new Date(Date.now() - 60 * 60_000) }).where(eq(storedFileDeletionsTable.path, path));
     await runStoredFileCleanup();
     const [done] = await queued([path]);
     assert.ok(done!.doneAt, "the sweep removed it");

@@ -11,7 +11,7 @@
  * Each path keeps its reason, attempts and last error until done, and the
  * outstanding count shows on Queue Health: nothing is abandoned silently.
  */
-import { and, asc, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db, storedFileDeletionsTable, imagePromptAttemptsTable, imageProvenanceTable } from "@workspace/db";
 import { ObjectStorageService } from "./objectStorage";
 import { logger } from "./logger";
@@ -86,44 +86,55 @@ function remover(): FileRemover {
   return removerOverride ?? new ObjectStorageService();
 }
 
+/** How long a claimed row is left to the run that claimed it before another run may take it. */
+const CLAIM_LEASE = "10 minutes";
+/** Files removed at once. */
+const REMOVE_CONCURRENCY = 8;
+
 /**
  * Remove outstanding files: the paths named, or (with none named) a batch of
- * the outstanding ones, never-tried first. Each row is claimed under its own lock, skipping one
- * another run holds, and re-read there, so two runs never remove one file
- * twice and a row done meanwhile is left alone. A failure records the error
- * and leaves the row outstanding for the next sweep.
+ * the outstanding ones, never-tried first. The batch is claimed in one short
+ * statement, which stamps `last_attempt_at` and counts the attempt, skipping
+ * rows another run holds or claimed within the lease; the files are then
+ * removed outside any transaction, a few at a time, and each result written
+ * on its own row only while it is still outstanding. Removing a file twice is
+ * harmless (an object already gone counts as removed), so a run that dies
+ * mid-batch leaves its rows to the next run after the lease.
  */
 export async function runStoredFileCleanup(opts: { paths?: string[] } = {}): Promise<CleanupResult> {
   const t = storedFileDeletionsTable;
   const result: CleanupResult = { deleted: 0, failed: 0 };
   if (opts.paths && opts.paths.length === 0) return result;
-  const candidates = await db.select({ id: t.id }).from(t)
-    .where(and(isNull(t.doneAt), opts.paths ? inArray(t.path, opts.paths) : undefined))
-    // Never tried first, then the least recently tried, so a file that keeps
-    // failing never holds up the rest.
-    .orderBy(sql`${t.lastAttemptAt} ASC NULLS FIRST`, asc(t.createdAt), asc(t.id))
-    .limit(opts.paths ? opts.paths.length : SWEEP_BATCH);
+  const limit = opts.paths ? opts.paths.length : SWEEP_BATCH;
+  const scope = opts.paths ? sql`AND path IN (${sql.join(opts.paths.map((path) => sql`${path}`), sql`, `)})` : sql``;
+  // Never tried first, then the least recently tried, so a file that keeps
+  // failing never holds up the rest.
+  const claimed = await db.execute<{ id: string; path: string }>(sql`
+    UPDATE stored_file_deletions SET last_attempt_at = now(), attempts = attempts + 1
+    WHERE id IN (
+      SELECT id FROM stored_file_deletions
+      WHERE done_at IS NULL ${scope}
+        AND (last_attempt_at IS NULL OR last_attempt_at < now() - ${CLAIM_LEASE}::interval OR ${opts.paths != null})
+      ORDER BY last_attempt_at ASC NULLS FIRST, created_at, id
+      LIMIT ${limit}
+      FOR UPDATE SKIP LOCKED
+    )
+    RETURNING id, path`);
+  const rows = claimed.rows.map((r) => ({ id: Number(r.id), path: r.path }));
   const store = remover();
-  for (const { id } of candidates) {
-    await db.transaction(async (tx) => {
-      const [row] = await tx.select().from(t)
-        .where(and(sql`${t.id} = ${id}`, isNull(t.doneAt)))
-        .for("update", { skipLocked: true });
-      if (!row) return;
-      const now = new Date();
+  for (let i = 0; i < rows.length; i += REMOVE_CONCURRENCY) {
+    await Promise.all(rows.slice(i, i + REMOVE_CONCURRENCY).map(async (row) => {
       try {
         await store.deleteObject(row.path);
-        await tx.update(t).set({ doneAt: now, lastAttemptAt: now, attempts: row.attempts + 1, lastError: null })
-          .where(sql`${t.id} = ${id}`);
+        await db.update(t).set({ doneAt: new Date(), lastError: null }).where(and(eq(t.id, row.id), isNull(t.doneAt)));
         result.deleted++;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        await tx.update(t).set({ lastAttemptAt: now, attempts: row.attempts + 1, lastError: message.slice(0, 2000) })
-          .where(sql`${t.id} = ${id}`);
+        await db.update(t).set({ lastError: message.slice(0, 2000) }).where(and(eq(t.id, row.id), isNull(t.doneAt)));
         result.failed++;
-        logger.warn({ path: row.path, attempts: row.attempts + 1, err: message }, "[stored-file-deletions] a file could not be removed; the hourly sweep retries it");
+        logger.warn({ path: row.path, err: message }, "[stored-file-deletions] a file could not be removed; the hourly sweep retries it");
       }
-    });
+    }));
   }
   if (result.deleted > 0 || result.failed > 0) logger.info(result, "[stored-file-deletions] cleanup run");
   return result;

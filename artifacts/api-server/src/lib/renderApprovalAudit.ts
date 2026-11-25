@@ -20,9 +20,9 @@
  *
  * Stored in admin_config, kept off the settings page and refused there.
  */
-import { eq } from "drizzle-orm";
 import { db, adminConfigTable } from "@workspace/db";
 import { logger } from "./logger";
+import { getConfigStringStrict } from "./adminConfig";
 import type { Executor } from "./visualConceptOwner";
 
 export const RENDER_APPROVAL_AUDIT_KEY = "render_approval_audit_complete_since";
@@ -46,10 +46,9 @@ export async function markRenderApprovalAuditBoundary(now = new Date(), executor
 }
 
 /** The boundary, or null when it is not set yet (every render then reads "not recorded" when it has no evidence). */
-export async function renderApprovalAuditBoundary(executor: Executor = db): Promise<Date | null> {
-  const [row] = await executor.select({ value: adminConfigTable.value }).from(adminConfigTable)
-    .where(eq(adminConfigTable.key, RENDER_APPROVAL_AUDIT_KEY)).limit(1);
-  if (!row) return null;
-  const at = new Date(row.value);
+export async function renderApprovalAuditBoundary(): Promise<Date | null> {
+  const value = await getConfigStringStrict(RENDER_APPROVAL_AUDIT_KEY);
+  if (value === undefined) return null;
+  const at = new Date(value);
   return Number.isNaN(at.getTime()) ? null : at;
 }

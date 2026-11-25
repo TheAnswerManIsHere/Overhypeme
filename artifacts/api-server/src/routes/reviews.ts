@@ -928,9 +928,10 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
 
   if (outcome.kind === "not_found") { res.status(404).json({ error: "Review not found" }); return; }
   const review = outcome.review;
-  // Committed: remove the purged renders' files now; any left wait on the
-  // hourly sweep, which retries them.
-  if (outcome.purge?.kind === "purged") await cleanUpQueuedFiles(outcome.purge.files);
+  // Committed: remove the purged renders' files now, without holding up the
+  // response or the submitter's email; any left wait on the hourly sweep,
+  // which retries them (cleanUpQueuedFiles never throws).
+  if (outcome.purge?.kind === "purged") void cleanUpQueuedFiles(outcome.purge.files);
 
   if (review.submittedById) {
     const [submitter] = await db.select({ email: usersTable.email, displayName: usersTable.displayName })
