@@ -129,9 +129,10 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
    * content rendered either way. A plain value, no foreign key: fact_gags
    * already points back here for its example, so a key both ways would make
    * the pair impossible to insert in either order. It can name a gag that no
-   * longer exists: rejecting a submission deletes its gags and keeps its
-   * fact (PLAN_FACT_LIFECYCLE_REBUILD.md 1D), and those attempts are reached
-   * by no screen, since renders are listed and picked only through a gag.
+   * longer exists: a removed gag's renders keep its id. Rejecting a
+   * submission purges its never-approved fact, and these rows with it
+   * (PLAN_RENDER_HISTORY.md D7); a rejected fact that does not qualify keeps
+   * its renders, its gags discarded (PLAN_FACT_LIFECYCLE_REBUILD.md 1D).
    */
   gagId: bigint("gag_id", { mode: "number" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

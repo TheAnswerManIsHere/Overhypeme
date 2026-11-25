@@ -61,7 +61,9 @@ an automatic rejection.
 
 A `facts` row with `isActive = false`: prepped but not published. Production
 approval flips it `isActive = true` (live); published = an active row exists (no
-status enum on `facts`).
+status enum on `facts`). Rejecting the submission purges a staging fact that
+was never approved, with its renders and their files; the review row, which
+the submitter's Library reads, stays (Issue #1304).
 → [moderation-workflow](./moderation-workflow.md)
 
 ### Active

@@ -84,6 +84,8 @@ import { lockFactRow, lockReviewAt, ReviewMovedError, reviewMovedBody, sendIfRev
 import { latestReading, readingView, startReading } from "../lib/readingJobs";
 import { checkDuplicateInternal, findIdenticalSubmission } from "./ai";
 import { recordAdminAction } from "../lib/adminActions";
+import { purgeRejectedFact, type PurgeOutcome } from "../lib/rejectedSubmissionPurge";
+import { cleanUpQueuedFiles } from "../lib/storedFileDeletions";
 
 // Re-export the plan-generator test seam (owned by the shared preview helper).
 // Approval no longer runs any synchronous planner call — its renderability
@@ -885,25 +887,39 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
       reviewedAt: now,
       ...(atTriage ? {} : { productionRejectedAt: now, productionRejectedById: req.user.id, productionRejectionNote: adminNote }),
     }).where(eq(pendingReviewsTable.id, id));
+    // The submission is purged (David, Q52; plan PLAN_RENDER_HISTORY.md D7):
+    // its staging fact, never approved, goes with everything that exists only
+    // to make it a fact, and its render files go onto the durable cleanup
+    // list in this transaction. The rejection record the submitter sees (this
+    // review row) and the admin record below stay; the record keeps the
+    // purged fact's id in its detail, since the fact link itself is gone. The
+    // fact's lock is taken after the review's (the lock rule), the lock the
+    // render worker's final store takes too.
+    let purge: PurgeOutcome | null = null;
     let gagsDiscarded = 0;
     if (review.stagingFactId != null) {
-      // The submission's gags and their renders are discarded (1D): its
-      // staging fact was never approved and stays inactive, so nothing of it
-      // reaches members or the Facts page. The fact row is locked before its
-      // gags, the order every gag action takes (gagStore.ts), so a gag being
-      // added commits first and is deleted here, and one arriving after is
-      // refused because the review is no longer open. A render still running
-      // stores its picture on its attempt, attached to no gag: no screen lists
-      // or picks it, like the renders that finished before the rejection.
-      await lockFactRow(tx, review.stagingFactId);
-      await tx.update(factsTable)
-        .set({ enrichmentStatus: sql`CASE WHEN ${factsTable.enrichmentStatus} = 'pending' THEN NULL ELSE ${factsTable.enrichmentStatus} END` })
-        .where(eq(factsTable.id, review.stagingFactId));
-      const removed = await tx.delete(factGagsTable).where(eq(factGagsTable.factId, review.stagingFactId)).returning({ id: factGagsTable.id });
-      gagsDiscarded = removed.length;
+      purge = await purgeRejectedFact(tx, review.stagingFactId, { excludeReviewId: id });
+      if (purge.kind === "skipped") {
+        // Not purged (approved before, another open review, member content
+        // or a comparison drawn from it): its gags are discarded as before
+        // (1D), so nothing of it can reach members or the Facts page.
+        await tx.update(factsTable)
+          .set({ enrichmentStatus: sql`CASE WHEN ${factsTable.enrichmentStatus} = 'pending' THEN NULL ELSE ${factsTable.enrichmentStatus} END` })
+          .where(eq(factsTable.id, review.stagingFactId));
+        gagsDiscarded = (await tx.delete(factGagsTable).where(eq(factGagsTable.factId, review.stagingFactId)).returning({ id: factGagsTable.id })).length;
+      }
     }
-    await recordAdminAction({ reviewId: id, factId: review.stagingFactId }, req.user.id, "reject", { reason: rejectionReason, adminNote, stage: review.workflowStage, gagsDiscarded }, tx);
-    return { kind: "rejected" as const, review };
+    await recordAdminAction(
+      { reviewId: id, factId: purge?.kind === "skipped" ? review.stagingFactId : null },
+      req.user.id, "reject",
+      {
+        reason: rejectionReason, adminNote, stage: review.workflowStage,
+        ...(purge?.kind === "purged" ? { purgedFactId: purge.factId, rendersPurged: purge.renders, filesPurged: purge.files.length } : {}),
+        ...(purge?.kind === "skipped" ? { purgeSkipped: purge.reason, gagsDiscarded } : {}),
+      },
+      tx,
+    );
+    return { kind: "rejected" as const, review, purge };
     });
   } catch (err) {
     if (!sendIfReviewMoved(err, res)) throw err;
@@ -912,6 +928,9 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
 
   if (outcome.kind === "not_found") { res.status(404).json({ error: "Review not found" }); return; }
   const review = outcome.review;
+  // Committed: remove the purged renders' files now; any left wait on the
+  // hourly sweep, which retries them.
+  if (outcome.purge?.kind === "purged") await cleanUpQueuedFiles(outcome.purge.files);
 
   if (review.submittedById) {
     const [submitter] = await db.select({ email: usersTable.email, displayName: usersTable.displayName })

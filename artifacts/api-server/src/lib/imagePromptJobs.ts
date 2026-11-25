@@ -46,6 +46,7 @@ import {
 } from "@workspace/api-zod";
 import { registerJobHandler, enqueueJob, terminalFailure, type JobHandler, type HandlerResult } from "./asyncJobs";
 import { assertJobOwnership, fencedTransaction, rethrowIfOwnershipLost } from "./jobFence";
+import { lockFactRow } from "./reviewLocks";
 import { drawOrCollect } from "./renderRequestRecovery";
 import { finishAndStore, recordGenerationRequest } from "./provenance/records";
 import { vendorContext } from "./provenance/vendorContext";
@@ -456,47 +457,32 @@ export const imageGenerationHandler: JobHandler = {
     }
     const { generationRequestId, data: vendorData } = drawn;
 
-    // Download + persist to object storage.
-    let storedPath: string;
+    // Download the picture and fingerprint its reference pictures outside any
+    // lock: network latency is not the fact's to wait on.
+    const vendor = await vendorContext(falInput, vendorData);
+    let buf: Buffer;
     try {
-      const buf = await downloadToBuffer(resultUrl);
-      // Saved under the format the engine actually returned, and recorded,
-      // stamped and hashed before it is stored (image tracing).
-      const stamp = Date.now();
-      const finished = await finishAndStore({
-        store: objectStorage,
-        subPathFor: (ext) => `ai-bg-v2/${attempt.factId}/${attempt.id}-${stamp}.${ext}`,
-        bytes: buf,
-        kind: "ai_render",
-        actor: provenance.actor,
-        stamp: true,
-        stampEngine: engine.label,
-        generationRequestId,
-        attemptId: p.attemptId,
-        factId: attempt.factId,
-        engineId: engine.id,
-        // Everything that shaped the picture, frozen into the record: the attempt's whole planning lineage (the
-        // visual plan, the compiled prompt, the source analysis and its hash, the enrichment, the identity policy),
-        // which lives otherwise on a row deleted with its fact; and what the vendor returned (its seed and flags)
-        // with a fingerprint of every reference picture the request named (image tracing, completeness audit).
-        snapshot: {
-          producer: provenance.producer,
-          generationMode,
-          prompt: promptText,
-          renderControls,
-          renderJobId: attempt.renderJobId,
-          attempt: attemptLineage(attempt, requestSettings),
-          ...(await vendorContext(falInput, vendorData)),
-        },
-      });
-      storedPath = finished.objectPath;
+      buf = await downloadToBuffer(resultUrl);
     } catch (err) {
       return retryRender(p.attemptId, `the finished picture could not be saved (${err instanceof Error ? err.message : String(err)})`);
     }
 
-    // Mark the attempt complete and mirror it, in one fenced transaction (plan
-    // PLAN_JOB_RESUME.md §F): a stop between the two can no longer leave a
-    // picture recorded but unmirrored, and a resumed run that finds the
+    // Record, store and link the picture under the fact's lock (plan
+    // PLAN_RENDER_HISTORY.md D7; Astra C4). A rejection purges its fact under
+    // the same lock, and a render delete takes it too, so the two serialise:
+    //   - the fact or this render already gone: nothing is recorded or stored;
+    //   - otherwise the lock is held through provenance, upload and linking,
+    //     so the purge waits and then finds the linked picture (or, after an
+    //     interruption, the committed provenance record naming it) and puts
+    //     its file on the cleanup list.
+    // Provenance commits on its own connection before the upload
+    // (finishImage), so a picture uploaded but never linked is still named by
+    // a committed record. The upload keeps its own timeout; the lock is held
+    // for seconds.
+    //
+    // The same fenced transaction marks the attempt complete and mirrors it
+    // (plan PLAN_JOB_RESUME.md §F): a stop between the two can no longer leave
+    // a picture recorded but unmirrored, and a resumed run that finds the
     // picture recorded finishes without drawing or mirroring again.
     //
     // The mirror copies it to facts.aiMemeImages + user_ai_images for read
@@ -505,13 +491,61 @@ export const imageGenerationHandler: JobHandler = {
     // (mirrorToLegacyStorage === false), which must verify the pipeline
     // without polluting the staging fact's shared set.
     const skipMirror = isEphemeralModerationRender(renderControls);
-    await fencedTransaction(db, async (tx) => {
+    const stored: { path: string } | { gone: true } | { failed: string } = await fencedTransaction(db, async (tx) => {
+      if (!(await lockFactRow(tx, attempt.factId))) return { gone: true as const };
+      const [still] = await tx.select({ id: imagePromptAttemptsTable.id }).from(imagePromptAttemptsTable)
+        .where(eq(imagePromptAttemptsTable.id, p.attemptId)).limit(1);
+      if (!still) return { gone: true as const };
+      let storedPath: string;
+      try {
+        // Saved under the format the engine actually returned, and recorded,
+        // stamped and hashed before it is stored (image tracing).
+        const stamp = Date.now();
+        const finished = await finishAndStore({
+          store: objectStorage,
+          subPathFor: (ext) => `ai-bg-v2/${attempt.factId}/${attempt.id}-${stamp}.${ext}`,
+          bytes: buf,
+          kind: "ai_render",
+          actor: provenance.actor,
+          stamp: true,
+          stampEngine: engine.label,
+          generationRequestId,
+          attemptId: p.attemptId,
+          factId: attempt.factId,
+          engineId: engine.id,
+          // Everything that shaped the picture, frozen into the record: the attempt's whole planning lineage (the
+          // visual plan, the compiled prompt, the source analysis and its hash, the enrichment, the identity policy),
+          // which lives otherwise on a row deleted with its fact; and what the vendor returned (its seed and flags)
+          // with a fingerprint of every reference picture the request named (image tracing, completeness audit).
+          snapshot: {
+            producer: provenance.producer,
+            generationMode,
+            prompt: promptText,
+            renderControls,
+            renderJobId: attempt.renderJobId,
+            attempt: attemptLineage(attempt, requestSettings),
+            ...vendor,
+          },
+        });
+        storedPath = finished.objectPath;
+      } catch (err) {
+        rethrowIfOwnershipLost(err);
+        return { failed: `the finished picture could not be saved (${err instanceof Error ? err.message : String(err)})` };
+      }
       await tx
         .update(imagePromptAttemptsTable)
         .set({ generatedImageObjectPath: storedPath, error: null, errorCode: null, updatedAt: new Date() })
         .where(eq(imagePromptAttemptsTable.id, p.attemptId));
       if (!skipMirror) await mirrorToLegacyStorage(attempt, storedPath, tx);
+      return { path: storedPath };
     });
+    if ("gone" in stored) {
+      // Purged or deleted while it was drawing: the picture is not kept.
+      logger.info({ attemptId: p.attemptId, factId: attempt.factId }, "[imagePromptJobs] the render or its fact is gone; the picture is not stored");
+      return { ok: true, result: { attemptId: p.attemptId, discarded: true } };
+    }
+    if ("failed" in stored) return retryRender(p.attemptId, stored.failed);
+    const storedPath = stored.path;
     if (skipMirror) {
       logger.info(
         { attemptId: p.attemptId, factId: attempt.factId },

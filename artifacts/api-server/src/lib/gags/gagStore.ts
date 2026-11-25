@@ -46,6 +46,7 @@ import { stableStringify } from "../factRenderScenarios";
 import { openReviewForFact, type GagContent } from "./resolver";
 import { CANONICAL_SUBJECT_NAME_FORMS_LC } from "../renderCanonical";
 import { lockFactRow, lockReview } from "../reviewLocks";
+import { recordAdminAction } from "../adminActions";
 import { clearPendingExamples, copyPublishedExamplesToDraft, putExample } from "./examples";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -369,6 +370,11 @@ export async function approveGagRender(factId: number, gagId: number, attemptId:
     await putExample(tx, gagId, kind, "pending", attemptId, actor.adminId);
     const [touched] = await tx.update(factGagsTable).set({ pendingContent: target, pendingBy: actor.adminId, pendingAt: now, updatedAt: now })
       .where(eq(factGagsTable.id, gagId)).returning();
+    // Recorded in the pick's own transaction (plan PLAN_RENDER_HISTORY.md D8,
+    // David Q51): a record that cannot be written fails the approval, so from
+    // this release on every pick has its record, which the render history
+    // reads to say a render was approved.
+    await recordAdminAction({ factId, reviewId: actor.reviewId ?? null }, actor.adminId, "gag_render_approval", { gagId, attemptId }, tx);
     return touched!;
   });
 }

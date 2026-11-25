@@ -14,6 +14,8 @@ import { emailRetryReset } from "../lib/email";
 import { laneHealth, queueHealth, queueHealthJobs, skipReasonOf } from "../lib/queueHealth";
 import { isNcmecReservedConfigKey, NCMEC_RESERVED_KEY_REFUSAL } from "../lib/moderation/ncmecConfig";
 import { READ_ONLY_CONFIG_KEY } from "../lib/readOnlyMode";
+import { RENDER_APPROVAL_AUDIT_KEY } from "../lib/renderApprovalAudit";
+import { storedFileDeletionHealth } from "../lib/storedFileDeletions";
 import { CODE_OWNED_AI_SETTING_REFUSAL, isCodeOwnedAiConfigKey, withoutCodeOwnedAiSettings } from "../lib/codeOwnedPrompts";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
 import { revokeUserSessions } from "../lib/auth";
@@ -1352,7 +1354,7 @@ router.get("/admin/config", requireAdmin, async (_req: Request, res: Response) =
     // AI settings live in code and are not shown (decisions.md 2026-11-14).
     // The read-only switch has its own surface and rules (Operations page,
     // lib/readOnlyMode.ts): it is never listed or edited here.
-    res.json(withoutCodeOwnedAiSettings(await getAllConfig()).filter((r) => r.key !== READ_ONLY_CONFIG_KEY));
+    res.json(withoutCodeOwnedAiSettings(await getAllConfig()).filter((r) => r.key !== READ_ONLY_CONFIG_KEY && r.key !== RENDER_APPROVAL_AUDIT_KEY));
   } catch (err) {
     res.status(500).json({ error: "Failed to load config" });
   }
@@ -1432,6 +1434,12 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
   // safety rules (lib/readOnlyMode.ts); a write here would bypass them.
   if (key === READ_ONLY_CONFIG_KEY) {
     res.status(403).json({ error: "Read-only mode is set on the Operations page." });
+    return;
+  }
+  // The render-approval boundary is set once by a release, never edited
+  // (lib/renderApprovalAudit.ts).
+  if (key === RENDER_APPROVAL_AUDIT_KEY) {
+    res.status(403).json({ error: "This value is set by the server and is not edited." });
     return;
   }
   // AI settings (the six system prompts and the engine choices) are set in
@@ -2170,11 +2178,14 @@ router.get("/admin/queue-health", requireAdmin, async (req: Request, res: Respon
     );
     if (!rateLimit.allowed) { res.status(429).json({ error: "Too many requests" }); return; }
 
-    const [queues, lanes] = await Promise.all([queueHealth(db), laneHealth(db)]);
+    const [queues, lanes, storedFileDeletions] = await Promise.all([queueHealth(db), laneHealth(db), storedFileDeletionHealth(db)]);
     const now = Date.now();
     res.json({
       ts: new Date(now).toISOString(),
       queues,
+      // Picture files still to delete (lib/storedFileDeletions.ts): the
+      // durable cleanup list's outstanding count, so nothing waits unseen.
+      storedFileDeletions,
       lanes: lanes.map((l) => ({
         ...l,
         lastScheduledAt: l.lastScheduledAt?.toISOString() ?? null,

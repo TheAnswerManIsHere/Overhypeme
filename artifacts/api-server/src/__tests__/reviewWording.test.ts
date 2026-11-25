@@ -191,8 +191,8 @@ describe("Reject past triage: the wording needs replacing", () => {
     assert.equal(row.reviewedById, adminId);
     assert.equal(await unresolved(), pendingBefore - 1, "the submitter's pending count drops");
 
-    const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, row.stagingFactId!));
-    assert.equal(fact!.isActive, false);
+    // Never live: its staging fact is purged with the rejection (PLAN_RENDER_HISTORY.md D7).
+    assert.equal(row.stagingFactId, null);
 
     const again = await request(app).post(url(id, "reject")).send({ rejectionReason: "lame" });
     assert.equal(again.status, 409);
@@ -202,13 +202,15 @@ describe("Reject past triage: the wording needs replacing", () => {
   it("stays final when the reading finishes after it: the late run makes no paid call and moves nothing", async () => {
     const id = await triageReview();
     assert.equal((await accept(id)).status, 200);
-    assert.equal((await request(app).post(url(id, "reject")).send({ rejectionReason: "lame" })).status, 200);
     const factId = (await reviewRow(id)).stagingFactId!;
     const run = await latestReading(factId);
+    assert.equal((await request(app).post(url(id, "reject")).send({ rejectionReason: "lame" })).status, 200);
+    // The purge took the staging fact and its reading run with it (D7): the
+    // late job finds nothing to run and calls nothing.
     let calls = 0;
     await runReadingJob({ readingId: run!.id }, { read: async () => { calls++; throw new Error("must not be called"); } });
     assert.equal(calls, 0, "no paid call for a closed review");
-    assert.equal((await latestReading(factId))!.status, "failed");
+    assert.equal(await latestReading(factId), null, "the reading went with the purged fact");
     const row = await reviewRow(id);
     assert.equal(row.workflowStage, "rejected");
     assert.equal(row.status, "rejected");

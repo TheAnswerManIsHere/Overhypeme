@@ -13,6 +13,13 @@
 
 ---
 
+### 2026-11-25 · A rejected submission is purged; its rejection record stays (Issue #1304)
+- **Decision:** rejecting a submission purges it. Its staging fact, never approved, is deleted with everything that exists only to make it a fact (its renders, gags and their examples, readings, taxonomy runs and hashtag links), and every render's picture file goes onto the durable cleanup list (`stored_file_deletions`, migration 0173) in the same transaction, removed after the commit and retried hourly until gone. What stays: the review row, which is all the submitter's Library reads (text, reason, note), with its staging-fact link nulled; the admin record of the rejection, its fact id kept in its detail; and the provenance records. Submissions rejected before this release are purged once by `scripts/purge-rejected-submissions.ts`, a dry run by default and deleting only with `--apply`.
+- **What is never purged:** a fact ever approved (`approved_at` set, which every live fact has), one with another open review, one with member content attached (the permanent delete's rule), or one an engine comparison was drawn from. Each is skipped and counted by reason, and Reject then discards its gags as before.
+- **Supersedes:** Issue #1018 increment 1.2c-i's tie-break, taken on Claude's recommendation, that a rejected submission's staging fact and pictures are kept and "never offered" rather than deleted (recorded under [the wording lock](#2026-11-15--a-facts-wording-locks-at-triage-withdraw-ends-a-submission-whose-wording-needs-replacing), *Partly superseded (2026-11-17)*).
+- **With it:** the render worker records, stores and links a finished picture under the fact's lock, after checking the fact and the render still exist, so a purge and a running render never leave a file behind (plan D7, Astra C4). An approval's record is now written in the pick's own transaction (D8), and the release that does so marks when that began (`admin_config` `render_approval_audit_complete_since`, its first boot plus one hour).
+- **Why:** David, Q52, 2026-11-25: *"We should delete renders associated with rejected submissions… If a fact isn't going to live in the system, it should be purged."* Plan `docs/plans/PLAN_RENDER_HISTORY.md` (D6–D8), approved 2026-11-25.
+
 ### 2026-11-25 · Launch Phase 7: credits, the free picture, the pack, membership credits, and who keeps the watermark
 - **Decision:** David approved the Phase 7 plan, `docs/plans/PLAN_PHASE7_IMAGE_OFFERING.md` (sha256 `b25fec82…0615`, Issue #1289), rebased onto the [2026-11-11 product strategy](#2026-11-11--the-product-strategy-made-about-a-friend-credits-two-engines-up-to-three-gags). His answers:
   - **Q1: 1.** No friend-photo consent flow is built, not even switched off, until counsel answers.
@@ -256,6 +263,7 @@
 - **Supersedes:** the approved-fact text lock of PR #228 (a typed phrase and reason allowing an edit of a live fact's text) and the staging-fact text edit; the rule that a first-time submission cannot end after triage, for this one reason only.
 - **Reference:** Issue #959 (increment 3).
 - **Partly superseded (2026-11-17):** Withdraw is removed. Reject, with a required reason, is now available on every step until a fact goes live (plan `docs/plans/PLAN_FACT_LIFECYCLE_REBUILD.md`, oracle item 13, Q2: 1; Issue #1018, increment 1.2c-i). A submission past triage whose wording needs replacing is rejected, which also discards its gags and renders and emails the submitter. The wording lock itself stands.
+- **Partly superseded (2026-11-25):** a rejection now purges the submission's never-approved staging fact with its renders and their files ([the purge](#2026-11-25--a-rejected-submission-is-purged-its-rejection-record-stays-issue-1304)).
 - **Revisit if:** a token or normalisation repair needs to rewrite stored wording; that takes its own migration lifting the rule, on David's say. *(Used once: migration 0165, the fact wording house style's one-time pass, David 2026-11-23, Q2: 1; entry of 2026-11-24.)*
 
 ### 2026-11-15 · The gag writer sees every gag; a live fact can draft more; one generation owns a fact's ideas at a time
