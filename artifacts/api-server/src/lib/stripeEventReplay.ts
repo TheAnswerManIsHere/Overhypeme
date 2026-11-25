@@ -27,7 +27,7 @@ import type Stripe from "stripe";
 import { db, adminActionsTable } from "@workspace/db";
 import type { AdminAction } from "@workspace/api-zod";
 import { logger } from "./logger";
-import type { StripeApi, StripeSyncApi } from "./stripeApi.js";
+import { isStripeResourceMissing, type StripeApi, type StripeSyncApi } from "./stripeApi.js";
 import { getVerifiedStripeClient, getStripeSync, liveModeOfPublishedStripeSync } from "./stripeClient";
 import { eventAlreadyProcessed, processAuthenticEvent } from "./webhookHandlers";
 import { forgetPaymentsVerdict } from "./operationalHealth";
@@ -69,11 +69,6 @@ const realDeps: ReplayDeps = {
   record,
 };
 
-function isMissing(err: unknown): boolean {
-  const e = err as { code?: unknown; statusCode?: unknown } | null;
-  return !!e && (e.code === "resource_missing" || e.statusCode === 404);
-}
-
 export async function replayStripeEvent(eventId: string, actorId: string, overrides: Partial<ReplayDeps> = {}): Promise<ReplayResult> {
   if (!STRIPE_EVENT_ID.test(eventId)) return { outcome: "refused", reason: "malformed_id", eventId };
   const deps: ReplayDeps = { ...realDeps, ...overrides };
@@ -111,7 +106,7 @@ async function run(eventId: string, deps: ReplayDeps): Promise<ReplayResult> {
   try {
     event = await client.events.retrieve(eventId);
   } catch (err) {
-    if (isMissing(err)) return { outcome: "refused", reason: "not_found", eventId, liveMode };
+    if (isStripeResourceMissing(err)) return { outcome: "refused", reason: "not_found", eventId, liveMode };
     throw err;
   }
   const base = { eventId, eventType: event.type, liveMode };

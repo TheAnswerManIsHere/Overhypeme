@@ -6,8 +6,9 @@
  *   live mode  → STRIPE_WEBHOOK_SECRET_LIVE
  *   test mode  → STRIPE_WEBHOOK_SECRET_TEST
  *
- * Returns null when the env var for the active mode is not configured (caller
- * falls back to the managed-webhook secret stored in stripe._managed_webhooks).
+ * Returns null when the env var for the active mode is not configured, and then
+ * every delivery is refused (stripeWebhookEndpoint.test.ts holds that against
+ * the real library and a managed-webhook row that would otherwise verify).
  */
 
 import { describe, it, beforeEach, afterEach } from "node:test";

@@ -102,6 +102,8 @@ interface StripeEnvStatus {
   publishableKeyTest: boolean;
   publishableKeyLive: boolean;
   webhookSecretTest: boolean;
+  webhookEndpointTest?: boolean;
+  webhookEndpointLive?: boolean;
   webhookSecretLive: boolean;
 }
 
@@ -926,6 +928,8 @@ export default function AdminBilling() {
                 <CheckRow done={summary.stripeEnv.publishableKeyLive} label="STRIPE_PUBLISHABLE_KEY_LIVE" />
                 <CheckRow done={summary.stripeEnv.webhookSecretTest} label="STRIPE_WEBHOOK_SECRET_TEST" />
                 <CheckRow done={summary.stripeEnv.webhookSecretLive} label="STRIPE_WEBHOOK_SECRET_LIVE" />
+                <CheckRow done={!!summary.stripeEnv.webhookEndpointTest} label="STRIPE_WEBHOOK_ENDPOINT_ID_TEST" />
+                <CheckRow done={!!summary.stripeEnv.webhookEndpointLive} label="STRIPE_WEBHOOK_ENDPOINT_ID_LIVE" />
               </div>
               )}
             </div>
@@ -964,14 +968,15 @@ export default function AdminBilling() {
                 </p>
                 <ol className="list-decimal list-inside space-y-1 ml-1">
                   <li>Go to <strong>Stripe Dashboard → Developers → Webhooks</strong></li>
-                  <li>Find your existing webhook endpoint (or click <strong>Add endpoint</strong>)</li>
-                  <li>Set the endpoint URL to the value above</li>
-                  <li>Ensure the following events are selected: <code className="bg-black/20 px-1 rounded">checkout.session.completed</code>, <code className="bg-black/20 px-1 rounded">customer.subscription.*</code>, <code className="bg-black/20 px-1 rounded">invoice.paid</code>, <code className="bg-black/20 px-1 rounded">invoice.payment_failed</code>, <code className="bg-black/20 px-1 rounded">payment_intent.succeeded</code></li>
+                  <li>Find this environment's endpoint (or click <strong>Add endpoint</strong>). This app never creates, enables or replaces one: you own it.</li>
+                  <li>Set the endpoint URL to the value above, and keep the endpoint <strong>enabled</strong></li>
+                  <li>Select every event type the app processes (or all events). If one is missing, Stripe setup above names it.</li>
                   <li>
-                    Copy the <strong>Signing secret</strong> and save it as the matching per-mode env var:{" "}
-                    <code className="bg-black/20 px-1 rounded">STRIPE_WEBHOOK_SECRET_TEST</code> for test-mode endpoints,{" "}
-                    <code className="bg-black/20 px-1 rounded">STRIPE_WEBHOOK_SECRET_LIVE</code> for live-mode endpoints. Repeat for the other mode so flipping the live-mode toggle stays one-click.
+                    Save the endpoint's id (<code className="bg-black/20 px-1 rounded">we_…</code>) and its <strong>Signing secret</strong> as this environment's per-mode env vars:{" "}
+                    <code className="bg-black/20 px-1 rounded">STRIPE_WEBHOOK_ENDPOINT_ID_TEST</code> and <code className="bg-black/20 px-1 rounded">STRIPE_WEBHOOK_SECRET_TEST</code> for test mode,{" "}
+                    <code className="bg-black/20 px-1 rounded">STRIPE_WEBHOOK_ENDPOINT_ID_LIVE</code> and <code className="bg-black/20 px-1 rounded">STRIPE_WEBHOOK_SECRET_LIVE</code> for live mode. Without the secret every Stripe event is refused.
                   </li>
+                  <li>Set them separately in each environment (not synced to production): the dev app and production use different endpoints and secrets.</li>
                 </ol>
               </div>
             </div>

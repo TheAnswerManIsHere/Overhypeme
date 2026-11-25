@@ -30,15 +30,68 @@ export async function isLiveMode(): Promise<boolean> {
  *   live mode  → STRIPE_WEBHOOK_SECRET_LIVE
  *   test mode  → STRIPE_WEBHOOK_SECRET_TEST
  *
- * Returns `null` when the env var for the active mode is not configured. In
- * that case the stripe-replit-sync library falls back to the per-account
- * managed-webhook signing secret stored in stripe._managed_webhooks (see
- * processWebhook in the library), so signature verification still works
- * end-to-end.
+ * Returns `null` when the env var for the active mode is not configured, and
+ * then every delivery in that mode is REFUSED (`closeManagedWebhooks` below).
+ * It used to fall back to the managed-webhook secret the library keeps in
+ * `stripe._managed_webhooks`; that row is no longer trusted for
+ * verification (launch Phase 15, increment 4), so rotating the secret is a
+ * configuration change and nothing the database holds can outlive it.
  */
 export async function getStripeWebhookSecret(liveMode?: boolean): Promise<string | null> {
   const useLive = liveMode !== undefined ? liveMode : await isLiveMode();
   return stripeDriver().webhookSecret(useLive);
+}
+
+/** Thrown by a sync built with no configured signing secret, for every delivery. */
+export class StripeWebhookSecretNotConfiguredError extends Error {
+  constructor(readonly setting: string) {
+    super(`Stripe webhook signing secret is not configured (${setting}), so deliveries are refused`);
+    this.name = "StripeWebhookSecretNotConfiguredError";
+  }
+}
+
+/** Thrown by a library endpoint-management method this application has closed. */
+export class StripeWebhookManagementClosedError extends Error {
+  constructor(readonly method: string) {
+    super(`${method} is closed: Stripe webhook endpoints are the operator's, and this server never creates, enables, replaces or deletes one`);
+    this.name = "StripeWebhookManagementClosedError";
+  }
+}
+
+const LIBRARY_ENDPOINT_WRITERS = ["findOrCreateManagedWebhook", "updateManagedWebhook", "deleteManagedWebhook"] as const;
+
+/**
+ * Close the library's managed-webhook paths on one build.
+ *
+ * - **Verification.** `StripeSync.processWebhook` reads `config.stripeWebhookSecret`
+ *   and, when that is empty, the first `stripe._managed_webhooks` row for the
+ *   account (`stripe-replit-sync/dist/index.js`, `processWebhook`). With no
+ *   configured secret the method becomes a refusal, so the row is never read
+ *   for verification on ANY path through this build.
+ * - **Endpoint writes.** `findOrCreateManagedWebhook`, `updateManagedWebhook` and
+ *   `deleteManagedWebhook` create, replace or delete endpoints and store their
+ *   secrets in that table. `StripeSyncApi` already leaves them out, so a call is
+ *   a compile error; replacing them here makes a cast reach a refusal too.
+ *
+ * The table itself stays: the library owns it.
+ */
+export function closeManagedWebhooks<T extends { processWebhook: (payload: Buffer, signature: string) => Promise<unknown> }>(
+  build: T,
+  webhookSecret: string | null,
+  setting: string,
+): T {
+  if (!webhookSecret) {
+    build.processWebhook = async () => {
+      throw new StripeWebhookSecretNotConfiguredError(setting);
+    };
+  }
+  const writable = build as unknown as Record<string, unknown>;
+  for (const method of LIBRARY_ENDPOINT_WRITERS) {
+    writable[method] = async () => {
+      throw new StripeWebhookManagementClosedError(method);
+    };
+  }
+  return build;
 }
 
 /** Both keys for a mode, from the active driver. Throws when either is absent. */
@@ -214,6 +267,7 @@ async function buildStripeSync(liveMode: boolean) {
   const secretKey = await getStripeSecretKey(liveMode);
   const webhookSecret = await getStripeWebhookSecret(liveMode);
   const build = await stripeDriver().buildSync({ liveMode, secretKey, webhookSecret });
+  closeManagedWebhooks(build, webhookSecret, stripeDriver().settingNames(liveMode).webhookSecret);
   // The library's mirror cannot take an id-less preview invoice; skip just that
   // (stripeSyncAdaptations.ts, Q40). Here so delivery and replay both get it.
   adaptStripeSync(build);

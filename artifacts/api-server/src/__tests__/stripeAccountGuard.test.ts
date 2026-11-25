@@ -43,11 +43,13 @@ import {
 import {
   __resetStripeInitForTests,
   __setStripeInitDepsForTests,
+  getStripeSetupStatus,
   hasStripeInitializationCompleted,
   resumeStripeInitialization,
   runStripeBootVerification,
   runStripeVerificationRetryOnce,
 } from "../lib/stripeInit.js";
+import type { WebhookEndpointCheck } from "../lib/stripeWebhookEndpoint.js";
 import { getStripeSync, getUncachableStripeClient, invalidateStripeSync } from "../lib/stripeClient.js";
 
 const restores: Array<() => void> = [];
@@ -429,7 +431,7 @@ describe("recovery resumes the WHOLE initialization, exactly once", () => {
         runSyncMigrations: async () => { sequence.push("migrations"); },
         getSync: async () => ({
           liveMode: await readStripeLiveModeStrict(),
-          findOrCreateManagedWebhook: async () => { sequence.push("webhook"); },
+          checkWebhookEndpoint: async () => { sequence.push("webhook"); return ({ ok: true as const, endpointId: "we_test" }); },
           syncBackfill: async () => { sequence.push("backfill"); },
         }),
         getSiteBaseUrl: () => "https://example.test",
@@ -474,10 +476,11 @@ describe("recovery resumes the WHOLE initialization, exactly once", () => {
         runSyncMigrations: async () => { sequence.push("migrations"); },
         getSync: async () => ({
           liveMode: await readStripeLiveModeStrict(),
-          findOrCreateManagedWebhook: async () => {
+          checkWebhookEndpoint: async () => {
             webhookAttempts++;
-            if (webhookAttempts === 1) throw new Error("transient Stripe error registering the webhook");
+            if (webhookAttempts === 1) throw new Error("transient Stripe error reading the webhook endpoint");
             sequence.push("webhook");
+            return ({ ok: true as const, endpointId: "we_test" });
           },
           syncBackfill: async () => { sequence.push("backfill"); },
         }),
@@ -506,6 +509,47 @@ describe("recovery resumes the WHOLE initialization, exactly once", () => {
     assert.equal(webhookAttempts, 2);
   });
 
+  it("an operator endpoint that is not set up leaves the mode NOT SET UP, creates nothing, and recovers on a later check (Phase 15, increment 4)", async () => {
+    process.env.STRIPE_SECRET_KEY_TEST = "sk_test_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
+    process.env.STRIPE_ACCOUNT_ID_TEST = "acct_expected";
+    restores.push(stubAccountRetriever(() => "acct_expected"));
+
+    const sequence: string[] = [];
+    let answer: WebhookEndpointCheck = {
+      ok: false,
+      problem: "endpoint_disabled",
+      detail: "the webhook endpoint named in STRIPE_WEBHOOK_ENDPOINT_ID_TEST is disabled in Stripe; re-enable it in Stripe's dashboard",
+    };
+    restores.push(
+      __setStripeInitDepsForTests({
+        runSyncMigrations: async () => { sequence.push("migrations"); },
+        getSync: async () => ({
+          liveMode: await readStripeLiveModeStrict(),
+          checkWebhookEndpoint: async () => { sequence.push("check"); return answer; },
+          syncBackfill: async () => { sequence.push("backfill"); },
+        }),
+        getSiteBaseUrl: () => "https://example.test",
+      }),
+    );
+
+    assert.equal(await resumeStripeInitialization(), false, "a mode whose endpoint is not usable is not set up");
+    assert.equal(hasStripeInitializationCompleted(false), false);
+    assert.deepEqual(sequence, ["migrations", "check"], "nothing after the check ran — no backfill");
+    const status = getStripeSetupStatus(false);
+    assert.equal(status.state, "failing");
+    assert.match(status.reason ?? "", /^Stripe webhooks are not set up for this mode: the webhook endpoint named in STRIPE_WEBHOOK_ENDPOINT_ID_TEST is disabled/);
+    assert.match(status.reason ?? "", /this server never creates one/);
+
+    // The operator re-enables it in Stripe's dashboard: the next check, which
+    // only reads, completes setup without a restart.
+    answer = { ok: true, endpointId: "we_operator" };
+    assert.equal(await resumeStripeInitialization(), true);
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(getStripeSetupStatus(false).state, "complete");
+    assert.deepEqual(sequence, ["migrations", "check", "migrations", "check", "backfill"]);
+  });
+
   it("concurrent callers join one initialization attempt", async () => {
     // The completion flag cannot also be the re-entrancy guard: as a completion
     // flag alone a transient failure becomes permanent, and as a re-entrancy
@@ -521,7 +565,7 @@ describe("recovery resumes the WHOLE initialization, exactly once", () => {
         runSyncMigrations: async () => { await new Promise((r) => setTimeout(r, 15)); },
         getSync: async () => ({
           liveMode: await readStripeLiveModeStrict(),
-          findOrCreateManagedWebhook: async () => { webhookCalls++; },
+          checkWebhookEndpoint: async () => { webhookCalls++; return ({ ok: true as const, endpointId: "we_test" }); },
           syncBackfill: async () => {},
         }),
         getSiteBaseUrl: () => "https://example.test",
@@ -555,7 +599,7 @@ describe("recovery resumes the WHOLE initialization, exactly once", () => {
         runSyncMigrations: async () => { sequence.push("migrations"); },
         getSync: async () => ({
           liveMode: await readStripeLiveModeStrict(),
-          findOrCreateManagedWebhook: async () => { sequence.push("webhook"); },
+          checkWebhookEndpoint: async () => { sequence.push("webhook"); return ({ ok: true as const, endpointId: "we_test" }); },
           syncBackfill: async () => { sequence.push("backfill"); },
         }),
         getSiteBaseUrl: () => "https://example.test",

@@ -1196,10 +1196,11 @@ export class WebhookHandlers {
     }
 
     // Phase 1: Pass to stripe-replit-sync for data sync AND signature verification.
-    // sync.processWebhook verifies the signature using the integration's managed signing
-    // secret and throws on any invalid/forged event. After this line succeeds, the event
-    // is guaranteed authentic — no second verification pass is needed or correct (the
-    // integration manages its own signing secret, separate from STRIPE_WEBHOOK_SECRET).
+    // sync.processWebhook verifies the signature against the mode's configured signing
+    // secret (STRIPE_WEBHOOK_SECRET_TEST / _LIVE) and throws on any invalid/forged event.
+    // With no configured secret it refuses every delivery — the library's fallback to the
+    // managed-webhook row is closed on every build (closeManagedWebhooks,
+    // stripeClient.ts). After this line succeeds, the event is guaranteed authentic.
     const sync = await syncProvider();
     try {
       await sync.processWebhook(payload, signature);

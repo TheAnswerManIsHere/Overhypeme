@@ -20,6 +20,8 @@ import {
 
 const webhookSecretVarFor = (liveMode: boolean) =>
   liveMode ? "STRIPE_WEBHOOK_SECRET_LIVE" : "STRIPE_WEBHOOK_SECRET_TEST";
+const webhookEndpointVarFor = (liveMode: boolean) =>
+  liveMode ? "STRIPE_WEBHOOK_ENDPOINT_ID_LIVE" : "STRIPE_WEBHOOK_ENDPOINT_ID_TEST";
 
 export const realStripeDriver: StripeDriver = {
   kind: "real",
@@ -29,6 +31,8 @@ export const realStripeDriver: StripeDriver = {
       secret: stripeSecretVarFor(liveMode),
       publishable: stripePublishableVarFor(liveMode),
       account: stripeAccountVarFor(liveMode),
+      webhookSecret: webhookSecretVarFor(liveMode),
+      webhookEndpoint: webhookEndpointVarFor(liveMode),
     };
   },
 
@@ -59,7 +63,11 @@ export const realStripeDriver: StripeDriver = {
   },
 
   webhookSecret(liveMode) {
-    return process.env[webhookSecretVarFor(liveMode)] ?? null;
+    return process.env[webhookSecretVarFor(liveMode)] || null;
+  },
+
+  webhookEndpointId(liveMode) {
+    return process.env[webhookEndpointVarFor(liveMode)]?.trim() || null;
   },
 
   expectedAccountId(liveMode) {
@@ -72,10 +80,10 @@ export const realStripeDriver: StripeDriver = {
 
   async buildSync({ secretKey, webhookSecret }) {
     const { StripeSync } = await import("stripe-replit-sync");
-    // If a webhook signing secret is configured for the active mode, pass it
-    // through so signature verification uses it directly. When null, the library
-    // falls back to the per-account managed-webhook secret stored in
-    // stripe._managed_webhooks.
+    // The configured signing secret, when there is one. With none, the library
+    // would fall back to the managed-webhook row in stripe._managed_webhooks;
+    // `closeManagedWebhooks` (stripeClient.ts) shuts that on every build,
+    // whichever driver made it.
     return new StripeSync({
       poolConfig: { connectionString: process.env.DATABASE_URL!, max: 2 },
       stripeSecretKey: secretKey,
@@ -91,6 +99,8 @@ export const realStripeDriver: StripeDriver = {
       publishableKeyLive: !!process.env[stripePublishableVarFor(true)],
       webhookSecretTest: !!process.env[webhookSecretVarFor(false)],
       webhookSecretLive: !!process.env[webhookSecretVarFor(true)],
+      webhookEndpointTest: !!process.env[webhookEndpointVarFor(false)]?.trim(),
+      webhookEndpointLive: !!process.env[webhookEndpointVarFor(true)]?.trim(),
     };
   },
 };
