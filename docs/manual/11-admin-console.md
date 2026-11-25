@@ -93,8 +93,7 @@ console.
 ### Watching the machinery
 
 A handful of screens exist purely to keep an eye on things running in
-the background: the health of the [job queues](../ai-context/glossary.md#async-job-queue) that do async work, and the
-quality of AI-rendered images against a curated reference set. (The
+the background: the health of the [job queues](../ai-context/glossary.md#async-job-queue) that do async work. (The
 dashboard's count of which pages get the most visits was removed in launch
 Phase 4; [`docs/retired/README.md`](../retired/README.md).)
 

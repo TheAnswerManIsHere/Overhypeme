@@ -654,8 +654,8 @@ or `nano-banana-2-edit` by string. Now:
   `image_prompt_attempts.actual_image_engine_id`, and changes it at most once,
   on a recorded photoreal fallback (below); the worker renders through
   that engine, never through today's default: an attempt queued before a
-  default changed still renders through the engine it was made for. Signatures,
-  the eval dashboard and moderation diagnostics read the column
+  default changed still renders through the engine it was made for. Signatures
+  and moderation diagnostics read the column
   (`attemptImageEngineId`). A null appears only on a row an older release wrote
   after 0123 ran; such a release routed by mode alone, so the null reads as that
   release's engine. A later contract migration makes the column `NOT NULL`.
