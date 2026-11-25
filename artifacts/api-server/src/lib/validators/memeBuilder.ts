@@ -98,8 +98,8 @@ export const TextOptionsSchema = TextOptionsFields.extend({
 /** Text options as a stored recipe holds them, old font strings included. */
 export const StoredTextOptionsSchema = TextOptionsFields.optional();
 
-// A meme's background is the user's own photo: an upload, or the profile photo
-// (`identity`). Stock photos went in launch Phase 4, removal 6, and the
+// A meme's background is the user's own photo: an upload, the profile photo
+// (`identity`), or an AI picture of them they made (`ai_picture`). Stock photos went in launch Phase 4, removal 6, and the
 // gradient templates in removal 5.
 export const ImageSourceSchema = z.discriminatedUnion("type", [
   z.object({
@@ -108,6 +108,13 @@ export const ImageSourceSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("identity"),
+  }),
+  // One of the member's own AI pictures of this fact (launch Phase 7,
+  // increment 2), checked on the server against their live user_ai_images
+  // rows (`userOwnsAiPicture`); never an upload, never an example.
+  z.object({
+    type: z.literal("ai_picture"),
+    aiImageId: z.number().int().positive(),
   }),
 ]);
 

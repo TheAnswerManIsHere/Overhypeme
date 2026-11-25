@@ -6,11 +6,12 @@ import type { Request } from "express";
 import type { File } from "@google-cloud/storage";
 import { db } from "@workspace/db";
 import { memesTable, uploadImageMetadataTable, userAiImagesTable } from "@workspace/db/schema";
-import { sql, and, eq } from "drizzle-orm";
+import { sql, and, eq, inArray } from "drizzle-orm";
 import type { ObjectStorageService } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
 import { aiImageIsOwnersOwn, liveContent } from "./contentVisibility";
 import { memeSlugOfObjectPath } from "./storageKeys";
+import { MEMBER_PICTURE_IMAGE_TYPE } from "./memberPictures/settlement";
 
 /**
  * The content row whose bytes `objectPath` is, as the live rule sees it:
@@ -96,15 +97,17 @@ export async function userCanReadObject(
 }
 
 /**
- * Ownership check for a user's AI **reference** image, keyed on the
- * `user_ai_images` table — the authorization the `GET /memes/ai-user/image`
- * serving route enforces.
+ * Ownership check for a user's own AI picture, keyed on the `user_ai_images`
+ * table: the authorization the `GET /memes/ai-user/image` serving route
+ * enforces.
  *
- * This is a SEPARATE decision from `userCanReadObject`: reference images are
- * stored with a *public* object ACL, so `canAccessObjectEntity` would grant
- * everyone read. The real gate is ownership of the `user_ai_images` row. Any
- * path that serves or re-hosts an AI reference image (the serving route and the
- * video generator) MUST use this, not the object ACL.
+ * This is a SEPARATE decision from `userCanReadObject`: these images may carry
+ * a public object ACL, so `canAccessObjectEntity` could grant everyone read.
+ * The real gate is a `user_ai_images` row of the caller's own (deleted ones
+ * included, so Recently deleted can show what they would restore): a member's
+ * picture (launch Phase 7, increment 2) or an older reference image, and never
+ * a picture a fact's shared gallery serves (`aiImageIsOwnersOwn`), which is no
+ * one member's to be served as theirs.
  */
 export async function userOwnsAiReferenceImage(userId: string, storagePath: string): Promise<boolean> {
   const rows = await db
@@ -114,7 +117,8 @@ export async function userOwnsAiReferenceImage(userId: string, storagePath: stri
       and(
         eq(userAiImagesTable.userId, userId),
         eq(userAiImagesTable.storagePath, storagePath),
-        eq(userAiImagesTable.imageType, "reference"),
+        inArray(userAiImagesTable.imageType, ["reference", MEMBER_PICTURE_IMAGE_TYPE]),
+        aiImageIsOwnersOwn(userAiImagesTable),
       ),
     )
     .limit(1);

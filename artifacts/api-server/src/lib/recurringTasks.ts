@@ -124,6 +124,14 @@ export const RECURRING_TASKS = [
     graceMs: 30 * MINUTE,
   },
   {
+    id: "member_picture_settlement",
+    label: "AI picture settlement (credits returned for pictures that failed)",
+    site: "index.ts",
+    cadenceMs: () => MINUTE,
+    firstRunMs: MINUTE,
+    graceMs: 30 * MINUTE,
+  },
+  {
     id: "content_purge",
     label: "Deleted content purge",
     site: "index.ts",

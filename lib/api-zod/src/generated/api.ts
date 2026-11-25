@@ -855,6 +855,7 @@ export const createMemeBodyImageSourceOneUploadKeyMax = 500;
 export const createMemeBodyImageSourceOneUploadKeyRegExp = new RegExp(
   "^/objects",
 );
+
 export const createMemeBodyTextOptionsFontSizeMin = 14;
 export const createMemeBodyTextOptionsFontSizeMax = 48;
 
@@ -872,9 +873,13 @@ export const CreateMemeBody = zod.object({
       zod.object({
         type: zod.enum(["identity"]),
       }),
+      zod.object({
+        type: zod.enum(["ai_picture"]),
+        aiImageId: zod.number().int().min(1),
+      }),
     ])
     .describe(
-      "The meme's background: an uploaded photo the caller owns, or the caller's profile photo. (Stock photos and the gradient templates were deleted in launch Phase 4, removals 5 and 6.)",
+      "The meme's background: an uploaded photo the caller owns, the caller's profile photo, or one of the caller's own AI pictures of the fact (launch Phase 7). (Stock photos and the gradient templates were deleted in launch Phase 4, removals 5 and 6.)",
     ),
   textOptions: zod
     .object({

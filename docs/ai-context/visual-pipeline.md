@@ -620,8 +620,10 @@ legacy AI-background generator (`fact_ai_meme_backfill`) is removed: its
 route, its queue, its handler and its scheduling lane are gone (fact lifecycle
 3.2d), and migration 0169 (3.2e) deleted the jobs left on its queue and
 dropped its scene prompts (`facts.ai_scene_prompts`) and status column. The
-pictures it stored stay readable on the fact (`facts.ai_meme_images`, which
-the image worker still appends to).
+pictures it stored stay in `facts.ai_meme_images`, which nothing writes or
+serves since launch Phase 7, increment 2: a member's AI picture is delivered as
+their own `user_ai_images` row (`lib/memberPictures/settlement.ts`) and is
+never added to a fact's gallery.
 
 ## Which engine draws a render
 

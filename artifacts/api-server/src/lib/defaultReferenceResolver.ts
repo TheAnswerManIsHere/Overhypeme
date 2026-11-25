@@ -122,6 +122,22 @@ async function statRealAsset(meta: ReferenceAssetMeta): Promise<number> {
   return size;
 }
 
+/**
+ * A reference photo's bytes, scaled so the longer edge is at most `maxEdgePx`
+ * (never upscaled, EXIF orientation applied) and uploaded to fal's storage on
+ * the reference lifecycle. Shared by the moderation references and a member's
+ * own photo (launch Phase 7), so both are priced and retained alike.
+ */
+export async function uploadReferenceBytes(buf: Buffer, maxEdgePx: number): Promise<string> {
+  const { default: sharp } = await import("sharp");
+  const resized = await sharp(buf)
+    .rotate()
+    .resize(maxEdgePx, maxEdgePx, { fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality: 92 })
+    .toBuffer();
+  return uploadToFal(resized, "image/jpeg");
+}
+
 async function uploadToFal(buf: Buffer, contentType: string): Promise<string> {
   const opts = { lifecycle: REFERENCE_UPLOAD_LIFECYCLE };
   if (falUploadOverride) return falUploadOverride(new Uint8Array(buf), contentType, opts);
@@ -155,12 +171,7 @@ export async function resolveDefaultReferenceUrl(
       await statRealAsset(meta);
       const buf = await fs.readFile(meta.filePath);
       if (!opts.maxEdgePx) return uploadToFal(buf, meta.contentType);
-      const { default: sharp } = await import("sharp");
-      const resized = await sharp(buf)
-        .resize(opts.maxEdgePx, opts.maxEdgePx, { fit: "inside", withoutEnlargement: true })
-        .jpeg({ quality: 92 })
-        .toBuffer();
-      return uploadToFal(resized, "image/jpeg");
+      return uploadReferenceBytes(buf, opts.maxEdgePx);
     })().catch((err) => {
       if (urlCache.get(cacheKey)?.url === pending) urlCache.delete(cacheKey); // allow retry on a later request
       throw err;

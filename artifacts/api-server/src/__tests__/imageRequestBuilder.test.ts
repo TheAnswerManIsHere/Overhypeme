@@ -33,10 +33,10 @@ describe("request purpose from render controls", () => {
 
 describe("Nano Banana 2 keeps its sizes", () => {
   for (const engine of [NB2, NB2_EDIT]) {
-    it(`${engine.id}: preview 0.5K, comparison 1K, final 2K`, () => {
+    it(`${engine.id}: preview 0.5K, comparison 1K, final (a member's picture, about one megapixel) 1K`, () => {
       assert.deepEqual(buildImageRequestSettings(engine, "preview", "portrait").sizeParams, { resolution: "0.5K" });
       assert.deepEqual(buildImageRequestSettings(engine, "comparison", "square").sizeParams, { resolution: "1K" });
-      assert.deepEqual(buildImageRequestSettings(engine, "final", "landscape").sizeParams, { resolution: "2K" });
+      assert.deepEqual(buildImageRequestSettings(engine, "final", "landscape").sizeParams, { resolution: "1K" });
     });
   }
 });
@@ -44,7 +44,7 @@ describe("Nano Banana 2 keeps its sizes", () => {
 describe("buildImageRequestSettings", () => {
   it("records engine, purpose, aspect and the chosen size", () => {
     const s = buildImageRequestSettings(NB2, "final", "portrait");
-    assert.deepEqual(s, { engineId: "nano-banana-2", purpose: "final", aspectRatio: "portrait", sizeParams: { resolution: "2K" }, megapixels: 4 });
+    assert.deepEqual(s, { engineId: "nano-banana-2", purpose: "final", aspectRatio: "portrait", sizeParams: { resolution: "1K" }, megapixels: 1 });
   });
 
   it("refuses an engine with no vocabulary, and an unknown aspect", () => {

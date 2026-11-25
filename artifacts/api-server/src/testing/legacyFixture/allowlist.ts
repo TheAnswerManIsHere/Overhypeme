@@ -301,6 +301,9 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     factId: "ref:facts",
     userId: "map-user",
     requestId: "synthetic:opaque-id",
+    // 0173: a member's picture command identity; the fixture predates member pictures.
+    memberRequestId: "drop",
+    memberRequestFingerprint: "drop",
     renderJobId: "synthetic:opaque-id",
     generationMode: "keep",
     subjectRenderMode: "keep",
@@ -453,6 +456,8 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     id: "keep", userId: "map-user", factId: "ref:facts", gender: "keep", storagePath: "media",
     imageType: "keep", createdAt: "keep", deletedAt: "keep", purgeAfter: "keep",
     audience: "drop", // 0121: its default, 'general' (see facts)
+    // 0173: what a member's picture delivered and drew; the fixture predates them.
+    attemptId: "drop", gagId: "drop", lookStyleId: "drop",
   }),
   include(s.commentsTable, {
     id: "keep", factId: "ref:facts", authorId: "map-user", text: "prose", status: "keep", flagged: "keep",

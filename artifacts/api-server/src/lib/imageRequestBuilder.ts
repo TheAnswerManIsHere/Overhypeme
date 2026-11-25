@@ -10,7 +10,9 @@
  *   - `preview`    the engine's smallest size (moderation and eval test
  *                  renders, which only need to show whether the gag lands);
  *   - `comparison` about one megapixel (the engine evaluation's frozen size);
- *   - `final`      about four megapixels (a member's render).
+ *   - `final`      a member's picture: about one megapixel, near screen size
+ *                  (launch Phase 7, plan PLAN_PHASE7_IMAGE_OFFERING.md §2; it
+ *                  was about four before).
  *
  * The chosen settings are recorded on the attempt (`request_settings`) and
  * are what costing prices. Replaces `pickRenderResolution`, which was the
@@ -23,7 +25,7 @@ export type ImageRequestPurpose = "preview" | "comparison" | "final";
 
 const TARGET_MEGAPIXELS: Readonly<Record<Exclude<ImageRequestPurpose, "preview">, number>> = {
   comparison: 1,
-  final: 4,
+  final: 1,
 };
 
 /** What was sent, recorded on the attempt. */

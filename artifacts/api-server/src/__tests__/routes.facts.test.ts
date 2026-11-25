@@ -193,15 +193,14 @@ describe("GET /facts/:factId", () => {
     assert.equal(res.body.links[0].url, "https://example.com/article");
   });
 
-  it("a fact's detail returns its own AI meme images unchanged", async () => {
+  it("a fact's detail no longer sends the fact's shared AI gallery (launch Phase 7, increment 2: a member's picture is their own)", async () => {
     const userId = await createTestUser();
-    const rootId = await insertFact("root-keeps-ai-memes", { submittedById: userId });
-    const aiMemeImages = { neutral: ["n1.png", "n2.png"], male: ["m1.png"], female: ["f1.png"] };
-    await db.update(factsTable).set({ aiMemeImages }).where(eq(factsTable.id, rootId));
+    const rootId = await insertFact("root-no-ai-gallery", { submittedById: userId });
+    await db.update(factsTable).set({ aiMemeImages: { neutral: ["n1.png"], male: [], female: [] } }).where(eq(factsTable.id, rootId));
 
     const res = await request(makeApp()).get(`/facts/${rootId}`);
     assert.equal(res.status, 200);
-    assert.deepEqual(res.body.aiMemeImages, aiMemeImages);
+    assert.equal(res.body.aiMemeImages, undefined);
   });
 });
 
