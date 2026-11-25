@@ -258,6 +258,16 @@ describe("Phase 7 inc 2: one command, one picture", () => {
     assert.equal(await creditBalance(userId), 0);
   });
 
+  it("the photo check passes the gate and its cost is recorded once per photo", async () => {
+    const userId = await newMember(3);
+    const { factId } = await liveFact();
+    const key = await photos.seed(userId);
+    await requestMemberPicture(await command(userId, factId, { uploadKey: key }));
+    await requestMemberPicture(await command(userId, factId, { uploadKey: key }));
+    const checks = await db.select().from(userGenerationCostsTable).where(and(eq(userGenerationCostsTable.userId, userId), like(userGenerationCostsTable.jobReferenceId, "check:photo:%")));
+    assert.equal(checks.length, 1);
+  });
+
   it("freezes who the picture is of at request time", async () => {
     const userId = await newMember(1);
     const { factId } = await liveFact();

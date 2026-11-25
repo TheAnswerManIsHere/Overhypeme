@@ -22,6 +22,7 @@ import { creditBalance } from "../credits/ledger";
 import { NoCreditError } from "../credits/pictures";
 import { getConfigInt } from "../adminConfig";
 import { gateMemberCall, MemberSpendRefusedError } from "./spend";
+import { recordCost } from "../budgetGate";
 import { uploadMemberReference } from "./reference";
 import { logger } from "../logger";
 
@@ -154,6 +155,16 @@ export async function requestMemberPicture(cmd: MemberPictureCommand): Promise<M
   try {
     await gateMemberCall(cmd.userId, PHOTO_CHECK_ENDPOINT);
     analysis = await analyzeSourceImage({ uploadedObjectPath: cmd.uploadKey, imageUrl: referenceImageUrl });
+    // Recorded once per photo (the ledger's unique reference), as the
+    // analysis itself runs once per photo and is cached on the upload.
+    if (analysis.classificationMethod === "ai_vision_fallback") {
+      await recordCost({
+        userId: cmd.userId, jobType: "image", endpointId: PHOTO_CHECK_ENDPOINT.endpointId,
+        unitPriceAtCreation: PHOTO_CHECK_ENDPOINT.estimatedCostUsdPerCall, billingUnits: 1,
+        computedCostUsd: PHOTO_CHECK_ENDPOINT.estimatedCostUsdPerCall, pricingFetchedAt: new Date(),
+        jobReferenceId: `check:photo:${createHash("sha256").update(cmd.uploadKey).digest("hex")}`, isEstimated: true,
+      });
+    }
   } catch (err) {
     if (err instanceof MemberSpendRefusedError) throw new MemberPictureError("temporarily_unavailable", "Pictures are temporarily unavailable for this account.", 503);
     throw err;
