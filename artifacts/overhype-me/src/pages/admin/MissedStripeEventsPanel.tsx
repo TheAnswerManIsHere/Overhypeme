@@ -46,6 +46,23 @@ function age(iso: string): string {
   return `${Math.round(hours / 24)} days ago`;
 }
 
+const VERDICTS = new Set(["processed", "already_processed", "refused", "failed"]);
+
+/**
+ * The line for a replay whose verdict never reached the panel: the request
+ * failed, or the answer carried no outcome. The server may have processed it,
+ * or may still be processing it, so the panel claims neither; replaying again
+ * is safe whatever happened (the server reports an already-processed event as
+ * such and changes nothing).
+ */
+function notKnownText(detail: string): { text: string; ok: boolean } {
+  return {
+    text: `The result did not come back (${detail}), so it is not known whether the event was processed. Replaying it again is safe.`,
+    ok: false,
+  };
+}
+
+/** A definite outcome only when the server gave one (PR #1268 review, finding 4688431385). */
 function resultText(r: ReplayResponse): { text: string; ok: boolean } {
   if (r.outcome === "processed") return { text: "Replayed: processed as its delivery would have been.", ok: true };
   if (r.outcome === "already_processed") return { text: "Already processed — nothing was changed.", ok: true };
@@ -82,9 +99,18 @@ export function MissedStripeEventsPanel() {
     setRunning(id);
     setResult(null);
     try {
-      const res = await fetch(`/api/admin/stripe/missed-events/${encodeURIComponent(id)}/replay`, { method: "POST", credentials: "include" });
-      const body = (await res.json().catch(() => ({ outcome: "failed", reason: `HTTP ${res.status}` }))) as ReplayResponse;
-      setResult({ id, ...resultText(body) });
+      let line: { text: string; ok: boolean };
+      try {
+        const res = await fetch(`/api/admin/stripe/missed-events/${encodeURIComponent(id)}/replay`, { method: "POST", credentials: "include" });
+        const body = (await res.json().catch(() => null)) as Partial<ReplayResponse> | null;
+        line = body && typeof body.outcome === "string" && VERDICTS.has(body.outcome)
+          ? resultText(body as ReplayResponse)
+          : notKnownText(`HTTP ${res.status}`);
+      } catch {
+        line = notKnownText("the connection was lost");
+      }
+      setResult({ id, ...line });
+      // Re-read either way; load() reports its own failure.
       await load();
     } finally {
       setRunning(null);
