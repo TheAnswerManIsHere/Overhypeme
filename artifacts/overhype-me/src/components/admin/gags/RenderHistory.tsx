@@ -19,7 +19,8 @@ import {
 } from "@workspace/api-zod";
 import { renderHistoryApi } from "./gagApi";
 
-const IN_FLIGHT = new Set(["queued", "rendering"]);
+/** A render still queued or drawing: it shows a spinner, offers no draw, and can't be deleted. */
+export const IN_FLIGHT = new Set(["queued", "rendering"]);
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -95,28 +96,18 @@ export function GagHistory({ factId, gagId, reviewId, readOnly, factLive, refres
   // A reload's answer wins over an older page still on its way.
   const generation = useRef(0);
 
-  const reload = useCallback(async () => {
-    const g = ++generation.current;
+  /** Read a page: the newest (replacing the list) or the next older one (appended). */
+  const fetchPage = useCallback(async (before: string | null) => {
+    const g = before == null ? ++generation.current : generation.current;
     setLoading(true); setError(null);
-    const r = await renderHistoryApi.page(factId, gagId);
+    const r = await renderHistoryApi.page(factId, gagId, before);
     if (g !== generation.current) return;
     setLoading(false);
     if (!r.ok) { setError(r.error); return; }
-    setEntries(r.data.entries);
+    setEntries((prev) => before == null ? r.data.entries : [...prev, ...r.data.entries.filter((e) => !prev.some((p) => p.attemptId === e.attemptId))]);
     setNextBefore(r.data.nextBefore);
   }, [factId, gagId]);
-
-  const older = async () => {
-    if (!nextBefore) return;
-    const g = generation.current;
-    setLoading(true); setError(null);
-    const r = await renderHistoryApi.page(factId, gagId, nextBefore);
-    if (g !== generation.current) return;
-    setLoading(false);
-    if (!r.ok) { setError(r.error); return; }
-    setEntries((prev) => [...prev, ...r.data.entries.filter((e) => !prev.some((p) => p.attemptId === e.attemptId))]);
-    setNextBefore(r.data.nextBefore);
-  };
+  const reload = useCallback(() => fetchPage(null), [fetchPage]);
 
   useEffect(() => { if (open) void reload(); }, [open, refreshKey, reload]);
 
@@ -126,8 +117,8 @@ export function GagHistory({ factId, gagId, reviewId, readOnly, factLive, refres
     const r = await renderHistoryApi.remove(factId, gagId, e.attemptId, reviewId);
     if (!r.ok) { setError(r.error); return; }
     setNotice(r.data.fileStillBeingRemoved ? "Deleted; its picture file is still being removed." : "Deleted.");
-    await reload();
     onDeleted?.();
+    await reload();
   };
 
   return (
@@ -154,7 +145,7 @@ export function GagHistory({ factId, gagId, reviewId, readOnly, factLive, refres
           </ul>
           {loading && <p className="text-[11px] text-muted-foreground flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Loading history…</p>}
           {!loading && nextBefore && (
-            <button type="button" onClick={() => void older()} data-testid="gag-history-older"
+            <button type="button" onClick={() => void fetchPage(nextBefore)} data-testid="gag-history-older"
               className="px-2 py-0.5 text-[11px] border border-border rounded-sm hover:bg-muted text-foreground">Load older</button>
           )}
         </div>
@@ -257,7 +248,8 @@ function EntryRecord({ entry: e, canDelete, onDelete }: { entry: RenderHistoryEn
 }
 
 /** The fact's removed gags that still have renders (D3), each with its own history, grouped by the gag's id, never its slot. */
-export function RemovedGagsHistory({ factId, reviewId, readOnly, factLive, refreshKey = "" }: Omit<GagHistoryProps, "gagId" | "title" | "testId" | "onDeleted">) {
+/** A removed gag's renders change only by a delete here, so its list and histories are read on opening and after a delete, never on the live gags' draws. */
+export function RemovedGagsHistory({ factId, reviewId, readOnly, factLive }: Pick<GagHistoryProps, "factId" | "reviewId" | "readOnly" | "factLive">) {
   const [open, setOpen] = useState(false);
   const [gags, setGags] = useState<RemovedGagHistory[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -265,7 +257,7 @@ export function RemovedGagsHistory({ factId, reviewId, readOnly, factLive, refre
     const r = await renderHistoryApi.removedGags(factId);
     if (r.ok) { setGags(r.data); setError(null); } else setError(r.error);
   }, [factId]);
-  useEffect(() => { void load(); }, [load, refreshKey]);
+  useEffect(() => { void load(); }, [load]);
   if (!error && (gags == null || gags.length === 0)) return null;
   return (
     <div className="rounded-sm border border-dashed border-border bg-card p-3" data-testid="removed-gags-history">
@@ -278,7 +270,7 @@ export function RemovedGagsHistory({ factId, reviewId, readOnly, factLive, refre
         <div className="mt-2 space-y-2">
           {gags.map((g) => (
             <GagHistory key={g.gagId} factId={factId} gagId={g.gagId} reviewId={reviewId} readOnly={readOnly} factLive={factLive}
-              refreshKey={refreshKey} onDeleted={() => void load()} testId="removed-gag-history"
+              onDeleted={() => void load()} testId="removed-gag-history"
               title={`Removed gag #${g.gagId}: ${plural(g.renders, "render")}, the last ${when(g.lastRenderAt)}`} />
           ))}
         </div>

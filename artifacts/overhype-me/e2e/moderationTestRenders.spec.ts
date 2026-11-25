@@ -142,7 +142,10 @@ test.describe("Admin · moderation · Test Renders per gag", () => {
     const { view } = await stubReview(page);
     const g1 = view.gags[0]!;
     // A newer male render (#15) is working; the approved one (#11) stays locked.
-    const withNewer: FactGagsView = { ...view, gags: [{ ...g1, roles: { ...g1.roles, male: { ...g1.roles.male, working: tile("i2i_male_default", 15) } } }, view.gags[1]!] };
+    const picture = `/api/admin/facts/${FACT_ID}/gags/1/renders/job15/image`;
+    const withNewer: FactGagsView = { ...view, gags: [{ ...g1, roles: { ...g1.roles, male: { ...g1.roles.male, working: { ...tile("i2i_male_default", 15), imageUrl: picture } } } }, view.gags[1]!] };
+    // A finished working render has a picture: Approve is offered only then.
+    await page.route(new RegExp(`${picture}$`), (route: Route) => route.fulfill({ contentType: "image/png", body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64") }));
     await page.route(new RegExp(`/api/admin/facts/${FACT_ID}/gags$`), (route: Route) => route.fulfill({ json: withNewer }));
     const deletes: string[] = [];
     let deleted = false;

@@ -38,7 +38,9 @@ function saveRefusalMessage(body: unknown): string | undefined {
 
 export type GagResult = { ok: true; view: FactGagsView } | { ok: false; error: string };
 
-async function request(method: "GET" | "POST" | "PUT", url: string, body?: unknown): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
+export type Answer<T> = { ok: true; data: T } | { ok: false; error: string };
+
+async function request<T = unknown>(method: "GET" | "POST" | "PUT", url: string, body?: unknown): Promise<Answer<T>> {
   let r: Response;
   try {
     r = await fetch(url, {
@@ -54,12 +56,12 @@ async function request(method: "GET" | "POST" | "PUT", url: string, body?: unkno
   // A refused save says why in words: the prompt-budget refusal carries one
   // sentence per broken cap in `details` (#685), which wins over its code.
   if (!r.ok || !data) return { ok: false, error: saveRefusalMessage(data) ?? `Request failed (${r.status}).` };
-  return { ok: true, data };
+  return { ok: true, data: data as T };
 }
 
 async function call(method: "GET" | "POST" | "PUT", url: string, body?: unknown): Promise<GagResult> {
-  const r = await request(method, url, body);
-  return r.ok ? { ok: true, view: r.data as FactGagsView } : r;
+  const r = await request<FactGagsView>(method, url, body);
+  return r.ok ? { ok: true, view: r.data } : r;
 }
 
 const base = (factId: number) => `/api/admin/facts/${factId}/gags`;
@@ -77,30 +79,30 @@ export const gagApi = {
   approve: (factId: number, gagId: number, attemptId: number, reviewId: number | null) =>
     call("POST", `${base(factId)}/${gagId}/approve`, { attemptId, ...scope(reviewId) }),
   /**
-   * Draw renders of the gag's current content for these kinds (plan
-   * PLAN_GAG_EXAMPLES.md): a kind with a render of this content already is
-   * reused unless `redraw` asks for a new one.
+   * Draw a new render of the gag's current content for each of these kinds.
+   * Every draw an admin asks for makes a new one, and the previous render
+   * stays in the gag's history (plan PLAN_RENDER_HISTORY.md D1), so `redraw`
+   * is always sent: the route's reuse of a render of this content is for
+   * callers that ask without it.
    */
-  runRenders: (factId: number, gagId: number, reviewId: number | null, kinds: GagExampleKind[], redraw = false) =>
-    call("POST", `${base(factId)}/${gagId}/renders`, { kinds, ...(redraw ? { redraw: true } : {}), ...scope(reviewId) }),
+  runRenders: (factId: number, gagId: number, reviewId: number | null, kinds: GagExampleKind[]) =>
+    call("POST", `${base(factId)}/${gagId}/renders`, { kinds, redraw: true, ...scope(reviewId) }),
 };
 
 // ─── A gag's render history (plan PLAN_RENDER_HISTORY.md D3, D4 and D6) ─────
 
-export type Answer<T> = { ok: true; data: T } | { ok: false; error: string };
-
 export const renderHistoryApi = {
   /** One page of a gag's history, newest first; `before` is the previous page's `nextBefore`. */
   page: (factId: number, gagId: number, before?: string | null) =>
-    request("GET", `${base(factId)}/${gagId}/render-history${before ? `?before=${encodeURIComponent(before)}` : ""}`) as Promise<Answer<RenderHistoryPage>>,
+    request<RenderHistoryPage>("GET", `${base(factId)}/${gagId}/render-history${before ? `?before=${encodeURIComponent(before)}` : ""}`),
   /** The fact's removed gags that still have renders, grouped by the gag's own id. */
   removedGags: async (factId: number): Promise<Answer<RemovedGagHistory[]>> => {
-    const r = await request("GET", `/api/admin/facts/${factId}/render-history/removed-gags`);
-    return r.ok ? { ok: true, data: (r.data as { gags: RemovedGagHistory[] }).gags } : r;
+    const r = await request<{ gags: RemovedGagHistory[] }>("GET", `/api/admin/facts/${factId}/render-history/removed-gags`);
+    return r.ok ? { ok: true, data: r.data.gags } : r;
   },
   /** Delete a render for good, its picture file with it; the server refuses an official, running or in-use render, saying why. */
   remove: (factId: number, gagId: number, attemptId: number, reviewId: number | null) =>
-    request("POST", `${base(factId)}/${gagId}/renders/${attemptId}/delete`, scope(reviewId)) as Promise<Answer<GagRenderDeleteResult>>,
+    request<GagRenderDeleteResult>("POST", `${base(factId)}/${gagId}/renders/${attemptId}/delete`, scope(reviewId)),
 };
 
 /** The scene: the one field re-sent while it holds a plain subject reference (a bubble line may be a speaker's own words). */
@@ -165,8 +167,8 @@ export type CastResult = { ok: true; view: GagCastView } | { ok: false; error: s
 
 /** Read who is in a (tokenized) scene. Stores nothing. */
 export async function readCast(factId: number, scene: string, bubbles: VisualPromptStrategyOverride["bubbles"]): Promise<CastResult> {
-  const r = await request("POST", `${base(factId)}/cast`, { scene, bubbles: bubbles.map(({ type, entity, text }) => ({ type, entity, text })) });
-  return r.ok ? { ok: true, view: r.data as GagCastView } : r;
+  const r = await request<GagCastView>("POST", `${base(factId)}/cast`, { scene, bubbles: bubbles.map(({ type, entity, text }) => ({ type, entity, text })) });
+  return r.ok ? { ok: true, view: r.data } : r;
 }
 
 export { castIsCurrent };

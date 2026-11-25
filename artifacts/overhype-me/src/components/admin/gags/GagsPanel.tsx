@@ -39,9 +39,8 @@ import { FactCharactersContext } from "@/components/admin/FactCharactersContext"
 import { VisualConceptCard } from "@/components/admin/VisualConceptCard";
 import { BubbleEditor } from "@/components/admin/BubbleEditor";
 import { castIsCurrent, gagApi, prepareGag, readCast, tokenizeGag, type GagResult } from "./gagApi";
-import { GagHistory, RemovedGagsHistory, roleWords } from "./RenderHistory";
+import { GagHistory, IN_FLIGHT, RemovedGagsHistory, roleWords } from "./RenderHistory";
 
-const IN_FLIGHT = new Set(["queued", "rendering"]);
 const POLL_MS = 2000;
 
 export function exampleWords(set: PerKind<GagExample | null>, verb = "approved"): string {
@@ -231,7 +230,7 @@ function GagsPanelBody({ factId, reviewId, rendersEnabled, subjectNames, reloadK
       ))}
 
       {rendersEnabled && (
-        <RemovedGagsHistory factId={factId} reviewId={reviewId} readOnly={readOnly} factLive={view.isActive} refreshKey={rendersKey(view)} />
+        <RemovedGagsHistory factId={factId} reviewId={reviewId} readOnly={readOnly} factLive={view.isActive} />
       )}
 
       {!rendersEnabled && view.gags.map((g) => (
@@ -682,16 +681,17 @@ function officialOf(r: GagPictureRoles): Array<{ role: "live" | "approved_next";
   return out;
 }
 
-/** What changes when a gag's renders change (a draw, its progress, an approval): an open history reloads on it. */
+/**
+ * What changes when a gag's renders change (a draw starting or settling, an
+ * approval): an open history reloads on it. Queued and drawing read as one,
+ * so a draw reloads it twice, not three times.
+ */
 function gagRendersKey(g: GagView): string {
   return GAG_EXAMPLE_KINDS.map((k) => {
     const r = g.roles[k];
-    return `${r.working?.latestAttemptId ?? "-"}:${r.working?.status ?? "-"}:${r.live?.attemptId ?? "-"}:${r.approvedNext?.attemptId ?? "-"}`;
+    const status = r.working ? (IN_FLIGHT.has(r.working.status) ? "drawing" : r.working.status) : "-";
+    return `${r.working?.latestAttemptId ?? "-"}:${status}:${r.live?.attemptId ?? "-"}:${r.approvedNext?.attemptId ?? "-"}`;
   }).join("|");
-}
-
-function rendersKey(v: FactGagsView): string {
-  return v.gags.map((g) => `${g.id}=${gagRendersKey(g)}`).join(";");
 }
 
 /**
@@ -721,7 +721,7 @@ function GagRendersCard({
 }) {
   const s = useGagAction();
   const done = (r: GagResult | null) => { if (r?.ok) onView(r.view); };
-  const runRenders = async (kinds: GagExampleKind[]) => done(await s.act(() => gagApi.runRenders(factId, gag.id, reviewId, kinds, true)));
+  const runRenders = async (kinds: GagExampleKind[]) => done(await s.act(() => gagApi.runRenders(factId, gag.id, reviewId, kinds)));
   const approve = async (card: RenderScenarioCard) => {
     if (card.latestAttemptId == null) return;
     done(await s.act(() => gagApi.approve(factId, gag.id, card.latestAttemptId!, reviewId)));
@@ -826,6 +826,8 @@ function PictureColumn({ kind, roles, pickId, factLive, canAct, readOnly, onAppr
   const inFlight = IN_FLIGHT.has(status);
   const picked = pickId != null && pickId === workingId;
   const approvable = !!card && status === "done" && workingId != null && !!card.imageUrl && !picked;
+  // The official roles the working render holds, named once; a pick with no role of its own reads "Approved".
+  const officialLabel = workingOfficial.map((o) => roleWords(o.role, factLive)).join(" · ") || (picked ? "Approved" : "");
   return (
     <div className="rounded-sm border border-border bg-background p-2 space-y-2" data-testid="gag-render" data-kind={kind}>
       <p className="text-xs font-semibold text-foreground">{KIND_LABEL[kind]}</p>
@@ -845,14 +847,9 @@ function PictureColumn({ kind, roles, pickId, factLive, canAct, readOnly, onAppr
       <div className="space-y-1.5" data-testid="gag-render-working">
         <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground flex items-center justify-between gap-1 flex-wrap">
           Working render
-          {picked && (
-            <span className="px-1.5 py-0.5 rounded-sm bg-green-600/15 text-green-700 dark:text-green-400" data-testid="gag-render-picked">
-              {workingOfficial.length > 0 ? workingOfficial.map((o) => roleWords(o.role, factLive)).join(" · ") : "Approved"}
-            </span>
-          )}
-          {!picked && workingOfficial.length > 0 && (
-            <span className="px-1.5 py-0.5 rounded-sm bg-green-600/15 text-green-700 dark:text-green-400" data-testid="gag-render-official-role">
-              {workingOfficial.map((o) => roleWords(o.role, factLive)).join(" · ")}
+          {officialLabel && (
+            <span className="px-1.5 py-0.5 rounded-sm bg-green-600/15 text-green-700 dark:text-green-400" data-testid={picked ? "gag-render-picked" : "gag-render-official-role"}>
+              {officialLabel}
             </span>
           )}
         </p>
