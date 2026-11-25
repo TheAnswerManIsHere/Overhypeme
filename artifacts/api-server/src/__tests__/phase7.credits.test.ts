@@ -17,7 +17,7 @@ import { requireEligibleActor } from "../middlewares/requireEligibleActor.js";
 import adminRouter from "../routes/admin.js";
 import adminCreditsRouter from "../routes/adminCredits.js";
 import { createSession, type SessionData } from "../lib/auth.js";
-import { applyAdminAdjustment, creditBalance } from "../lib/credits/ledger.js";
+import { applyAdminAdjustment, creditBalance, creditEntries } from "../lib/credits/ledger.js";
 import { acceptCurrentLegal } from "./helpers/legalAcceptance.js";
 
 const PREFIX = "t-p7cred-";
@@ -126,6 +126,20 @@ describe("credits (launch Phase 7, increment 1)", () => {
       (err: Error & { code?: string }) => err.code === "insufficient_balance",
     );
     assert.equal(await creditBalance(id), 2);
+  });
+
+  it("the history shows one adjustment once, totalled, however many grants it drew on (Issue #1301)", async () => {
+    const id = await createUser(); // the free credit
+    await applyAdminAdjustment({ userId: id, credits: 2, note: "Testing how adding credits works.", requestId: randomUUID(), admin });
+    await applyAdminAdjustment({ userId: id, credits: -2, note: "Shouldn't have given them credits.", requestId: randomUUID(), admin });
+    assert.equal((await rowsOf(id)).filter((r) => r.kind === "admin_debit").length, 2, "the ledger keeps one row per grant drawn on");
+    const entries = await creditEntries(id);
+    assert.deepEqual(entries.map((e) => [e.kind, e.credits, e.note]), [
+      ["admin_debit", -2, "Shouldn't have given them credits."],
+      ["admin_grant", 2, "Testing how adding credits works."],
+      ["free_grant", 1, null],
+    ]);
+    assert.equal(entries.reduce((s, e) => s + e.credits, 0), await creditBalance(id));
   });
 
   it("an adjustment sent twice is applied once; its id reused for a different adjustment is refused", async () => {
