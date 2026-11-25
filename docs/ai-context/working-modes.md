@@ -574,7 +574,7 @@ Intent, Must Not Change, Settled Decisions** — nothing else, and
 [`code-review.md`](../engineering/code-review.md#the-review-oracle-the-pr-body)
 points the reviewer at those fields rather than the whole plan. An invariant
 that this rule keeps at full depth but leaves sitting in a *Data Model*,
-*Security* or *Runtime Behavior* section is therefore **not in the oracle at
+*Security* or *Proposed Design* section is therefore **not in the oracle at
 all**, and an implementation can violate it invisibly — the precise failure
 the oracle exists to prevent.
 

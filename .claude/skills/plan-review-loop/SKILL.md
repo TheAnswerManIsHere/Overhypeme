@@ -60,7 +60,7 @@ scope form yields the same role block, contract, Worth rule and oracle with no
 plan. **Returning to an existing plan**, once one is written:
 
 ```
-node "$P" --kind assess --round <N> --tier <tier> --plan <file> --role claude --prompt-only
+node "$P" --kind assess --round <N> --tier <tier> --plan <file> --oracle .agents/reviews/<slug>/oracle-<slug>.md --role claude --prompt-only
 ```
 
 My copy is written to `<stem>.claude.prompt.md`, a separate file, so it never
@@ -158,8 +158,14 @@ any other.
 
 ### Assessing the plan
 
-Write the plan to `docs/plans/PLAN_<SLUG>.md` in the working tree, with the
-oracle as a fenced `plan-oracle` block at its head — for a prototype's version,
+Write the plan to `docs/plans/PLAN_<SLUG>.md` in the working tree, to the
+shape `PLANS.md` gives it (*Two readers, one file*): the *Summary for David*
+first, then the detail, with the agreed scope written once as the plan's own
+Problem-to-Settled-Decisions sections. **The plan carries no fenced
+`plan-oracle` block**: the loop's oracle stays the scope file the gate wrote,
+passed with `--oracle` on every exchange, so those sections are free to grow
+as planning records what it finds (a fence left in the plan would silently
+beat the file) — for a prototype's version,
 the short plan `PLANS.md` describes, whose product is the questions file the
 `prototype` skill names. Tell David it is drafted and
 **keep going** — v1 changes anyway, and waiting buys nothing. He interjects
@@ -175,7 +181,7 @@ rm -f "$S/run-<N>.exit"   # a marker left by an earlier attempt reads as THIS
                           # one finishing, instantly, with the wrong status
 setsid nohup bash -c 'cd "$1" && node "$1/$2" \
   --kind assess --round <N> --tier <product|sensitive|internal> \
-  --plan docs/plans/PLAN_<SLUG>.md \
+  --plan docs/plans/PLAN_<SLUG>.md --oracle .agents/reviews/<slug>/oracle-<slug>.md \
   > "$3/run-<N>.log" 2>&1; echo $? > "$3/run-<N>.exit"' _ "$PWD" "$P" "$S" &
 ```
 
@@ -202,8 +208,10 @@ of the traps are in
 [`codex-cli-in-container.md`](../../../.agents/memory/codex-cli-in-container.md).
 
 **The oracle is pinned on the first exchange and checked on every one after.**
-It is otherwise read from the plan file I rewrite each time, so a requirement
-dropped from the plan *and* its oracle block in one rewrite would go unnoticed.
+It is the gate's scope file, which I also author, so a requirement dropped
+from the plan *and* from that file in one sitting would otherwise go unnoticed.
+The plan's own sections are not pinned: recording a Preflight result or a
+decision there changes nothing the pin reads.
 The pin is a mistake catch on a file I author, which is all the rule allows it
 to be (`agents-core.md`, *Important product principles*): it is not a defence
 against my changing the oracle on purpose. A deliberate change is still
@@ -229,7 +237,7 @@ S=.agents/reviews/<slug>; Q=$S/question-<N>-<M>.txt   # write the question to a
 rm -f "$S/discuss-<N>-<M>.exit"   # same reason as the assessment recipe above
 setsid nohup bash -c 'cd "$1" && node "$1/$2" \
   --kind discuss --round <N> --discussion <M> --tier <tier> \
-  --plan docs/plans/PLAN_<SLUG>.md --concerns C2,C5 \
+  --plan docs/plans/PLAN_<SLUG>.md --oracle .agents/reviews/<slug>/oracle-<slug>.md --concerns C2,C5 \
   --question "$(cat "$4")" \
   > "$3/discuss-<N>-<M>.log" 2>&1; echo $? > "$3/discuss-<N>-<M>.exit"' _ "$PWD" "$P" "$S" "$Q" &
 ```
@@ -392,14 +400,15 @@ as the human fallback, and I say plainly when I am on it.
 **Everything reaches David in chat. There is no page** — no Artifact, no HTML,
 no link.
 
-1. **The approval ask, in chat**, as a 🛑 ask (`claude-core.md`, interaction rule 6: a plan before it is enacted is one of the four): a short readout, then **the complete plan**.
-   The readout carries what will be built and what is excluded, why the approach
-   fits, how success will be recognised, the remaining uncertainty and accepted
-   trade-offs, anything still needing his decision — each such question under
-   its ID, the same one it carries in the plan's *Questions for David* —
-   and any tie I settled over a
-   dissent with its practical implication. He should not have to reconstruct the
-   conversation to approve.
+1. **The approval ask, in chat**, as a 🛑 ask (`claude-core.md`, interaction rule 6: a plan before it is enacted is one of the four): **the plan's Summary, verbatim** — the *Summary for David* section of `PLANS.md`, and nothing else of the plan (a prototype's short plan is shown whole).
+   The Summary already carries what will be built and what is excluded, how
+   success will be checked, anything still needing his decision — each such
+   question under its ID, the same one it carries in the plan's *Questions for
+   David* — and any accepted trade-off or tie I settled over a dissent, with
+   its practical implication. **His approval of it approves the whole plan**,
+   so before the ask I re-read the Summary against the final detail: anything
+   that is his and missing from it is added first. He should not have to
+   reconstruct the conversation, or read the detail, to approve.
 2. `SendUserFile` for the plan document is **on request**, not the default.
 3. **Plan approval is explicit only.** Nothing else counts — not Astra's
    agreement, not an empty ledger, not a harness nudge after a tool error. When
@@ -563,5 +572,5 @@ None of these exists any more; a retired instruction that is still readable is o
 | Reconcile-every-prior-or-be-rejected | The ledger is mine; Astra's silence closes nothing |
 | A fresh lens every round; late findings auto-downgraded | An angle when it addresses a credible gap; consequence judged whenever discovered |
 | The `internal` tier's critical-flaw threshold | The Worth rule, applied to what is actually downstream |
-| The Artifact page | Chat: a readout per exchange, the plan itself at approval |
+| The Artifact page | Chat: a readout per exchange, the plan's Summary at approval (`PLANS.md`, *Summary for David*) |
 | The fenced `plan-provenance` block and its parser | The PR body's `Oracle source:` line |

@@ -511,15 +511,18 @@ my enactment is `.claude/skills/document/`.
    following increment, the plan unchanged. It asks only for *now*, and only
    when the current plan cannot be *correct* without the addition.
 6. **Chat is the plan's delivery surface.** A readout per exchange; at
-   approval, a short readout and then **the complete plan**, in chat. No
-   page, no HTML, no link — rebuilding one is forbidden. `SendUserFile` for
-   the plan document is **on request**. The file committed at approval
-   (rule 3) is the durable copy; neither replaces the other. **v1 is shown
+   approval, the approval readout is **the plan's Summary** — its first section, written for him
+   (`PLANS.md`, *Summary for David*) — in chat, and nothing else of the
+   plan; a short plan is shown whole. **His approval of the Summary approves
+   the whole plan**, so everything that is his to decide is in it. No page,
+   no HTML, no link — rebuilding one is forbidden. The full plan is the file
+   committed at approval (rule 3), and `SendUserFile` for it is **on
+   request**. **v1's Summary is shown
    and the loop proceeds without waiting**; his feedback on any version does
    not pause it either: I state my reading and revise (interaction rule 15).
 7. **A choice about intended behaviour or a user-facing consequence that no
    settled decision already covers is David's, and it reaches him in the
-   approval readout** — written into the plan and named in the approval ask
+   approval readout** — written into the plan's Summary (rule 6) and named in the approval ask
    as an item under its question ID (interaction rule 4), with Astra's view
    and mine side by side; never absorbed into a revision and never a separate
    mid-loop interrupt (`agent-working-rules.md`, *A reversible choice

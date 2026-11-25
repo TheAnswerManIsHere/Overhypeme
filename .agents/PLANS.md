@@ -14,7 +14,8 @@
 > phase, per feature*). **For that short plan, those four items are the whole
 > plan**: it runs the Preflight's increment test — what this version makes
 > true, what bounds it, how completion is recognised — and none of the other
-> three checks, and none of the sections below apply to it. It is still
+> three checks, and none of the sections below apply to it; at that length it
+> is its own summary, and David reads all of it. It is still
 > written to `docs/plans/PLAN_<SLUG>.md`, so the loop's digest line works
 > unchanged; a later version David asks a loop for gets the same short plan.
 >
@@ -87,6 +88,55 @@ on the four uncatchable categories: data model and migration shape, security
 and privilege boundaries, sequencing between separate plans, and product
 semantics.
 
+## Two readers, one file
+
+A plan has two readers, and it is written for both in one file (David,
+2026-11-25). **David reads and approves the Summary**, which is the first
+section. **Astra, the Fable assessor and the builder work from everything
+below it**, which keeps its full depth. The split costs the detail nothing: it
+removes what was written twice and what no reader used.
+
+- **Every fact is written once.** The scope the gate agreed (direction, product
+  intent, must-not-change, settled decisions) *is* the Problem to Settled
+  Decisions block below, never a second copy above it, and never fenced as a `plan-oracle` block:
+  the loop's oracle is the scope file the gate wrote, and these sections grow
+  as planning adds to them (`plan-review-loop`, *Assessing the plan*). The gate's
+  now/next/never boundaries and ceremony tier are one line each at the end of
+  Settled Decisions.
+- **The Preflight has no section.** Its checks run; each result that bears on
+  the plan is a Settled Decisions line (or an open uncertainty), as the
+  Preflight already says.
+- **A section marked "when it applies" is left out entirely when it does not**
+  — no heading, no "n/a" paragraph.
+- **There is no list of files inspected and no standalone account of current
+  or runtime behaviour.** The reviewer reads the repository itself; a fact
+  about today's behaviour that the design depends on is stated in Proposed
+  Design, once.
+
+## Summary for David
+The only part David is asked to read, and what he approves; his approval of
+it approves the whole plan. Plain product English, no code names, **about 250
+words plus the questions**, six items in this order:
+
+1. **Problem** — one or two sentences.
+2. **What you get** — what will be true in the product afterwards, as things
+   he can see or do.
+3. **What it leaves out** — one line.
+4. **Questions for David** — each under its question ID with the
+   recommendation, the same ID and wording as in the section of that name
+   below.
+5. **How you'll check it** — what he will click through at UAT.
+6. **Costs and risks that are yours** — paid runs, anything irreversible, a
+   user-facing shortfall he is asked to accept, a tie settled over a dissent;
+   or "none".
+
+**Anything that is David's to decide appears here** — a product choice, a
+user-facing consequence, money, the irreversible list. Purely technical
+detail is the only thing the Summary may leave out. It is written last, from
+the finished detail, and **the reviewer checks it against the detail on every
+exchange**: a Summary that omits something that is his, or says something the
+detail does not, is a defect in the plan.
+
 ## Problem
 What problem are we solving? Include the concrete user/admin/runtime symptom.
 
@@ -113,38 +163,37 @@ oracle a reviewer checks the eventual implementation PR against, verbatim
 ([`core/claude-core.md`](core/claude-core.md) Pull requests rule 3) (see
 [`docs/engineering/code-review.md`](../docs/engineering/code-review.md#the-review-oracle-the-pr-body)).
 
-## Repo Context Inspected
-List the actual files, modules, routes, schemas, tests, and docs you inspected.
-Reference the relevant `docs/ai-context/*` files you read.
-
-## Current Behavior
-Describe what the repo does today (grounded in the code you inspected).
-
 ## Source-of-Truth Analysis
-Identify the source of truth for **every** affected concept. Call out any duplicate
-or conflicting sources of truth, and confirm you won't create a new one. (E.g.
-`facts.*` is active enrichment truth; the Visual Concept is the authoritative
-scene; the render-time plan/compiler is the prompt source of truth.)
+*When it applies: the plan adds a source of truth, or touches a concept that
+has more than one.* Identify the source of truth for each such concept, call
+out the duplicate or conflicting sources, and confirm you won't create a new
+one. (E.g. `facts.*` is active enrichment truth; the Visual Concept is the
+authoritative scene; the render-time plan/compiler is the prompt source of
+truth.)
 
 ## Proposed Design
-Describe the target architecture and why it fits the existing repo.
+The target architecture and why it fits the existing repo; the behaviour after
+the change, edge cases included; and any fact about today's behaviour the
+design depends on. **The specification test governs every line**: what a
+compiler, the test suite or diff review would catch is left out, however
+natural it is to write down. Full depth stays on the four uncatchable
+categories — data model and migration shape, security and privilege
+boundaries, sequencing between separate plans, and product semantics.
 
 ## Data Model and Migration Impact
-Does schema or stored data change? If yes, include migration/backfill/idempotency/
+*When schema or stored data changes.* Migration/backfill/idempotency/
 rollback/observability and the old/new/partial/failed/skipped/no-op row-state
 matrix. (See `docs/engineering/migrations-and-backfills.md`.)
 
-## Runtime Behavior
-Describe behavior after the change, including edge cases.
-
 ## Admin/User UX Impact
-Describe UI states, copy, and loading/empty/error/partial/skipped states. For
-async work, specify the per-item + aggregate status surface. Note any moderation
-implications.
+*When anything a person sees changes.* UI states, copy, and
+loading/empty/error/partial/skipped states. For async work, specify the
+per-item + aggregate status surface. Note any moderation implications.
 
 ## Security, Permissions, and Validation
-Server-side checks, route protection (`requireAdmin`/`requireRole`), validation
-schemas, and audit needs.
+*When a route, a permission, a validation boundary or an audit need is
+touched.* Server-side checks, route protection (`requireAdmin`/`requireRole`),
+validation schemas, and audit needs.
 
 ## Testing Plan
 Automated tests, plus a UAT section for the judgement residue only — a screen fact
@@ -152,15 +201,16 @@ is an assertion in the same PR, or a `capture` step when only pixels hold it,
 never a manual step
 ([`uat-doc-format.md`](../docs/tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07)).
 Tests must prove the **general invariant**, not only
-the reported example, with negative cases. Name the runner commands (see
-`docs/tests/TESTING.md`).
+the reported example, with negative cases — named as invariants, never as a
+list of assertions. Name the runner commands (see `docs/tests/TESTING.md`).
 
 ## Implementation Steps
 Break into small, ordered steps — the smallest coherent change that satisfies the
 intent.
 
 ## Risks and Mitigations
-Technical/product risks and how the implementation reduces them.
+Technical/product risks and how the implementation reduces them. A risk David
+is asked to accept is also item 6 of the Summary.
 
 ## Questions for David
 Only questions that require product-owner judgment, each under its
@@ -169,8 +219,11 @@ else the session's next unused one; `claude-core.md`, interaction rule 4)
 with a recommendation beside it — this section is where a question that is his
 reaches him, with the approval; a consequence a settled decision already
 covers is not one (`agent-working-rules.md`, *A reversible choice proceeds on the recommendation*). Do **not** ask David questions
-the repo can answer (resolve those yourself and note the resolution).
+the repo can answer (resolve those yourself and note the resolution). The
+Summary's item 4 repeats each question for him; this section may carry the
+supporting detail the reviewer needs.
 
 ## Definition of Done
 A concrete pass/fail checklist — including "the intended behavior can be exercised
-in the product."
+in the product." It points at the Testing Plan for what the tests prove and
+restates none of it.

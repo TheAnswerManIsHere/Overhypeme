@@ -392,7 +392,7 @@ David-gate value (`waiting:david`):
   releases it". A push that came before a round's assessments is never this
   gate: the review gate only notes it. The structural examples:
   "scope agreed in outline, waiting on your go-ahead before the plan is
-  drafted" / "plan v3 delivered in chat, waiting on your approval" /
+  drafted" / "plan v3's summary delivered in chat, waiting on your approval" /
   "merged — UAT section on PR #<N> — <title>, not yet run". Read the PR body for
   its `## UAT` section (or `docs/tests/UAT/` on `main` for a PR merged
   before 2026-10-21) before claiming no script exists.
