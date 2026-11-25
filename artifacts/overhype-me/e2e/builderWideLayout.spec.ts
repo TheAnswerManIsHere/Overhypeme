@@ -1,11 +1,13 @@
 /**
  * Issue #850 — the meme builder uses the full screen on iPad and desktop.
  *
- * At 1024 px wide or more the builder lays the preview and the controls side
- * by side: the preview fills everything left of a scrolling controls column,
- * and "Make my meme" sits at the column's foot. Narrower screens keep the
- * stacked layout, resize handle included. Geometry and reachability are
- * checked here; whether it feels right is David's UAT.
+ * The builder lays the preview and the controls side by side, or stacks the
+ * preview above them, whichever shows the picture larger (amendment 1). A
+ * short sideways screen is always side by side, there is no resize handle, and
+ * turning the screen chooses afresh (amendment 2). Side by side, the preview
+ * fills everything left of a scrolling controls column and "Make my meme" sits
+ * at the column's foot. Geometry and reachability are checked here; whether it
+ * feels right is David's UAT.
  */
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { factDetail, stubPublicFacts } from "./helpers/apiStubs";
@@ -73,48 +75,55 @@ test.describe("Meme builder on wide screens (Issue #850)", () => {
     });
   }
 
-  test("the controls scroll on their own, and Make my meme stays in view with Advanced options open and Private chosen", async ({ page }) => {
-    await page.setViewportSize({ width: 1180, height: 820 });
-    await signInThroughForm(page, PAID_ACCOUNT.email, TEST_ACCOUNT_PASSWORD);
-    await openBuilder(page, 851);
-    await expect(page.locator('[data-layout="wide"]')).toBeVisible();
+  // Issue #850, amendment 2 (Astra C8): the same reach on a small phone on its
+  // side, where David's T1b found no controls in view.
+  for (const vp of [
+    { name: "iPad on its side", width: 1180, height: 820, factId: 851 },
+    { name: "small phone on its side", width: 667, height: 375, factId: 861 },
+  ]) {
+    test(`${vp.name} (${vp.width}x${vp.height}): the controls scroll on their own, and Make my meme stays in view with Advanced options open and Private chosen`, async ({ page }) => {
+      await page.setViewportSize(vp);
+      await signInThroughForm(page, PAID_ACCOUNT.email, TEST_ACCOUNT_PASSWORD);
+      await openBuilder(page, vp.factId);
+      await expect(page.locator('[data-layout="wide"]')).toBeVisible();
 
-    await page.getByTestId("meme-visibility-private").click();
-    await page.getByTestId("adjust-text-trigger").click();
-    await page.getByTestId("advanced-options-trigger").click();
+      await page.getByTestId("meme-visibility-private").click();
+      await page.getByTestId("adjust-text-trigger").click();
+      await page.getByTestId("advanced-options-trigger").click();
 
-    const scroller = page.getByTestId("builder-controls-scroll");
-    const canvas = page.locator('canvas[aria-label="Meme preview"]');
-    const before = await box(canvas);
-    expect(await scroller.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
-    await scroller.evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
-    await expect.poll(() => scroller.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+      const scroller = page.getByTestId("builder-controls-scroll");
+      const canvas = page.locator('canvas[aria-label="Meme preview"]');
+      const before = await box(canvas);
+      expect(await scroller.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+      await scroller.evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
+      await expect.poll(() => scroller.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
 
-    // The preview did not move with the controls.
-    const after = await box(canvas);
-    expect(after.y).toBeCloseTo(before.y, 0);
-    expect(after.height).toBeCloseTo(before.height, 0);
+      // The preview did not move with the controls.
+      const after = await box(canvas);
+      expect(after.y).toBeCloseTo(before.y, 0);
+      expect(after.height).toBeCloseTo(before.height, 0);
 
-    // Make my meme is fully on screen, and the last control clears it.
-    const action = page.getByTestId("wizard-primary-action");
-    const actionBox = await box(action);
-    expect(actionBox.y + actionBox.height).toBeLessThanOrEqual(820 + 1);
-    await expect(page.getByRole("button", { name: "Make my meme" })).toBeInViewport();
-    const lastControl = scroller.locator(":scope > div > *").last();
-    const lastBox = await box(lastControl);
-    expect(lastBox.y + lastBox.height).toBeLessThanOrEqual(actionBox.y + 1);
-    // The action spans the controls column only, never the preview.
-    const controlsCol = await box(page.getByTestId("builder-controls-column"));
-    expect(actionBox.x).toBeGreaterThanOrEqual(controlsCol.x - 1);
-  });
+      // Make my meme is fully on screen, and the last control clears it.
+      const action = page.getByTestId("wizard-primary-action");
+      const actionBox = await box(action);
+      expect(actionBox.y + actionBox.height).toBeLessThanOrEqual(vp.height + 1);
+      await expect(page.getByRole("button", { name: "Make my meme" })).toBeInViewport();
+      const lastControl = scroller.locator(":scope > div > *").last();
+      const lastBox = await box(lastControl);
+      expect(lastBox.y + lastBox.height).toBeLessThanOrEqual(actionBox.y + 1);
+      // The action spans the controls column only, never the preview.
+      const controlsCol = await box(page.getByTestId("builder-controls-column"));
+      expect(actionBox.x).toBeGreaterThanOrEqual(controlsCol.x - 1);
+    });
+  }
 
   for (const vp of NARROW_VIEWPORTS) {
-    test(`${vp.name} (${vp.width}x${vp.height}) keeps the stacked layout with its resize handle`, async ({ page }) => {
+    test(`${vp.name} (${vp.width}x${vp.height}) keeps the stacked layout, with no resize handle`, async ({ page }) => {
       await page.setViewportSize({ width: vp.width, height: vp.height });
       await seedIdentity(page);
       await openBuilder(page, 852);
       await expect(page.locator('[data-layout="stacked"]')).toBeVisible();
-      await expect(page.getByTestId("locked-preview-resize-handle")).toBeVisible();
+      await expect(page.getByTestId("locked-preview-resize-handle")).toHaveCount(0);
       await expect(page.getByTestId("builder-controls-column")).toHaveCount(0);
       // The preview sits above the controls.
       const canvas = await box(page.locator('canvas[aria-label="Meme preview"]'));
@@ -147,60 +156,6 @@ test.describe("Meme builder on wide screens (Issue #850)", () => {
     }).toBe(true);
   });
 
-  // Astra C7 on amendment 1: a large remembered height is the same height the
-  // layout choice used and the stacked preview draws, across a resize.
-  test("a large remembered preview height: stacked on a big upright iPad, side by side on a desktop, still stored", async ({ page }) => {
-    await page.setViewportSize({ width: 1024, height: 1366 });
-    await seedIdentity(page);
-    await page.addInitScript(() => window.localStorage.setItem("mbfo_locked_preview_max_h", "700"));
-    await openBuilder(page, 857);
-    const canvas = page.locator('canvas[aria-label="Meme preview"]');
-    await page.getByTestId("aspect-landscape").click();
-    await expect(page.locator('[data-layout="stacked"]')).toBeVisible();
-    await expect.poll(async () => (await canvas.boundingBox())?.width ?? 0).toBeGreaterThan(900);
-
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await expect(page.locator('[data-layout="wide"]')).toBeVisible();
-    // Stacked at 1440×900 would cap the remembered 700 to 468 px tall (52%),
-    // about 832 px wide; side by side shows it wider, so side by side wins.
-    await expect.poll(async () => (await canvas.boundingBox())?.width ?? 0).toBeGreaterThan(840);
-    expect(await page.evaluate(() => window.localStorage.getItem("mbfo_locked_preview_max_h"))).toBe("700");
-  });
-
-  // Codex F1 on PR #1258: a remembered height read on a short screen comes
-  // back in full when the screen grows, without reopening the builder.
-  test("a remembered preview height read on a short screen returns in full when the screen grows", async ({ page }) => {
-    await page.setViewportSize({ width: 600, height: 844 });
-    await seedIdentity(page);
-    await page.addInitScript(() => window.localStorage.setItem("mbfo_locked_preview_max_h", "700"));
-    await openBuilder(page, 859);
-    const canvas = page.locator('canvas[aria-label="Meme preview"]');
-    const canvasHeight = async () => (await canvas.boundingBox())?.height ?? 0;
-    await page.getByTestId("aspect-portrait").click();
-    await expect(page.locator('[data-layout="stacked"]')).toBeVisible();
-    // 52% of 844 is 438 px: the screen's limit, not the remembered 700.
-    await expect.poll(canvasHeight).toBeLessThan(440);
-    await page.setViewportSize({ width: 600, height: 1400 });
-    await expect.poll(canvasHeight).toBeGreaterThan(690);
-    await page.setViewportSize({ width: 600, height: 844 });
-    await expect.poll(canvasHeight).toBeLessThan(440);
-
-    // Codex's example: opened side by side on a desktop, then made taller, the
-    // landscape picture stacks at the remembered 700 px, wider than the 970 px
-    // side by side would give.
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await page.getByTestId("aspect-landscape").click();
-    await expect(page.locator('[data-layout="wide"]')).toBeVisible();
-    await page.reload();
-    await expect(page.getByRole("button", { name: "Make my meme" })).toBeVisible();
-    await page.getByTestId("aspect-landscape").click();
-    await expect(page.locator('[data-layout="wide"]')).toBeVisible();
-    await page.setViewportSize({ width: 1440, height: 1600 });
-    await expect(page.locator('[data-layout="stacked"]')).toBeVisible();
-    await expect.poll(async () => (await canvas.boundingBox())?.width ?? 0).toBeGreaterThan(1100);
-    expect(await page.evaluate(() => window.localStorage.getItem("mbfo_locked_preview_max_h"))).toBe("700");
-  });
-
   // Codex F2 on PR #1258: the stacked canvas stops at its own 1280 px, so
   // the layout choice counts that ceiling. Where it binds, side by side wins.
   test("on a very large upright screen the stacked picture stops at 1280 px, and the choice counts that", async ({ page }) => {
@@ -217,6 +172,38 @@ test.describe("Meme builder on wide screens (Issue #850)", () => {
     await page.setViewportSize({ width: 1920, height: 2400 });
     await expect(page.locator('[data-layout="wide"]')).toBeVisible();
     await expect.poll(async () => (await canvas.boundingBox())?.width ?? 0).toBeGreaterThan(1400);
+  });
+
+  // Issue #850, amendment 2: David's T1b. Opened upright with a tall preview
+  // height left by the old resize handle, then turned, the phone stayed
+  // stacked. Now the stored height is deleted and a turn chooses afresh.
+  test("a phone opened upright and turned sideways goes side by side, even with a height the old handle left behind", async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 852 });
+    await seedIdentity(page);
+    await page.addInitScript(() => window.localStorage.setItem("mbfo_locked_preview_max_h", "400"));
+    await openBuilder(page, 862);
+    for (const r of RATIOS) {
+      await page.setViewportSize({ width: 393, height: 852 });
+      await page.getByTestId(`aspect-${r}`).click();
+      await expect(page.locator('[data-layout="stacked"]')).toBeVisible();
+      await page.setViewportSize({ width: 852, height: 393 });
+      await expect(page.locator('[data-layout="wide"]'), r).toBeVisible();
+    }
+    expect(await page.evaluate(() => window.localStorage.getItem("mbfo_locked_preview_max_h"))).toBeNull();
+  });
+
+  // Astra C8: a desktop window too narrow for both columns stacks, with the
+  // picture visible and nothing wider than the window.
+  test("a short window too narrow for two columns stacks, with the picture visible and nothing off the side", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 480 });
+    await seedIdentity(page);
+    await openBuilder(page, 863);
+    for (const r of RATIOS) {
+      await page.getByTestId(`aspect-${r}`).click();
+      await expect(page.locator('[data-layout="stacked"]')).toBeVisible();
+      await expect.poll(async () => (await page.locator('canvas[aria-label="Meme preview"]').boundingBox())?.width ?? 0).toBeGreaterThan(50);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    }
   });
 
   // David, 2026-11-24: a phone held sideways is too short to stack; the
@@ -281,19 +268,4 @@ test.describe("Meme builder on wide screens (Issue #850)", () => {
     await expect(page.getByTestId("advanced-options-trigger")).toHaveAttribute("aria-expanded", "true");
   });
 
-  test("the wide layout ignores the remembered preview height without erasing it", async ({ page }) => {
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await seedIdentity(page);
-    await page.addInitScript(() => window.localStorage.setItem("mbfo_locked_preview_max_h", "200"));
-    await openBuilder(page, 854);
-
-    const canvas = page.locator('canvas[aria-label="Meme preview"]');
-    await expect(page.locator('[data-layout="wide"]')).toBeVisible();
-    await expect.poll(async () => (await canvas.boundingBox())?.height ?? 0).toBeGreaterThan(400);
-
-    await page.setViewportSize({ width: 390, height: 844 });
-    await expect(page.locator('[data-layout="stacked"]')).toBeVisible();
-    await expect.poll(async () => Math.round((await canvas.boundingBox())?.height ?? 0)).toBeLessThanOrEqual(200);
-    expect(await page.evaluate(() => window.localStorage.getItem("mbfo_locked_preview_max_h"))).toBe("200");
-  });
 });

@@ -176,3 +176,71 @@ small in a narrow column above empty space. David: *"I'm sure there's some type 
   side (844×390) goes side by side for every shape; a large remembered
   height behaves the same in the choice and the preview across a resize.
 - **judgement (David):** T1 on his upright iPad.
+
+## Amendment 2 — no resize handle; a short screen never stacks (David, 2026-11-25; Astra round 3, C8 incorporated)
+
+**Why:** in UAT T1b, David's iPhone held sideways showed the picture on top
+with no controls in view. The cause, reproduced in a browser at 393×852 →
+852×393: a remembered handle height (400 px) makes the stacked picture
+nearly as large as side by side (363 px wide against 382), so the 10%
+switching margin kept the stacked layout the phone was opened in. Opened
+already sideways, or with no remembered height, the same screen goes side
+by side. Shrinking the handle in portrait is what made it work for him.
+David: *"I think it has to do with the drag to resize slider. I think we
+should eliminate it."*
+
+The build report on PR #1258 adds a second gap in the same ruling: on a
+small phone held sideways (667×375, iPhone SE size) a landscape picture
+comes out slightly larger stacked (about 249 px against 197), so the size
+rule still stacks it, on a screen with even less height. David's ruling
+gave height as the reason: *"it must be photo on the left, controls on the
+right because there's not enough height."*
+
+**What changes:**
+- **The preview's resize handle is removed**, in the stacked layout too (the
+  side-by-side layout never had one, Q25: 1). Nothing remembers a preview
+  height any more. A value already stored in a browser is ignored, and is
+  removed the first time the builder opens, so it can never come back into
+  play.
+- **The stacked preview's height cap is a fixed share of the screen: 38%**,
+  today's default when nothing is remembered. The layout choice compares
+  against exactly that.
+- **A short, sideways screen never stacks.** When the screen is under 500 px
+  tall and wider than it is tall, the builder goes side by side for every
+  shape, provided there is room for the 420 px controls column and a visible
+  picture beside it (at least 160 px wide). This is the height reason in
+  David's ruling, stated as a rule beside the size rule, and it takes
+  precedence over the size comparison and its 10% margin. Every phone held
+  sideways qualifies; no upright phone, iPad or ordinary desktop window is
+  that short. A window too narrow for the two columns (a desktop browser
+  shrunk to 390×480, say) falls back to the size comparison, which stacks it
+  (Astra C8).
+- **Turning the screen chooses afresh.** When the screen flips between
+  upright and sideways, the builder picks the larger-picture arrangement
+  with no 10% margin. The margin stays for an ordinary resize and for a
+  change of shape, where it stops near-ties flickering.
+
+**What it leaves out:** a larger stacked cap (letting a stacked picture be
+taller than 38% of the screen); the square-on-an-upright-big-iPad case the
+build report raised, which David passed at T1 on 2026-11-25.
+
+**Must not change (added):** the upright phone layout (preview above, the
+controls scrolling beneath it, the action bar fixed at the bottom). Without
+the handle its preview is 38% of the screen, which is today's default for
+anyone who never dragged the handle.
+
+**Completion, added:**
+- **ci:** turned from 393×852 to 852×393, with a tall preview height left in
+  storage from before, every shape is side by side, and the stored value is
+  gone.
+- **ci:** 667×375 goes side by side for every shape, and with Advanced
+  options open and Private chosen the controls scroll, the last control
+  clears the action, and Make my meme is fully on screen (Astra C8).
+- **ci:** 390×480 stacks, with the picture visible and nothing wider than the
+  screen (Astra C8).
+- **ci:** no resize handle in either layout; the existing browser tests that
+  dragged it are removed or moved with the change, not left failing.
+- **ci:** the decision table gains the height rule, the turn-chooses-afresh
+  rule, and a 667×375 row.
+- **judgement (David):** T1b again on his iPhone held sideways, opened
+  upright first and then turned.

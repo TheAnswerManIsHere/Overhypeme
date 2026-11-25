@@ -5,6 +5,10 @@
  * larger wins**, worked out for the current screen and the current picture
  * shape, so tapping a different shape can move the controls.
  *
+ * Amendment 2 (David, 2026-11-25): no resize handle, so the stacked picture's
+ * height cap is a fixed share of the screen; a short sideways screen never
+ * stacks; turning the screen chooses afresh.
+ *
  * Deliberately not `useDesktopModality`, which calls a touch tablet "mobile"
  * whatever its size: the choice follows the space, never the device.
  */
@@ -41,32 +45,51 @@ function fittedWidth(w: number, h: number, ratio: number): number {
 export function previewWidths(
   viewport: { w: number; h: number },
   aspectRatio: AspectRatio,
-  stackedMaxHeight: number,
 ): Record<BuilderLayout, number> {
   const dims = MEME_CANVAS_DIMS[aspectRatio];
   const ratio = dims.w / dims.h;
   const wide = fittedWidth(viewport.w - CONTROLS_COLUMN_PX - WIDE_PAD_X, viewport.h - WIDE_PAD_Y, ratio);
   // The stacked canvas is sized automatically, so it never grows past its own
   // pixel width (Codex F2 on PR #1258); the wide one is sized explicitly.
-  const stacked = Math.min(dims.w, fittedWidth(viewport.w - STACKED_PAD_X, stackedMaxHeight, ratio));
+  const stacked = Math.min(dims.w, fittedWidth(viewport.w - STACKED_PAD_X, stackedCap(viewport.h), ratio));
   return { wide, stacked };
 }
 
+/** Below this height a sideways screen never stacks (David, 2026-11-24). */
+const SHORT_SCREEN_PX = 500;
+/** The smallest picture worth showing beside the controls (Astra C8). */
+const MIN_SIDE_PICTURE_PX = 160;
+/** The stacked picture's height cap: a fixed share of the screen. */
+export const STACKED_HEIGHT_SHARE = 0.38;
+
+/** The stacked picture's height cap at this screen height. */
+function stackedCap(viewportHeight: number): number {
+  return Math.floor(viewportHeight * STACKED_HEIGHT_SHARE);
+}
+
+function isSideways(v: { w: number; h: number }): boolean {
+  return v.w > v.h;
+}
+
 /**
- * The arrangement that shows the picture larger. With `current` given, it is
- * kept unless the other is at least SWITCH_MARGIN larger, so near-ties do not
- * flicker on a resize.
+ * The arrangement for this screen and shape (Issue #850, amendments 1 and 2).
+ *
+ * - A short, sideways screen goes side by side whenever both columns fit:
+ *   "there's not enough height" to stack (David, 2026-11-24). This comes
+ *   before the size comparison and its margin.
+ * - Otherwise the arrangement that shows the picture larger wins. With
+ *   `current` given, it is kept unless the other is at least SWITCH_MARGIN
+ *   larger, so near-ties do not flicker on a resize.
  */
 export function chooseBuilderLayout(
   viewport: { w: number; h: number },
   aspectRatio: AspectRatio,
-  stackedMaxHeight: number,
   current?: BuilderLayout,
 ): BuilderLayout {
-  // No width floor: a phone held sideways is short, so its picture is larger
-  // beside the controls (David, 2026-11-24). Upright phones still stack,
-  // because the side-by-side area is too narrow to win.
-  const widths = previewWidths(viewport, aspectRatio, stackedMaxHeight);
+  const widths = previewWidths(viewport, aspectRatio);
+  if (viewport.h < SHORT_SCREEN_PX && isSideways(viewport) && widths.wide >= MIN_SIDE_PICTURE_PX) {
+    return "wide";
+  }
   const best: BuilderLayout = widths.wide > widths.stacked ? "wide" : "stacked";
   if (!current || best === current) return best;
   const other = current === "wide" ? "stacked" : "wide";
@@ -79,25 +102,25 @@ function viewportNow(): { w: number; h: number } {
 }
 
 /**
- * The live choice. `stackedMaxHeight` reads the stacked preview's cap at the
- * moment of deciding (the remembered handle height, or its default).
+ * The live choice, re-made on every resize and change of shape. Turning the
+ * screen between upright and sideways chooses afresh, with no margin: the
+ * margin is for near-ties while a window is resized, and a turn is not one
+ * (Issue #850, amendment 2; it kept a stacked layout on a sideways phone).
  */
-export function useBuilderLayout(
-  aspectRatio: AspectRatio,
-  stackedMaxHeight: (viewportHeight: number) => number,
-): BuilderLayout {
-  const capRef = useRef(stackedMaxHeight);
-  capRef.current = stackedMaxHeight;
-  const [layout, setLayout] = useState<BuilderLayout>(() => {
-    const v = viewportNow();
-    return chooseBuilderLayout(v, aspectRatio, stackedMaxHeight(v.h));
-  });
+export function useBuilderLayout(aspectRatio: AspectRatio): BuilderLayout {
+  const wasSideways = useRef<boolean | null>(null);
+  const [layout, setLayout] = useState<BuilderLayout>(() =>
+    chooseBuilderLayout(viewportNow(), aspectRatio),
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const decide = () => {
       const v = viewportNow();
-      setLayout((current) => chooseBuilderLayout(v, aspectRatio, capRef.current(v.h), current));
+      const sideways = isSideways(v);
+      const turned = wasSideways.current !== null && sideways !== wasSideways.current;
+      wasSideways.current = sideways;
+      setLayout((current) => chooseBuilderLayout(v, aspectRatio, turned ? undefined : current));
     };
     decide();
     window.addEventListener("resize", decide);

@@ -9,7 +9,7 @@ import { VisibilityToggle } from "../../parts/VisibilityToggle";
 import { WizardPrimaryAction } from "../WizardPrimaryAction";
 import type { PendingWizardState } from "../state/wizardStorage";
 import type { WizardAction, WizardRuntimeState } from "../state/useWizardState";
-import { LockedPreview, stackedPreviewMaxHeight } from "./LockedPreview";
+import { LockedPreview } from "./LockedPreview";
 import { AspectRatioToggle } from "./AspectRatioToggle";
 import { SelfUploadSourcePanel } from "./SelfUploadSourcePanel";
 import { GuestPhotoSignupPanel } from "./GuestPhotoSignupPanel";
@@ -77,7 +77,7 @@ export function Step2Image({
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(state.aspectRatio ?? "landscape");
   // Issue #850, amendment 1 (Q31: 1): whichever arrangement shows the picture
   // larger wins, for this screen and this shape.
-  const wide = useBuilderLayout(aspectRatio, stackedPreviewMaxHeight) === "wide";
+  const wide = useBuilderLayout(aspectRatio) === "wide";
   const [framingOffset, setFramingOffset] = useState<{ x: number; y: number }>(
     state.framingOffset ?? { x: 0, y: 0 },
   );
