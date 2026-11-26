@@ -51,7 +51,7 @@ import {
   saveGagContent,
 } from "../lib/gags/gagStore";
 import { buildFactGagsView } from "../lib/gags/gagView";
-import { DescriptionError, descriptionsToReview, saveReviewedDescription } from "../lib/gags/descriptions";
+import { DescriptionError, descriptionsToReview, draftDescriptionsSoon, saveReviewedDescription } from "../lib/gags/descriptions";
 import { gagRenderHistory, removedGagHistories } from "../lib/gags/renderHistory";
 import { cleanUpQueuedFiles } from "../lib/storedFileDeletions";
 import { GAG_MODERATION_RENDER } from "../lib/imagePromptAttempts";
@@ -119,6 +119,7 @@ router.post("/admin/facts/:factId/gags", requireAdmin, async (req: Authenticated
     const gag = await createGag(p.factId, body.content, { adminId: req.user.id, reviewId }, body.slot);
     // Draws nothing: every render is asked for (Issue #1282).
     await recordAdminAction({ factId: p.factId, reviewId }, req.user.id, "gag_create", { gagId: gag.id, content: body.content });
+    draftDescriptionsSoon([gag.id]);
   });
 });
 
@@ -149,6 +150,7 @@ router.put("/admin/facts/:factId/gags/:gagId", requireAdmin, async (req: Authent
   const reviewId = body.reviewId ?? null;
   await respond(res, p.factId, async () => {
     await saveGagContent(p.factId, p.gagId, body.content, { adminId: req.user.id, reviewId });
+    draftDescriptionsSoon([p.gagId]);
     // Stores the gag and draws nothing (Issue #1282); a changed content leaves
     // the gag's earlier renders unusable for it (saveGagContent, approval, go-live).
     await recordAdminAction({ factId: p.factId, reviewId }, req.user.id, "gag_save", { gagId: p.gagId, content: body.content });

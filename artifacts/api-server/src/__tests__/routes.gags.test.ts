@@ -22,7 +22,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
 import request from "supertest";
-import { db, factsTable, usersTable, factGagsTable, factGagExamplesTable } from "@workspace/db";
+import { db, factsTable, usersTable, factGagsTable, factGagExamplesTable, factGagDescriptionsTable } from "@workspace/db";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import { asyncJobsTable, imagePromptAttemptsTable, pendingReviewsTable } from "@workspace/db/schema";
 import { and, eq, gte, inArray } from "drizzle-orm";
@@ -48,6 +48,7 @@ import { fileURLToPath } from "node:url";
 import { visualPromptStrategyOverrideSchema } from "@workspace/api-zod";
 import { withCast } from "./helpers/gagCast.js";
 import { __setDraftCastExtractorForTest } from "../lib/gags/castPreparation.js";
+import { __setDescriptionDrafterForTest, gagContentFingerprint } from "../lib/gags/descriptions.js";
 import { castSourceKey, PLACEHOLDER_CORE_SCENE_OVERRIDE } from "@workspace/api-zod";
 
 const RUN = randomUUID().slice(0, 8);
@@ -670,5 +671,29 @@ describe("gag routes: reading a draft's cast stores nothing (plan PLAN_GAG_DIREC
     assert.equal((await request(app).post(url(999999999, "/cast")).send({ scene: "x", bubbles: [] })).status, 404);
     const { factId } = await liveFact();
     assert.equal((await request(app).post(url(factId, "/cast")).send({ scene: "", bubbles: [] })).status, 400);
+  });
+});
+
+// Plan PLAN_PHASE7_AI_PICTURE_FLOW.md, *Descriptions*: drafting "runs after
+// any gag content write and on a schedule" (David, Q16: 1, 2026-11-26).
+describe("a gag content write drafts its description straight away", () => {
+  it("a saved change's new content gets an unreviewed AI draft without waiting for the schedule", async () => {
+    __setDescriptionDrafterForTest(async (content) => `{NAME} drafted for: ${content.coreSceneOverride?.slice(0, 40)}`);
+    try {
+      const { factId, gagId } = await liveFact();
+      const B = scene(`{NAME} lifts the sun ${randomUUID().slice(0, 6)}.`);
+      assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: B })).status, 200);
+      const fp = gagContentFingerprint(B)!;
+      let row: typeof factGagDescriptionsTable.$inferSelect | undefined;
+      for (let i = 0; i < 50 && !row?.text; i++) {
+        await new Promise((r) => setTimeout(r, 100));
+        [row] = await db.select().from(factGagDescriptionsTable)
+          .where(and(eq(factGagDescriptionsTable.gagId, gagId), eq(factGagDescriptionsTable.contentFingerprint, fp)));
+      }
+      assert.ok(row?.text?.startsWith("{NAME} drafted for:"), `drafted after the write: ${JSON.stringify(row)}`);
+      assert.equal(row!.reviewedAt, null, "a draft is unreviewed");
+    } finally {
+      __setDescriptionDrafterForTest(null);
+    }
   });
 });
