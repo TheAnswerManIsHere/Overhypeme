@@ -43,7 +43,7 @@ function card(key: RenderScenarioCard["key"], over: Partial<RenderScenarioCard> 
  * A gag as the server sends it. `renders` (test shorthand) is each picture's
  * working render; the official roles follow from the picks as the server
  * computes them (PLAN_RENDER_HISTORY.md D1): live is the published pick, and
- * the draft's pick is "approved for next publish" when it differs.
+ * the draft's pick is "approved, goes live when you publish changes" when it differs.
  */
 function gag(over: Partial<GagView> & Pick<GagView, "id" | "slot"> & { renders?: PerKind<RenderScenarioCard | null> }): GagView {
   const { renders = NONE, ...rest } = over;
@@ -433,7 +433,7 @@ describe("GagsPanel", () => {
       stubFetch(view([changed()]));
       render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={[]} />);
       const male = (await screen.findAllByTestId("gag-official")).find((o) => o.getAttribute("data-kind") === "male")!;
-      expect(within(male).getAllByTestId("gag-example-label").map((l) => l.textContent)).toEqual(["Live example", "Approved for next publish"]);
+      expect(within(male).getAllByTestId("gag-example-label").map((l) => l.textContent)).toEqual(["Live example", "Approved, goes live when you publish changes"]);
       expect(within(male).getAllByTestId("gag-example").map((i) => i.getAttribute("src"))).toEqual([ex(1).imageUrl, ex(4).imageUrl]);
       const pet = screen.getAllByTestId("gag-official").find((o) => o.getAttribute("data-kind") === "pet")!;
       expect(within(pet).getByTestId("gag-no-official").textContent).toBe("No approved example yet.");
@@ -459,6 +459,10 @@ describe("GagsPanel", () => {
         expect(o.textContent).toMatch(/Locked/);
         for (const id of ["gag-redraw-render", "gag-approve-render", "gag-history-delete"]) expect(within(o).queryByTestId(id), id).toBeNull();
       }
+      // #1324: the live example says members keep seeing it until Publish changes; the draft pick does not.
+      expect(within(official[0]).getByTestId("gag-render-members-see").textContent).toBe("Members see this until you publish");
+      expect(within(official[1]).queryByTestId("gag-render-members-see")).toBeNull();
+      expect(official[1].textContent).toContain("Approved, goes live when you publish changes");
       const w = within(male).getByTestId("gag-render-working");
       expect(within(w).getByTestId("gag-render-open").querySelector("img")!.getAttribute("src")).toBe(working(7).imageUrl);
       expect(within(w).getByTestId("gag-approve-render")).toBeTruthy();
@@ -477,7 +481,7 @@ describe("GagsPanel", () => {
       render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
       const male = (await screen.findAllByTestId("gag-render")).find((t) => t.getAttribute("data-kind") === "male")!;
       expect(within(male).getAllByTestId("gag-render-official").map((o) => o.getAttribute("data-role"))).toEqual(["live"]);
-      expect(within(male).getByTestId("gag-render-picked").textContent).toBe("Approved for next publish");
+      expect(within(male).getByTestId("gag-render-picked").textContent).toBe("Approved, goes live when you publish changes");
       expect(within(male).queryByTestId("gag-approve-render")).toBeNull();
     });
 

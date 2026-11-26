@@ -46,10 +46,14 @@ export function approvalWords(a: RenderApproval): string {
   return a === "approved" ? "Approved" : a === "not_approved" ? "Not approved" : "Approval history not recorded";
 }
 
-/** A role's name (D1). An unpublished fact has nothing live, so its pick is "Approved for publishing". */
+/**
+ * A role's name (D1). On a live fact the draft's pick reaches members only through Publish changes
+ * (decisions.md 2026-11-21), so its name says so (#1324). An unpublished fact has nothing live, so
+ * its pick is "Approved for publishing".
+ */
 export function roleWords(role: RenderRole, factLive: boolean): string {
   if (role === "live") return "Live example";
-  if (role === "approved_next") return factLive ? "Approved for next publish" : "Approved for publishing";
+  if (role === "approved_next") return factLive ? "Approved, goes live when you publish changes" : "Approved for publishing";
   return "Working render";
 }
 

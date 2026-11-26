@@ -798,7 +798,7 @@ Plan `docs/plans/PLAN_RENDER_HISTORY.md`; server side in increment B, screens in
 - **"A gag's renders" means its moderation renders**, `GAG_MODERATION_RENDER` in `lib/imagePromptAttempts.ts`: a moderation scenario key or the admin render audit, and never a member's picture, which also stores the gag it drew. The history, the removed-gag counts, the delete and the admin image route all read through it.
 - **Roles are computed, never stored** (D1):
   - **live:** the published pick;
-  - **approved for next publish:** the draft pick when it differs from the published one;
+  - **approved, goes live when you publish changes:** the draft pick when it differs from the published one (#1324: the name says the pick waits for Publish changes);
   - **working:** the newest render of the picture, whatever its content. It is marked stale when drawn from another version of the gag.
   - The gag view carries them as `roles`. They replaced the content-matched `renders` tiles in increment C, and `buildGagKindCards` went with them; the working render is `buildGagWorkingCards`.
   - Every draw asked for from the Renders view sends `redraw`, so a click always makes a new render and the previous one stays in history. "Render female and pet" asks only for the pictures that need drawing.
@@ -813,8 +813,8 @@ Plan `docs/plans/PLAN_RENDER_HISTORY.md`; server side in increment B, screens in
   - It refuses a pick, a render still drawing, a render a member's picture names, and anything that is not this gag's moderation render, members' own pictures included.
   - It queues the render's files on `stored_file_deletions` in the same transaction, and records `render_delete`.
 - **The screens** (increment C) are `components/admin/gags/GagsPanel.tsx` and `RenderHistory.tsx`, on moderation and the fact sheet alike.
-  - **Gags view (D2):** each picture's official renders only, labelled "Live example" and "Approved for next publish" ("Approved for publishing" on an unpublished fact), or "No approved example yet".
-  - **Renders view (D3):** per picture, the official renders locked, then the working render with Approve and Draw. A render holding several roles shows once, under the working render, with its roles named.
+  - **Gags view (D2):** each picture's official renders only, labelled "Live example" and "Approved, goes live when you publish changes" ("Approved for publishing" on an unpublished fact), or "No approved example yet".
+  - **Renders view (D3):** per picture, the official renders locked (the live example adds "Members see this until you publish", #1324), then the working render with Approve and Draw. A render holding several roles shows once, under the working render, with its roles named.
   - **History:** below each gag, collapsed; it is read only when opened, and again when that gag's renders change. Each entry is a line that opens to its full record. "Load older" pages on the server's cursor. Delete is offered on any entry that is not official and not drawing, after a confirmation naming the picture and date. A "Removed gags" section appears only when the fact has some.
 
 ## A gag's cast, and the fold (PLAN_GAG_DIRECT_RENDER.md, increment 2)
