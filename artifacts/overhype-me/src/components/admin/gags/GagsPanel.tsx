@@ -669,8 +669,9 @@ function GagDescriptions({ factId, reviewId, gag, readOnly, onView }: {
         Shown to members beside this gag&apos;s examples, written with their name. Use {"{NAME}"} for the person in the picture.
       </p>
       {rows.map((r) => (
-        // Keyed by version and text: a new version or a saved text starts the field afresh.
-        <DescriptionRow key={`${r.version.contentFingerprint}:${r.version.text ?? ""}`} factId={factId} reviewId={reviewId} gagId={gag.id}
+        // Keyed by version: a new version starts the field afresh, while new
+        // text for the same version is reconciled inside the row.
+        <DescriptionRow key={r.version.contentFingerprint} factId={factId} reviewId={reviewId} gagId={gag.id}
           version={r.version} earlierText={d!.earlierText} label={r.label} note={r.note} readOnly={readOnly} onView={onView} />
       ))}
     </div>
@@ -681,7 +682,7 @@ function descriptionStatus(v: GagDescriptionView): string {
   return draftingWords(v) ?? (v.reviewed ? "Approved." : "Drafted by AI. Check it, edit it if needed, and approve it.");
 }
 
-function DescriptionRow({ factId, reviewId, gagId, version, earlierText, label, note, readOnly, onView }: {
+export function DescriptionRow({ factId, reviewId, gagId, version, earlierText, label, note, readOnly, onView }: {
   factId: number;
   reviewId: number | null;
   gagId: number;
@@ -693,12 +694,32 @@ function DescriptionRow({ factId, reviewId, gagId, version, earlierText, label, 
   onView: (v: FactGagsView) => void;
 }) {
   const [text, setText] = useState(version.text ?? "");
+  // Text arriving from the server (an AI draft landing, another moderator's
+  // save) replaces the field only while it still shows the server text it
+  // last adopted: typing the moderator has not saved is never discarded by a
+  // background update (Codex 4713846837, PR #1334; GagCard's rule for gag
+  // content, Codex 4649903945). After the moderator's own save the field
+  // adopts the saved, canonicalised text.
+  const adopted = useRef(version.text ?? "");
+  const textRef = useRef(text);
+  textRef.current = text;
+  useEffect(() => {
+    const incoming = version.text ?? "";
+    if (incoming === adopted.current) return;
+    if (textRef.current === adopted.current) setText(incoming);
+    adopted.current = incoming;
+  }, [version.text]);
   const { busy, error, act } = useGagAction();
   const dirty = text.trim() !== (version.text ?? "");
   const canApprove = !readOnly && !busy && text.trim().length > 0 && (dirty || !version.reviewed);
   const approve = async () => {
     const r = await act(() => gagApi.saveDescription(factId, gagId, version.contentFingerprint, text, reviewId));
-    if (r.ok) onView(r.view);
+    if (!r.ok) return;
+    // The moderator's own save: show what was stored, canonicalised, and treat it as adopted.
+    const d = r.view.gags.find((g) => g.id === gagId)?.descriptions;
+    const saved = [d?.published, d?.draft].find((v) => v?.contentFingerprint === version.contentFingerprint)?.text;
+    if (saved != null) { adopted.current = saved; setText(saved); }
+    onView(r.view);
   };
   return (
     <div className="space-y-1.5" data-testid="gag-description-row">

@@ -9,8 +9,7 @@
  * rule removes it or calls `insertExampleRender` alone.
  */
 import { randomUUID } from "node:crypto";
-import { db, factGagDescriptionsTable, factGagExamplesTable, factGagsTable } from "@workspace/db";
-import { and, eq, isNull, isNotNull } from "drizzle-orm";
+import { db, factGagDescriptionsTable, factGagExamplesTable } from "@workspace/db";
 import { gagContentFingerprint } from "../../lib/gags/descriptions";
 import { imagePromptAttemptsTable } from "@workspace/db/schema";
 import { GAG_EXAMPLE_KINDS, SCENARIO_FOR_KIND, buildPlaceholderFactEnrichment, type GagExampleKind } from "@workspace/api-zod";
@@ -72,9 +71,3 @@ export async function giveReviewedDescription(gagId: number, content: unknown, e
     .onConflictDoUpdate({ target: [factGagDescriptionsTable.gagId, factGagDescriptionsTable.contentFingerprint], set: { text, origin: "moderator", reviewedAt: now } });
 }
 
-/** A reviewed description for every draft change on the fact, so a publish of it meets the description rule. */
-export async function describeDraftChanges(factId: number, executor: Executor = db): Promise<void> {
-  const gags = await executor.select({ id: factGagsTable.id, pending: factGagsTable.pendingContent }).from(factGagsTable)
-    .where(and(eq(factGagsTable.factId, factId), isNull(factGagsTable.removedAt), isNotNull(factGagsTable.pendingContent)));
-  for (const g of gags) await giveReviewedDescription(g.id, g.pending, executor);
-}

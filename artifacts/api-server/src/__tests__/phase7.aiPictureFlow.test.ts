@@ -43,7 +43,8 @@ import {
 } from "../lib/gags/descriptions.js";
 import { photoBackgrounds } from "./helpers/photoBackground.js";
 import { withCast } from "./helpers/gagCast.js";
-import { giveExampleSet } from "./helpers/gagExampleSets.js";
+import { giveExampleSet, insertExampleRender } from "./helpers/gagExampleSets.js";
+import { approveGagRender } from "../lib/gags/gagStore.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import memberPicturesRouter from "../routes/memberPictures.js";
 
@@ -306,6 +307,19 @@ describe("coverage at publication", () => {
     await saveReviewedDescription(gagId, gagContentFingerprint(B)!, "{NAME} hits the moon.", adminId);
     await db.transaction((tx) => publishDraft(tx, factId, adminId));
     assert.equal((await availableGags(factId))[0]!.content.coreSceneOverride, B.coreSceneOverride);
+  });
+
+  it("an example pick on a live gag with no description publishes: staging picks is not changing content", async () => {
+    const { factId, gagId, content: A } = await liveFact(`{NAME} throws the grenade ${randomUUID()}.`);
+    // Picks through the real approval path, which copies the published content into the draft.
+    for (const kind of ["male", "female", "pet"] as const) {
+      await approveGagRender(factId, gagId, await insertExampleRender(factId, gagId, A, kind), { adminId, reviewId: null });
+    }
+    const gag = (await db.select().from(factGagsTable).where(eq(factGagsTable.id, gagId)))[0]!;
+    assert.notEqual(gag.pendingContent, null, "the picks opened a draft");
+    assert.equal((await db.select().from(factGagDescriptionsTable).where(eq(factGagDescriptionsTable.gagId, gagId))).filter((r) => r.reviewedAt).length, 0);
+    const result = await db.transaction((tx) => publishDraft(tx, factId, adminId));
+    assert.equal(result.published, 1);
   });
 
   it("an unchanged published gag without a description blocks nothing", async () => {

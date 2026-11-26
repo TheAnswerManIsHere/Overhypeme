@@ -408,10 +408,20 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
     }
     // Approving the male, female and pet renders makes them the gag's examples
     // and the gag approved; a fact goes live only with an approved gag.
+    type DescribedView = { gags: Array<{ id: number; descriptions?: { draft: { contentFingerprint: string } | null; published: { contentFingerprint: string } | null } }> };
+    let view: DescribedView | null = null;
     for (const card of required as Array<{ kind: string; latestAttemptId?: number | null }>) {
       if (card.latestAttemptId == null) throw new JourneyError("3", `approve the ${card.kind} example`, "the tile names no render");
-      await admin.json("3", "POST", `/api/admin/facts/${stagingFactId}/gags/${gagId}/approve`, { attemptId: card.latestAttemptId, reviewId });
+      view = await admin.json<DescribedView>("3", "POST", `/api/admin/facts/${stagingFactId}/gags/${gagId}/approve`, { attemptId: card.latestAttemptId, reviewId });
     }
+    // A new gag goes live only with its one-line description reviewed (Phase 7
+    // amendment, Issue #1331): the moderator approves one, as on the gag card.
+    const described = view?.gags.find((g) => g.id === gagId)?.descriptions;
+    const version = described?.draft ?? described?.published;
+    if (!version) throw new JourneyError("3", "approve the gag's description", "the gag view names no description version");
+    await admin.json("3", "PUT", `/api/admin/facts/${stagingFactId}/gags/${gagId}/description`, {
+      contentFingerprint: version.contentFingerprint, text: "{NAME} pulls off the impossible.", reviewId,
+    });
     const approved = await admin.json<{ factId: number }>("3", "POST", `/api/admin/reviews/${reviewId}/approve-for-production`, {
       hashtags: hashtags.length > 0 ? hashtags : ["baseline"],
       adminNote: "AI baseline",

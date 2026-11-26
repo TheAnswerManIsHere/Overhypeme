@@ -233,6 +233,8 @@ describe("migration 0139: every gag in one place", () => {
       // refuses on other files' example sets in this shared database, so the
       // table is dropped directly here.
       await client.query("DROP TABLE IF EXISTS fact_gag_examples");
+      // 0176's descriptions belong to gags too (Issue #1331).
+      await client.query("DROP TABLE IF EXISTS fact_gag_descriptions");
       // The reverse refuses when any gag in the database was touched after the
       // migration, by design. Other test files in this shard leave gags behind,
       // so inside this rolled-back transaction theirs are made to read as the

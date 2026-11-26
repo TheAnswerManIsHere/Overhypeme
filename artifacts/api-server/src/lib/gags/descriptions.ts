@@ -225,9 +225,16 @@ export async function missingDescriptionsForPublish(
   gags: Array<{ id: number; slot: number; approvedContent: unknown; pendingContent: unknown; draftRemoved: boolean }>,
   conn: Db = db,
 ): Promise<Array<{ gagId: number; slot: number }>> {
+  // Changing means the draft draws something other than the published
+  // version: a draft opened only to stage example picks (approveGagRender
+  // copies the published content into it), or a re-save the drawing
+  // projection does not see, is unchanged. Content the schema refuses has no
+  // fingerprint and always counts as changed. The editor draws the same line
+  // (`descriptionsForEditor`: a draft row only where the fingerprints differ).
   const changing = gags
     .filter((g) => !g.draftRemoved && g.pendingContent != null)
-    .map((g) => ({ gagId: g.id, slot: g.slot, fp: gagContentFingerprint(g.pendingContent) }));
+    .map((g) => ({ gagId: g.id, slot: g.slot, fp: gagContentFingerprint(g.pendingContent), publishedFp: g.approvedContent != null ? gagContentFingerprint(g.approvedContent) : null }))
+    .filter((g) => !g.fp || g.fp !== g.publishedFp);
   if (changing.length === 0) return [];
   const rows = await conn.select({ gagId: factGagDescriptionsTable.gagId, fp: factGagDescriptionsTable.contentFingerprint })
     .from(factGagDescriptionsTable)
@@ -317,6 +324,20 @@ export const draftDescriptionWithModel: DescriptionDrafter = async (content, fac
   });
   return parseDescriptionResponse(response.choices[0]?.message?.content ?? "");
 };
+
+/**
+ * Draft the descriptions of these gags now, in the background, after a gag
+ * content write (plan: drafting "runs after any gag content write and on a
+ * schedule"). The same sweep, narrowed to the gags written; the schedule
+ * remains the backstop for anything this misses (a crash, a failed draft).
+ * Never throws and never delays the caller.
+ */
+export function draftDescriptionsSoon(gagIds: number[]): void {
+  if (gagIds.length === 0) return;
+  setImmediate(() => {
+    runDescriptionSweep({ gagIds }).catch((err: unknown) => logger.warn({ err, gagIds }, "[gag-descriptions] drafting after a write failed; the schedule retries"));
+  });
+}
 
 let drafterForTest: DescriptionDrafter | null = null;
 export function __setDescriptionDrafterForTest(d: DescriptionDrafter | null): void { drafterForTest = d; }
