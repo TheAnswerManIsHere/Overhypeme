@@ -211,6 +211,11 @@ jobs:
       - name: Check tracked .env files hold only public build values
         run: node --test scripts/__tests__/check-tracked-env.test.mjs && node scripts/check-tracked-env.mjs
 
+      # The Cloudflare check's comparisons (launch Phase 15, increment 1). The
+      # live check itself reads Cloudflare and is run by hand, not in CI.
+      - name: Check the Cloudflare check's logic
+        run: node --test scripts/__tests__/check-cloudflare.test.mjs
+
       # Every agent session builds its test database with this script; on a
       # fresh container it failed before Postgres started because it installed
       # pgvector without refreshing the package index. Stubbed, so it touches
