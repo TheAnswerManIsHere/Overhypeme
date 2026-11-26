@@ -60,7 +60,7 @@ function gag(over: Partial<GagView> & Pick<GagView, "id" | "slot"> & { renders?:
     draftRemoved: false,
     prefilledUntouched: false,
     roles: { male: NO_ROLES, female: NO_ROLES, pet: NO_ROLES },
-    descriptions: { published: null, draft: null, earlierText: null },
+    descriptions: { published: null, draft: null },
     ...rest,
   };
   if (over.roles) return g;
@@ -930,6 +930,75 @@ describe("GagsPanel", () => {
       expect((within(card).getByTestId("visual-concept-textarea") as HTMLTextAreaElement).value).toBe("{NAME} typed first.");
       await waitFor(() => expect(onUnsaved).toHaveBeenLastCalledWith(["Visual gag 1"]));
       expect(screen.queryByTestId("gag-new")).toBeNull();
+    });
+  });
+
+  // Plan PLAN_PHASE7_AI_PICTURE_FLOW.md, *Descriptions*; PR #1334 round 2.
+  describe("a gag's one-line descriptions", () => {
+    const FP = "b".repeat(64);
+    const desc = (over: Partial<GagView["descriptions"]["published"] & object> = {}) => ({
+      contentFingerprint: FP, text: null, origin: "ai" as const, reviewed: false, drafting: "drafting" as const, lastError: null, earlierText: null, ...over,
+    });
+    const withDesc = (published: ReturnType<typeof desc>) => view([gag({ id: 1, slot: 1, descriptions: { published, draft: null } })]);
+    const sequence = (next: () => FactGagsView) => {
+      let gets = 0;
+      vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+        if ((init?.method ?? "GET") === "GET") gets++;
+        return new Response(JSON.stringify(next()), { status: 200, headers: { "Content-Type": "application/json" } });
+      }));
+      return () => gets;
+    };
+
+    it("polls while a description is drafting, shows the draft with no action, then stops (Codex 4713938187)", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        let landed = false;
+        const gets = sequence(() => withDesc(landed ? desc({ text: "{NAME} lifts it.", drafting: "none" }) : desc()));
+        render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={[]} />);
+        expect((await screen.findByTestId("gag-description-status")).textContent).toContain("Drafting a description");
+        landed = true;
+        await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+        expect((screen.getByTestId("gag-description-input") as HTMLInputElement).value).toBe("{NAME} lifts it.");
+        const after = gets();
+        await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+        expect(gets()).toBe(after);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("shows a drafting failure when it arrives, then stops polling", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        let failed = false;
+        const gets = sequence(() => withDesc(failed ? desc({ drafting: "failed", lastError: "model down" }) : desc()));
+        render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={[]} />);
+        await screen.findByTestId("gag-description-status");
+        failed = true;
+        await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+        expect(screen.getByTestId("gag-description-status").textContent).toContain("Drafting failed: model down");
+        const after = gets();
+        await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+        expect(gets()).toBe(after);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("names a gag with unsaved description typing, until both its content and description edits clear (Codex 4713938190)", async () => {
+      stubFetch(withDesc(desc({ text: "{NAME} lifts the moon.", drafting: "none" })));
+      const onUnsaved = vi.fn();
+      render(<GagsPanel factId={5} reviewId={77} rendersEnabled={false} subjectNames={[]} onUnsavedChange={onUnsaved} />);
+      const card = await screen.findByTestId("gag-card");
+      fireEvent.change(within(card).getByTestId("gag-description-input"), { target: { value: "{NAME} lifts the sun." } });
+      await waitFor(() => expect(onUnsaved).toHaveBeenLastCalledWith(["Visual gag 1"]));
+      fireEvent.change(within(card).getByTestId("visual-concept-textarea"), { target: { value: "{NAME} an unsaved edit." } });
+      fireEvent.click(within(card).getByTestId("gag-description-undo"));
+      // The content edit still holds the gag.
+      await new Promise((r) => setTimeout(r, 20));
+      expect(onUnsaved).toHaveBeenLastCalledWith(["Visual gag 1"]);
+      fireEvent.click(within(card).getByTestId("gag-undo"));
+      await waitFor(() => expect(onUnsaved).toHaveBeenLastCalledWith([]));
     });
   });
 });

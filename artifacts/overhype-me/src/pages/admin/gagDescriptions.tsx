@@ -11,6 +11,8 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { descriptionReviewApi, draftingWords, type DescriptionToReview } from "@/components/admin/gags/gagApi";
 
+const POLL_MS = 5000;
+
 const stateWords = (item: DescriptionToReview): string => draftingWords(item.description) ?? "Drafted, waiting for review";
 
 export default function AdminGagDescriptions() {
@@ -24,6 +26,15 @@ export default function AdminGagDescriptions() {
     if (r.ok) { setItems(r.data.items); setError(null); } else setError(r.error);
   }, []);
   useEffect(() => { void load(); }, [load]);
+  // While any listed description is waiting to be drafted or being drafted,
+  // reload, so a draft or a failure appears without Refresh (Codex
+  // 4713938187's class, PR #1334; async-ui-status.md). Ends when none is.
+  const drafting = !!items?.some((i) => i.description.drafting === "drafting");
+  useEffect(() => {
+    if (!drafting) return;
+    const h = setInterval(() => { void load(); }, POLL_MS);
+    return () => clearInterval(h);
+  }, [drafting, load]);
 
   return (
     <AdminLayout title="Gag descriptions">

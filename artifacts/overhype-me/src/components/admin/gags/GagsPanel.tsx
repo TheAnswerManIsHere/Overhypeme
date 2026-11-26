@@ -167,7 +167,11 @@ function GagsPanelBody({ factId, reviewId, rendersEnabled, subjectNames, reloadK
   // The view reads the fill's own job, so this ends when the job does,
   // however long a retry takes (async-ui-status.md: no UI deadline).
   const filling = !!view?.filling;
-  const poll = drawing || awaitingIdeas || filling;
+  // A description waiting to be drafted or being drafted: the poll runs until
+  // each shown version has text or has failed, so a draft (or its failure)
+  // appears without a reload (Codex 4713938187, PR #1334; async-ui-status.md).
+  const describing = !!view?.gags.some((g) => [g.descriptions?.published, g.descriptions?.draft].some((v) => v?.drafting === "drafting"));
+  const poll = drawing || awaitingIdeas || filling || describing;
   // Ideas just finished: one more load, so a fill they started is seen.
   const wasAwaiting = useRef(awaitingIdeas);
   useEffect(() => {
@@ -567,7 +571,21 @@ function GagCard({
   const s = useGagSave(factId, subjectNames);
   const castReading = useCastReading(factId, subjectNames, draft, setDraft);
   const unsavedKey = `gag-${gag.id}`;
-  useEffect(() => { reportUnsaved(unsavedKey, dirty || s.busy); }, [reportUnsaved, unsavedKey, dirty, s.busy]);
+  // Description rows with unsaved typing, by version: folded into this gag's
+  // one unsaved entry, so the leave guard and the actions it holds name the
+  // gag until both its content and its descriptions are saved or undone
+  // (Codex 4713938190, PR #1334).
+  const [descUnsaved, setDescUnsaved] = useState<ReadonlySet<string>>(() => new Set());
+  const reportDescUnsaved = useCallback((fp: string, unsaved: boolean) => {
+    setDescUnsaved((prev) => {
+      if (prev.has(fp) === unsaved) return prev;
+      const next = new Set(prev);
+      if (unsaved) next.add(fp); else next.delete(fp);
+      return next;
+    });
+  }, []);
+  const anyUnsaved = dirty || s.busy || descUnsaved.size > 0;
+  useEffect(() => { reportUnsaved(unsavedKey, anyUnsaved); }, [reportUnsaved, unsavedKey, anyUnsaved]);
   useEffect(() => () => reportUnsaved(unsavedKey, false), [reportUnsaved, unsavedKey]);
   const done = (r: GagResult | null) => { if (r?.ok) onView(r.view); };
 
@@ -613,7 +631,7 @@ function GagCard({
 
       <GagEditor value={draft} onChange={setDraft} disabled={locked} fieldErrors={s.fieldErrors} cast={castReading} />
 
-      <GagDescriptions factId={factId} reviewId={reviewId} gag={gag} readOnly={readOnly} onView={onView} />
+      <GagDescriptions factId={factId} reviewId={reviewId} gag={gag} readOnly={readOnly} onView={onView} onUnsaved={reportDescUnsaved} />
 
       {s.error && (
         <p className="text-xs text-destructive flex items-start gap-1.5 break-words" data-testid="gag-error"><AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" /><span className="min-w-0">{s.error}</span></p>
@@ -649,12 +667,13 @@ function GagCard({
  * draft's goes live when the fact's changes are published. A gag whose
  * content is new or changed cannot be published without one.
  */
-function GagDescriptions({ factId, reviewId, gag, readOnly, onView }: {
+export function GagDescriptions({ factId, reviewId, gag, readOnly, onView, onUnsaved }: {
   factId: number;
   reviewId: number | null;
   gag: GagView;
   readOnly: boolean;
   onView: (v: FactGagsView) => void;
+  onUnsaved?: (contentFingerprint: string, unsaved: boolean) => void;
 }) {
   const d = gag.descriptions;
   const rows = [
@@ -672,7 +691,7 @@ function GagDescriptions({ factId, reviewId, gag, readOnly, onView }: {
         // Keyed by version: a new version starts the field afresh, while new
         // text for the same version is reconciled inside the row.
         <DescriptionRow key={r.version.contentFingerprint} factId={factId} reviewId={reviewId} gagId={gag.id}
-          version={r.version} earlierText={d!.earlierText} label={r.label} note={r.note} readOnly={readOnly} onView={onView} />
+          version={r.version} label={r.label} note={r.note} readOnly={readOnly} onView={onView} onUnsaved={onUnsaved} />
       ))}
     </div>
   );
@@ -682,16 +701,17 @@ function descriptionStatus(v: GagDescriptionView): string {
   return draftingWords(v) ?? (v.reviewed ? "Approved." : "Drafted by AI. Check it, edit it if needed, and approve it.");
 }
 
-export function DescriptionRow({ factId, reviewId, gagId, version, earlierText, label, note, readOnly, onView }: {
+export function DescriptionRow({ factId, reviewId, gagId, version, label, note, readOnly, onView, onUnsaved }: {
   factId: number;
   reviewId: number | null;
   gagId: number;
   version: GagDescriptionView;
-  earlierText: string | null;
   label: string | null;
   note: string;
   readOnly: boolean;
   onView: (v: FactGagsView) => void;
+  /** Whether the field holds typing not yet saved (or a save in flight), for the leave guard. */
+  onUnsaved?: (contentFingerprint: string, unsaved: boolean) => void;
 }) {
   const [text, setText] = useState(version.text ?? "");
   // Text arriving from the server (an AI draft landing, another moderator's
@@ -700,17 +720,25 @@ export function DescriptionRow({ factId, reviewId, gagId, version, earlierText, 
   // background update (Codex 4713846837, PR #1334; GagCard's rule for gag
   // content, Codex 4649903945). After the moderator's own save the field
   // adopts the saved, canonicalised text.
-  const adopted = useRef(version.text ?? "");
+  // Held as state, and dirtiness measured against it, so a draft landing in
+  // an untouched field never reads as unsaved typing, not even for a render.
+  const [adopted, setAdopted] = useState(version.text ?? "");
   const textRef = useRef(text);
   textRef.current = text;
+  const adoptedRef = useRef(adopted);
+  adoptedRef.current = adopted;
   useEffect(() => {
     const incoming = version.text ?? "";
-    if (incoming === adopted.current) return;
-    if (textRef.current === adopted.current) setText(incoming);
-    adopted.current = incoming;
+    if (incoming === adoptedRef.current) return;
+    if (textRef.current === adoptedRef.current) setText(incoming);
+    setAdopted(incoming);
   }, [version.text]);
   const { busy, error, act } = useGagAction();
-  const dirty = text.trim() !== (version.text ?? "");
+  const dirty = text.trim() !== adopted;
+  const fp = version.contentFingerprint;
+  useEffect(() => { onUnsaved?.(fp, dirty || busy); }, [onUnsaved, fp, dirty, busy]);
+  useEffect(() => () => onUnsaved?.(fp, false), [onUnsaved, fp]);
+  const earlierText = version.earlierText;
   const canApprove = !readOnly && !busy && text.trim().length > 0 && (dirty || !version.reviewed);
   const approve = async () => {
     const r = await act(() => gagApi.saveDescription(factId, gagId, version.contentFingerprint, text, reviewId));
@@ -718,7 +746,7 @@ export function DescriptionRow({ factId, reviewId, gagId, version, earlierText, 
     // The moderator's own save: show what was stored, canonicalised, and treat it as adopted.
     const d = r.view.gags.find((g) => g.id === gagId)?.descriptions;
     const saved = [d?.published, d?.draft].find((v) => v?.contentFingerprint === version.contentFingerprint)?.text;
-    if (saved != null) { adopted.current = saved; setText(saved); }
+    if (saved != null) { adoptedRef.current = saved; setAdopted(saved); setText(saved); }
     onView(r.view);
   };
   return (
@@ -738,7 +766,8 @@ export function DescriptionRow({ factId, reviewId, gagId, version, earlierText, 
       <p className={`text-xs ${version.drafting === "failed" ? "text-destructive" : "text-muted-foreground"}`} data-testid="gag-description-status">
         {descriptionStatus(version)} {!version.reviewed && note}
       </p>
-      {!version.text && earlierText && !readOnly && (
+      {/* Offered while this version is unreviewed, AI draft or none (Codex 4713938194). */}
+      {!version.reviewed && earlierText && text.trim() !== earlierText && !readOnly && (
         <button type="button" onClick={() => setText(earlierText)} disabled={busy} data-testid="gag-description-use-earlier"
           className="text-xs underline text-primary disabled:opacity-40">
           Start from the earlier description: &ldquo;{earlierText}&rdquo;
@@ -746,10 +775,18 @@ export function DescriptionRow({ factId, reviewId, gagId, version, earlierText, 
       )}
       {error && <p className="text-xs text-destructive" data-testid="gag-description-error">{error}</p>}
       {!readOnly && (
+        <div className="flex flex-wrap gap-2">
         <button type="button" onClick={() => void approve()} disabled={!canApprove} data-testid="gag-description-approve"
           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium border border-primary/50 text-primary rounded-sm hover:bg-primary/10 disabled:opacity-40">
           {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />} {version.reviewed && dirty ? "Save and approve" : "Approve description"}
         </button>
+        {dirty && (
+          <button type="button" onClick={() => setText(adopted)} disabled={busy} data-testid="gag-description-undo"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border border-border rounded-sm hover:bg-muted text-foreground disabled:opacity-40">
+            Undo edits
+          </button>
+        )}
+        </div>
       )}
     </div>
   );

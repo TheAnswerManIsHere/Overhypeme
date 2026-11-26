@@ -137,9 +137,13 @@ export async function publishedDescriptions(
 export type DescriptionView = GagDescriptionView;
 export type GagDescriptionsView = GagDescriptions;
 
-function viewOf(row: typeof factGagDescriptionsTable.$inferSelect | undefined, fp: string): DescriptionView {
-  if (!row) return { contentFingerprint: fp, text: null, origin: "ai", reviewed: false, drafting: "none", lastError: null };
-  const failed = row.text == null && row.lastError != null;
+function viewOf(row: typeof factGagDescriptionsTable.$inferSelect | undefined, fp: string, earlierText: string | null = null): DescriptionView {
+  // No row: the sweep drafts every stored version of every gag not removed,
+  // so a version with none is waiting to be drafted, never "drafted"
+  // (Codex 4713938187, PR #1334). A row whose attempts are spent without
+  // text has failed for good, whether or not its last error was recorded.
+  if (!row) return { contentFingerprint: fp, text: null, origin: "ai", reviewed: false, drafting: "drafting", lastError: null, earlierText };
+  const failed = row.text == null && (row.lastError != null || row.attempts >= DESCRIPTION_MAX_ATTEMPTS);
   return {
     contentFingerprint: fp,
     text: row.text,
@@ -147,6 +151,7 @@ function viewOf(row: typeof factGagDescriptionsTable.$inferSelect | undefined, f
     reviewed: row.reviewedAt != null,
     drafting: row.text != null ? "none" : failed ? "failed" : "drafting",
     lastError: row.lastError,
+    earlierText,
   };
 }
 
@@ -165,14 +170,21 @@ export async function descriptionsForEditor(
     const mine = byGag.get(g.id) ?? [];
     const pubFp = g.approvedContent != null ? gagContentFingerprint(g.approvedContent) : null;
     const draftFp = g.pendingContent != null ? gagContentFingerprint(g.pendingContent) : null;
-    const current = new Set([pubFp, draftFp].filter((f): f is string => !!f));
-    const earlier = mine
-      .filter((r) => r.origin === "moderator" && r.text && !current.has(r.contentFingerprint))
-      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0];
+    const hasDraft = !!draftFp && draftFp !== pubFp;
+    // The starting point is chosen for the version being described, from the
+    // reviewed text of the content it replaces (Codex 4713938194, PR #1334):
+    // the draft is offered the published content's description first, then
+    // the latest reviewed text of any other earlier version; the published
+    // version, the latest reviewed text of an earlier one. A version is never
+    // offered its own text, nor the published version the draft's.
+    const reviewed = mine
+      .filter((r) => r.reviewedAt != null && r.text)
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+    const latestExcept = (...fps: Array<string | null>) => reviewed.find((r) => !fps.includes(r.contentFingerprint))?.text ?? null;
+    const pubText = pubFp ? reviewed.find((r) => r.contentFingerprint === pubFp)?.text ?? null : null;
     out.set(g.id, {
-      published: pubFp ? viewOf(mine.find((r) => r.contentFingerprint === pubFp), pubFp) : null,
-      draft: draftFp && draftFp !== pubFp ? viewOf(mine.find((r) => r.contentFingerprint === draftFp), draftFp) : null,
-      earlierText: earlier?.text ?? null,
+      published: pubFp ? viewOf(mine.find((r) => r.contentFingerprint === pubFp), pubFp, latestExcept(pubFp, hasDraft ? draftFp : null)) : null,
+      draft: hasDraft ? viewOf(mine.find((r) => r.contentFingerprint === draftFp), draftFp!, pubText ?? latestExcept(draftFp)) : null,
     });
   }
   return out;

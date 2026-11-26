@@ -199,9 +199,17 @@ export interface GagDescriptionView {
   origin: "ai" | "moderator";
   /** Reviewed by a moderator: members see it once it describes the published content. */
   reviewed: boolean;
-  /** "drafting" while one is being drafted; "failed" when the last drafting failed. */
+  /**
+   * "drafting" while it is waiting to be drafted or being drafted; "failed"
+   * when the last drafting failed; "none" once it has text.
+   */
   drafting: "none" | "drafting" | "failed";
   lastError: string | null;
+  /**
+   * The reviewed text of the content this version replaces, offered as a
+   * starting point while this version is unreviewed; never applied.
+   */
+  earlierText: string | null;
 }
 
 export interface GagDescriptions {
@@ -209,8 +217,6 @@ export interface GagDescriptions {
   published: GagDescriptionView | null;
   /** Null when the draft content is the published content, or there is no draft. */
   draft: GagDescriptionView | null;
-  /** A moderator's text for an earlier version of this gag, offered as a starting point; never applied. */
-  earlierText: string | null;
 }
 
 // ─── A gag's renders: roles, history, cost, delete (Issue #1304) ───────────

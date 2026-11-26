@@ -35,7 +35,9 @@ import { availableGags } from "../lib/gags/resolver.js";
 import { publishDraft } from "../lib/gags/publish.js";
 import { GoLiveError } from "../lib/gags/goLive.js";
 import {
+  DESCRIPTION_MAX_ATTEMPTS,
   DescriptionError,
+  descriptionsForEditor,
   descriptionsToReview,
   gagContentFingerprint,
   runDescriptionSweep,
@@ -292,6 +294,50 @@ describe("a gag's description", () => {
     assert.equal(failed!.lastError, "model down");
     assert.equal(failed!.attempts, 1);
     assert.ok((await descriptionsToReview()).some((d) => d.gagId === g2 && d.description.drafting === "failed"), "the review list shows the failure");
+  });
+
+  // Codex 4713938187, PR #1334: a version with no row is waiting to be
+  // drafted, on both screens; spent attempts with no text read as failed.
+  it("a version with no description reads as drafting on the editor and the review list; spent attempts read as failed", async () => {
+    const { gagId, content: A } = await liveFact(`{NAME} drops the grenade ${randomUUID()}.`);
+    await db.delete(factGagDescriptionsTable).where(eq(factGagDescriptionsTable.gagId, gagId));
+    const [g] = await db.select().from(factGagsTable).where(eq(factGagsTable.id, gagId));
+    const editor = async () => (await descriptionsForEditor([g!])).get(gagId)!;
+    assert.equal((await editor()).published!.drafting, "drafting", "editor: waiting to be drafted, not drafted");
+    assert.equal((await descriptionsToReview()).find((d) => d.gagId === gagId)!.description.drafting, "drafting", "review list: the same");
+
+    await db.insert(factGagDescriptionsTable).values({ gagId, contentFingerprint: gagContentFingerprint(A)!, origin: "ai", attempts: DESCRIPTION_MAX_ATTEMPTS, updatedAt: new Date() });
+    assert.equal((await editor()).published!.drafting, "failed", "attempts spent with no error recorded: failed, so a poll ends");
+  });
+
+  // Codex 4713938194, PR #1334: the starting point is chosen for the version
+  // being described, from the reviewed text of the content it replaces.
+  it("offers the draft the published content's reviewed description, and never a version its own text", async () => {
+    const { factId, gagId, content: A } = await liveFact(`{NAME} throws the grenade ${randomUUID()}.`);
+    await db.delete(factGagDescriptionsTable).where(eq(factGagDescriptionsTable.gagId, gagId));
+    await saveReviewedDescription(gagId, gagContentFingerprint(A)!, "{NAME} throws it by hand.", adminId);
+    const B = scene(`{NAME} throws it over a wall ${randomUUID()}.`);
+    await draftChange(factId, gagId, B);
+    const read = async () => {
+      const [g] = await db.select().from(factGagsTable).where(eq(factGagsTable.id, gagId));
+      return (await descriptionsForEditor([g!])).get(gagId)!;
+    };
+    let d = await read();
+    assert.equal(d.draft!.earlierText, "{NAME} throws it by hand.", "published A, draft B: B is offered A's text");
+    assert.equal(d.published!.earlierText, null, "A is never offered its own text, nor the draft's");
+
+    // An AI draft for B does not take the offer away.
+    await db.insert(factGagDescriptionsTable).values({ gagId, contentFingerprint: gagContentFingerprint(B)!, text: "{NAME} lobs it.", origin: "ai", attempts: 1, updatedAt: new Date() });
+    assert.equal((await read()).draft!.earlierText, "{NAME} throws it by hand.");
+
+    // A, then B published with its reviewed description, then draft C: C is offered B's, not A's.
+    await saveReviewedDescription(gagId, gagContentFingerprint(B)!, "{NAME} lobs it over the wall.", adminId);
+    await db.transaction((tx) => publishDraft(tx, factId, adminId));
+    const C = scene(`{NAME} throws it into the sea ${randomUUID()}.`);
+    await draftChange(factId, gagId, C);
+    d = await read();
+    assert.equal(d.draft!.earlierText, "{NAME} lobs it over the wall.", "the offer is the content C replaces");
+    assert.equal(d.published!.earlierText, "{NAME} throws it by hand.", "the published B is offered an earlier version's text, never its own");
   });
 });
 
