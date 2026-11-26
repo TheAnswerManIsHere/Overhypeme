@@ -627,7 +627,21 @@ describe("migration 0097 — database behaviour (skipped when DATABASE_URL is un
         // the state docs/engineering/ncmec-audit-ledger-hardening.md produces, created by a
         // superuser so no membership leaks to the application. Testing the break-glass path
         // therefore means staging the runbook's outcome first.
-        await client.query(`CREATE ROLE overhype_audit_maintenance NOLOGIN`);
+        //
+        // The role is cluster-wide while shards are separate databases on one server, so
+        // another suite may already hold it committed (phase15.appRoleSplit.test.ts keeps it
+        // for its whole run, in a parallel shard). Its existing is not an error here: create
+        // it under a savepoint and accept a duplicate, so this transaction's own create
+        // still rolls back and a role another suite committed is never touched.
+        await client.query("SAVEPOINT stage_maintenance_role");
+        try {
+          await client.query(`CREATE ROLE overhype_audit_maintenance NOLOGIN`);
+          await client.query("RELEASE SAVEPOINT stage_maintenance_role");
+        } catch (err) {
+          // duplicate_object, or unique_violation when another creator commits first.
+          if (!["42710", "23505"].includes((err as { code?: string }).code ?? "")) throw err;
+          await client.query("ROLLBACK TO SAVEPOINT stage_maintenance_role");
+        }
         await client.query(`GRANT overhype_audit_maintenance TO ${role}`);
         await client.query(
           `INSERT INTO ncmec_safety_audit_log (actor_label, action) VALUES ('t','config_write')`,

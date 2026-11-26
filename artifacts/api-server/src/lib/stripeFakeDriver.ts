@@ -42,6 +42,7 @@ import type { StripeDriver } from "./stripeDriverTypes.js";
 import { StripeFakeUnsupportedError } from "./stripeFakeErrors.js";
 import { FAKE_ACCOUNT_ID, FAKE_PRICES, FAKE_PRODUCTS } from "./stripeFakeFixture.js";
 import { getSiteBaseUrl } from "./siteUrl.js";
+import { appDatabaseUrl } from "@workspace/db/connection";
 
 /** A placeholder, not a credential: it identifies the fake and reaches no account. */
 export const FAKE_SECRET_KEY = "sk_test_fake_double_reaches_no_account";
@@ -359,7 +360,7 @@ export const fakeStripeDriver: StripeDriver = {
     }
     const { StripeSync } = await import("stripe-replit-sync");
     const sync = new StripeSync({
-      poolConfig: { connectionString: process.env.DATABASE_URL!, max: 2 },
+      poolConfig: { connectionString: appDatabaseUrl(), max: 2 },
       stripeSecretKey: secretKey,
       ...(webhookSecret ? { stripeWebhookSecret: webhookSecret } : {}),
     });

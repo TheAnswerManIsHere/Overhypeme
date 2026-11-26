@@ -152,8 +152,12 @@ describe("a rejected submission is purged (D7)", () => {
     // Postgres fires a table's foreign-key triggers in name order, and those
     // names carry each constraint's OID, so which cascade goes first depends
     // on how the database was built: dev fired the renders' first and the
-    // reject failed. Re-adding the gags' constraint gives its trigger the
-    // newer OID, setting that order here; the DDL rolls back with the test.
+    // reject failed. Re-adding the renders' constraint and then the gags' gives
+    // both triggers fresh, adjacent OIDs of the same width, so their names sort
+    // renders first. Re-adding the gags' alone was not enough: a trigger name
+    // compares as text, and once the cluster's OID counter passes 99,999 (any
+    // file that builds whole databases in the shard) a new six-digit OID sorts
+    // before the five-digit ones. The DDL rolls back with the test.
     const s = await submission();
     const fire = (tx: Parameters<Parameters<typeof db.transaction>[0]>[0]) => tx.execute(sql`
       SELECT c.conrelid::regclass::text AS tbl FROM pg_trigger t JOIN pg_constraint c ON c.oid = t.tgconstraint
@@ -161,6 +165,8 @@ describe("a rejected submission is purged (D7)", () => {
         AND c.conrelid IN ('image_prompt_attempts'::regclass, 'fact_gags'::regclass)
       ORDER BY t.tgname`);
     await assert.rejects(db.transaction(async (tx) => {
+      await tx.execute(sql`ALTER TABLE image_prompt_attempts DROP CONSTRAINT image_prompt_attempts_fact_id_facts_id_fk`);
+      await tx.execute(sql`ALTER TABLE image_prompt_attempts ADD CONSTRAINT image_prompt_attempts_fact_id_facts_id_fk FOREIGN KEY (fact_id) REFERENCES facts(id) ON DELETE CASCADE`);
       await tx.execute(sql`ALTER TABLE fact_gags DROP CONSTRAINT fact_gags_fact_id_fkey`);
       await tx.execute(sql`ALTER TABLE fact_gags ADD CONSTRAINT fact_gags_fact_id_fkey FOREIGN KEY (fact_id) REFERENCES facts(id) ON DELETE CASCADE`);
       const order = (await fire(tx)).rows.map((r) => (r as { tbl: string }).tbl);

@@ -54,10 +54,17 @@ describe("a meme traces back to how it was made, from its link or from the pictu
   // dummy key (another test file may set one at import) can still be set here,
   // and the route then calls the real classifier and fails closed with a 503
   // (PR #936: a new test file moved this one into that file's shard).
-  const falKey = process.env["FAL_AI_API_KEY"];
-  const falKeyAlt = process.env["FAL_KEY"];
+  // Read when this suite starts, not when its file loads: in a shard every file's
+  // body runs before any hook, so a value read here misses a key another file's
+  // top-level hook sets, and the clean-up would then delete it for the rest of the
+  // shard (phase7.memberPictures lost its key that way once the Phase 15 5b tests
+  // reshuffled the shards).
+  let falKey: string | undefined;
+  let falKeyAlt: string | undefined;
 
   before(async () => {
+    falKey = process.env["FAL_AI_API_KEY"];
+    falKeyAlt = process.env["FAL_KEY"];
     delete process.env["FAL_AI_API_KEY"];
     delete process.env["FAL_KEY"];
     photos.setUp();

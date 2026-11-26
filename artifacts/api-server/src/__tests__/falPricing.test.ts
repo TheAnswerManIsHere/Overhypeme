@@ -260,6 +260,17 @@ describe("refreshPricingCache — response envelope shapes", () => {
 // ── refreshPricingCache: failure modes ─────────────────────────────────────────
 
 describe("refreshPricingCache — failure modes", () => {
+  // Every file in a shard shares one process (--test-isolation=none), so a key this
+  // block deletes must come back for the files after it (phase7.memberPictures read
+  // a missing FAL_AI_API_KEY once it shared this shard).
+  const saved = { FAL_AI_API_KEY: process.env["FAL_AI_API_KEY"], FAL_KEY: process.env["FAL_KEY"] };
+  after(() => {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+
   it("does not insert when no API key is configured", async () => {
     delete process.env["FAL_AI_API_KEY"];
     delete process.env["FAL_KEY"];
