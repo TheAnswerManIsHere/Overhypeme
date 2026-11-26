@@ -25,6 +25,21 @@ describe("resolveAppDatabaseUrl", () => {
     assert.deepEqual(resolveAppDatabaseUrl({ DATABASE_URL: OWNER }), { url: OWNER, source: "DATABASE_URL" });
   });
 
+  it("development passes DATABASE_URL through as given, the unix-socket form included (the acceptance run's relay)", () => {
+    const socket = "postgres://overhype:pw@/overhype_acceptance_fixture_1?host=%2Ftmp%2Frelay&port=5432";
+    assert.deepEqual(resolveAppDatabaseUrl({ DATABASE_URL: socket }), { url: socket, source: "DATABASE_URL" });
+  });
+
+  it("the socket form compares by socket directory, port and database", () => {
+    const owner = "postgres://owner:pw@/db?host=%2Ftmp%2Frelay&port=5432";
+    const app = "postgres://app:pw2@/db?host=%2Ftmp%2Frelay&port=5432";
+    assert.equal(resolveAppDatabaseUrl({ DATABASE_URL: owner, APP_DATABASE_URL: app }).source, "APP_DATABASE_URL");
+    assert.match(
+      refusal({ DATABASE_URL: owner, APP_DATABASE_URL: app.replace("%2Ftmp%2Frelay", "%2Ftmp%2Fother") }),
+      /names a different database/,
+    );
+  });
+
   it("a published deployment without APP_DATABASE_URL refuses to start", () => {
     assert.match(refusal({ DATABASE_URL: OWNER, REPLIT_DEPLOYMENT: "1" }), /must connect through APP_DATABASE_URL/);
   });

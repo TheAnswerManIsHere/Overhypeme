@@ -61,23 +61,42 @@ export function isPublishedDeployment(env: NodeJS.ProcessEnv = process.env): boo
   return env.REPLIT_DEPLOYMENT === "1";
 }
 
-/** The login a connection URL names, decoded; never its password. */
-export function connectionUser(url: string): string {
-  return decodeURIComponent(new URL(url).username);
+/**
+ * Parse a connection string, including the unix-socket form node-postgres accepts and the
+ * WHATWG URL parser rejects: an empty host with the socket directory in `?host=`
+ * (`postgres://user:pw@/db?host=/run/dir`, which the acceptance run's database relay
+ * hands its children). The empty host is filled in only to get past the parser; `?host=`
+ * then names the server. Null when it is not a connection string at all.
+ */
+function parseConnection(value: string): URL | null {
+  for (const candidate of [value, value.replace(/^(postgres(?:ql)?:\/\/(?:[^/@]*@)?)\//, "$1localhost/")]) {
+    try {
+      return new URL(candidate);
+    } catch {
+      // try the socket form, then give up
+    }
+  }
+  return null;
 }
 
 function parse(name: string, value: string): URL {
-  try {
-    return new URL(value);
-  } catch {
-    // Never echo the value: it holds a password.
-    throw new AppDatabaseUrlRefusal(`${name} is not a valid connection URL.`);
-  }
+  const url = parseConnection(value);
+  // Never echo the value: it holds a password.
+  if (!url) throw new AppDatabaseUrlRefusal(`${name} is not a valid connection URL.`);
+  return url;
 }
 
-/** Host, port and database, the parts that say WHICH database; never the credential. */
+/** The login a connection string names, decoded; never its password. Null when it cannot be read. */
+export function connectionUser(url: string): string | null {
+  const parsed = parseConnection(url);
+  return parsed ? decodeURIComponent(parsed.username) : null;
+}
+
+/** Server (TCP host or socket directory), port and database: which database, never the credential. */
 function target(url: URL): string {
-  return `${url.hostname.toLowerCase()}:${url.port || "5432"}/${decodeURIComponent(url.pathname.replace(/^\//, ""))}`;
+  const server = url.searchParams.get("host") ?? url.hostname.toLowerCase();
+  const port = url.searchParams.get("port") ?? (url.port || "5432");
+  return `${server}:${port}/${decodeURIComponent(url.pathname.replace(/^\//, ""))}`;
 }
 
 /** Pure: decide the application's connection from an environment. Throws a refusal. */
@@ -88,7 +107,6 @@ export function resolveAppDatabaseUrl(env: NodeJS.ProcessEnv): ResolvedAppDataba
   if (!owner) {
     throw new AppDatabaseUrlRefusal("DATABASE_URL must be set. Did you forget to provision a database?");
   }
-  const ownerUrl = parse("DATABASE_URL", owner);
 
   if (!app) {
     if (isPublishedDeployment(env)) {
@@ -101,6 +119,7 @@ export function resolveAppDatabaseUrl(env: NodeJS.ProcessEnv): ResolvedAppDataba
     return { url: owner, source: "DATABASE_URL" };
   }
 
+  const ownerUrl = parse("DATABASE_URL", owner);
   const appUrl = parse("APP_DATABASE_URL", app);
   if (target(appUrl) !== target(ownerUrl)) {
     throw new AppDatabaseUrlRefusal(
