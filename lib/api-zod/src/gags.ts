@@ -99,6 +99,21 @@ export interface GagCastView {
 }
 
 export const gagScopeBodySchema = z.object(reviewScope).strict();
+
+/** The longest one-line gag description a moderator may save (fact_gag_descriptions.text). */
+export const DESCRIPTION_MAX_CHARS = 160;
+
+/**
+ * Save and approve a gag's one-line description for the version the moderator
+ * was looking at (plan PLAN_PHASE7_AI_PICTURE_FLOW.md). The text's length and
+ * tokens are checked after whitespace is normalised (api-server
+ * lib/gags/descriptions.ts, `validateDescriptionText`).
+ */
+export const gagDescriptionBodySchema = z.object({
+  contentFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+  text: z.string().max(DESCRIPTION_MAX_CHARS * 2),
+  ...reviewScope,
+}).strict();
 export type GagScopeBody = z.infer<typeof gagScopeBodySchema>;
 
 export const gagRendersBodySchema = z.object({

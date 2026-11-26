@@ -22,7 +22,7 @@ import { availableGags } from "../lib/gags/resolver";
 import { creditBalance, openLots } from "../lib/credits/ledger";
 import { returnedPictures } from "../lib/credits/pictures";
 import { MEMBER_PICTURE_IN_PROGRESS } from "../lib/imagePromptAttempts";
-import { checkMemberPhoto, MemberPictureError, requestMemberPicture } from "../lib/memberPictures/command";
+import { checkMemberPhoto, MemberPictureError, requestMemberPicture, type MemberPictureShape } from "../lib/memberPictures/command";
 import { userOwnsUpload } from "../lib/uploadOwnership";
 import { memberFailureWords } from "../lib/memberPictures/failures";
 import { liveContent } from "../lib/contentVisibility";
@@ -58,7 +58,7 @@ const commandBody = z.object({
 
 const photoCheckBody = z.object({ uploadKey: z.string().regex(/^\/objects\//).max(500) });
 
-type Shape = "landscape" | "square" | "portrait";
+type Shape = MemberPictureShape;
 
 /** A picture's state as the member sees it (`docs/ai-context/async-ui-status.md`). */
 export interface MemberPictureState {

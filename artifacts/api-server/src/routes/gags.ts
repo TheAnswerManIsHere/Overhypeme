@@ -35,6 +35,7 @@ import {
   gagRendersBodySchema,
   gagSaveBodySchema,
   gagScopeBodySchema,
+  gagDescriptionBodySchema,
 } from "@workspace/api-zod";
 import type { z } from "zod";
 import { requireAdmin } from "./admin";
@@ -51,7 +52,6 @@ import {
 } from "../lib/gags/gagStore";
 import { buildFactGagsView } from "../lib/gags/gagView";
 import { DescriptionError, descriptionsToReview, saveReviewedDescription } from "../lib/gags/descriptions";
-import { z as zod } from "zod";
 import { gagRenderHistory, removedGagHistories } from "../lib/gags/renderHistory";
 import { cleanUpQueuedFiles } from "../lib/storedFileDeletions";
 import { GAG_MODERATION_RENDER } from "../lib/imagePromptAttempts";
@@ -155,12 +155,6 @@ router.put("/admin/facts/:factId/gags/:gagId", requireAdmin, async (req: Authent
   });
 });
 
-const descriptionBodySchema = zod.object({
-  contentFingerprint: zod.string().regex(/^[0-9a-f]{64}$/),
-  text: zod.string().max(400),
-  reviewId: zod.number().int().positive().nullable().optional(),
-});
-
 /**
  * A moderator writes, edits or approves a gag's one-line description for the
  * version they are looking at (plan PLAN_PHASE7_AI_PICTURE_FLOW.md). Saving
@@ -171,7 +165,7 @@ const descriptionBodySchema = zod.object({
 router.put("/admin/facts/:factId/gags/:gagId/description", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const p = ids(req);
   if (!p) { res.status(400).json({ error: "Invalid id" }); return; }
-  const body = parse(descriptionBodySchema, req, res);
+  const body = parse(gagDescriptionBodySchema, req, res);
   if (!body) return;
   const [gag] = await db.select({ factId: factGagsTable.factId }).from(factGagsTable).where(eq(factGagsTable.id, p.gagId)).limit(1);
   if (!gag || gag.factId !== p.factId) { res.status(404).json({ error: "That gag no longer exists.", code: "GAG_NOT_FOUND" }); return; }

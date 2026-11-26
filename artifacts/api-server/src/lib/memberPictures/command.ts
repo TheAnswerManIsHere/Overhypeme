@@ -47,6 +47,9 @@ export class MemberPictureError extends Error {
   }
 }
 
+/** The shape a member's picture is drawn in: the meme builder's three. */
+export type MemberPictureShape = "landscape" | "square" | "portrait";
+
 export interface MemberPictureCommand {
   userId: string;
   /** The client's stable id for this command: a resend with it returns the same picture. */
@@ -60,7 +63,7 @@ export interface MemberPictureCommand {
   lookStyleId: string | null;
   /** Who the picture stars: the member, or their pet (named by the member). */
   subject: { kind: "me" } | { kind: "pet"; name: string; pronouns: string | null };
-  aspectRatio: "landscape" | "square" | "portrait";
+  aspectRatio: MemberPictureShape;
   /**
    * The name and pronouns the meme's caption is meant to carry (plan
    * PLAN_PHASE7_AI_PICTURE_FLOW.md): recorded on the attempt and read back by

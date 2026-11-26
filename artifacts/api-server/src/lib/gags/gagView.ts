@@ -76,9 +76,9 @@ export async function buildFactGagsView(factId: number): Promise<FactGagsView | 
 
   // Each gag's render tiles are independent reads: the view is polled while
   // renders draw, so they run together.
-  const descriptions = await descriptionsForEditor(gags);
   const [views, ready] = await Promise.all([
-    Promise.all(gags.map((g) => viewOf(g, fact.isActive, defaultId, examplesFor(byGag, g.id), ex, descriptions.get(g.id)!))) as Promise<GagView[]>,
+    descriptionsForEditor(gags).then((descriptions) =>
+      Promise.all(gags.map((g) => viewOf(g, fact.isActive, defaultId, examplesFor(byGag, g.id), ex, descriptions.get(g.id)!))) as Promise<GagView[]>),
     checkGoLive(factId, "draft", db, gags),
   ]);
   return {

@@ -9,14 +9,9 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "wouter";
 import { Loader2, RefreshCw } from "lucide-react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
-import { descriptionReviewApi, type DescriptionToReview } from "@/components/admin/gags/gagApi";
+import { descriptionReviewApi, draftingWords, type DescriptionToReview } from "@/components/admin/gags/gagApi";
 
-function stateWords(item: DescriptionToReview): string {
-  const d = item.description;
-  if (d.drafting === "drafting") return "Drafting…";
-  if (d.drafting === "failed") return `Drafting failed${d.lastError ? `: ${d.lastError}` : ""}. Write one.`;
-  return "Drafted, waiting for review";
-}
+const stateWords = (item: DescriptionToReview): string => draftingWords(item.description) ?? "Drafted, waiting for review";
 
 export default function AdminGagDescriptions() {
   const [items, setItems] = useState<DescriptionToReview[] | null>(null);

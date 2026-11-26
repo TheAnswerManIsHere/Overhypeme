@@ -38,7 +38,7 @@ import {
 import { FactCharactersContext } from "@/components/admin/FactCharactersContext";
 import { VisualConceptCard } from "@/components/admin/VisualConceptCard";
 import { BubbleEditor } from "@/components/admin/BubbleEditor";
-import { castIsCurrent, gagApi, prepareGag, readCast, tokenizeGag, type GagResult } from "./gagApi";
+import { castIsCurrent, draftingWords, gagApi, prepareGag, readCast, tokenizeGag, type GagResult } from "./gagApi";
 import type { GagDescriptionView } from "@workspace/api-zod";
 import { GagHistory, IN_FLIGHT, RemovedGagsHistory, roleWords } from "./RenderHistory";
 
@@ -657,30 +657,28 @@ function GagDescriptions({ factId, reviewId, gag, readOnly, onView }: {
   onView: (v: FactGagsView) => void;
 }) {
   const d = gag.descriptions;
-  if (!d || (!d.published && !d.draft)) return null;
+  const rows = [
+    { version: d?.published ?? null, label: d?.draft ? "Published version" : null, note: "Approving it shows it to members now." },
+    { version: d?.draft ?? null, label: d?.published ? "Draft version" : null, note: "It goes live when this fact's changes are published." },
+  ].filter((r): r is { version: GagDescriptionView; label: string | null; note: string } => r.version != null);
+  if (rows.length === 0) return null;
   return (
     <div className="space-y-3 rounded-sm border border-border p-3" data-testid="gag-descriptions">
       <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">One-line description</p>
       <p className="text-xs text-muted-foreground">
         Shown to members beside this gag&apos;s examples, written with their name. Use {"{NAME}"} for the person in the picture.
       </p>
-      {d.published && (
-        <DescriptionRow factId={factId} reviewId={reviewId} gagId={gag.id} version={d.published} earlierText={d.earlierText}
-          label={d.draft ? "Published version" : null} note="Approving it shows it to members now." readOnly={readOnly} onView={onView} />
-      )}
-      {d.draft && (
-        <DescriptionRow factId={factId} reviewId={reviewId} gagId={gag.id} version={d.draft} earlierText={d.earlierText}
-          label={d.published ? "Draft version" : null} note="It goes live when this fact's changes are published." readOnly={readOnly} onView={onView} />
-      )}
+      {rows.map((r) => (
+        // Keyed by version and text: a new version or a saved text starts the field afresh.
+        <DescriptionRow key={`${r.version.contentFingerprint}:${r.version.text ?? ""}`} factId={factId} reviewId={reviewId} gagId={gag.id}
+          version={r.version} earlierText={d!.earlierText} label={r.label} note={r.note} readOnly={readOnly} onView={onView} />
+      ))}
     </div>
   );
 }
 
 function descriptionStatus(v: GagDescriptionView): string {
-  if (v.drafting === "drafting") return "Drafting a description…";
-  if (v.drafting === "failed") return `Drafting failed${v.lastError ? `: ${v.lastError}` : ""}. Write one.`;
-  if (v.reviewed) return "Approved.";
-  return "Drafted by AI. Check it, edit it if needed, and approve it.";
+  return draftingWords(v) ?? (v.reviewed ? "Approved." : "Drafted by AI. Check it, edit it if needed, and approve it.");
 }
 
 function DescriptionRow({ factId, reviewId, gagId, version, earlierText, label, note, readOnly, onView }: {
@@ -695,13 +693,6 @@ function DescriptionRow({ factId, reviewId, gagId, version, earlierText, label, 
   onView: (v: FactGagsView) => void;
 }) {
   const [text, setText] = useState(version.text ?? "");
-  const seen = useRef(`${version.contentFingerprint}:${version.text ?? ""}`);
-  useEffect(() => {
-    const key = `${version.contentFingerprint}:${version.text ?? ""}`;
-    if (seen.current === key) return;
-    seen.current = key;
-    setText(version.text ?? "");
-  }, [version.contentFingerprint, version.text]);
   const { busy, error, act } = useGagAction();
   const dirty = text.trim() !== (version.text ?? "");
   const canApprove = !readOnly && !busy && text.trim().length > 0 && (dirty || !version.reviewed);

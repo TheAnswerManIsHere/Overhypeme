@@ -207,7 +207,7 @@ describe("a picture remembers its caption and shape", () => {
 });
 
 describe("a gag's description", () => {
-  it("fingerprints the scene and bubbles, nothing else", () => {
+  it("fingerprints a version as it draws: the scene and the bubbles change it", () => {
     const a = scene("{NAME} throws the grenade.");
     assert.equal(gagContentFingerprint(a), gagContentFingerprint(scene("{NAME} throws the grenade.")));
     assert.notEqual(gagContentFingerprint(a), gagContentFingerprint(scene("{NAME} throws the grenade twice.")));

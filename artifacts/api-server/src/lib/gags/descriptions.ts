@@ -33,6 +33,7 @@ import { z } from "zod";
 import { zodResponseFormat } from "openai/helpers/zod";
 import { db, factGagDescriptionsTable, factGagsTable, factsTable } from "@workspace/db";
 import {
+  DESCRIPTION_MAX_CHARS,
   canonicalizeNameToken,
   validateTemplate,
   visualPromptStrategyOverrideSchema,
@@ -41,13 +42,14 @@ import {
   type VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
 import { callUtilityLLM } from "../utilityLLM";
+import { renderedGagProjection } from "../imagePrompt/directInput";
+import { stableStringify } from "../factRenderScenarios";
 import { logger } from "../logger";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Db = typeof db | Tx;
 
-/** The longest description a moderator may save (the column's width). */
-export const DESCRIPTION_MAX_CHARS = 160;
+export { DESCRIPTION_MAX_CHARS };
 /** Drafting attempts before a version is left for a moderator to write by hand. */
 export const DESCRIPTION_MAX_ATTEMPTS = 3;
 /** How long a claimed draft is held before another run may retry it. */
@@ -63,19 +65,21 @@ export class DescriptionError extends Error {
 }
 
 /**
- * The fingerprint of what a description describes: a gag version's scene and
- * its complete bubbles (type, speaker, text), as the gag schema normalizes
- * them, so a gag carried over in its legacy shape and the same gag re-saved
- * fingerprint alike. Null for content the schema refuses.
+ * The fingerprint of what a description describes: a gag version as it draws,
+ * the same projection render freshness, reuse and approval compare
+ * (`renderedGagProjection`: the scene, the complete bubbles and the cast), so a
+ * description goes stale exactly when the version's renders do. Content is
+ * read through the gag schema, so a gag carried over in its legacy shape and
+ * the same gag re-saved fingerprint alike. Null for content the schema refuses.
  */
 export function gagContentFingerprint(content: unknown): string | null {
   const parsed = visualPromptStrategyOverrideSchema.safeParse(content);
-  if (!parsed.success) return null;
-  const c = parsed.data as VisualPromptStrategyOverride;
-  const bubbles = (c.bubbles ?? [])
-    .filter((b) => b.entity.trim() && b.text.trim())
-    .map((b) => [b.type, b.entity.trim().toLowerCase(), b.text]);
-  return createHash("sha256").update(JSON.stringify(["v1", (c.coreSceneOverride ?? "").trim(), bubbles])).digest("hex");
+  return parsed.success ? fingerprintOfParsed(parsed.data as VisualPromptStrategyOverride) : null;
+}
+
+/** `gagContentFingerprint` for content already read through the gag schema. */
+export function fingerprintOfParsed(content: VisualPromptStrategyOverride): string {
+  return createHash("sha256").update(`v1:${stableStringify(renderedGagProjection(content))}`).digest("hex");
 }
 
 /**
@@ -155,8 +159,10 @@ export async function descriptionsForEditor(
   if (gags.length === 0) return out;
   const rows = await conn.select().from(factGagDescriptionsTable)
     .where(inArray(factGagDescriptionsTable.gagId, gags.map((g) => g.id)));
+  const byGag = new Map<number, Array<(typeof rows)[number]>>();
+  for (const r of rows) byGag.set(r.gagId, [...(byGag.get(r.gagId) ?? []), r]);
   for (const g of gags) {
-    const mine = rows.filter((r) => r.gagId === g.id);
+    const mine = byGag.get(g.id) ?? [];
     const pubFp = g.approvedContent != null ? gagContentFingerprint(g.approvedContent) : null;
     const draftFp = g.pendingContent != null ? gagContentFingerprint(g.pendingContent) : null;
     const current = new Set([pubFp, draftFp].filter((f): f is string => !!f));
@@ -256,11 +262,12 @@ export async function descriptionsToReview(conn: Db = db): Promise<DescriptionTo
   if (gags.length === 0) return [];
   const rows = await conn.select().from(factGagDescriptionsTable)
     .where(inArray(factGagDescriptionsTable.gagId, gags.map((g) => g.id)));
+  const byKey = new Map(rows.map((r) => [`${r.gagId}:${r.contentFingerprint}`, r]));
   const out: DescriptionToReview[] = [];
   for (const g of gags) {
     const fp = gagContentFingerprint(g.approvedContent);
     if (!fp) continue;
-    const row = rows.find((r) => r.gagId === g.id && r.contentFingerprint === fp);
+    const row = byKey.get(`${g.id}:${fp}`);
     if (row?.reviewedAt) continue;
     out.push({ factId: g.factId, factText: g.factText, gagId: g.id, slot: g.slot, description: viewOf(row, fp) });
   }
@@ -355,14 +362,18 @@ export async function runDescriptionSweep(opts: { batch?: number; drafter?: Desc
 
   // Published versions first: they are what members are offered.
   const todo: Array<{ gagId: number; fp: string; content: VisualPromptStrategyOverride; factText: string | null; retry: boolean }> = [];
+  const queued = new Set<string>();
   for (const stage of ["approvedContent", "pendingContent"] as const) {
     for (const g of gags) {
       const raw = g[stage];
       if (raw == null) continue;
       const parsed = visualPromptStrategyOverrideSchema.safeParse(raw);
-      const fp = gagContentFingerprint(raw);
-      if (!parsed.success || !fp || todo.some((t) => t.gagId === g.id && t.fp === fp)) continue;
-      const row = byKey.get(`${g.id}:${fp}`);
+      if (!parsed.success) continue;
+      const fp = fingerprintOfParsed(parsed.data as VisualPromptStrategyOverride);
+      const key = `${g.id}:${fp}`;
+      if (queued.has(key)) continue;
+      queued.add(key);
+      const row = byKey.get(key);
       if (row?.text != null) { result.skipped++; continue; }
       if (row && (row.attempts >= DESCRIPTION_MAX_ATTEMPTS || Date.now() - row.updatedAt.getTime() < CLAIM_STALE_MS)) { result.skipped++; continue; }
       todo.push({ gagId: g.id, fp, content: parsed.data as VisualPromptStrategyOverride, factText: g.factText, retry: !!row });
