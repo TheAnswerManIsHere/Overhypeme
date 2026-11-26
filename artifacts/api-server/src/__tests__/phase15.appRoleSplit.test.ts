@@ -145,8 +145,9 @@ describe("the app as its own login on a split database (Launch Phase 15, 5b)", (
     for (const role of [appRole, ownerRole]) {
       await control.query(`DROP ROLE IF EXISTS "${role}"`).catch(() => {});
     }
-    // Other files in the shard (migrations.0097.test.ts) look for this cluster-global role
-    // by name; leave the cluster as this file found it.
+    // The role is cluster-wide, and shards are parallel processes on one server, so a
+    // suite in ANOTHER shard can meet it while this file holds it (migrations.0097.test.ts
+    // accepts it already existing). Leave the cluster as this file found it.
     if (createdMaintenance) await control.query(`DROP ROLE IF EXISTS overhype_audit_maintenance`).catch(() => {});
     await control.end();
   });
