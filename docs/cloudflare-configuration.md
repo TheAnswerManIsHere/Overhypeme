@@ -14,8 +14,10 @@ checked against.
   rules, worker and Web Analytics site against this record. In a Claude cloud
   session with the token saved as a network secret:
   `NODE_USE_ENV_PROXY=1 CLOUDFLARE_API_TOKEN=proxy-injected node scripts/check-cloudflare.mjs`.
-  Add `--burst` to test the rate limit live: it locks the caller out of the
-  two render paths for 10 seconds. A failure means Cloudflare drifted or this
+  Add `--burst` to test the rate limit live: paced GETs to a render path until
+  Cloudflare refuses, then one request per path spelling inside the block. It
+  locks the caller out of the render paths for 10 seconds, and it writes nothing
+  to production (a GET reaches no render handler). A failure means Cloudflare drifted or this
   file is stale; fix whichever is wrong.
 - **Next audit:** before Full US (Phase 20, launch-definition readiness row 5).
 
@@ -107,7 +109,8 @@ origin's and send its own.
 One rule, all the Free plan allows (`http_ratelimit` phase, rule
 `d322a6ccefd341eca0f048444fafe352`):
 
-- **Expression:** `(http.request.uri.path in {"/api/render-preview" "/api/render-download"})`
+- **Expression:** `(lower(http.request.uri.path) in {"/api/render-preview" "/api/render-preview/" "/api/render-download" "/api/render-download/"})`
+- **Why every spelling:** the API's router is case-insensitive and ignores a trailing slash, so `/api/Render-Download/` reaches the same handler. (Capitals in the prefix, `/API/…`, do not: Replit sends `/api` to the API by a case-sensitive prefix, and `/API/…` lands on the web app.) The first version of the rule matched only the two exact paths; it was widened the same day (PR #1329's review).
 - **Counting:** per IP (and Cloudflare data centre). **10 requests per 10 seconds**, then **block for 10 seconds**.
 - **Response:** Cloudflare's own 429 (`error code: 1015`, `retry-after: 10`). The Free plan cannot set a custom body.
 
@@ -219,7 +222,7 @@ Each setting the product depends on, proven from outside or on the origin
 | Plain http is redirected at the edge | `curl -sI http://overhype.me/` | `HTTP/1.1 301`, `location: https://overhype.me/`, `server: cloudflare` |
 | TLS 1.1 refused | `curl --tls-max 1.1 https://overhype.me/` | exit 35 (handshake refused); with TLS 1.2: 200 |
 | `CF-IPCountry` reaches the app | the edge's own view: `/cdn-cgi/trace` → `loc=US`; at the app, a signed-in `GET /api/auth/onboarding` reading `marketingDefault: true` from the US | edge proven; the app read is part of David's signed-in walk on the real origin (Issue #1306) |
-| The rate-limit rule refuses past its threshold | 40 parallel `POST /api/render-download`, then one `POST /api/render-preview` | `HTTP/2 429`, `retry-after: 10`, body `error code: 1015` |
+| The rate-limit rule refuses past its threshold, on every path spelling | `node scripts/check-cloudflare.mjs --burst`: GETs to `/api/render-download` every 250 ms until refused, then `/api/render-preview`, `/api/render-preview/`, `/api/render-download`, `/api/render-download/`, `/api/Render-Download` inside the block | each refused with Cloudflare's 429 (`retry-after: 10`; body `error code: 1015` to curl, Cloudflare's error-1015 page to Node); `check:cloudflare: Cloudflare matches docs/cloudflare-configuration.md.` |
 | A crawler is served the OG shell | `curl -A "Twitterbot/1.0" https://overhype.me/m/<slug>` | the shell (`<meta property="og:site_name" …>`); a Chrome user agent gets the app (`<title>Overhype.me</title>`, 200) |
 | HSTS counted on the apex | see *HSTS* | web path 1 (Replit's); API path 2 until 3e |
 | A Turnstile challenge completes on `overhype.me` | the support page in a real browser | David's browser; a headless browser here cannot reach `challenges.cloudflare.com` (Issue #1306) |

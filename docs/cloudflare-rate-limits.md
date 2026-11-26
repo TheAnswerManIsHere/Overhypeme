@@ -20,11 +20,11 @@ Created 2026-11-26 through the API (rule `d322a6ccefd341eca0f048444fafe352`).
 | Field | Value |
 | --- | --- |
 | Phase | `http_ratelimit` (WAF → Rate limiting rules) |
-| Expression | `(http.request.uri.path in {"/api/render-preview" "/api/render-download"})` |
+| Expression | `(lower(http.request.uri.path) in {"/api/render-preview" "/api/render-preview/" "/api/render-download" "/api/render-download/"})` |
 | Counting | IP (Cloudflare adds the data centre: `ip.src`, `cf.colo.id`) |
 | Threshold | 10 requests per 10 seconds |
 | Action | Block for 10 seconds |
-| Response | Cloudflare's default 429, `retry-after: 10`, body `error code: 1015` |
+| Response | Cloudflare's default 429, `retry-after: 10`; body `error code: 1015` (or its HTML error-1015 page, depending on the client) |
 
 **Why these numbers.** Each render burns seconds of `node-canvas` time, so no
 person makes ten in ten seconds; the rule refuses a script hammering the
@@ -34,11 +34,20 @@ not the main control. **Next:** a per-account limit in the app (Issue #1306).
 
 **Recreate it** with `PUT /zones/{zone_id}/rulesets/phases/http_ratelimit/entrypoint`
 and the body
-`{"rules":[{"description":"RL-RENDER burst","expression":"(http.request.uri.path in {\"/api/render-preview\" \"/api/render-download\"})","action":"block","ratelimit":{"characteristics":["ip.src","cf.colo.id"],"period":10,"requests_per_period":10,"mitigation_timeout":10},"enabled":true}]}`.
+`{"rules":[{"description":"RL-RENDER burst","expression":"(lower(http.request.uri.path) in {\"/api/render-preview\" \"/api/render-preview/\" \"/api/render-download\" \"/api/render-download/\"})","action":"block","ratelimit":{"characteristics":["ip.src","cf.colo.id"],"period":10,"requests_per_period":10,"mitigation_timeout":10},"enabled":true}]}`.
 
-**Verify it** with `node scripts/check-cloudflare.mjs --burst` (40 parallel
-render requests must draw a 429). Sequential requests are a poor test: a burst
-from one address must land inside one 10-second window.
+**Why every spelling.** The API's router is case-insensitive and ignores a
+trailing slash, so each spelling in the expression reaches the same handler;
+lower-casing the path covers the mixed-case ones. The Free plan accepts
+`lower()` here (measured 2026-11-26).
+
+**Verify it** with `node scripts/check-cloudflare.mjs --burst`. It sends GETs
+to `/api/render-download` every 250 ms until Cloudflare refuses, then one
+request per spelling inside the 10-second block, each of which must be refused.
+GET, because the rule matches the path whatever the method and a GET reaches no
+render handler, so production records nothing (a rejected POST is written to the
+render abuse log). Paced, because Cloudflare's counter catches up within a few
+seconds: a parallel burst finished in under two seconds is never refused.
 
 ## Storage divergence note
 

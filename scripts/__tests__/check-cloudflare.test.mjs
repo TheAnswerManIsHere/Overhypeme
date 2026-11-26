@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  BLOCKED_COUNTRIES, EXPECTED_SETTINGS, MAINTENANCE_URL, RATE_LIMIT_EXPRESSION, WORKER_CRON, WORKER_ROUTES,
-  hstsCount, rateLimitFailures, redirectFailures, settingsFailures, webAnalyticsFailures, workerFailures,
+  EDGE_RATE_LIMIT_BODY, EXPECTED_SETTINGS, RENDER_SPELLINGS, GEO_EXPRESSION, MAINTENANCE_URL, RATE_LIMIT_EXPRESSION, REDIRECT_RULES,
+  WORKER_CRON, WORKER_ROUTES, hstsCount, isEdgeRateLimit, rateLimitFailures, redirectFailures, settingsFailures,
+  webAnalyticsFailures, workerFailures,
 } from "../check-cloudflare.mjs";
 
 const settings = (over = {}) => [
@@ -30,17 +31,60 @@ test("the render burst rule: present passes, missing or loosened fails", () => {
   assert.equal(rateLimitFailures([rlRule({ action: "log" })]).length, 1);
 });
 
-const geoExpr = `(ip.src.country in {${BLOCKED_COUNTRIES.map((c) => `"${c}"`).join(" ")}} or (ip.src.country eq "UA" and ip.src.region_code in {"43" "40" "14" "09"})) and not starts_with(http.request.uri.path, "/unavailable")`;
-const redirects = (geo = geoExpr) => [
-  { expression: '(http.request.full_uri wildcard r"https://www.*")', enabled: true },
-  { expression: geo, enabled: true, action_parameters: { from_value: { target_url: { value: "https://overhype.me/unavailable" } } } },
-];
+// Live rules as Cloudflare returns them: the country rule's text ends in a newline.
+const liveRule = ({ expression, status, target }, over = {}) => ({
+  enabled: true,
+  expression,
+  action_parameters: { from_value: { status_code: status, target_url: target ? { value: target } : { expression: "…" } } },
+  ...over,
+});
+const redirects = (geoOver = {}) => [liveRule(REDIRECT_RULES[0]), liveRule(REDIRECT_RULES[1], { expression: `${GEO_EXPRESSION}\n`, ...geoOver })];
 
-test("the country rule as recorded passes; a dropped country or the lost exemption fails", () => {
+test("the redirect phase as recorded passes, trailing newline and all", () => {
   assert.deepEqual(redirectFailures(redirects()), []);
-  assert.match(redirectFailures(redirects(geoExpr.replace('"GB" ', "")))[0], /no longer names GB/);
-  assert.match(redirectFailures(redirects(geoExpr.replace(/ and not starts_with.*$/, "")))[0], /exempts \/unavailable/);
-  assert.match(redirectFailures([redirects()[1]])[0], /www/);
+});
+
+test("a country rule narrowed, negated or widened fails, though every fragment is still there", () => {
+  const narrowed = `${GEO_EXPRESSION} and http.request.uri.path eq "/old-page"`;
+  const negated = GEO_EXPRESSION.replace("(ip.src.country in", "(not ip.src.country in");
+  const widened = GEO_EXPRESSION.replace('"KP"}', '"KP" "US"}');
+  const regrouped = GEO_EXPRESSION.replace(/^\(/, "").replace(")) and not", ") and not");
+  for (const expression of [narrowed, negated, widened, regrouped]) {
+    assert.match(redirectFailures(redirects({ expression }))[0], /country rule .* not the recorded expression/);
+  }
+});
+
+test("a rule placed ahead of the country rule fails (it could exempt blocked visitors)", () => {
+  const ahead = { enabled: true, expression: '(http.request.uri.path eq "/x")', action_parameters: { from_value: { status_code: 302 } } };
+  const [first, second] = redirects();
+  assert.ok(redirectFailures([first, ahead, second]).length > 0);
+});
+
+test("a country rule sending elsewhere, or with another status, fails", () => {
+  const [www, geo] = redirects();
+  assert.equal(redirectFailures([www, { ...geo, action_parameters: { from_value: { status_code: 302, target_url: { value: "https://overhype.me/" } } } }]).length, 1);
+  assert.equal(redirectFailures([www, { ...geo, action_parameters: { from_value: { status_code: 301, target_url: { value: "https://overhype.me/unavailable" } } } }]).length, 1);
+});
+
+test("the recorded country expression is the one the app's geography module produces", async (t) => {
+  if (!process.features?.typescript) return t.skip("this Node cannot import TypeScript; the check runs where it can");
+  const { cloudflareRedirectExpression } = await import("../../artifacts/api-server/src/lib/geography.ts");
+  assert.equal(GEO_EXPRESSION, cloudflareRedirectExpression());
+});
+
+test("only Cloudflare's 1015 counts as the edge rate limit, never the app's JSON 429", () => {
+  assert.equal(isEdgeRateLimit({ status: 429, body: EDGE_RATE_LIMIT_BODY }), true);
+  assert.equal(isEdgeRateLimit({ status: 429, body: '{"error":"Too many requests. Please slow down."}' }), false);
+  assert.equal(isEdgeRateLimit({ status: 404, body: EDGE_RATE_LIMIT_BODY }), false);
+  const page = '<!doctype html>… <a href="https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-1xxx-errors/error-1015/">';
+  assert.equal(isEdgeRateLimit({ status: 429, body: page }), true);
+});
+
+test("the render rule covers every spelling the API routes to the handler", () => {
+  for (const p of RENDER_SPELLINGS) {
+    assert.ok(RATE_LIMIT_EXPRESSION.includes(`"${p.toLowerCase()}"`), p);
+  }
+  assert.match(RATE_LIMIT_EXPRESSION, /^\(lower\(http\.request\.uri\.path\) in /);
 });
 
 const worker = (over = {}) => ({

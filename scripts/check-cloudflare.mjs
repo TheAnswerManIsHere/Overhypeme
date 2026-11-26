@@ -19,8 +19,9 @@
  *          node scripts/check-cloudflare.mjs
  *
  * `--burst` adds the one check that is not read-only in effect: it sends a
- * burst at the render endpoints and expects the edge's rate limit to answer
- * 429. The caller's address is then refused those two paths for 10 seconds.
+ * burst of GETs at a render path and expects Cloudflare's own 429 (body
+ * `error code: 1015`). The caller's address is then refused those paths for
+ * 10 seconds. GET reaches no render handler, so production records nothing.
  *
  * What it cannot check from here, and the record quotes instead: the country
  * rule seen from a blocked country, a Turnstile challenge completing in a real
@@ -56,16 +57,43 @@ export const EXPECTED_SETTINGS = {
  */
 export const EXPECTED_HSTS = { web: 1, api: 2 };
 
-export const RATE_LIMIT_EXPRESSION = '(http.request.uri.path in {"/api/render-preview" "/api/render-download"})';
+/**
+ * Lower-cased, with and without the trailing slash: the API's router is
+ * case-insensitive and not strict, so every one of those spellings reaches
+ * the same handler (`/API/…` in capitals does not: Replit routes `/api` to
+ * the API by a case-sensitive prefix, and capitals land on the web app).
+ */
+export const RATE_LIMIT_EXPRESSION =
+  '(lower(http.request.uri.path) in {"/api/render-preview" "/api/render-preview/" "/api/render-download" "/api/render-download/"})';
 export const WORKER_ROUTES = ["overhype.me/api/memes/*", "overhype.me/api/og/*", "overhype.me/m/*"];
 export const WORKER_CRON = "23 9 * * *";
 export const MAINTENANCE_URL = "https://overhypeme.replit.app/api/jobs/maintenance";
-/** Places the country rule sends to /unavailable (Phase 14, increment 3). */
-export const BLOCKED_COUNTRIES = [
-  "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT", "LV", "LT",
-  "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE", "AX", "GF", "GP", "MF", "MQ", "RE", "YT",
-  "IS", "LI", "NO", "GB", "CU", "IR", "KP",
+/**
+ * The dynamic-redirect phase, in order, exactly as recorded: the www→apex
+ * redirect, then the country rule (Phase 14, increment 3). The country
+ * expression is what `cloudflareRedirectExpression()` in
+ * `artifacts/api-server/src/lib/geography.ts` produces; the unit test holds
+ * the two equal. Compared whole, never by fragment: a rule narrowed, negated
+ * or widened still contains every fragment.
+ */
+export const GEO_EXPRESSION =
+  '(ip.src.country in {"AT" "BE" "BG" "HR" "CY" "CZ" "DK" "EE" "FI" "FR" "DE" "GR" "HU" "IE" "IT" "LV" "LT" "LU" "MT" "NL" "PL" "PT" "RO" "SK" "SI" "ES" "SE" "AX" "GF" "GP" "MF" "MQ" "RE" "YT" "IS" "LI" "NO" "GB" "CU" "IR" "KP"} or (ip.src.country eq "UA" and ip.src.region_code in {"43" "40" "14" "09"})) and not starts_with(http.request.uri.path, "/unavailable")';
+export const REDIRECT_RULES = [
+  { expression: '(http.request.full_uri wildcard r"https://www.*")', status: 301 },
+  { expression: GEO_EXPRESSION, status: 302, target: "https://overhype.me/unavailable" },
 ];
+
+/**
+ * Cloudflare's own rate-limit answer. The app's limiter also sends 429 and
+ * Retry-After, so only the body tells them apart. Cloudflare answers a
+ * curl-like client with this plain text and Node's fetch with an HTML page
+ * linking its error-1015 documentation; both are its, and neither is the
+ * app's JSON.
+ */
+export const EDGE_RATE_LIMIT_BODY = "error code: 1015";
+const EDGE_RATE_LIMIT_PAGE = /cloudflare-1xxx-errors\/error-1015\//;
+/** Every spelling the API routes to a render handler, and the rule must cover. */
+export const RENDER_SPELLINGS = ["/api/render-preview", "/api/render-preview/", "/api/render-download", "/api/render-download/", "/api/Render-Download"];
 
 // ── Pure checks (unit-tested) ────────────────────────────────────────────────
 
@@ -96,25 +124,36 @@ export function rateLimitFailures(rules) {
   return failures;
 }
 
-/** The www→apex redirect and the country rule, both live in the dynamic-redirect phase. */
+/**
+ * The redirect phase's enabled rules, in order, compared whole. Cloudflare
+ * stores an expression as typed, trailing newline included, so only the ends
+ * are trimmed; any other difference means the rule was edited and this record
+ * must be re-read.
+ */
 export function redirectFailures(rules) {
+  const live = (rules ?? []).filter((r) => r.enabled !== false);
   const failures = [];
-  const list = rules ?? [];
-  const www = list.find((r) => r.enabled !== false && /https:\/\/www\.\*/.test(r.expression ?? ""));
-  if (!www) failures.push("no www→apex redirect rule");
-  const geo = list.find((r) => r.enabled !== false && (r.expression ?? "").includes("ip.src.country"));
-  if (!geo) return [...failures, "no country rule"];
-  const target = geo.action_parameters?.from_value?.target_url?.value;
-  if (target !== "https://overhype.me/unavailable") failures.push(`the country rule sends to ${target}, not https://overhype.me/unavailable`);
-  const missing = BLOCKED_COUNTRIES.filter((c) => !geo.expression.includes(`"${c}"`));
-  if (missing.length) failures.push(`the country rule no longer names ${missing.join(", ")}`);
-  if (!/ip\.src\.country eq "UA" and ip\.src\.region_code in \{"43" "40" "14" "09"\}/.test(geo.expression)) {
-    failures.push("the country rule's Crimea, Sevastopol, Donetsk and Luhansk clause changed");
+  if (live.length !== REDIRECT_RULES.length) {
+    failures.push(`the redirect phase has ${live.length} enabled rule(s), the record says ${REDIRECT_RULES.length} (www→apex, then the country rule)`);
   }
-  if (!geo.expression.includes('not starts_with(http.request.uri.path, "/unavailable")')) {
-    failures.push("the country rule no longer exempts /unavailable (it would redirect forever)");
-  }
+  REDIRECT_RULES.forEach((want, i) => {
+    const got = live[i];
+    const name = i === 0 ? "the www→apex rule" : "the country rule";
+    if (!got || (got.expression ?? "").trim() !== want.expression) {
+      failures.push(`${name} (position ${i + 1}) is not the recorded expression`);
+      return;
+    }
+    const from = got.action_parameters?.from_value ?? {};
+    if (from.status_code !== want.status) failures.push(`${name} answers ${from.status_code}, the record says ${want.status}`);
+    if (want.target && from.target_url?.value !== want.target) failures.push(`${name} sends to ${from.target_url?.value}, not ${want.target}`);
+  });
   return failures;
+}
+
+/** True only for Cloudflare's rate-limit answer, never the app's own 429. */
+export function isEdgeRateLimit({ status, body }) {
+  const text = (body ?? "").trim();
+  return status === 429 && (text === EDGE_RATE_LIMIT_BODY || EDGE_RATE_LIMIT_PAGE.test(text));
 }
 
 /** The og-router worker's routes, schedule and maintenance address. */
@@ -204,11 +243,35 @@ async function settingsCheckFailures() {
   ];
 }
 
+/**
+ * GET, not POST: the edge rule matches the path whatever the method, and a GET
+ * reaches no render handler, so nothing past the edge writes to production
+ * (a rejected POST is logged as a render attempt). Paced, not parallel:
+ * Cloudflare's counter catches up within a few seconds, so a burst finished in
+ * under two seconds is never refused. Once refused, a request per spelling,
+ * inside the 10-second block, proves the rule covers each. Each spelling gets
+ * up to three tries, because an egress proxy that rotates its address sends
+ * some requests from an address the block does not cover.
+ */
 async function burstFailures() {
-  const send = () => fetch("https://overhype.me/api/render-download", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }).then((r) => r.status);
-  const statuses = await Promise.all(Array.from({ length: 40 }, send));
-  statuses.push(await send());
-  return statuses.includes(429) ? [] : [`40 parallel render requests drew no 429 (statuses: ${[...new Set(statuses)].join(", ")})`];
+  const send = (path) =>
+    fetch(`https://overhype.me${path}`).then(async (r) => ({ path, status: r.status, body: await r.text() }));
+  let tripped = false;
+  for (let i = 0; i < 40 && !tripped; i++) {
+    tripped = isEdgeRateLimit(await send("/api/render-download"));
+    if (!tripped) await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  if (!tripped) return ["40 paced requests to /api/render-download drew no Cloudflare 1015"];
+  const failures = [];
+  for (const path of RENDER_SPELLINGS) {
+    let last;
+    for (let i = 0; i < 3; i++) {
+      last = await send(path);
+      if (isEdgeRateLimit(last)) break;
+    }
+    if (!isEdgeRateLimit(last)) failures.push(`${path} was not refused by the edge during the block (status ${last.status})`);
+  }
+  return failures;
 }
 
 async function main() {
