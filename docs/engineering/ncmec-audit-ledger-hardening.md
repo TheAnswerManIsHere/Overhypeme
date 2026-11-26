@@ -138,8 +138,10 @@ the deployment's `DATABASE_URL` as that owner, ignoring an override. The shape t
   generated diff does.
 - **Every start logs `[audit-boundary]`**: the status object and `ownershipDrift`, the count
   of application objects the app's login does not own. In a deployment, an unenforced
-  boundary, drift above 0, or a failed status query raises a Sentry event. None of them stops
-  the start (David, Q15 → 1).
+  boundary, drift above 0, a failed status query, or a migration failure raises the
+  `audit_boundary` operational alert (`lib/operationalAlerts.ts`; its Sentry rule pushes to
+  David's phone). None of them stops the start, except the migration failure, which already
+  had (David, Q15 → 1).
 - **Accepted residual** (David, Q14 → 1): the owner's credential is still in the deployment's
   environment (`/proc/self/environ`), so code execution on the server can reach it.
 

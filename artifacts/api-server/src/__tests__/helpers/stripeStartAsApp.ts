@@ -5,7 +5,8 @@
  * Only Stripe's network is absent: start-up stops on purpose at the step after migrations
  * (`getSync`), which is the first that would call Stripe. Prints one JSON line.
  */
-import { appDatabaseUrl, OWNER_CREDENTIAL_VARIABLES, pool } from "@workspace/db";
+import { pool } from "@workspace/db";
+import { appDatabaseUrl, connectionUser, OWNER_CREDENTIAL_VARIABLES } from "@workspace/db/connection";
 import { __setStripeInitDepsForTests, resumeStripeInitialization } from "../../lib/stripeInit.js";
 import { realStripeDriver } from "../../lib/stripeRealDriver.js";
 
@@ -16,7 +17,7 @@ const leftInEnv = OWNER_CREDENTIAL_VARIABLES.filter((name) => name in process.en
 let migrationsUser: string | null = null;
 __setStripeInitDepsForTests({
   runSyncMigrations: async (opts) => {
-    migrationsUser = decodeURIComponent(new URL(opts.databaseUrl).username);
+    migrationsUser = connectionUser(opts.databaseUrl);
     const { runMigrations } = await import("stripe-replit-sync");
     return runMigrations(opts);
   },
@@ -43,7 +44,7 @@ await pool.end();
 console.log(
   `[stripe-probe] ${JSON.stringify({
     leftInEnv,
-    resolvedUser: decodeURIComponent(new URL(appDatabaseUrl()).username),
+    resolvedUser: connectionUser(appDatabaseUrl()),
     migrationsUser,
     driverPoolUser: rows[0]?.u ?? null,
     stripeSchemaOwner: schema.rows[0]?.owner ?? null,

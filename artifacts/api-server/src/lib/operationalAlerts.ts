@@ -33,6 +33,7 @@ const SOURCES = {
   job_interrupted: { title: "A background job was interrupted and resumed", label: "Job interrupted", level: "warning" },
   payment_webhook_failed: { title: "A Stripe webhook could not be processed", label: "Payment webhook", level: "error" },
   unrecorded_spend: { title: "Spend could not be recorded after a paid call", label: "Spend not recorded", level: "error" },
+  audit_boundary: { title: "The safety ledger's database protection is not in place", label: "Audit boundary", level: "error" },
 } as const satisfies Record<string, { title: string; label: string; level: "error" | "warning" }>;
 
 export type AlertSource = keyof typeof SOURCES;

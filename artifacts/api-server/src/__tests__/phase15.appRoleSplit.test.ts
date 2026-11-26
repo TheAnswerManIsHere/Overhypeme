@@ -42,6 +42,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 
+import { pgCommandConnection } from "../lib/pgCommandLine.js";
 import { droppablePool } from "./helpers/droppablePool.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -240,22 +241,16 @@ describe("the app as its own login on a split database (Launch Phase 15, 5b)", (
   it("5. a dump taken as the app skips Replit's _system, restores, and the restored database boots", async (t) => {
     if (skipped) return t.skip(skipped);
     const dumpFile = path.join(tmp ?? fs.mkdtempSync(path.join(os.tmpdir(), "p15-")), "app.dump");
-    const env = { ...process.env, PGPASSWORD: appPassword, PGOPTIONS: "" };
-    const dumpTarget = new URL(appUrl());
-    dumpTarget.password = "";
-    // The same flags the media backup uses (lib/mediaBackup/capture.ts), minus the snapshot.
-    execFileSync("pg_dump", ["-Fc", "--no-owner", "--no-acl", "--exclude-schema=_system", "-f", dumpFile, dumpTarget.href], { env, stdio: "pipe" });
+    // The same flags and password handling the media backup uses (lib/mediaBackup/capture.ts), minus the snapshot.
+    const dumpConn = pgCommandConnection(appUrl(), { ...process.env, PGOPTIONS: "" });
+    execFileSync("pg_dump", ["-Fc", "--no-owner", "--no-acl", "--exclude-schema=_system", "-f", dumpFile, dumpConn.url], { env: dumpConn.env, stdio: "pipe" });
 
     await control.query(`CREATE DATABASE "${restoredName}" OWNER "${ownerRole}" TEMPLATE template0`);
     const su = droppablePool(urlFor(restoredName, new URL(process.env.DATABASE_URL!).username, decodeURIComponent(new URL(process.env.DATABASE_URL!).password)));
     await su.query("CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public");
     await su.end();
-    const restoreTarget = new URL(ownerUrl(restoredName));
-    restoreTarget.password = "";
-    const restore = spawnSync("pg_restore", ["--no-owner", "--no-acl", "-d", restoreTarget.href, dumpFile], {
-      env: { ...process.env, PGPASSWORD: ownerPassword, PGOPTIONS: "" },
-      encoding: "utf8",
-    });
+    const restoreConn = pgCommandConnection(ownerUrl(restoredName), { ...process.env, PGOPTIONS: "" });
+    const restore = spawnSync("pg_restore", ["--no-owner", "--no-acl", "-d", restoreConn.url, dumpFile], { env: restoreConn.env, encoding: "utf8" });
     // The vector extension was created ahead by a superuser (as Neon's owner may), so
     // pg_restore cannot re-create or re-comment it; those two lines are expected, and any
     // other error is a failure.

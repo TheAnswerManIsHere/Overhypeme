@@ -3,7 +3,8 @@
  * in a deployment, an unenforced boundary, ownership drift and a status query that fails
  * each raise an explicit alert; none of them stops the start (Q15 → 1); outside a
  * deployment nothing alerts; a failing migration gets the ownership diagnostic beside it
- * and is rethrown. Pure: the database and Sentry are injected.
+ * and is rethrown. Pure: the database and the alert are injected (in production the
+ * alert is lib/operationalAlerts.ts's audit_boundary source).
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
@@ -11,8 +12,7 @@ import assert from "node:assert/strict";
 import {
   AUDIT_BOUNDARY_ALERTS,
   reportAuditBoundary,
-  reportOwnershipBeforeMigrations,
-  runMigrationsWithDiagnosis,
+  runMigrationsReporting,
   type AuditBoundaryReportDeps,
 } from "../lib/auditBoundaryReport.js";
 
@@ -66,7 +66,8 @@ describe("reportAuditBoundary", () => {
     const h = harness({ drift: async () => drifted });
     await reportAuditBoundary(h.deps);
     assert.deepEqual(h.alerts.map((a) => a.message), [AUDIT_BOUNDARY_ALERTS.drift]);
-    assert.deepEqual(h.alerts[0]!.extra.driftObjects, ["relation public.new_table (owner neondb_owner)"]);
+    assert.equal(h.alerts[0]!.extra.driftObjects, "relation public.new_table (owner neondb_owner)");
+    assert.equal(h.alerts[0]!.extra.ownershipDrift, 1);
   });
 
   it("a status query that fails alerts as 'unable to establish', and does not throw", async () => {
@@ -89,23 +90,27 @@ describe("reportAuditBoundary", () => {
   });
 });
 
-describe("reportOwnershipBeforeMigrations", () => {
-  it("logs drift by name and never alerts or throws", async () => {
+describe("runMigrationsReporting", () => {
+  it("names drift before the run in the log, without alerting", async () => {
     const h = harness({ drift: async () => drifted });
-    assert.deepEqual(await reportOwnershipBeforeMigrations(h.deps), drifted);
+    await runMigrationsReporting(async () => {}, h.deps);
     assert.deepEqual(h.alerts, []);
     assert.ok(h.lines.some((l) => l.level === "warn" && /not owned by the application's login/.test(l.msg)));
-
-    const failing = harness({ drift: async () => Promise.reject(new Error("x")) });
-    assert.equal(await reportOwnershipBeforeMigrations(failing.deps), null);
   });
-});
 
-describe("runMigrationsWithDiagnosis", () => {
+  it("goes on to run the migrations when the ownership read itself fails", async () => {
+    const h = harness({ drift: async () => Promise.reject(new Error("x")) });
+    let ran = false;
+    await runMigrationsReporting(async () => {
+      ran = true;
+    }, h.deps);
+    assert.ok(ran);
+  });
+
   it("rethrows a failing migration with the ownership diagnostic logged and alerted beside it", async () => {
     const h = harness({ drift: async () => drifted });
     const failure = new Error("must be owner of table new_table");
-    await assert.rejects(runMigrationsWithDiagnosis(async () => Promise.reject(failure), h.deps), (err) => err === failure);
+    await assert.rejects(runMigrationsReporting(async () => Promise.reject(failure), h.deps), (err) => err === failure);
     const line = h.lines.find((l) => l.level === "error");
     assert.match(line!.msg, /a migration failed/);
     assert.equal((line!.obj as { ownershipDrift: number }).ownershipDrift, 1);
@@ -115,7 +120,7 @@ describe("runMigrationsWithDiagnosis", () => {
   it("passes a successful run through untouched", async () => {
     const h = harness({});
     let ran = false;
-    await runMigrationsWithDiagnosis(async () => {
+    await runMigrationsReporting(async () => {
       ran = true;
     }, h.deps);
     assert.ok(ran);

@@ -12,15 +12,8 @@ const { Pool } = pg;
 // deployment removes the owner's credential from process.env (./connection.ts).
 const appConnection = establishAppDatabaseUrl();
 
-export {
-  appDatabaseUrl,
-  establishAppDatabaseUrl,
-  resolveAppDatabaseUrl,
-  scrubOwnerCredential,
-  AppDatabaseUrlRefusal,
-  OWNER_CREDENTIAL_VARIABLES,
-  type ResolvedAppDatabaseUrl,
-} from "./connection";
+// The rest of the connection API is the "@workspace/db/connection" subpath.
+export { appDatabaseUrl } from "./connection";
 
 /**
  * Detect whether the current process is the Node test runner.
@@ -613,7 +606,7 @@ export interface OwnershipDriftItem {
  * ledger; `drizzle` the migration ledger; `stripe` the Stripe mirror. Replit's own
  * `_system` is deliberately not one of them.
  */
-export const APPLICATION_SCHEMAS = ["public", "drizzle", "stripe"] as const;
+const APPLICATION_SCHEMAS: string[] = ["public", "drizzle", "stripe"];
 
 /**
  * Objects in the application's schemas that the CONNECTED role does not own, with the
@@ -660,11 +653,11 @@ export async function ownershipDrift(
         AND (t.typtype <> 'c' OR (SELECT relkind FROM pg_catalog.pg_class WHERE oid = t.typrelid) = 'c')
         AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid = 'pg_catalog.pg_type'::pg_catalog.regclass AND d.objid = t.oid AND d.deptype = 'e')
      UNION ALL
-     SELECT 'schema', n.nspname, pg_catalog.pg_get_userbyid(n.nspowner)
-       FROM pg_catalog.pg_namespace n
-      WHERE n.nspname IN ('drizzle', 'stripe') AND n.nspowner <> (SELECT oid FROM me)
+     SELECT 'schema', app.nspname, pg_catalog.pg_get_userbyid(n.nspowner)
+       FROM app JOIN pg_catalog.pg_namespace n ON n.oid = app.oid
+      WHERE app.nspname <> 'public' AND n.nspowner <> (SELECT oid FROM me)
      ORDER BY 1, 2`,
-    [APPLICATION_SCHEMAS as unknown as string[]],
+    [APPLICATION_SCHEMAS],
   );
   return rows;
 }

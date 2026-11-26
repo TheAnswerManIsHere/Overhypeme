@@ -40,11 +40,9 @@ export const OWNER_CREDENTIAL_VARIABLES = [
   "PGDATABASE",
 ] as const;
 
-export type AppDatabaseUrlSource = "APP_DATABASE_URL" | "DATABASE_URL";
-
 export interface ResolvedAppDatabaseUrl {
   url: string;
-  source: AppDatabaseUrlSource;
+  source: "APP_DATABASE_URL" | "DATABASE_URL";
 }
 
 export class AppDatabaseUrlRefusal extends Error {
@@ -54,8 +52,18 @@ export class AppDatabaseUrlRefusal extends Error {
   }
 }
 
-function isDeployment(env: NodeJS.ProcessEnv): boolean {
+/**
+ * True only in a published Replit deployment. Deliberately not `isProductionEnv()`
+ * (api-server `lib/env.ts`), which also matches `NODE_ENV=production`, as the local
+ * production-mode launcher sets it without any deployment secret.
+ */
+export function isPublishedDeployment(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.REPLIT_DEPLOYMENT === "1";
+}
+
+/** The login a connection URL names, decoded; never its password. */
+export function connectionUser(url: string): string {
+  return decodeURIComponent(new URL(url).username);
 }
 
 function parse(name: string, value: string): URL {
@@ -83,7 +91,7 @@ export function resolveAppDatabaseUrl(env: NodeJS.ProcessEnv): ResolvedAppDataba
   const ownerUrl = parse("DATABASE_URL", owner);
 
   if (!app) {
-    if (isDeployment(env)) {
+    if (isPublishedDeployment(env)) {
       throw new AppDatabaseUrlRefusal(
         "a published deployment must connect through APP_DATABASE_URL, the application's own login " +
           "(overhype_app), set as a production-only deployment secret. DATABASE_URL is the database " +
@@ -100,7 +108,7 @@ export function resolveAppDatabaseUrl(env: NodeJS.ProcessEnv): ResolvedAppDataba
         "user and password; set it as a production-only deployment secret, never a workspace secret.",
     );
   }
-  if (isDeployment(env) && decodeURIComponent(appUrl.username) === decodeURIComponent(ownerUrl.username)) {
+  if (isPublishedDeployment(env) && connectionUser(app) === connectionUser(owner)) {
     throw new AppDatabaseUrlRefusal(
       "APP_DATABASE_URL uses the same login as DATABASE_URL, the database owner. It must name the " +
         "application's own role (overhype_app).",
@@ -132,7 +140,7 @@ export function establishAppDatabaseUrl(env: NodeJS.ProcessEnv = process.env): R
   if (established) return established;
   const resolved = resolveAppDatabaseUrl(env);
   established = resolved;
-  if (isDeployment(env)) scrubOwnerCredential(env);
+  if (isPublishedDeployment(env)) scrubOwnerCredential(env);
   return resolved;
 }
 

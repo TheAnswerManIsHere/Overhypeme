@@ -15,23 +15,23 @@
  * Run: DATABASE_URL=… pnpm --filter @workspace/api-server exec tsx scripts/boot-database.ts
  */
 
-import { appDatabaseUrl, pool, runMigrations } from "@workspace/db";
+import { pool, runMigrations } from "@workspace/db";
+import { appDatabaseUrl, connectionUser } from "@workspace/db/connection";
 
-import { reportAuditBoundary, reportOwnershipBeforeMigrations, runMigrationsWithDiagnosis } from "../src/lib/auditBoundaryReport.js";
+import { reportAuditBoundary, runMigrationsReporting } from "../src/lib/auditBoundaryReport.js";
 import { ensureSchema } from "../src/lib/seed.js";
 
 if (process.env.REPLIT_DEPLOYMENT === "1") throw new Error("Refusing to run in a deployment");
 
 try {
-  await reportOwnershipBeforeMigrations();
-  await runMigrationsWithDiagnosis(runMigrations);
+  await runMigrationsReporting(runMigrations);
   await ensureSchema();
   const outcome = await reportAuditBoundary();
   // One machine-readable line for the tests that boot a split database (Launch Phase 15, 5b):
   // the login the boot used, and what it found. Never the URL itself.
   console.log(
     `[boot-database] audit-boundary ${JSON.stringify({
-      user: decodeURIComponent(new URL(appDatabaseUrl()).username),
+      user: connectionUser(appDatabaseUrl()),
       boundaryEnforced: outcome.status?.boundaryEnforced ?? null,
       ownershipDrift: outcome.ownershipDrift,
     })}`,
