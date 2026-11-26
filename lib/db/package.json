@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./connection": "./src/connection.ts",
     "./schema": "./src/schema/index.ts",
     "./test-database": "./src/testDatabaseMarker.ts",
     "./baseline": "./src/baseline.ts",

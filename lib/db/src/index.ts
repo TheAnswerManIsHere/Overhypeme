@@ -3,14 +3,24 @@ import pg from "pg";
 import * as schema from "./schema";
 import { applyMigrations } from "./migrate";
 import { guardPool } from "./connectionErrors";
+import { establishAppDatabaseUrl } from "./connection";
 
 const { Pool } = pg;
 
-if (!process.env.DATABASE_URL) {
-  throw new Error(
-    "DATABASE_URL must be set. Did you forget to provision a database?",
-  );
-}
+// The application's own login: APP_DATABASE_URL where set (required in a published
+// deployment), else DATABASE_URL. Refuses an unsafe shape before any query, and in a
+// deployment removes the owner's credential from process.env (./connection.ts).
+const appConnection = establishAppDatabaseUrl();
+
+export {
+  appDatabaseUrl,
+  establishAppDatabaseUrl,
+  resolveAppDatabaseUrl,
+  scrubOwnerCredential,
+  AppDatabaseUrlRefusal,
+  OWNER_CREDENTIAL_VARIABLES,
+  type ResolvedAppDatabaseUrl,
+} from "./connection";
 
 /**
  * Detect whether the current process is the Node test runner.
@@ -71,7 +81,7 @@ const POOL_MAX_DEFAULT = 20;
 const poolMax = Number.parseInt(process.env.DB_POOL_MAX ?? "", 10);
 
 export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: appConnection.url,
   max: Number.isFinite(poolMax) && poolMax > 0 ? poolMax : POOL_MAX_DEFAULT,
   // Proactively recycle idle connections before Neon auto-suspend (~5 min) resets them.
   idleTimeoutMillis: 60_000,
@@ -590,3 +600,71 @@ export async function ncmecAuditBoundaryStatus(
 
 export * from "./schema";
 export { guardPool, guardClient } from "./connectionErrors";
+
+/** One object in the application's schemas that the connected role does not own. */
+export interface OwnershipDriftItem {
+  kind: "relation" | "function" | "type" | "schema";
+  name: string;
+  owner: string;
+}
+
+/**
+ * The schemas the application manages. `public` holds the app's tables and the NCMEC
+ * ledger; `drizzle` the migration ledger; `stripe` the Stripe mirror. Replit's own
+ * `_system` is deliberately not one of them.
+ */
+export const APPLICATION_SCHEMAS = ["public", "drizzle", "stripe"] as const;
+
+/**
+ * Objects in the application's schemas that the CONNECTED role does not own, with the
+ * same exclusions as the ownership-repair batch (`docs/engineering/ncmec-audit-ledger-hardening.md`,
+ * *Repairing ownership after a publish*), so every item reported is one that batch can
+ * clear (Launch Phase 15, 5b):
+ * - the NCMEC ledger set, which belongs to the database owner by design: the table, its
+ *   sequence and the guard function;
+ * - extension members (for example `vector`'s types and functions);
+ * - objects that follow a parent: indexes, a table's owned sequences, a table's row type.
+ *
+ * Replit's publish applies its generated schema diff as the database owner, so a table it
+ * creates is the owner's, not the app's; the app can read and write it through the
+ * owner's default privileges, but a later migration's `ALTER TABLE` on it needs ownership.
+ * This list names such objects before migrations run and beside a migration that fails.
+ *
+ * Read-only; resolves every catalog reference through `pg_catalog`, so the connected
+ * role's `search_path` cannot shadow it.
+ */
+export async function ownershipDrift(
+  targetPool: pg.Pool | pg.PoolClient = pool,
+): Promise<OwnershipDriftItem[]> {
+  const { rows } = await targetPool.query<OwnershipDriftItem>(
+    `WITH me AS (SELECT oid FROM pg_catalog.pg_roles WHERE rolname = current_user),
+          app AS (SELECT oid, nspname FROM pg_catalog.pg_namespace WHERE nspname = ANY($1::text[]))
+     SELECT 'relation' AS kind, app.nspname || '.' || c.relname AS name, pg_catalog.pg_get_userbyid(c.relowner) AS owner
+       FROM pg_catalog.pg_class c JOIN app ON app.oid = c.relnamespace
+      WHERE c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
+        AND c.relowner <> (SELECT oid FROM me)
+        AND NOT (app.nspname = 'public' AND c.relname IN ('ncmec_safety_audit_log', 'ncmec_safety_audit_log_id_seq'))
+        AND NOT (c.relkind = 'S' AND EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid = 'pg_catalog.pg_class'::pg_catalog.regclass AND d.objid = c.oid AND d.deptype IN ('a', 'i')))
+        AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid = 'pg_catalog.pg_class'::pg_catalog.regclass AND d.objid = c.oid AND d.deptype = 'e')
+     UNION ALL
+     SELECT 'function', p.oid::pg_catalog.regprocedure::text, pg_catalog.pg_get_userbyid(p.proowner)
+       FROM pg_catalog.pg_proc p JOIN app ON app.oid = p.pronamespace
+      WHERE p.proowner <> (SELECT oid FROM me)
+        AND NOT (app.nspname = 'public' AND p.proname = 'ncmec_safety_audit_log_append_only')
+        AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid = 'pg_catalog.pg_proc'::pg_catalog.regclass AND d.objid = p.oid AND d.deptype = 'e')
+     UNION ALL
+     SELECT 'type', t.oid::pg_catalog.regtype::text, pg_catalog.pg_get_userbyid(t.typowner)
+       FROM pg_catalog.pg_type t JOIN app ON app.oid = t.typnamespace
+      WHERE t.typowner <> (SELECT oid FROM me)
+        AND t.typtype IN ('e', 'd', 'c')
+        AND (t.typtype <> 'c' OR (SELECT relkind FROM pg_catalog.pg_class WHERE oid = t.typrelid) = 'c')
+        AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid = 'pg_catalog.pg_type'::pg_catalog.regclass AND d.objid = t.oid AND d.deptype = 'e')
+     UNION ALL
+     SELECT 'schema', n.nspname, pg_catalog.pg_get_userbyid(n.nspowner)
+       FROM pg_catalog.pg_namespace n
+      WHERE n.nspname IN ('drizzle', 'stripe') AND n.nspowner <> (SELECT oid FROM me)
+     ORDER BY 1, 2`,
+    [APPLICATION_SCHEMAS as unknown as string[]],
+  );
+  return rows;
+}

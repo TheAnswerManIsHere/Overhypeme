@@ -47,6 +47,7 @@ import { getStripeSecretKey } from "./stripeClient.js";
 import { stripeDriver } from "./stripeDriver.js";
 import { checkOperatorWebhookEndpoint, type WebhookEndpointCheck } from "./stripeWebhookEndpoint.js";
 import type { StripeSetupSnapshot } from "@workspace/api-zod";
+import { appDatabaseUrlIfConfigured } from "@workspace/db/connection";
 
 export type StripeBootOutcome =
   | { kind: "verified"; liveMode: boolean }
@@ -250,7 +251,9 @@ export function getStripeSetupStatus(liveMode: boolean): StripeSetupSnapshot {
 export async function resumeStripeInitialization(): Promise<boolean> {
   if (initializationNotApplicable) return true;
 
-  const databaseUrl = process.env.DATABASE_URL;
+  // The application's own login (APP_DATABASE_URL in a deployment), never the owner's:
+  // in a deployment DATABASE_URL has already been removed from process.env.
+  const databaseUrl = appDatabaseUrlIfConfigured();
   if (!databaseUrl) {
     logger.warn("DATABASE_URL not set, skipping Stripe init");
     // Not a transient failure to retry: nothing about this recovers on an

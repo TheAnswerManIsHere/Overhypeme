@@ -15,6 +15,7 @@ import { stripeDriver } from "./lib/stripeDriver.js";
 import { absorbFatalStreamError } from "./lib/stdioGuard";
 import { backfillWilsonScores, ensureSchema } from "./lib/seed";
 import { runMigrations } from "@workspace/db";
+import { reportAuditBoundary, reportOwnershipBeforeMigrations, runMigrationsWithDiagnosis } from "./lib/auditBoundaryReport";
 import { backfillEmbeddings } from "./lib/embeddings";
 import { refreshPricingCache } from "./lib/falPricing";
 import { getConfigString, getConfigInt } from "./lib/adminConfig";
@@ -413,11 +414,20 @@ function scheduleDailyFactJob() {
 // Everything else (Stripe, membership reconcile, backfills) runs in the
 // background and does not block port binding.
 
+// Name any application object the app's login does not own (Replit's publish creates new
+// tables as the database owner), so a migration that then fails on ownership has its
+// cause in the log (Launch Phase 15, 5b; lib/auditBoundaryReport.ts).
+await reportOwnershipBeforeMigrations();
+
 // Apply any pending database migrations before accepting requests
-await runMigrations();
+await runMigrationsWithDiagnosis(runMigrations);
 
 // Idempotent schema & config seed (ADD COLUMN IF NOT EXISTS, INSERT … ON CONFLICT DO NOTHING)
 await ensureSchema();
+
+// One [audit-boundary] line: whether the NCMEC ledger's privilege boundary holds on this
+// connection. A bad state alerts in a deployment and never stops the start (Q15 → 1).
+await reportAuditBoundary();
 
 // Configure the fal.ai client once at boot. Every fal-calling code path
 // (videoPipelineRunner, falAutoSubtitle, aiMemePipeline, userImageUpload,

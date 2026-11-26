@@ -240,7 +240,11 @@ async function databasePoint(
       // The exported snapshot lives while this transaction does. The password
       // travels in PGPASSWORD, so a failure's message cannot carry it.
       const conn = pgCommandConnection(databaseUrl);
-      await execFileAsync("pg_dump", ["-Fc", "--no-owner", "--no-acl", `--snapshot=${rows[0].snapshot}`, "-f", dumpInto, conn.url], {
+      // `_system` is Replit's own log of the migrations each publish applied (one table,
+      // replit_database_migrations_v1); no app code reads it, the app's login has no
+      // USAGE on it, and the platform's point-in-time restore still carries it
+      // (Launch Phase 15, 5b; #1306). Everything the app needs is dumped.
+      await execFileAsync("pg_dump", ["-Fc", "--no-owner", "--no-acl", "--exclude-schema=_system", `--snapshot=${rows[0].snapshot}`, "-f", dumpInto, conn.url], {
         env: conn.env,
         maxBuffer: 16 * 1024 * 1024,
       });

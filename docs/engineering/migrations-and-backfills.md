@@ -189,6 +189,18 @@ not a route for any other database, and it copies nothing from dev.
   application role (*Migration principles*, above;
   [`ncmec-audit-ledger-hardening.md`](./ncmec-audit-ledger-hardening.md)). It
   creates roles and changes ownership and grants, never tables, columns or rows.
+- **On production the runner is not the owner, and Replit's publish is** (Launch
+  Phase 15, 5b; [`decisions.md`](../ai-context/decisions.md), 2026-11-26). The app,
+  and so the runner at boot, connects as `overhype_app`; Replit applies its generated
+  diff as `neondb_owner`. A table that diff **creates** is the owner's: the app can
+  read and write it (the owner's default privileges), but any later migration that
+  alters it, even with `IF NOT EXISTS`, fails at boot with `must be owner`.
+  **After any publish whose diff changed structure, read the start-up line
+  `[audit-boundary]`; if `ownershipDrift` is above 0, run the ownership repair**
+  ([`ncmec-audit-ledger-hardening.md`](./ncmec-audit-ledger-hardening.md),
+  *Repairing ownership after a publish*). If the start failed instead, the failure
+  is logged beside the objects that need repairing; run the repair, then publish
+  again. The previous release keeps serving meanwhile.
 - **A rehearsal restore builds no environment.** The upgrade rehearsal
   (*Tests*, below) restores the frozen dev snapshot into a scratch database to
   prove the migrations, and the scratch database is dropped (unless `--keep`);

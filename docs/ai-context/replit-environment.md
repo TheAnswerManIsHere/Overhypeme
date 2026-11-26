@@ -472,6 +472,20 @@ connector, after #635 merged (2026-10-10), and verified:
 `heliumdb_test|{overhype.test_database=yes}`. See
 [`TESTING.md`](../tests/TESTING.md#production-guard-safety-critical).
 
+## Production's `DATABASE_URL` is Replit's, and the app uses its own login
+
+Replit supplies production's `DATABASE_URL` (and the `PG*` variables) for its managed
+database, as the owner, `neondb_owner`, and **ignores an override** set under Publishing →
+Production app secrets. This was measured twice on 2026-11-26 (#1306, builds `c65ffe42` and
+`147e09e4`). So the app reads its own login from **`APP_DATABASE_URL`**, `overhype_app`,
+set as a **production-only deployment secret** (*Add deployment secret*). It is never a
+workspace secret: one would sync to development, where `@workspace/db/connection` refuses a
+URL naming another database. A published deployment refuses to start without it, and Replit
+then keeps the previous release serving. Why, and the accepted residual:
+[`decisions.md`](./decisions.md), 2026-11-26. Ownership after a publish that adds a table:
+[`ncmec-audit-ledger-hardening.md`](../engineering/ncmec-audit-ledger-hardening.md),
+*Repairing ownership after a publish*.
+
 ## The one thing that IS ours: a periodic retrospective read
 
 Nothing gates Replit's push, so the only enforcement point is after the

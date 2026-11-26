@@ -116,6 +116,52 @@ ALTER SCHEMA <ledger_schema> OWNER TO <some role <app> cannot assume>;
 This is usually only relevant when the application owns `public`, which many managed Postgres
 providers arrange by default.
 
+## Production: the application's own login (Launch Phase 15, 5b)
+
+Production does not use the procedure above verbatim. Its database is Neon's, managed by
+Replit, whose owner `neondb_owner` is a non-superuser `CREATEROLE` role, and Replit supplies
+the deployment's `DATABASE_URL` as that owner, ignoring an override. The shape that holds there
+(plan `docs/plans/PLAN_PHASE15_5B_AUDIT_BOUNDARY.md`; decision of 2026-11-26):
+
+- **`overhype_app`** owns everything the app owns in `public`, `drizzle` and `stripe`, except
+  the ledger, its sequence and its guard function, which stay `neondb_owner`'s. It may read and
+  append to the ledger and nothing else. `public` itself is `pg_database_owner`'s. The script
+  that made this split is `lib/db/runbooks/app-role-split.sql` (run 2026-11-26).
+- **The app connects as `overhype_app`** through `APP_DATABASE_URL`, a production-only
+  deployment secret. A published deployment refuses to start without it
+  (`lib/db/src/connection.ts`).
+- **`neondb_owner` holds `overhype_app` with `INHERIT`**, so Replit's publish, which connects
+  as the owner, can alter the app's tables. That is the owner → app direction. The boundary is
+  app → owner, which must stay impossible, and `ncmecAuditBoundaryStatus()` checks exactly that.
+- **Default privileges** (`lib/db/runbooks/app-role-default-privileges.sql`, run once) let
+  the app read and write any table the owner creates later, which is what a publish's
+  generated diff does.
+- **Every start logs `[audit-boundary]`**: the status object and `ownershipDrift`, the count
+  of application objects the app's login does not own. In a deployment, an unenforced
+  boundary, drift above 0, or a failed status query raises a Sentry event. None of them stops
+  the start (David, Q15 → 1).
+- **Accepted residual** (David, Q14 → 1): the owner's credential is still in the deployment's
+  environment (`/proc/self/environ`), so code execution on the server can reach it.
+
+### Repairing ownership after a publish
+
+Run `lib/db/runbooks/app-role-ownership-repair.sql` as `neondb_owner` in Replit's production
+SQL console, with editing on, as **one selected batch**. The console runs a selection in one
+transaction; its Run button alone runs only the statement under the cursor. Run it when:
+
+- the `[audit-boundary]` line, or its Sentry alert, reports `ownershipDrift` above 0; or
+- a start failed with `must be owner of …` naming an object that the failure's diagnostic
+  lists. Afterwards publish again.
+
+The batch briefly gives the owner `SET` on `overhype_app`, hands every non-ledger object the
+owner holds in the three schemas to `overhype_app` (relations, standalone sequences,
+functions, enums, domains, composite types, and the `drizzle`/`stripe` schemas), then takes
+`SET` back, leaving the owner's `INHERIT` and admin rows as they were. Its read-back shows
+those rows. It exempts exactly what `ownershipDrift()` exempts, so the next start reads 0,
+and it changes nothing when there is nothing to repair. The test
+`artifacts/api-server/src/__tests__/phase15.appRoleSplit.test.ts` runs all three runbooks on
+a database split like production's.
+
 ## Correcting the ledger (break-glass)
 
 The ledger is append-only, so a genuine correction is a deliberate, auditable act outside the

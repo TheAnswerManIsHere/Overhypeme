@@ -19,6 +19,7 @@ import { logger } from "../lib/logger";
 import { backupStatus, capturePair, latestCompletedPair } from "../lib/mediaBackup/capture";
 import { liveBucket, preservation } from "../lib/mediaBackup/config";
 import { runBackupExpiry } from "../lib/mediaBackup/expiry";
+import { appDatabaseUrl } from "@workspace/db/connection";
 
 const CAPTURE_INTERVAL_MS = 60 * 60 * 1000;
 const EXPIRY_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -45,7 +46,7 @@ export async function runScheduledMediaBackup(environment = "production"): Promi
         backupBucket: p.bucket,
         sourceBucket: source,
         environment,
-        databaseUrl: process.env.DATABASE_URL,
+        databaseUrl: appDatabaseUrl(),
       });
       const log = {
         pairId: manifest.pairId,
