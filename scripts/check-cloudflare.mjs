@@ -159,7 +159,7 @@ async function outsideFailures() {
   const www = await head("https://www.overhype.me/api/healthz");
   if (www.status !== 301 || www.headers.get("location") !== "https://overhype.me/api/healthz") failures.push(`www is ${www.status} → ${www.headers.get("location")}, not 301 to the apex`);
   const http = await head("http://overhype.me/");
-  if (http.status !== 301 || !(http.headers.get("location") ?? "").startsWith("https://overhype.me")) failures.push(`plain http is ${http.status}, not 301 to https`);
+  if (http.status !== 301 || http.headers.get("location") !== "https://overhype.me/") failures.push(`plain http is ${http.status} → ${http.headers.get("location")}, not 301 to https://overhype.me/`);
 
   const web = await head("https://overhype.me/");
   const api = await head("https://overhype.me/api/healthz");
