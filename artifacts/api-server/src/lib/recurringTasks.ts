@@ -151,7 +151,7 @@ export const RECURRING_TASKS = [
     id: "gag_description_sweep",
     label: "Gag description drafting",
     site: "index.ts",
-    cadenceMs: () => 10 * MINUTE,
+    cadenceMs: () => 2 * MINUTE,
     firstRunMs: 5 * MINUTE,
     graceMs: 30 * MINUTE,
   },

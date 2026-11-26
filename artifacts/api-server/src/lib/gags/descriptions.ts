@@ -325,20 +325,6 @@ export const draftDescriptionWithModel: DescriptionDrafter = async (content, fac
   return parseDescriptionResponse(response.choices[0]?.message?.content ?? "");
 };
 
-/**
- * Draft the descriptions of these gags now, in the background, after a gag
- * content write (plan: drafting "runs after any gag content write and on a
- * schedule"). The same sweep, narrowed to the gags written; the schedule
- * remains the backstop for anything this misses (a crash, a failed draft).
- * Never throws and never delays the caller.
- */
-export function draftDescriptionsSoon(gagIds: number[]): void {
-  if (gagIds.length === 0) return;
-  setImmediate(() => {
-    runDescriptionSweep({ gagIds }).catch((err: unknown) => logger.warn({ err, gagIds }, "[gag-descriptions] drafting after a write failed; the schedule retries"));
-  });
-}
-
 let drafterForTest: DescriptionDrafter | null = null;
 export function __setDescriptionDrafterForTest(d: DescriptionDrafter | null): void { drafterForTest = d; }
 

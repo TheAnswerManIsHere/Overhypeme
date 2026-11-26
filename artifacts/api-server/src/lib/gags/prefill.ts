@@ -45,7 +45,6 @@ import { assertJobOwnership, fencedTransaction } from "../jobFence";
 import { logger } from "../logger";
 import { lockFactRow, lockReview } from "../reviewLocks";
 import { CastPreparationError, prepareDraftCast } from "./castPreparation";
-import { runDescriptionSweep } from "./descriptions";
 import { clearPendingExamples } from "./examples";
 import { normaliseGagContent, type GagContent } from "./resolver";
 import { GagError, validateGagContent } from "./gagStore";
@@ -322,17 +321,6 @@ export async function runGagPrefill(payload: GagPrefillPayload, deps: GagPrefill
     return count;
   });
   logger.info({ reviewId, factId, written, decided: targets.length }, "[gag_prefill] gags filled from ideas");
-  if (written > 0) {
-    // Draft the filled gags' descriptions now, inside this job's claim (the
-    // drafting call is a paid text call like the cast reading above). A
-    // failure is the schedule's to retry; it never fails the fill.
-    try {
-      const filled = await nonRemovedGags(factId, db, false);
-      await runDescriptionSweep({ gagIds: filled.map((g) => g.id) });
-    } catch (err) {
-      logger.warn({ err, factId }, "[gag_prefill] drafting the filled gags' descriptions failed; the schedule retries");
-    }
-  }
   return { ok: true };
 }
 

@@ -278,15 +278,18 @@ function scheduleRenderBillingFill() {
   });
 }
 
-// Every ten minutes: draft a one-line description for every gag version that
+// Every two minutes: draft a one-line description for every gag version that
 // has none for its content (lib/gags/descriptions.ts; plan
 // PLAN_PHASE7_AI_PICTURE_FLOW.md, Q14: 1). It reads stored gags, so editor
-// saves, the prefill job and the backfill are one path. A full batch comes
-// back in a minute, so the first backfill drains promptly. Drafts are
-// unreviewed: nothing here reaches members.
+// saves, the prefill job and the backfill are one path, and a new or changed
+// gag's draft arrives in about the time its test renders take. A full batch
+// comes back in a minute, so the first backfill drains promptly. Drafts are
+// unreviewed: nothing here reaches members. (Drafting inside each write path
+// was tried in PR #1334 round 1 and taken out: it is an AI call the
+// acceptance journeys have no recording for.)
 function scheduleGagDescriptionSweep() {
   scheduleRecurringTask({
-    cadenceMs: 10 * 60 * 1000,
+    cadenceMs: 2 * 60 * 1000,
     steps: [
       {
         id: "gag_description_sweep",
