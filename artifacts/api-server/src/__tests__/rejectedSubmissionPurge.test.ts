@@ -9,7 +9,7 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray, like } from "drizzle-orm";
+import { and, eq, inArray, like, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
   adminActionsTable, adminConfigTable, commentsTable, factGagsTable, factHashtagsTable, factsTable, hashtagsTable,
@@ -144,6 +144,34 @@ describe("a rejected submission is purged (D7)", () => {
     }
     const gone = await db.transaction((tx) => purgeRejectedFact(tx, 2_000_000_000));
     assert.deepEqual(gone, { kind: "gone", factId: 2_000_000_000 });
+  });
+
+  it("purges a fact whose gag examples pick its renders, whichever of the fact's two cascades Postgres fires first (Issue #1326)", async () => {
+    // Deleting a fact cascades to its renders and to its gags (and through
+    // them to the examples), and an example's render link does not cascade.
+    // Postgres fires a table's foreign-key triggers in name order, and those
+    // names carry each constraint's OID, so which cascade goes first depends
+    // on how the database was built: dev fired the renders' first and the
+    // reject failed. Re-adding the gags' constraint gives its trigger the
+    // newer OID, setting that order here; the DDL rolls back with the test.
+    const s = await submission();
+    const fire = (tx: Parameters<Parameters<typeof db.transaction>[0]>[0]) => tx.execute(sql`
+      SELECT c.conrelid::regclass::text AS tbl FROM pg_trigger t JOIN pg_constraint c ON c.oid = t.tgconstraint
+      WHERE t.tgrelid = 'facts'::regclass AND t.tgname LIKE 'RI_ConstraintTrigger_a_%'
+        AND c.conrelid IN ('image_prompt_attempts'::regclass, 'fact_gags'::regclass)
+      ORDER BY t.tgname`);
+    await assert.rejects(db.transaction(async (tx) => {
+      await tx.execute(sql`ALTER TABLE fact_gags DROP CONSTRAINT fact_gags_fact_id_fkey`);
+      await tx.execute(sql`ALTER TABLE fact_gags ADD CONSTRAINT fact_gags_fact_id_fkey FOREIGN KEY (fact_id) REFERENCES facts(id) ON DELETE CASCADE`);
+      const order = (await fire(tx)).rows.map((r) => (r as { tbl: string }).tbl);
+      assert.equal(order[0], "image_prompt_attempts", "precondition: the renders' cascade fires before the gags'");
+      const outcome = await purgeRejectedFact(tx, s.fact.id, { excludeReviewId: s.review.id });
+      assert.equal(outcome.kind, "purged");
+      assert.equal((await tx.select().from(factsTable).where(eq(factsTable.id, s.fact.id))).length, 0);
+      assert.equal((await tx.select().from(factGagsTable).where(eq(factGagsTable.factId, s.fact.id))).length, 0);
+      assert.equal((await tx.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.factId, s.fact.id))).length, 0);
+      throw new Error("rolled back");
+    }), /rolled back/);
   });
 
   it("a rollback leaves the fact, its renders and the cleanup list unchanged", async () => {

@@ -221,9 +221,18 @@ export async function deleteFact(factId: number, adminId: string): Promise<FactL
  * first: the join rows would go by cascade, which skips each hashtag's fact
  * count, so detaching lowers the counts through their one writer. Shared by
  * the permanent delete and a rejected submission's purge.
+ *
+ * The gags go before the fact (Issue #1326). The fact's delete cascades to
+ * its renders and to its gags, but a gag's examples and its recovery-snapshot
+ * columns name renders without cascading. Postgres fires those two cascades
+ * in trigger-name order, which follows constraint OIDs and so differs between
+ * databases: where the renders' fires first, their delete is refused while an
+ * example still names one. Deleting the gags first takes their examples with
+ * them by cascade, so nothing of the fact's own still names a render.
  */
 export async function deleteFactRow(tx: Executor, factId: number): Promise<void> {
   const tags = await tx.select({ id: factHashtagsTable.hashtagId }).from(factHashtagsTable).where(eq(factHashtagsTable.factId, factId));
   await detachHashtags(tx, factId, tags.map((t) => t.id));
+  await tx.delete(factGagsTable).where(eq(factGagsTable.factId, factId));
   await tx.delete(factsTable).where(eq(factsTable.id, factId));
 }
