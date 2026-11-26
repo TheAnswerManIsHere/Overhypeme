@@ -352,11 +352,15 @@ export default function MemePage() {
       </div>
 
       {/* ── Desktop two-pane ──────────────────────────────── */}
+      {/* The left pane has a fixed height, so a portrait meme can be taller than it (#1328).
+          The picture's frame clips (overflow-hidden), which as a flex item lets it shrink
+          to fit and cut the picture's bottom off: shrink-0 keeps it whole, and safe
+          centering keeps its top reachable when the pane scrolls. */}
       <div
         className="hidden md:grid"
         style={{ gridTemplateColumns: "1fr 1fr", height: "calc(100vh - 64px)" }}
       >
-        <div className="bg-secondary border-r border-border flex flex-col items-center justify-center p-12 overflow-auto">
+        <div className="bg-secondary border-r border-border flex flex-col items-center justify-center-safe p-12 overflow-auto">
           <div className="flex items-center gap-3 mb-5 self-start">
             <span
               data-testid="saved-chip-desktop"
@@ -372,7 +376,7 @@ export default function MemePage() {
             </span>
           </div>
 
-          <div className="w-full max-w-[520px] rounded-[24px] overflow-hidden shadow-[0_30px_80px_rgba(0,0,0,0.5)]">
+          <div className="w-full max-w-[520px] shrink-0 rounded-[24px] overflow-hidden shadow-[0_30px_80px_rgba(0,0,0,0.5)]">
             <img src={meme.imageUrl} alt="Meme" className="w-full object-cover" />
           </div>
           <div className="w-full max-w-[520px] mt-3 flex items-center">
