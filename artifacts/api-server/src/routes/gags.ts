@@ -25,7 +25,7 @@
 import { sendStorageBody } from "../lib/sendStorageBody";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { and, eq } from "drizzle-orm";
-import { db, imagePromptAttemptsTable } from "@workspace/db";
+import { db, factGagsTable, imagePromptAttemptsTable } from "@workspace/db";
 import {
   gagApproveBodySchema,
   gagRenderDeleteBodySchema,
@@ -50,6 +50,8 @@ import {
   saveGagContent,
 } from "../lib/gags/gagStore";
 import { buildFactGagsView } from "../lib/gags/gagView";
+import { DescriptionError, descriptionsToReview, saveReviewedDescription } from "../lib/gags/descriptions";
+import { z as zod } from "zod";
 import { gagRenderHistory, removedGagHistories } from "../lib/gags/renderHistory";
 import { cleanUpQueuedFiles } from "../lib/storedFileDeletions";
 import { GAG_MODERATION_RENDER } from "../lib/imagePromptAttempts";
@@ -151,6 +153,42 @@ router.put("/admin/facts/:factId/gags/:gagId", requireAdmin, async (req: Authent
     // the gag's earlier renders unusable for it (saveGagContent, approval, go-live).
     await recordAdminAction({ factId: p.factId, reviewId }, req.user.id, "gag_save", { gagId: p.gagId, content: body.content });
   });
+});
+
+const descriptionBodySchema = zod.object({
+  contentFingerprint: zod.string().regex(/^[0-9a-f]{64}$/),
+  text: zod.string().max(400),
+  reviewId: zod.number().int().positive().nullable().optional(),
+});
+
+/**
+ * A moderator writes, edits or approves a gag's one-line description for the
+ * version they are looking at (plan PLAN_PHASE7_AI_PICTURE_FLOW.md). Saving
+ * it reviews it: a description of the published content shows to members at
+ * once and publishes nothing else (Q15: 1); one of the draft content waits for
+ * the fact's publish.
+ */
+router.put("/admin/facts/:factId/gags/:gagId/description", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const p = ids(req);
+  if (!p) { res.status(400).json({ error: "Invalid id" }); return; }
+  const body = parse(descriptionBodySchema, req, res);
+  if (!body) return;
+  const [gag] = await db.select({ factId: factGagsTable.factId }).from(factGagsTable).where(eq(factGagsTable.id, p.gagId)).limit(1);
+  if (!gag || gag.factId !== p.factId) { res.status(404).json({ error: "That gag no longer exists.", code: "GAG_NOT_FOUND" }); return; }
+  try {
+    const saved = await saveReviewedDescription(p.gagId, body.contentFingerprint, body.text, req.user.id);
+    await recordAdminAction({ factId: p.factId, reviewId: body.reviewId ?? null }, req.user.id, "gag_description_review", { gagId: p.gagId, text: saved.text });
+  } catch (err) {
+    if (err instanceof DescriptionError) { res.status(err.status).json({ error: err.message, code: err.code }); return; }
+    throw err;
+  }
+  res.json(await buildFactGagsView(p.factId));
+});
+
+/** The gags members can pick whose published content has no reviewed description: the review list. */
+router.get("/admin/gag-descriptions", requireAdmin, async (_req: Request, res: Response) => {
+  const items = await descriptionsToReview();
+  res.json({ count: items.length, items });
 });
 
 router.post("/admin/facts/:factId/gags/:gagId/remove", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {

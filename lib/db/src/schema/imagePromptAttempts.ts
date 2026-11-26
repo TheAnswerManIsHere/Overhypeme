@@ -41,6 +41,13 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
   memberRequestId: varchar("member_request_id", { length: 64 }),
   /** A hash of what that command asked for: a request id reused for a different picture is refused (migration 0173). */
   memberRequestFingerprint: varchar("member_request_fingerprint", { length: 64 }),
+  /**
+   * The name and pronouns a member's picture's meme caption was meant to carry
+   * (migration 0176, plan PLAN_PHASE7_AI_PICTURE_FLOW.md): read back by the
+   * picture's state so a picture returned to later hands the builder the right
+   * name. NULL on every other attempt and on member pictures made before it.
+   */
+  memberCaption: jsonb("member_caption").$type<{ name: string; pronouns: string | null }>(),
   /** Parent client-poll handle (UUID). Set by /generate-v2 before enqueueing the prompt job. */
   renderJobId: varchar("render_job_id", { length: 64 }),
   /** "i2i" | "t2i" — derived from `subjectRenderMode`. */

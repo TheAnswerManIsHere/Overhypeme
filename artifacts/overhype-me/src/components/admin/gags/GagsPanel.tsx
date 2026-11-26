@@ -39,6 +39,7 @@ import { FactCharactersContext } from "@/components/admin/FactCharactersContext"
 import { VisualConceptCard } from "@/components/admin/VisualConceptCard";
 import { BubbleEditor } from "@/components/admin/BubbleEditor";
 import { castIsCurrent, gagApi, prepareGag, readCast, tokenizeGag, type GagResult } from "./gagApi";
+import type { GagDescriptionView } from "@workspace/api-zod";
 import { GagHistory, IN_FLIGHT, RemovedGagsHistory, roleWords } from "./RenderHistory";
 
 const POLL_MS = 2000;
@@ -612,6 +613,8 @@ function GagCard({
 
       <GagEditor value={draft} onChange={setDraft} disabled={locked} fieldErrors={s.fieldErrors} cast={castReading} />
 
+      <GagDescriptions factId={factId} reviewId={reviewId} gag={gag} readOnly={readOnly} onView={onView} />
+
       {s.error && (
         <p className="text-xs text-destructive flex items-start gap-1.5 break-words" data-testid="gag-error"><AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" /><span className="min-w-0">{s.error}</span></p>
       )}
@@ -633,6 +636,108 @@ function GagCard({
             <Trash2 className="w-3.5 h-3.5" /> Remove gag
           </button>
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A gag's one-line descriptions (plan PLAN_PHASE7_AI_PICTURE_FLOW.md): one per
+ * version — the published content's, and the draft content's when it differs.
+ * Members see a description only once it is approved and describes the
+ * published content; approving the published one shows it at once, and the
+ * draft's goes live when the fact's changes are published. A gag whose
+ * content is new or changed cannot be published without one.
+ */
+function GagDescriptions({ factId, reviewId, gag, readOnly, onView }: {
+  factId: number;
+  reviewId: number | null;
+  gag: GagView;
+  readOnly: boolean;
+  onView: (v: FactGagsView) => void;
+}) {
+  const d = gag.descriptions;
+  if (!d || (!d.published && !d.draft)) return null;
+  return (
+    <div className="space-y-3 rounded-sm border border-border p-3" data-testid="gag-descriptions">
+      <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">One-line description</p>
+      <p className="text-xs text-muted-foreground">
+        Shown to members beside this gag&apos;s examples, written with their name. Use {"{NAME}"} for the person in the picture.
+      </p>
+      {d.published && (
+        <DescriptionRow factId={factId} reviewId={reviewId} gagId={gag.id} version={d.published} earlierText={d.earlierText}
+          label={d.draft ? "Published version" : null} note="Approving it shows it to members now." readOnly={readOnly} onView={onView} />
+      )}
+      {d.draft && (
+        <DescriptionRow factId={factId} reviewId={reviewId} gagId={gag.id} version={d.draft} earlierText={d.earlierText}
+          label={d.published ? "Draft version" : null} note="It goes live when this fact's changes are published." readOnly={readOnly} onView={onView} />
+      )}
+    </div>
+  );
+}
+
+function descriptionStatus(v: GagDescriptionView): string {
+  if (v.drafting === "drafting") return "Drafting a description…";
+  if (v.drafting === "failed") return `Drafting failed${v.lastError ? `: ${v.lastError}` : ""}. Write one.`;
+  if (v.reviewed) return "Approved.";
+  return "Drafted by AI. Check it, edit it if needed, and approve it.";
+}
+
+function DescriptionRow({ factId, reviewId, gagId, version, earlierText, label, note, readOnly, onView }: {
+  factId: number;
+  reviewId: number | null;
+  gagId: number;
+  version: GagDescriptionView;
+  earlierText: string | null;
+  label: string | null;
+  note: string;
+  readOnly: boolean;
+  onView: (v: FactGagsView) => void;
+}) {
+  const [text, setText] = useState(version.text ?? "");
+  const seen = useRef(`${version.contentFingerprint}:${version.text ?? ""}`);
+  useEffect(() => {
+    const key = `${version.contentFingerprint}:${version.text ?? ""}`;
+    if (seen.current === key) return;
+    seen.current = key;
+    setText(version.text ?? "");
+  }, [version.contentFingerprint, version.text]);
+  const { busy, error, act } = useGagAction();
+  const dirty = text.trim() !== (version.text ?? "");
+  const canApprove = !readOnly && !busy && text.trim().length > 0 && (dirty || !version.reviewed);
+  const approve = async () => {
+    const r = await act(() => gagApi.saveDescription(factId, gagId, version.contentFingerprint, text, reviewId));
+    if (r.ok) onView(r.view);
+  };
+  return (
+    <div className="space-y-1.5" data-testid="gag-description-row">
+      {label && <p className="text-xs font-medium text-foreground">{label}</p>}
+      <input
+        type="text"
+        value={text}
+        maxLength={160}
+        onChange={(e) => setText(e.target.value)}
+        disabled={readOnly || busy}
+        placeholder="{NAME} throws the grenade in a straight line, blasting soldiers to the side."
+        aria-label={label ? `${label} description` : "Description"}
+        data-testid="gag-description-input"
+        className="w-full rounded-sm border border-border bg-background px-2 py-1.5 text-sm text-foreground disabled:opacity-60"
+      />
+      <p className={`text-xs ${version.drafting === "failed" ? "text-destructive" : "text-muted-foreground"}`} data-testid="gag-description-status">
+        {descriptionStatus(version)} {!version.reviewed && note}
+      </p>
+      {!version.text && earlierText && !readOnly && (
+        <button type="button" onClick={() => setText(earlierText)} disabled={busy} data-testid="gag-description-use-earlier"
+          className="text-xs underline text-primary disabled:opacity-40">
+          Start from the earlier description: &ldquo;{earlierText}&rdquo;
+        </button>
+      )}
+      {error && <p className="text-xs text-destructive" data-testid="gag-description-error">{error}</p>}
+      {!readOnly && (
+        <button type="button" onClick={() => void approve()} disabled={!canApprove} data-testid="gag-description-approve"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium border border-primary/50 text-primary rounded-sm hover:bg-primary/10 disabled:opacity-40">
+          {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />} {version.reviewed && dirty ? "Save and approve" : "Approve description"}
+        </button>
       )}
     </div>
   );

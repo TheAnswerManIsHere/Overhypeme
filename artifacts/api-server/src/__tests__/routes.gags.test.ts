@@ -82,6 +82,17 @@ async function liveFact(): Promise<{ factId: number; gagId: number }> {
 }
 
 /** A test render of `gagId` that drew `content`, for a kind (male by default); finished unless told otherwise. */
+/** Approve the description of a gag's draft content through the route, as a moderator does (Issue #1331). */
+async function describeDraft(factId: number, gagId: number, reviewId?: number) {
+  const view = await request(app).get(url(factId));
+  const gag = (view.body.gags as Array<{ id: number; descriptions: { draft: { contentFingerprint: string } | null; published: { contentFingerprint: string } | null } }>).find((g) => g.id === gagId)!;
+  const version = gag.descriptions.draft ?? gag.descriptions.published!;
+  const res = await request(app).put(url(factId, `/${gagId}/description`))
+    .send({ contentFingerprint: version.contentFingerprint, text: "{NAME} does it.", ...(reviewId ? { reviewId } : {}) });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  return res;
+}
+
 async function render(factId: number, gagId: number, content: VisualPromptStrategyOverride, opts: { unfinished?: boolean; failed?: boolean; styled?: boolean; kind?: GagExampleKind | null } = {}): Promise<number> {
   const kind = opts.kind === undefined ? "male" : opts.kind;
   const [row] = await db.insert(imagePromptAttemptsTable).values({
@@ -198,7 +209,10 @@ describe("gag routes: every write is to the draft, from a review", () => {
 
     const removed = await request(app).post(url(factId, `/${newGag.id}/remove`)).send({});
     assert.equal(removed.status, 200, JSON.stringify(removed.body));
-    assert.equal(removed.body.draftReady.ok, true, JSON.stringify(removed.body.draftReady));
+    // A changed gag also needs its description reviewed before it can publish (Issue #1331).
+    assert.deepEqual(removed.body.draftReady, { ok: false, reason: "Visual gag 1 needs its description reviewed." });
+    const described = await describeDraft(factId, gagId);
+    assert.equal(described.body.draftReady.ok, true, JSON.stringify(described.body.draftReady));
     assert.equal(await hasUnpublishedChanges(factId), true);
 
     const published = await publishFactChanges(factId, adminId);
@@ -254,9 +268,12 @@ describe("gag routes: every write is to the draft, from a review", () => {
     assert.equal(await examplesOf(gagId, "approved"), 0, "a pick publishes nothing");
     assert.equal((await gagRow(gagId)).approvedContent, null);
     assert.equal(last.body.draftReady.ok, false, "gag 2 still lacks its renders");
-    assert.match(last.body.draftReady.reason, /^Visual gag 2 needs/);
-    const done = await approveSet(factId, otherId, scene("{NAME} a second gag."), reviewId);
-    assert.deepEqual(done.body.draftReady, { ok: true, reason: null }, "every gag has its set: the draft is ready");
+    await describeDraft(factId, gagId, reviewId);
+    const afterDescription = await request(app).get(`${url(factId)}?reviewId=${reviewId}`);
+    assert.match(afterDescription.body.draftReady.reason, /^Visual gag 2 needs/);
+    await approveSet(factId, otherId, scene("{NAME} a second gag."), reviewId);
+    const done = await describeDraft(factId, otherId, reviewId);
+    assert.deepEqual(done.body.draftReady, { ok: true, reason: null }, "every gag has its set and its description: the draft is ready");
   });
 });
 

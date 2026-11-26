@@ -35,6 +35,8 @@ export const ADMIN_ACTION_VALUES = [
   "gag_discard",
   "gag_remove",
   "gag_render_approval",
+  // A gag's one-line description written or reviewed (Issue #1331)
+  "gag_description_review",
   "gag_ideas_requested",
   "gag_renders_requested",
   "render_delete",

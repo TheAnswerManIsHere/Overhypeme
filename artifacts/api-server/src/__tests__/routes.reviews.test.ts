@@ -838,8 +838,8 @@ describe("approval renderability gating", () => {
 
     assert.equal(res.status, 409, JSON.stringify(res.body));
     assert.equal(res.body.code, "CONCEPT_MISSING");
-    assert.equal(res.body.error, "Visual gag 1 needs male, female and pet renders approved.");
-    assert.deepEqual(res.body.gaps, [{ slot: 1, missing: ["male", "female", "pet"], outdated: [] }]);
+    assert.equal(res.body.error, "Visual gag 1 needs male, female and pet renders approved and needs its description reviewed.");
+    assert.deepEqual(res.body.gaps, [{ slot: 1, missing: ["male", "female", "pet"], outdated: [], needsDescription: true }]);
 
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
     assert.equal(r.status, "pending", "a fact without an offered gag must NOT be approved; a waiver flag is ignored");

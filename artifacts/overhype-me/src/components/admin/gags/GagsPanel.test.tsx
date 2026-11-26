@@ -60,6 +60,7 @@ function gag(over: Partial<GagView> & Pick<GagView, "id" | "slot"> & { renders?:
     draftRemoved: false,
     prefilledUntouched: false,
     roles: { male: NO_ROLES, female: NO_ROLES, pet: NO_ROLES },
+    descriptions: { published: null, draft: null, earlierText: null },
     ...rest,
   };
   if (over.roles) return g;

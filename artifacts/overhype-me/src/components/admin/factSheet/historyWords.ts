@@ -104,6 +104,7 @@ export const HISTORY_WORDS: Record<AdminAction, { title: string; detail?: (d: De
   gag_discard: { title: "Gag change discarded" },
   gag_remove: { title: "Gag removed" },
   gag_render_approval: { title: "Render approved" },
+  gag_description_review: { title: "Gag description reviewed", detail: (d) => str(d["text"]) || null },
   render_delete: { title: "Render deleted", detail: (d) => [str(d["kind"]), str(d["drawnAt"]) ? `drawn ${String(d["drawnAt"]).slice(0, 10)}` : null].filter(Boolean).join(", ") || null },
   gag_ideas_requested: { title: "Gag ideas requested", detail: (d) => (d["noteChanged"] === true ? "after the Humor Note changed" : null) },
   gag_renders_requested: {

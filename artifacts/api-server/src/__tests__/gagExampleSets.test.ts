@@ -45,6 +45,7 @@ import { pendingReviewsTable } from "@workspace/db/schema";
 import { withCast } from "./helpers/gagCast.js";
 import { approveGagRender, saveGagContent } from "../lib/gags/gagStore.js";
 import { publishDraft } from "../lib/gags/publish.js";
+import { describeDraftChanges } from "./helpers/gagExampleSets.js";
 
 const RUN = randomUUID().slice(0, 8);
 const START = new Date();
@@ -164,6 +165,7 @@ describe("grandfathering (Q11)", () => {
 
     await approve(factId, gagId, await render(factId, gagId, A, "pet"));
     assert.equal((await gagRow(gagId)).approvedCarriedOver, true, "a complete draft publishes nothing by itself");
+    await describeDraftChanges(factId);
     await db.transaction((tx) => publishDraft(tx, factId, adminId));
     const row = await gagRow(gagId);
     assert.equal(row.approvedCarriedOver, false, "the marker ends with the first published complete set");
@@ -329,6 +331,7 @@ describe("the rules the database enforces at commit (7a)", () => {
   async function completeGag() {
     const { factId, gagId } = await liveFact();
     for (const kind of GAG_EXAMPLE_KINDS) await approve(factId, gagId, await render(factId, gagId, A, kind));
+    await describeDraftChanges(factId);
     await db.transaction((tx) => publishDraft(tx, factId, adminId));
     assert.equal((await gagRow(gagId)).approvedCarriedOver, false);
     return { factId, gagId };

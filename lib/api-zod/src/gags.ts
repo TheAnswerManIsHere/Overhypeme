@@ -168,6 +168,34 @@ export interface GagView {
    * the views moved to them (increment C).
    */
   roles: PerKind<GagPictureRoles>;
+  /**
+   * The one-line descriptions of the published and the draft content (plan
+   * PLAN_PHASE7_AI_PICTURE_FLOW.md; api-server lib/gags/descriptions.ts).
+   */
+  descriptions: GagDescriptions;
+}
+
+/** A description of one version of a gag, as a moderator sees it. */
+export interface GagDescriptionView {
+  /** The version it describes; sent back when saving, so a changed gag is caught. */
+  contentFingerprint: string;
+  /** The line, with personalization tokens; null until drafted. */
+  text: string | null;
+  origin: "ai" | "moderator";
+  /** Reviewed by a moderator: members see it once it describes the published content. */
+  reviewed: boolean;
+  /** "drafting" while one is being drafted; "failed" when the last drafting failed. */
+  drafting: "none" | "drafting" | "failed";
+  lastError: string | null;
+}
+
+export interface GagDescriptions {
+  /** Null when the gag has no published content. */
+  published: GagDescriptionView | null;
+  /** Null when the draft content is the published content, or there is no draft. */
+  draft: GagDescriptionView | null;
+  /** A moderator's text for an earlier version of this gag, offered as a starting point; never applied. */
+  earlierText: string | null;
 }
 
 // ─── A gag's renders: roles, history, cost, delete (Issue #1304) ───────────

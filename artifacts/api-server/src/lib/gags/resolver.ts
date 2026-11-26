@@ -29,6 +29,7 @@ import {
   type PerKind,
   type VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
+import { publishedDescriptions } from "./descriptions";
 import { examplesFor, loadExamples } from "./examples";
 
 export type GagContent = VisualPromptStrategyOverride;
@@ -119,6 +120,12 @@ export interface AvailableGag {
    * have fewer or none.
    */
   examples: PerKind<number | null>;
+  /**
+   * The reviewed one-line description of this published content, with
+   * personalization tokens still in it; null while it has none (plan
+   * PLAN_PHASE7_AI_PICTURE_FLOW.md, lib/gags/descriptions.ts).
+   */
+  description: string | null;
 }
 
 /**
@@ -160,7 +167,10 @@ async function readPublishedGags(factId: number, executor: Executor): Promise<Av
     ))
     .orderBy(asc(factGagsTable.slot))
     .then((found) => found.filter(({ gag }) => !isStandIn(gag.approvedContent)));
-  const examples = await loadExamples(rows.map(({ gag }) => gag.id), executor);
+  const [examples, descriptions] = await Promise.all([
+    loadExamples(rows.map(({ gag }) => gag.id), executor),
+    publishedDescriptions(rows.map(({ gag }) => ({ gagId: gag.id, approvedContent: gag.approvedContent })), executor),
+  ]);
   return rows.map(({ gag }) => {
     const set = examplesFor(examples, gag.id).approved;
     return {
@@ -168,6 +178,7 @@ async function readPublishedGags(factId: number, executor: Executor): Promise<Av
       slot: gag.slot,
       content: normaliseGagContent(gag.approvedContent)!,
       examples: mapKinds((k) => set[k]?.attemptId ?? null),
+      description: descriptions.get(gag.id) ?? null,
     };
   });
 }

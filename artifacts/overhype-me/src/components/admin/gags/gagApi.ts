@@ -11,6 +11,7 @@ import {
   setRenderedTextAtPath,
   type FactGagsView,
   type GagCastView,
+  type GagDescriptionView,
   type GagExampleKind,
   type GagRenderDeleteResult,
   type RemovedGagHistory,
@@ -87,6 +88,26 @@ export const gagApi = {
    */
   runRenders: (factId: number, gagId: number, reviewId: number | null, kinds: GagExampleKind[]) =>
     call("POST", `${base(factId)}/${gagId}/renders`, { kinds, redraw: true, ...scope(reviewId) }),
+  /**
+   * Save and approve the one-line description of one version of a gag (plan
+   * PLAN_PHASE7_AI_PICTURE_FLOW.md). `contentFingerprint` names the version the
+   * moderator was looking at; a gag changed since is refused.
+   */
+  saveDescription: (factId: number, gagId: number, contentFingerprint: string, text: string, reviewId: number | null) =>
+    call("PUT", `${base(factId)}/${gagId}/description`, { contentFingerprint, text, ...scope(reviewId) }),
+};
+
+/** One gag whose published content still needs a reviewed description. */
+export interface DescriptionToReview {
+  factId: number;
+  factText: string;
+  gagId: number;
+  slot: number;
+  description: GagDescriptionView;
+}
+
+export const descriptionReviewApi = {
+  list: () => request<{ count: number; items: DescriptionToReview[] }>("GET", "/api/admin/gag-descriptions"),
 };
 
 // ─── A gag's render history (plan PLAN_RENDER_HISTORY.md D3, D4 and D6) ─────

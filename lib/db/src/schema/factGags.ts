@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
-  pgTable, bigserial, integer, smallint, varchar, jsonb, boolean, timestamp, bigint, index, uniqueIndex, check, type AnyPgColumn,
+  pgTable, bigserial, integer, text, smallint, varchar, jsonb, boolean, timestamp, bigint, index, uniqueIndex, check, type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { factsTable } from "./facts";
 import { usersTable } from "./auth";
@@ -148,6 +148,36 @@ export const factGagExamplesTable = pgTable("fact_gag_examples", {
 ]);
 
 export type FactGagExample = typeof factGagExamplesTable.$inferSelect;
+
+/**
+ * A gag's one-line description (migration 0176, plan
+ * docs/plans/PLAN_PHASE7_AI_PICTURE_FLOW.md, approved 2026-11-26): one row per
+ * gag and content fingerprint (`gagContentFingerprint`, api-server
+ * lib/gags/descriptions.ts), so a description belongs to the exact scene and
+ * bubbles it describes. Never part of the drawing content: it reaches no
+ * prompt and no render freshness. Members see a reviewed row whose fingerprint
+ * equals the published content's (Q15: 1).
+ */
+export const factGagDescriptionsTable = pgTable("fact_gag_descriptions", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  gagId: bigint("gag_id", { mode: "number" }).notNull().references(() => factGagsTable.id, { onDelete: "cascade" }),
+  contentFingerprint: varchar("content_fingerprint", { length: 64 }).notNull(),
+  /** NULL until drafted (or while drafting fails: `lastError`). */
+  text: varchar("text", { length: 160 }),
+  origin: varchar("origin", { length: 16 }).notNull().default("ai").$type<"ai" | "moderator">(),
+  reviewedBy: varchar("reviewed_by").references(() => usersTable.id, { onDelete: "set null" }),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  attempts: integer("attempts").notNull().default(0),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("UQ_fact_gag_descriptions_gag_fingerprint").on(t.gagId, t.contentFingerprint),
+  check("fact_gag_descriptions_origin", sql`((origin)::text = ANY (ARRAY[('ai'::character varying)::text, ('moderator'::character varying)::text]))`),
+  check("fact_gag_descriptions_reviewed_has_text", sql`((reviewed_at IS NULL) OR (text IS NOT NULL))`),
+]);
+
+export type FactGagDescription = typeof factGagDescriptionsTable.$inferSelect;
 
 export type FactGag = typeof factGagsTable.$inferSelect;
 export type InsertFactGag = typeof factGagsTable.$inferInsert;
