@@ -180,6 +180,48 @@ test.describe("Public described screens", () => {
     await expect(page.getByText(/\{NAME\}/)).toHaveCount(0);
   });
 
+  // Issue #1328 — a portrait meme taller than the desktop pane was clipped at the
+  // bottom: the picture's frame (overflow-hidden) is a flex item, which shrank to
+  // the pane's height and cut off the last caption line and the brand mark.
+  test("the meme page shows the whole of a portrait meme, top and bottom", async ({ page }) => {
+    const src = "/api/memes/e2e-portrait/image";
+    await stubPublicFacts(page, {
+      facts: [factDetail({ id: 542, text: "{NAME} made it rain. Then it exploded." })],
+      memeDetails: [memeDetail({
+        id: 5421,
+        factId: 542,
+        permalinkSlug: "e2e-portrait",
+        factText: "David Franklin made it rain. Then it exploded.",
+        originalWidth: 768,
+        originalHeight: 1365,
+      })],
+    });
+    // A 768×1365 picture, the saved size of the meme the issue was filed from.
+    await page.route(`**${src}`, (route) => route.fulfill({
+      status: 200,
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="768" height="1365"><rect width="768" height="1365" fill="#f60"/></svg>',
+    }));
+    await page.goto("/m/e2e-portrait");
+    const picture = page.locator('img[alt="Meme"]').filter({ visible: true });
+    await expect(picture).toBeVisible();
+    await expect.poll(() => picture.evaluate((img: HTMLImageElement) => img.naturalHeight)).toBe(1365);
+
+    const shown = await picture.evaluate((img: HTMLImageElement) => {
+      const frame = img.parentElement!.getBoundingClientRect();
+      const pic = img.getBoundingClientRect();
+      const pane = img.closest(".overflow-auto")!.getBoundingClientRect();
+      return { frameTop: frame.top, frameBottom: frame.bottom, picTop: pic.top, picBottom: pic.bottom, paneTop: pane.top, picW: pic.width, picH: pic.height };
+    });
+    // The picture keeps its shape: nothing squashed.
+    expect(Math.abs(shown.picH / shown.picW - 1365 / 768)).toBeLessThan(0.01);
+    // Its frame clips none of it, top or bottom.
+    expect(shown.frameTop).toBeLessThanOrEqual(shown.picTop + 0.5);
+    expect(shown.frameBottom).toBeGreaterThanOrEqual(shown.picBottom - 0.5);
+    // And its top is not pushed above where the pane can scroll back to.
+    expect(shown.picTop).toBeGreaterThanOrEqual(shown.paneTop);
+  });
+
   // PR402 step 5 — logged out, the fact page's meme gallery shows the public meme.
   test("logged out, the fact page's gallery shows the public meme and not the private one", async ({ page }) => {
     // A fact page asks a visitor with no name first (identity-flow Phase 4); this test is about the page.
