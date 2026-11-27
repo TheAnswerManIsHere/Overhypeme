@@ -166,7 +166,10 @@ describe("MemeBuilderWizard", () => {
             memeBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
             body = { memeId: 77, permalinkUrl: PERMALINK };
           } else if (url.includes("/api/users/me/uploads")) {
-            body = { uploads, uploadCount: uploads.length, maxUploads: 5, displayLimit: 5 };
+            body = { uploads, uploadCount: uploads.length, maxUploads: 5, displayLimit: 5 };          } else if (url === "/api/member-pictures") {
+            body = { pictures: [], credits: 0 };
+          } else if (url.includes("/api/users/me/ai-images")) {
+            body = { images: [], nextCursor: null };
           }
           return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) } as Response);
         }),

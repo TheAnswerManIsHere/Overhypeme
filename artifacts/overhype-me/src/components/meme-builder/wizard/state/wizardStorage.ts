@@ -160,6 +160,22 @@ export function readReturnSnapshot(factId: string): PendingWizardState | null {
   return readDraft(`${RETURN_PREFIX}${factId}`, factId, RETURN_TTL_MS);
 }
 
+/**
+ * What the picture flow takes from the builder it was opened from: the
+ * meme's shape, and the caption identity when the member chose it. Only this
+ * module reads the draft's fields.
+ */
+export function readBuilderDefaults(factId: string): {
+  aspectRatio: AspectRatio | null;
+  chosenCaption: { name: string; pronouns: string | null } | null;
+} {
+  const d = readReturnSnapshot(factId);
+  return {
+    aspectRatio: d?.aspectRatio ?? null,
+    chosenCaption: d?.captionChosen && d.name ? { name: d.name, pronouns: d.pronouns ?? null } : null,
+  };
+}
+
 export function clearReturnSnapshot(factId: string): void {
   removeItem(`${RETURN_PREFIX}${factId}`);
 }

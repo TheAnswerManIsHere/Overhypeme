@@ -6,6 +6,7 @@
  * picture that finishes in one place is re-read in the others.
  */
 import type { AspectRatio } from "@/components/meme-builder/types";
+import { toStorageUrl } from "@/components/meme-builder/integration/sourceKinds";
 
 export interface GagOption {
   gagId: number;
@@ -60,6 +61,8 @@ export const pictureKeys = {
   options: (factId: string) => ["member-pictures", "options", factId] as const,
   looks: ["member-pictures", "looks"] as const,
   list: ["member-pictures", "list"] as const,
+  one: (attemptId: number | null) => ["member-pictures", "one", attemptId] as const,
+  finished: (factId: string) => ["member-pictures", "finished", factId] as const,
   photoCheck: (uploadKey: string) => ["member-pictures", "photo-check", uploadKey] as const,
 };
 
@@ -91,8 +94,7 @@ export function fetchLookStyles(): Promise<LookStyle[]> {
 
 export function fetchMemberPictures(): Promise<{ pictures: MemberPictureState[]; credits: number }> {
   return fetch("/api/member-pictures", { credentials: "include" })
-    .then((r) => readJson<{ pictures?: MemberPictureState[]; credits?: number } | null>(r, "We couldn't load your pictures."))
-    .then((b) => ({ pictures: Array.isArray(b?.pictures) ? b.pictures : [], credits: b?.credits ?? 0 }));
+    .then((r) => readJson<{ pictures: MemberPictureState[]; credits: number }>(r, "We couldn't load your pictures."));
 }
 
 export function fetchMemberPicture(attemptId: number): Promise<{ picture: MemberPictureState; credits: number }> {
@@ -100,7 +102,7 @@ export function fetchMemberPicture(attemptId: number): Promise<{ picture: Member
     .then((r) => readJson<{ picture: MemberPictureState; credits: number }>(r, "We couldn't read this picture."));
 }
 
-export type PhotoSubject = "person" | "pet";
+type PhotoSubject = "person" | "pet";
 
 /**
  * Whether one of the member's own photos shows a person or a pet. Spends no
@@ -116,10 +118,33 @@ export function checkPhoto(uploadKey: string): Promise<{ uploadKey: string; subj
   }).then((r) => readJson<{ uploadKey: string; subject: PhotoSubject }>(r, "We couldn't check this photo — try again."));
 }
 
+/** The address of the picture flow for a fact (Phase 7 amendment), optionally from the builder or starting on a gag. */
+export function pictureFlowPath(factId: string | number, opts: { fromBuilder?: boolean; gagId?: number } = {}): string {
+  const q = new URLSearchParams();
+  if (opts.fromBuilder) q.set("from", "builder");
+  if (opts.gagId) q.set("gag", String(opts.gagId));
+  const qs = q.toString();
+  return `/facts/${factId}/picture${qs ? `?${qs}` : ""}`;
+}
+
+/** One of the member's finished pictures (`GET /users/me/ai-images`). */
+export interface FinishedPicture {
+  id: number;
+  storagePath: string;
+}
+
+/** A page of the member's finished pictures of one fact, newest first. */
+export function fetchFinishedPictures(factId: string, cursor: string | null): Promise<{ images: FinishedPicture[]; nextCursor: string | null }> {
+  const q = new URLSearchParams({ imageType: "member_picture", factId });
+  if (cursor) q.set("cursor", cursor);
+  return fetch(`/api/users/me/ai-images?${q}`, { credentials: "include" })
+    .then((r) => readJson<{ images: FinishedPicture[]; nextCursor: string | null }>(r, "We couldn't load your pictures."));
+}
+
 /** The URL a style's sample is shown from, or null when it has none. */
 export function lookPreviewUrl(path: string | null): string | null {
   if (!path) return null;
-  if (path.startsWith("/objects/")) return `/api/storage/objects${path.replace(/^\/objects/, "")}`;
+  if (path.startsWith("/objects/")) return toStorageUrl(path);
   return path;
 }
 

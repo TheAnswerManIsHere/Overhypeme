@@ -13,6 +13,7 @@ import { LockedPreview } from "./LockedPreview";
 import { AspectRatioToggle } from "./AspectRatioToggle";
 import { SelfUploadSourcePanel } from "./SelfUploadSourcePanel";
 import { AiPictureSelector } from "./AiPictureSelector";
+import { pictureFlowPath } from "@/components/ai-picture/pictureApi";
 import { GuestPhotoSignupPanel } from "./GuestPhotoSignupPanel";
 import { AdjustTextSheet } from "./AdjustTextSheet";
 import { useCaptionLayout } from "../../captionLayout";
@@ -201,7 +202,7 @@ export function Step2Image({
   // caption; the draft is kept exactly as it stands for the way back.
   const openPictureFlow = () => {
     onKeepForPictureFlow?.({ aspectRatio, framingOffset, name, pronouns, textOptions, isPublic, splitIndex });
-    navigate(`/facts/${factId}/picture?from=builder`);
+    navigate(pictureFlowPath(factId, { fromBuilder: true }));
   };
 
   const save = async () => {

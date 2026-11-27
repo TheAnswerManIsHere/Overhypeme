@@ -1,7 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Link } from "wouter";
-import { fetchMemberPictures, isInFlight, pictureKeys, STATUS_WORDS } from "@/components/ai-picture/pictureApi";
+import { useEffect, useRef } from "react";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import {
+  fetchFinishedPictures,
+  fetchMemberPictures,
+  isInFlight,
+  pictureKeys,
+  STATUS_WORDS,
+} from "@/components/ai-picture/pictureApi";
 
 /**
  * The builder's AI pictures (launch Phase 7; plan
@@ -13,12 +18,6 @@ import { fetchMemberPictures, isInFlight, pictureKeys, STATUS_WORDS } from "@/co
  * caption.
  */
 
-/** One of the member's finished pictures of this fact (`GET /users/me/ai-images`). */
-interface FinishedPicture {
-  id: number;
-  storagePath: string;
-}
-
 interface Props {
   factId: string;
   /** The AI picture currently used as the background, if any. */
@@ -29,40 +28,31 @@ interface Props {
 }
 
 export function AiPictureSelector({ factId, selectedAiImageId, onPicture, onMakePicture }: Props) {
-  const [finished, setFinished] = useState<FinishedPicture[]>([]);
-  const [finishedCursor, setFinishedCursor] = useState<string | null>(null);
-
-  const loadFinished = useCallback((cursor: string | null) => {
-    const q = new URLSearchParams({ imageType: "member_picture", factId });
-    if (cursor) q.set("cursor", cursor);
-    return fetch(`/api/users/me/ai-images?${q}`, { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((body: { images: FinishedPicture[]; nextCursor: string | null } | null) => {
-        if (!body || !Array.isArray(body.images)) return;
-        setFinished((prev) => {
-          const seen = new Set(cursor ? prev.map((f) => f.id) : []);
-          return [...(cursor ? prev : []), ...body.images.filter((f) => !seen.has(f.id))];
-        });
-        setFinishedCursor(body.nextCursor ?? null);
-      })
-      .catch(() => undefined);
-  }, [factId]);
-  useEffect(() => { void loadFinished(null); }, [loadFinished]);
+  const finishedQuery = useInfiniteQuery({
+    queryKey: pictureKeys.finished(factId),
+    queryFn: ({ pageParam }) => fetchFinishedPictures(factId, pageParam),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor,
+  });
+  const finished = finishedQuery.data?.pages.flatMap((p) => p.images) ?? [];
 
   // Pictures of this fact still drawing, re-read while any is; when one
   // finishes, the finished list is read again so it can be picked.
+  const drawingOf = (pictures: Awaited<ReturnType<typeof fetchMemberPictures>>["pictures"] | undefined) =>
+    (pictures ?? []).filter((p) => String(p.factId) === factId && isInFlight(p));
   const { data } = useQuery({
     queryKey: pictureKeys.list,
     queryFn: fetchMemberPictures,
-    refetchInterval: (q) => (q.state.data?.pictures.some((p) => isInFlight(p)) ? 3000 : false),
+    refetchInterval: (q) => (drawingOf(q.state.data?.pictures).length > 0 ? 3000 : false),
   });
-  const drawing = (data?.pictures ?? []).filter((p) => String(p.factId) === factId && isInFlight(p));
+  const drawing = drawingOf(data?.pictures);
   const drawingCount = drawing.length;
   const lastDrawingCount = useRef(0);
+  const refetchFinished = finishedQuery.refetch;
   useEffect(() => {
-    if (drawingCount < lastDrawingCount.current) void loadFinished(null);
+    if (drawingCount < lastDrawingCount.current) void refetchFinished();
     lastDrawingCount.current = drawingCount;
-  }, [drawingCount, loadFinished]);
+  }, [drawingCount, refetchFinished]);
 
   return (
     <div className="space-y-3">
@@ -81,9 +71,9 @@ export function AiPictureSelector({ factId, selectedAiImageId, onPicture, onMake
           {drawing.map((p) => (
             <li key={p.attemptId} className="flex items-center justify-between gap-2 rounded-md border border-white/10 px-3 py-2 text-sm">
               <span role="status">{STATUS_WORDS[p.status]}</span>
-              <Link href={`/facts/${factId}/picture?from=builder`} onClick={(e) => { e.preventDefault(); onMakePicture(); }} className="shrink-0 text-xs underline">
+              <button type="button" onClick={onMakePicture} className="shrink-0 text-xs underline">
                 Follow it
-              </Link>
+              </button>
             </li>
           ))}
         </ul>
@@ -110,8 +100,8 @@ export function AiPictureSelector({ factId, selectedAiImageId, onPicture, onMake
               );
             })}
           </div>
-          {finishedCursor && (
-            <button type="button" className="text-xs underline text-muted-foreground" onClick={() => void loadFinished(finishedCursor)}>
+          {finishedQuery.hasNextPage && (
+            <button type="button" className="text-xs underline text-muted-foreground" onClick={() => void finishedQuery.fetchNextPage()}>
               Show more
             </button>
           )}

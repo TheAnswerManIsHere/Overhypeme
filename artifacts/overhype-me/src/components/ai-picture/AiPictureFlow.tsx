@@ -9,13 +9,13 @@
  * Loading goes through the query layer, with one automatic retry and a Try
  * again that keeps every choice (Issue #1315).
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AspectRatio, MyImageSource } from "@/components/meme-builder/types";
 import { MyImagePicker } from "@/components/meme-builder/parts/MyImagePicker";
 import { AspectRatioToggle } from "@/components/meme-builder/wizard/step2-image/AspectRatioToggle";
 import { GuestPhotoSignupPanel } from "@/components/meme-builder/wizard/step2-image/GuestPhotoSignupPanel";
-import { readReturnSnapshot, writePictureHandoff } from "@/components/meme-builder/wizard/state/wizardStorage";
+import { readBuilderDefaults, writePictureHandoff } from "@/components/meme-builder/wizard/state/wizardStorage";
 import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
 import { PRONOUN_PRESETS } from "@/lib/pronouns";
 import { HighlightedFactText } from "@/components/facts/HighlightedFactText";
@@ -104,20 +104,18 @@ export function AiPictureFlow(props: AiPictureFlowProps) {
 function FlowForm({ factId, factText, memberName, memberPronouns, fromBuilder, initialGagId, onOpenBuilder }: AiPictureFlowProps) {
   const queryClient = useQueryClient();
   // Opened from the builder: its shape and caption identity are the defaults.
-  const [builderDraft] = useState(() => (fromBuilder ? readReturnSnapshot(factId) : null));
+  const [builder] = useState(() => (fromBuilder ? readBuilderDefaults(factId) : null));
 
   const [photo, setPhoto] = useState<MyImageSource | null>(null);
   const [petName, setPetName] = useState("");
   const [petPronouns, setPetPronouns] = useState(PRONOUN_DEFAULT);
   const [gagId, setGagId] = useState<number | null>(initialGagId);
   const [lookStyleId, setLookStyleId] = useState<string | null>(null);
-  const [shape, setShape] = useState<AspectRatio>(builderDraft?.aspectRatio ?? "portrait");
+  const [shape, setShape] = useState<AspectRatio>(builder?.aspectRatio ?? "portrait");
   // The caption identity the member chose, here or in the builder; null while
   // it follows the picture's subject. A chosen identity is never replaced.
   const [chosenCaption, setChosenCaption] = useState<CaptionIdentity | null>(() =>
-    builderDraft?.captionChosen && builderDraft.name
-      ? { name: builderDraft.name, pronouns: builderDraft.pronouns ?? memberPronouns }
-      : null,
+    builder?.chosenCaption ? { name: builder.chosenCaption.name, pronouns: builder.chosenCaption.pronouns ?? memberPronouns } : null,
   );
   const [activeId, setActiveId] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -133,15 +131,20 @@ function FlowForm({ factId, factText, memberName, memberPronouns, fromBuilder, i
     queryKey: pictureKeys.photoCheck(uploadKey ?? ""),
     queryFn: () => checkPhoto(uploadKey!),
     enabled: !!uploadKey,
+    // A check can cost money: it runs once per photo chosen, and again only
+    // when the member asks (Try again), never on focus or remount.
     retry: false,
     staleTime: Infinity,
+    gcTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
   });
   const subject = photoCheck.data && photoCheck.data.uploadKey === uploadKey ? photoCheck.data.subject : null;
   const photoUnusable = photoCheck.error instanceof PictureRequestError && photoCheck.error.status === 422 ? photoCheck.error.message : null;
 
   // ── The choices: one automatic retry, then a Try again that keeps every selection.
   const options = useQuery({ queryKey: pictureKeys.options(factId), queryFn: () => fetchPictureOptions(factId), retry: 1 });
-  const looks = useQuery({ queryKey: pictureKeys.looks, queryFn: fetchLookStyles, retry: 1 });
+  const looks = useQuery({ queryKey: pictureKeys.looks, queryFn: fetchLookStyles, retry: 1, staleTime: Infinity });
   const gags = options.data?.gags;
   useEffect(() => {
     // A re-read keeps the member's gag while the fact still offers it.
@@ -153,11 +156,12 @@ function FlowForm({ factId, factText, memberName, memberPronouns, fromBuilder, i
     if (looks.isError) void looks.refetch();
   };
 
-  // ── The member's pictures of this fact still drawing, shown on return.
+  // ── The member's pictures of this fact still drawing, shown on return. The
+  // one being followed is polled on its own, so the list waits meanwhile.
   const list = useQuery({
     queryKey: pictureKeys.list,
     queryFn: fetchMemberPictures,
-    refetchInterval: (q) => (q.state.data?.pictures.some((p) => String(p.factId) === factId && isInFlight(p)) ? 5000 : false),
+    refetchInterval: (q) => (activeId === null && q.state.data?.pictures.some((p) => String(p.factId) === factId && isInFlight(p)) ? 5000 : false),
   });
   const drawingHere = (list.data?.pictures ?? []).filter((p) => String(p.factId) === factId && isInFlight(p));
   const firstDrawing = drawingHere[0]?.attemptId ?? null;
@@ -170,9 +174,10 @@ function FlowForm({ factId, factText, memberName, memberPronouns, fromBuilder, i
 
   // ── The picture being followed.
   const active = useQuery({
-    queryKey: ["member-pictures", "one", activeId],
+    queryKey: pictureKeys.one(activeId),
     queryFn: () => fetchMemberPicture(activeId!),
     enabled: activeId !== null,
+    staleTime: POLL_MS,
     refetchInterval: (q) => (q.state.data && !isInFlight(q.state.data.picture) ? false : POLL_MS),
   });
   const picture = active.data?.picture ?? null;
@@ -182,37 +187,37 @@ function FlowForm({ factId, factText, memberName, memberPronouns, fromBuilder, i
     if (!finishedStatus) return;
     void queryClient.invalidateQueries({ queryKey: pictureKeys.options(factId) });
     void queryClient.invalidateQueries({ queryKey: pictureKeys.list });
+    void queryClient.invalidateQueries({ queryKey: pictureKeys.finished(factId) });
   }, [finishedStatus, factId, queryClient]);
 
   // ── The caption: chosen, or the subject's own.
-  const subjectIdentity: CaptionIdentity = subject === "pet"
-    ? { name: petName.trim(), pronouns: petPronouns }
-    : { name: memberName, pronouns: memberPronouns };
-  const caption = chosenCaption ?? subjectIdentity;
-  // The description is read in the name the picture is drawn with: always the subject's.
-  const drawnName = subject === "pet" ? petName.trim() || "your pet" : memberName;
-  const drawnPronouns = subject === "pet" ? petPronouns : memberPronouns;
+  // The picture is drawn with the subject's own name, and the description is
+  // read in it; the caption defaults to it unless the member chose another.
+  const isPet = subject === "pet";
+  const drawn: CaptionIdentity = isPet ? { name: petName.trim(), pronouns: petPronouns } : { name: memberName, pronouns: memberPronouns };
+  const caption = chosenCaption ?? drawn;
+  const drawnName = drawn.name || "your pet";
 
   const credits = active.data?.credits ?? options.data?.credits ?? 0;
   const canAfford = credits >= 1;
   const cost = options.data?.nextIsFree ? "your free picture" : "1 credit";
 
   // Why Make it cannot be pressed yet, in words (#1315: no silent disabled form).
-  const blocker = useMemo(() => {
+  const blocker = (() => {
     if (!uploadKey) return "Choose a photo of you or your pet first.";
     if (photoCheck.isPending) return "Checking your photo…";
     if (photoUnusable) return photoUnusable;
     if (!subject) return "We couldn't check this photo. Try again.";
-    if (subject === "pet" && !petName.trim()) return "Give your pet's name, for the picture.";
+    if (isPet && !drawn.name) return "Give your pet's name, for the picture.";
     if (options.isPending) return "Loading this fact's pictures…";
     if (!options.data) return "This fact's pictures didn't load. Try again above.";
     if (options.data.gags.length === 0) return "This fact has no picture to draw yet.";
     if (!canAfford) return "You have no credits left for a picture.";
     if (!caption.name.trim()) return "Put a name on the meme.";
     return null;
-  }, [uploadKey, photoCheck.isPending, photoUnusable, subject, petName, options.isPending, options.data, canAfford, caption.name]);
+  })();
 
-  const makeIt = useCallback(async () => {
+  const makeIt = async () => {
     if (blocker || submitting || !uploadKey || !subject) return;
     setSubmitting(true);
     setSubmitError(null);
@@ -223,7 +228,7 @@ function FlowForm({ factId, factText, memberName, memberPronouns, fromBuilder, i
         uploadKey,
         lookStyleId,
         // Drawn with the subject's own name: the member's, or the pet's (Q5: 2).
-        subject: subject === "pet" ? { kind: "pet", name: petName.trim(), pronouns: simplePronouns(petPronouns) } : { kind: "me" },
+        subject: isPet ? { kind: "pet", name: drawn.name, pronouns: simplePronouns(drawn.pronouns) } : { kind: "me" },
         aspectRatio: shape,
         caption: { name: caption.name.trim(), pronouns: simplePronouns(caption.pronouns) },
       },
@@ -250,16 +255,15 @@ function FlowForm({ factId, factText, memberName, memberPronouns, fromBuilder, i
       }
       pending.current = null;
       const started = body.picture as MemberPictureState;
-      queryClient.setQueryData(["member-pictures", "one", started.attemptId], { picture: started, credits: body.credits as number });
+      queryClient.setQueryData(pictureKeys.one(started.attemptId), { picture: started, credits: body.credits as number });
       setActiveId(started.attemptId);
-      void queryClient.invalidateQueries({ queryKey: pictureKeys.list });
     } catch {
       // A lost response keeps the same request: trying again cannot spend twice.
       setSubmitError(unsure);
     } finally {
       setSubmitting(false);
     }
-  }, [blocker, submitting, uploadKey, subject, options.data, gagId, lookStyleId, petName, petPronouns, shape, caption, factId, queryClient]);
+  };
 
   const makeMeme = (p: MemberPictureState) => {
     if (!p.aiImageId || !p.imageUrl) return;
@@ -289,7 +293,7 @@ function FlowForm({ factId, factText, memberName, memberPronouns, fromBuilder, i
 
   return (
     <>
-      <p className="font-display text-xl leading-snug" data-testid="ai-picture-fact"><HighlightedFactText template={factText} name={drawnName} pronouns={drawnPronouns} /></p>
+      <p className="font-display text-xl leading-snug" data-testid="ai-picture-fact"><HighlightedFactText template={factText} name={drawnName} pronouns={drawn.pronouns} /></p>
 
       {drawingHere.filter((p) => p.attemptId !== activeId).map((p) => (
         <div key={p.attemptId} className="flex items-center justify-between rounded-md border border-white/10 px-3 py-2 text-sm" data-testid="ai-picture-other-drawing">
@@ -347,10 +351,9 @@ function FlowForm({ factId, factText, memberName, memberPronouns, fromBuilder, i
                 </p>
               )}
             </div>
-            {subject === "pet" && (
+            {isPet && (
+              <>
               <p className="text-xs text-muted-foreground">Your pet's name and pronouns, for the picture:</p>
-            )}
-            {subject === "pet" && (
               <div className="flex gap-2">
                 <input
                   value={petName}
@@ -370,6 +373,7 @@ function FlowForm({ factId, factText, memberName, memberPronouns, fromBuilder, i
                   {PRONOUN_PRESETS.map((p) => <option key={p} value={p}>{p}</option>)}
                 </select>
               </div>
+              </>
             )}
           </section>
 
@@ -383,7 +387,7 @@ function FlowForm({ factId, factText, memberName, memberPronouns, fromBuilder, i
 
           {gags && gags.length === 0 && <p className="text-sm text-muted-foreground">This fact has no picture to draw yet.</p>}
           {gags && gags.length > 0 && (
-            <GagOptions gags={gags} selectedGagId={gagId} onSelect={setGagId} subjectName={drawnName} subjectPronouns={drawnPronouns} />
+            <GagOptions gags={gags} selectedGagId={gagId} onSelect={setGagId} subjectName={drawnName} subjectPronouns={drawn.pronouns} />
           )}
 
           {looks.data && <StylePicker looks={looks.data} value={lookStyleId} onChange={setLookStyleId} />}

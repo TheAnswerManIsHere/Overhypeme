@@ -26,9 +26,9 @@ function shotsOf(g: GagOption): string[] {
 }
 
 export function GagOptions({ gags, selectedGagId, onSelect, subjectName, subjectPronouns }: Props) {
-  const [openId, setOpenId] = useState<number | null>(null);
+  const [openIndex, setOpenIndex] = useState<number | null>(null);
   const single = gags.length === 1;
-  const open = gags.find((g) => g.gagId === openId) ?? null;
+  const open = openIndex === null ? null : gags[openIndex] ?? null;
   const optionLabel = (i: number) => (single ? "This fact's visualization" : `Option ${i + 1}`);
 
   return (
@@ -44,7 +44,7 @@ export function GagOptions({ gags, selectedGagId, onSelect, subjectName, subject
             <button
               key={g.gagId}
               type="button"
-              onClick={() => setOpenId(g.gagId)}
+              onClick={() => setOpenIndex(i)}
               aria-label={`${optionLabel(i)}: view larger`}
               aria-current={picked ? "true" : undefined}
               className={`w-full rounded-lg border-2 p-2 text-left transition-colors ${picked ? "border-primary bg-primary/10" : "border-white/15 hover:border-white/30"}`}
@@ -65,10 +65,10 @@ export function GagOptions({ gags, selectedGagId, onSelect, subjectName, subject
         })}
       </div>
 
-      <Dialog open={open !== null} onOpenChange={(o) => { if (!o) setOpenId(null); }}>
+      <Dialog open={open !== null} onOpenChange={(o) => { if (!o) setOpenIndex(null); }}>
         {open && (
           <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto" data-testid="ai-picture-gag-dialog">
-            <DialogTitle>{optionLabel(gags.indexOf(open))}</DialogTitle>
+            <DialogTitle>{optionLabel(openIndex!)}</DialogTitle>
             <DialogDescription data-testid="ai-picture-gag-description">
               {open.description ? <HighlightedFactText template={open.description} name={subjectName} pronouns={subjectPronouns} /> : null}
             </DialogDescription>
@@ -85,7 +85,7 @@ export function GagOptions({ gags, selectedGagId, onSelect, subjectName, subject
                 <button
                   type="button"
                   className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-                  onClick={() => { onSelect(open.gagId); setOpenId(null); }}
+                  onClick={() => { onSelect(open.gagId); setOpenIndex(null); }}
                   data-testid="ai-picture-gag-select"
                 >
                   Select this visualization option
