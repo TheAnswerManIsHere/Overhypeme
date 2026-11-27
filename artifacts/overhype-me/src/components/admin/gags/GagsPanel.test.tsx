@@ -985,6 +985,18 @@ describe("GagsPanel", () => {
       }
     });
 
+    it("shows one description field, for the version being worked on: the draft's while a changed draft exists (David, UAT of PR #1334)", async () => {
+      const published = desc({ text: "{NAME} lifts the moon.", drafting: "none", reviewed: true, origin: "moderator" });
+      const draft = desc({ contentFingerprint: "c".repeat(64), text: "{NAME} lifts the sun.", drafting: "none", earlierText: "{NAME} lifts the moon." });
+      stubFetch(view([gag({ id: 1, slot: 1, pendingContent: scene("{NAME} lifts the sun."), descriptions: { published, draft } })]));
+      render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={[]} />);
+      await screen.findByTestId("gag-card");
+      const inputs = screen.getAllByTestId("gag-description-input") as HTMLInputElement[];
+      expect(inputs).toHaveLength(1);
+      expect(inputs[0]!.value).toBe("{NAME} lifts the sun.");
+      expect(screen.getByTestId("gag-description-status").textContent).toContain("goes live when this fact's changes are published");
+    });
+
     it("names a gag with unsaved description typing, until both its content and description edits clear (Codex 4713938190)", async () => {
       stubFetch(withDesc(desc({ text: "{NAME} lifts the moon.", drafting: "none" })));
       const onUnsaved = vi.fn();

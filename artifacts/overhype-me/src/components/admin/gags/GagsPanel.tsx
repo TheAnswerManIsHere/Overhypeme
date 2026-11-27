@@ -676,10 +676,16 @@ export function GagDescriptions({ factId, reviewId, gag, readOnly, onView, onUns
   onUnsaved?: (contentFingerprint: string, unsaved: boolean) => void;
 }) {
   const d = gag.descriptions;
-  const rows = [
-    { version: d?.published ?? null, label: d?.draft ? "Published version" : null, note: "Approving it shows it to members now." },
-    { version: d?.draft ?? null, label: d?.published ? "Draft version" : null, note: "It goes live when this fact's changes are published." },
-  ].filter((r): r is { version: GagDescriptionView; label: string | null; note: string } => r.version != null);
+  // One field, for the version being worked on, as the scene and bubbles
+  // above it show the working version (David, 2026-11-27, UAT of PR #1334):
+  // the draft's description while a changed draft exists, which goes live
+  // with the fact's publish; otherwise the published one, which approving
+  // shows to members at once (Q15: 1).
+  const rows = d?.draft
+    ? [{ version: d.draft, label: null, note: "It goes live when this fact's changes are published." }]
+    : d?.published
+      ? [{ version: d.published, label: null, note: "Approving it shows it to members now." }]
+      : [];
   if (rows.length === 0) return null;
   return (
     // A field of the gag, beside its scene and bubbles; there is no separate

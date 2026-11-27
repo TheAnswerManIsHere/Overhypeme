@@ -376,9 +376,12 @@ This closes #1315.
     fingerprint, unused.
 
 **Review.**
-- The gag editor shows the description for the published content and the
-  one for the draft content, each editable. Editing marks it moderator-written
-  and reviewed.
+- The gag editor shows one description field, for the version being worked
+  on, as its scene and bubbles do: the draft content's description while a
+  changed draft exists (it goes live with the fact's publish), otherwise the
+  published content's (approving it shows it at once). Editing marks it
+  moderator-written and reviewed (David, 2026-11-27, at the UAT of PR #1334:
+  *"I feel like there should be a single field."*).
 - The description is a field on each gag, beside its scene and bubbles, with
   its drafting state: drafting, drafted, or failed with its reason. There is
   no separate descriptions page (David, 2026-11-27, at the UAT of PR #1334:
@@ -450,7 +453,7 @@ the migration review's checklist and is held by tests.
 - drawing, done, failed with "your credit was returned".
 
 **Admin:**
-- the gag editor's two description fields and their review action;
+- the gag editor's description field and its review action;
 - the offer of earlier text after a content change.
 
 ## Security, Permissions, and Validation
