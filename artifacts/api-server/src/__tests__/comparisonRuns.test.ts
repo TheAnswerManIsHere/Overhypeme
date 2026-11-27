@@ -48,7 +48,7 @@ import {
 } from "../lib/comparison/runs.js";
 import { EMPTY_VISUAL_STRATEGY_OVERRIDE, PATH_COMPARISON_RETIRED_MESSAGE } from "@workspace/api-zod";
 import { testEngineRow } from "./helpers/testEngines.js";
-import { clearTestEngineDefinitions } from "../lib/engineInterpreter.js";
+import { clearTestEngineDefinitions, engineById } from "../lib/engineInterpreter.js";
 
 const P = `t-cr-${randomUUID().slice(0, 6)}`;
 const FAMILIES = { gpt: `${P}-gpt`, flux: `${P}-flux` };
@@ -77,10 +77,15 @@ const fakeFal: ComparisonFal = {
     if (failNextGptEdit && isGptEditRequest(requestId)) { failNextGptEdit = false; return "FAILED"; }
     return statusScript.shift() ?? "COMPLETED";
   },
-  async result(_e, requestId) { return { images: [{ url: `https://vendor.test/${requestId}.png` }] }; },
+  async result(_e, requestId) {
+    if (failNextResult) { const err = failNextResult; failNextResult = null; throw err; }
+    return { images: [{ url: `https://vendor.test/${requestId}.png` }] };
+  },
 };
 /** When set, the next status read of a GPT edit request reports FAILED (once). */
 let failNextGptEdit = false;
+/** When set, the next result read throws this error (once), as the SDK's ApiError does. */
+let failNextResult: unknown = null;
 const submissionOf = (requestId: string) => submissions[Number(requestId.split("-")[1]) - 1];
 const isGptEditRequest = (requestId: string) => {
   const s = submissionOf(requestId);
@@ -136,7 +141,7 @@ function installFakes(): void {
   CELL_POLL.intervalMs = 0;
 }
 
-beforeEach(() => { submissions = []; statusScript = []; failStore = false; failNextGptEdit = false; installFakes(); });
+beforeEach(() => { submissions = []; statusScript = []; failStore = false; failNextGptEdit = false; failNextResult = null; installFakes(); });
 
 async function newSet(label: string, imageSize?: "comparison" | "final"): Promise<number> {
   const { setId } = await createComparisonSet({
@@ -332,6 +337,28 @@ describe("a comparison run end to end, with fakes", () => {
     assert.ok(member.every((r) => r.purpose === "final" && r.megapixels > 0.5 && r.megapixels < 2), JSON.stringify(member));
     const ordinary = await sizesOf(await newSet("comparison size"));
     assert.ok(ordinary.every((r) => r.purpose === "comparison" && r.megapixels < 2), JSON.stringify(ordinary));
+  });
+
+  it("names the engine and fal's reason when a model refuses a picture under its content policy (Issue #1343)", async () => {
+    // fal answers a moderated request's result read with a 422 whose detail is
+    // a content_policy_violation; the SDK's ApiError carries the bare status
+    // text as its message, which is all the card showed before.
+    const setId = await newSet("content refusal");
+    await drain((await start(setId, "prepare")).body.run.id);
+    const refusal = Object.assign(new Error("Unprocessable Entity"), {
+      status: 422,
+      body: { detail: [{ loc: ["body", "prompt"], msg: "The content could not be processed because it contained material flagged by a content checker.", type: "content_policy_violation" }] },
+    });
+    failNextResult = refusal;
+    const render = await start(setId, "render");
+    const payloads = await renderPayloads(render.body.run.id);
+    await renderCell(payloads[0]!);
+    const [failed] = await db.select().from(comparisonCellsTable).where(eq(comparisonCellsTable.id, payloads[0]!.cellId));
+    assert.equal(failed!.state, "failed");
+    const label = engineById(failed!.engineId)!.label;
+    assert.ok(String(failed!.error).includes(`${label} refused this picture under its content policy`), String(failed!.error));
+    assert.match(String(failed!.error), /flagged by a content checker/);
+    assert.doesNotMatch(String(failed!.error), /Unprocessable Entity/);
   });
 
   it("keeps a failed call's reservation, and a resumed cell never resubmits", async () => {
