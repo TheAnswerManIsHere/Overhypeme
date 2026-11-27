@@ -45,7 +45,7 @@ written verification note ("run X, observe Y"). A prototype-phase feature
 keeps this rule — its surface is the thing the owner uses — with the machine
 lanes proving what a machine can check (never what an AI-generated image
 shows beyond what anyone would verify the same way, which is his, and a
-paid AI run within his monthly budget, $100 a calendar month across every product with no per-run cap, asking only for a run that would take the month past it: [`uat-doc-format.md`](../tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07))
+paid AI run under David's paid-run rule — a ceiling set before it starts, a 🛑 stop for a run whose worst case is $10 or more or a task past $10, and asking first past $100 a calendar month across every product: [`uat-doc-format.md`](../tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07))
 and the owner's feedback, not a note, standing as the acceptance script for
 the rest
 ([`working-modes.md`](working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
@@ -188,9 +188,12 @@ and carries on, and he corrects it if it is wrong (David, 2026-11-14;
   paid-run ledger in KITT (`uat-doc-format.md`, *Lanes*) — past $100**
   (David, 2026-11-17: *"Stop asking about spending money. We need to get to
   launch. Reset the spend amount to $100/month and just do what is
-  needed."*; it replaced $5 a run and $25 a week, David, 2026-10-21) —
-  within it, a needed paid run proceeds without asking and its cost is
-  reported. The list is
+  needed."*; it replaced $5 a run and $25 a week, David, 2026-10-21), **or
+  a single paid run whose worst case is $10 or more, or a task whose paid
+  runs pass $10** — the runaway tripwire (David, 2026-11-27: *"If you got
+  stuck in some kind of loop that started spending hundreds of dollars, I'd
+  want to know about it and prevent it."*) — otherwise a needed paid run
+  proceeds without asking. The list is
   closed and grows only by his word.
 - **Plans are his, every time** (David, 2026-10-10: *"Don't do anything that's
   not in a plan and don't build new plans and start executing against them
@@ -569,7 +572,11 @@ is written so he can act on it with no knowledge of how the system is laid
 out. Every agent, every product, every surface he reads: chat, a PR body, a
 UAT step, a hand-off prompt.
 
-- **Every place is a full, clickable URL.** Never a path stub
+- **Every place is a full, clickable URL, and a link is never inside a code
+  block or inline code (backticks)** (David, 2026-11-27: *"In this environment I can't click a link in
+  a code block. Never put links in the code block."*). The URL is written in
+  the text, where it is clickable, even when he will also paste it
+  somewhere. Never a path stub
   (`/api/stripe/webhook`), never a bare host, never a name for a place
   ("the dev preview", "the Billing panel", "the Stripe dashboard"). A page
   inside the product gets the full address of the environment it is in. A
@@ -577,9 +584,9 @@ UAT step, a hand-off prompt.
   right account where the site allows it. Where no deep link exists, give
   the nearest full URL and then the clicks from there, each named as it
   appears on screen.
-- **Every value he must copy or type is in a code block of its own**, so one
-  click copies it: a URL he pastes elsewhere, a setting's name, a value, a
-  sign-in code. One value per block; nothing else inside it.
+- **Every other value he must copy or type is in a code block of its own**,
+  so one click copies it: a setting's name, a value, a sign-in code. One
+  value per block; nothing else inside it, and never a link.
 - **No shorthand for where.** Say which app, which environment (development
   or production), which account and which page, in words he would use, every
   time: "the development app on Replit", never "dev". An agent that is about

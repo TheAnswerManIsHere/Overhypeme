@@ -24,7 +24,7 @@ Read it before settling the first machine-lane step of a run.
   a checkout or worktree at the commit under test** (or the on-demand
   workflow dispatched on that commit), with the output kept with the commit
   it ran at; that is close-out's lapse, so it goes on the run record's
-  **Lifecycle gaps** line (section 5). One that would start a paid AI run runs within David's monthly paid-run budget — $100 a calendar month across every product, no per-run cap — and asks him only for a run that would take the month past it, as a paid capture does (below).
+  **Lifecycle gaps** line (section 5). One that would start a paid AI run runs under David's paid-run rule — a ceiling set before it starts, a 🛑 stop for a run whose worst case is $10 or more or a task past $10, and asking first past $100 a calendar month across every product, as a paid capture does (below).
 - **`live`** — **cited from close-out's Post-merge verification when that
   section ran the step's check and the Repl's commit has not moved since**:
   the workstream reaching `stage:uat` is that pass's evidence, and the row
@@ -35,7 +35,7 @@ Read it before settling the first machine-lane step of a run.
   `main`'s CI never sees. Then I run it through the live-environment
   connector, **read-only, always**, after confirming the Repl's synced
   commit is the commit under test, and quote what it printed. A check that would start a
-  paid AI run is not read-only: it runs within David's monthly paid-run budget — $100 a calendar month across every product, no per-run cap — and asks him only for a run that would take the month past it, as a
+  paid AI run is not read-only: it runs under David's paid-run rule — a ceiling set before it starts, a 🛑 stop for a run whose worst case is $10 or more or a task past $10, and asking first past $100 a calendar month across every product, as a
   paid capture does (below). State a check needs is a
   Setup `[claude]` line with its `[restore]` (section 2); a probe whose
   refusal is the thing tested writes nothing and is not a write.
@@ -58,14 +58,14 @@ Read it before settling the first machine-lane step of a run.
   The step's result is
   that reading: a shot that was not produced, or that I cannot read, is
   Blocked, never Pass; a reading that contradicts the `Expect` is a Fail,
-  filed before he sees anything (section 4). **A capture that needs a paid vendor runs within David's monthly paid-run
-  budget — $100 a calendar month across every product, no per-run cap** — as
+  filed before he sees anything (section 4). **A capture that needs a paid vendor runs under David's paid-run rule** — as
   does any check, in any lane, that would start a paid AI run
-  (`uat-doc-format.md`, *Lanes*):
-  within it the capture runs without asking, inside the cap the declaration
-  names, and its cost goes in the run record and as a comment on the fleet's
-  paid-run ledger, which is read before the run. One that would take the
-  month past it asks, naming the PR, the paid calls and the worst-case cost, and its
+  (`uat-doc-format.md`, *Lanes*, its only statement): it runs without asking,
+  inside a ceiling set before it starts (the cap the declaration names, or its
+  own worst case), and only a run or task of $1 or more reads the fleet's
+  ledger first and is logged on it. One that would cost $10 or more, in the
+  run or across the task, or take the month past $100, stops and asks,
+  naming the PR, the paid calls and the worst-case cost, and its
   steps are Blocked on him until he answers, or he answers the judgement
   steps from an image he makes himself in the product. A consumer with no such declaration has no
   capture run, and its `capture` steps are Blocked on that, never handed to
@@ -166,6 +166,6 @@ that is three places:
 **Once a step is fully scriptable, UAT is usually the wrong home for it.** It
 belongs in CI or in the PR's post-merge verification, where it runs on every
 change forever instead of once — unless it calls a paid AI vendor, which
-runs within David's monthly paid-run budget — $100 a calendar month across every product, no per-run cap — and asks him only for a run that would take the month past it (`uat-doc-format.md`, *Lanes*). Automation is mostly *draining* mechanical
+runs under David's paid-run rule — a ceiling set before it starts, a 🛑 stop for a run whose worst case is $10 or more or a task past $10, and asking first past $100 a calendar month across every product (`uat-doc-format.md`, *Lanes*). Automation is mostly *draining* mechanical
 steps out of UAT into the layers that already exist — and scripting whatever
 live-app checks are left over into the PR's post-merge verification.

@@ -381,7 +381,8 @@ starts, not mid-exchange:
    alive to collect the token when David approves.
 3. Hand David the URL and code as a 🛑 with a push notification, **in the same
    turn**: the code expires in about 15 minutes. The code goes in its own
-   fenced code block so he can copy it with one tap (`claude-core.md`, *Astra*).
+   fenced code block so he can copy it with one tap; the URL is a clickable
+   link in the text, never in a block (`claude-core.md`, *Astra*).
 
 The bundle stays in `$CODEX_HOME` for the container's life. It is never written
 to the environment block, never sent through chat, never handed over in a file.

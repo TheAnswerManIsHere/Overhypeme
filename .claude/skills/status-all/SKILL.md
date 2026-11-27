@@ -306,8 +306,8 @@ asked — not just the board's static Status/Waiting-on value.
 agent-held work (the post-merge verification run is driven by the agent
 through the Replit connector inside close-out) — it buckets and
 stall-detects like `waiting:claude`, and a lingering one means a close-out
-some session needs to finish. A Post-merge step that would start a paid AI run runs within David's monthly paid-run budget — $100 a calendar month across every product, no per-run cap — and asks him only for a run that would take the month past it (`uat-doc-format.md`, *Lanes*): within budget it is agent work
-(`waiting:claude`), not `waiting:david` and not reported under 🛑 NEEDS YOU; only a run above the budget is labelled
+some session needs to finish. A Post-merge step that would start a paid AI run runs under David's paid-run rule — a ceiling set before it starts, a 🛑 stop for a run whose worst case is $10 or more or a task past $10, and asking first past $100 a calendar month across every product (`uat-doc-format.md`, *Lanes*): a run that proceeds is agent work
+(`waiting:claude`), not `waiting:david` and not reported under 🛑 NEEDS YOU; only one held on either stop is labelled
 `waiting:david` and reported there, never as stalled agent work. **A row
 whose live session is blocked is reported under 🛑 NEEDS YOU whatever its
 label** (Step 3b), and its restated ask is that session's quoted
