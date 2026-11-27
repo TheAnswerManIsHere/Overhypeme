@@ -357,7 +357,15 @@ This closes #1315.
 - A durable sweep finds every gag version — published and draft — that has
   no description for its current fingerprint, and drafts one.
 - The draft comes from that content's own scene and bubbles, using the
-  existing utility text model under the budget gate and cost ledger.
+  existing utility text model. Like the other moderation helpers (cast
+  reading, joke ideas), it passes no per-account budget gate and writes no
+  cost-ledger row: no member account is behind it. Its spend is bounded by
+  construction (at most three tries per gag version, 25 versions a run) and
+  every try is counted on the description row (amended by David, Q18: 1,
+  2026-11-27, PR #1334 round 4; the parent plan's member-call rule is
+  unchanged).
+- It runs straight after a gag content write as well as on the schedule
+  (David, Q16: 1, 2026-11-26).
 - It runs after any gag content write and on a schedule, so the prefill job,
   the editor and the backfill are one path. The backfill is its first run
   over the published catalogue.

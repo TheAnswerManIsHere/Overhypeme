@@ -330,7 +330,13 @@ export function parseDescriptionResponse(raw: string): string {
 
 export type DescriptionDrafter = (content: VisualPromptStrategyOverride, factText: string | null) => Promise<string>;
 
-/** The real drafter, on the utility model (as cast extraction is). */
+/**
+ * The real drafter, on the utility model (as cast extraction is). Like the
+ * other moderation helpers it passes no per-account budget gate and writes no
+ * cost row: no member account is behind a draft (David, Q18: 1, 2026-11-27).
+ * Spend is bounded by the sweep: DESCRIPTION_MAX_ATTEMPTS tries per version,
+ * DESCRIPTION_SWEEP_BATCH versions a run, each try counted in `attempts`.
+ */
 export const draftDescriptionWithModel: DescriptionDrafter = async (content, factText) => {
   const response = await callUtilityLLM({
     responseFormat: zodResponseFormat(draftWireSchema, "gag_description"),
