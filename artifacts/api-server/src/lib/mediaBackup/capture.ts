@@ -241,9 +241,10 @@ async function databasePoint(
       // travels in PGPASSWORD, so a failure's message cannot carry it.
       const conn = pgCommandConnection(databaseUrl);
       // `_system` is Replit's own log of the migrations each publish applied (one table,
-      // replit_database_migrations_v1); no app code reads it, the app's login has no
-      // USAGE on it, and the platform's point-in-time restore still carries it
-      // (Launch Phase 15, 5b; #1306). Everything the app needs is dumped.
+      // replit_database_migrations_v1): platform bookkeeping, not app data. No app code
+      // reads it, a restored copy of it would misstate which publishes applied there, and
+      // the platform's point-in-time restore still carries it (#1306). Everything the
+      // app needs is dumped.
       await execFileAsync("pg_dump", ["-Fc", "--no-owner", "--no-acl", "--exclude-schema=_system", `--snapshot=${rows[0].snapshot}`, "-f", dumpInto, conn.url], {
         env: conn.env,
         maxBuffer: 16 * 1024 * 1024,
