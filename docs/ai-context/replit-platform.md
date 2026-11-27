@@ -496,8 +496,9 @@ boundaries are `claude-core.md`, *Connectors → Replit*.
 - **A post-merge verification run is a two-call sequence**: kick it off with
   `update_app_using_prompt` carrying the checks and an explicit read-only
   instruction, wait a few minutes, then `ask_question` for the results. A
-  paid AI step — within his budget, or above it on his go-ahead — goes in a
-  separate request that names its paid calls and worst-case cost as the only
+  paid AI step — proceeding under the paid-run rule, or past one of its stops
+  on his go-ahead — goes in a separate request that names its paid calls and
+  worst-case cost, its ceiling, as the only
   thing it may do beyond reading (`uat-doc-format.md`, *Lanes*).
 
 ## Contradictions inside Replit's docs

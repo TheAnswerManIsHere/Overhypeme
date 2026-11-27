@@ -1,6 +1,6 @@
 ---
 name: add_repo with push access can be refused by the auto-mode classifier — stop and ask David, never work around it
-description: A cloud session in auto mode whose settings carry no allow rule for add_repo had its add_repo calls (push access) refused by the permission classifier, reason "Access Added As A Means". It was not a GitHub access failure. The calls succeeded after David answered and the session left auto mode. Measured once, on /sync-fleet Step 2; the same tool is called by a handoff's first step and by the paid-AI ledger write.
+description: A cloud session in auto mode whose settings carry no allow rule for add_repo had its add_repo calls (push access) refused by the permission classifier, reason "Access Added As A Means". It was not a GitHub access failure. The calls succeeded after David answered and the session left auto mode. Measured once, on /sync-fleet Step 2; the same tool is called by a handoff's first step and by the paid-AI ledger write (a run or task of $1 or more, `uat-doc-format.md`, *Lanes*).
 ---
 
 <!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
@@ -34,8 +34,10 @@ settings carry no allow rule for it:
 - A handoff prompt's first action, when the work is in another repository
   (the `handoff` skill, Step 5, prompt item 3). There a refusal is easy to misread as
   "the handoff pointed at something that does not exist"; it is not.
-- The paid-AI ledger write, when a session's access does not reach KITT
-  (`uat-doc-format.md`, *Lanes*).
+- The paid-AI ledger read and write before a paid run of $1 or more, or once
+  a task's small runs together reach $1, when a session's access does not
+  reach KITT (`uat-doc-format.md`, *Lanes*); a task whose runs stay under $1
+  touches no ledger, so it never calls `add_repo` for it.
 
 **KITT's own settings carry the allow rule** since KITT PR #291 (both
 spellings of `add_repo`, beside the other session tools). Whether an allow

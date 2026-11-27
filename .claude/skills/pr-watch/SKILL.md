@@ -283,7 +283,7 @@ thread is still resolved, because the ruleset requires it.
    fails here is a defect found before the merge, handled like any other),
    then squash-merge, check the Repl for its own commits and then sync and verify it (close-out step 3), execute the
    Post-merge verification section (a step that would start a paid AI run
-   within David's monthly paid-run budget — $100 a calendar month across every product, no per-run cap — and asks him only for a run that would take the month past it (`uat-doc-format.md`, *Lanes*)), post the harvest-notes comment, and send
+   under David's paid-run rule — a ceiling set before it starts, a 🛑 stop for a run whose worst case is $10 or more or a task past $10, and asking first past $100 a calendar month across every product (`uat-doc-format.md`, *Lanes*)), post the harvest-notes comment, and send
    the merge report with both SHAs, the latitude line, the PR's **Decisions
    taken on my recommendation** entries, the UAT handoff and, last, its
    plain-English summary — on the `✅ **PLAN DONE** —` line when this merge

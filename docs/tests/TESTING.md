@@ -643,7 +643,7 @@ current answer, and the report must show a usable current answer for every
 expected operation. (It also read one Pexels-only legacy meme over the
 fixture until Pexels went in launch Phase 4, removal 6.)
 Its `--allowance` defaults to $5 per invocation, separate from the recording
-ceiling, and any positive amount may be given. Like every paid AI run, it proceeds within the fleet's monthly paid-run budget without asking and asks only past it (`uat-doc-format.md`, *Lanes*; `decisions.md`, 2026-11-17).
+ceiling, and any positive amount may be given. Like every paid AI run, it proceeds under the fleet's paid-run rule (`uat-doc-format.md`, *Lanes*): the allowance is its ceiling, set before it starts; a run or task of $1 or more reads the fleet ledger first and is logged on it; and a run whose worst case is $10 or more, a task past $10, or a run that would take the month past $100 across every product stops and asks David first.
 
 ```sh
 cd artifacts/api-server && DATABASE_URL=<heliumdb_test> \
@@ -857,7 +857,7 @@ ask for (only `AI_DOUBLE_FAIL` asks).
 
 **Re-recording** (after a change to a prompt, a schema, the baseline, or a
 vendor client upgrade) runs on the Repl, never in CI, under a spending
-ceiling the recorder enforces before every vendor call. Like every paid AI run, it proceeds within David's monthly budget ($100 a calendar month across every product, no per-run cap, read from the fleet ledger) and is reported with its cost; only a run that would take the month past it asks first (`uat-doc-format.md`, *Lanes*):
+ceiling the recorder enforces before every vendor call. Like every paid AI run, it proceeds under David's paid-run rule (`uat-doc-format.md`, *Lanes*): `--allowance` is the ceiling set before it starts; a run or task of $1 or more reads the fleet ledger first and is logged on it; one whose worst case is $10 or more, or that would take the month past $100 across every product, stops and asks first:
 
 ```sh
 cd artifacts/api-server && DATABASE_URL=<heliumdb_test> \
