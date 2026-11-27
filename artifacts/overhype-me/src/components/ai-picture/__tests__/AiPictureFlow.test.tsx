@@ -88,6 +88,8 @@ describe("AiPictureFlow", () => {
       aspectRatio: "landscape",
       caption: { name: "Rex", pronouns: "they/them" },
     });
+    // Left to follow the pet, the caption carries no mark.
+    expect((sent()[0]!.caption as Record<string, unknown>).chosen).toBeUndefined();
   });
 
   it("draws in each shape chosen", async () => {
@@ -116,7 +118,7 @@ describe("AiPictureFlow", () => {
     expect((screen.getByTestId("ai-picture-caption-name") as HTMLInputElement).value).toBe("Alex");
     fireEvent.click(confirm());
     await waitFor(() => expect(sent()).toHaveLength(1), S);
-    expect(sent()[0]).toMatchObject({ subject: { kind: "pet", name: "Rex" }, caption: { name: "Alex", pronouns: "he/him" } });
+    expect(sent()[0]).toMatchObject({ subject: { kind: "pet", name: "Rex" }, caption: { name: "Alex", pronouns: "he/him", chosen: true } });
   });
 
   it("a photo check that could not run says so and offers no subject; a result for a photo no longer chosen sets nothing", async () => {
@@ -317,6 +319,22 @@ describe("AiPictureFlow", () => {
     expect(onOpenBuilder).toHaveBeenCalled();
     expect(readPictureHandoff("3")).toMatchObject({ aiImageId: 77, aspectRatio: "landscape", caption: { name: "Rex", pronouns: "he/him", chosen: false } });
   }, 10000);
+
+  it("a picture whose caption was chosen hands it off as chosen, even to a form that never saw the choice", async () => {
+    const state = picture("done", { aiImageId: 79, imageUrl: "/img/79", caption: { name: "Sam", pronouns: "he/him", chosen: true } });
+    stub((url) => {
+      if (url === "/api/member-pictures") return { pictures: [], credits: 1 };
+      if (url === "/api/member-pictures/5") return { picture: state, credits: 1 };
+      if (url === "/api/facts/3/member-pictures") return [200, { picture: state, credits: 1 }];
+      return undefined;
+    });
+    renderFlow();
+    await waitFor(() => expect(confirm().hasAttribute("disabled")).toBe(false), S);
+    // This form's own caption was never touched.
+    fireEvent.click(confirm());
+    fireEvent.click(await screen.findByTestId("ai-picture-make-meme", {}, S));
+    expect(readPictureHandoff("3")).toMatchObject({ caption: { name: "Sam", pronouns: "he/him", chosen: true } });
+  });
 
   it("an older picture with no recorded caption hands off none, so the builder's caption stays", async () => {
     const state = picture("done", { aiImageId: 78, imageUrl: "/img", caption: null, aspectRatio: "portrait" });

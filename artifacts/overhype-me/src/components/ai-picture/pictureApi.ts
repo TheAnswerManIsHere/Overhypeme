@@ -40,8 +40,8 @@ export interface MemberPictureState {
   imageUrl: string | null;
   /** The shape it was drawn in. Absent only on a state read before the server recorded it. */
   aspectRatio?: AspectRatio;
-  /** The name its meme caption was meant to carry; null for a picture made before it was recorded. */
-  caption?: { name: string; pronouns: string | null } | null;
+  /** The name its meme caption was meant to carry, and `chosen` when the member chose it; null for a picture made before it was recorded. */
+  caption?: { name: string; pronouns: string | null; chosen?: true } | null;
   createdAt: string;
 }
 

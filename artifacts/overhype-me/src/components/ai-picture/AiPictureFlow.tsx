@@ -247,7 +247,9 @@ function FlowForm({ factId, factText, memberName, memberPronouns, fromBuilder, i
         // Drawn with the subject's own name: the member's, or the pet's (Q5: 2).
         subject: isPet ? { kind: "pet", name: drawn.name, pronouns: simplePronouns(drawn.pronouns) } : { kind: "me" },
         aspectRatio: shape,
-        caption: { name: caption.name.trim(), pronouns: simplePronouns(caption.pronouns) },
+        // `chosen` travels with the picture, so a hand-off made later, by a form
+        // that never saw the choice, still knows it (Codex, PR #1340, round 2).
+        caption: { name: caption.name.trim(), pronouns: simplePronouns(caption.pronouns), ...(chosenCaption ? { chosen: true } : {}) },
       },
     };
     const unsure = "We couldn't tell whether this picture started. Try again; you won't be charged twice.";
@@ -296,7 +298,7 @@ function FlowForm({ factId, factText, memberName, memberPronouns, fromBuilder, i
       // The caption the picture was made for, read from its own state; an
       // older picture has none, and the builder's caption stays as it is.
       caption: p.caption
-        ? { name: p.caption.name, pronouns: p.caption.pronouns, chosen: !!chosenCaption && chosenCaption.name.trim() === p.caption.name }
+        ? { name: p.caption.name, pronouns: p.caption.pronouns, chosen: p.caption.chosen === true }
         : null,
     });
     onOpenBuilder();

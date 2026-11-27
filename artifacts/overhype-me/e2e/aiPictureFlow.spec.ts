@@ -26,17 +26,19 @@ const upload = (objectPath: string) => ({
   transform: null, sourceObjectPath: null, factId: null, transformParamsHash: null, isProfile: false,
 });
 
-const picture = (status: "queued" | "done") => ({
+/** The picture's state as the server returns it: its shape and caption are the ones the command sent. */
+const picture = (status: "drawing" | "done", sent: Record<string, unknown>) => ({
   attemptId: 5, factId: FACT_ID, status, reason: null, creditReturned: false,
   aiImageId: status === "done" ? 77 : null,
   imageUrl: status === "done" ? "/api/memes/ai-user/image?storagePath=pic.png" : null,
-  aspectRatio: "landscape", caption: { name: "Rex", pronouns: "he/him" }, createdAt: "2026-11-27T00:00:00Z",
+  aspectRatio: sent["aspectRatio"], caption: sent["caption"] ?? null, createdAt: "2026-11-27T00:00:00Z",
 });
 
-/** Stubs every member-picture route the flow and the builder read; returns the command bodies sent. */
-async function stubPictures(page: Page): Promise<Array<Record<string, unknown>>> {
+/** Stubs every member-picture route the flow and the builder read; the picture draws until `finish()`. */
+async function stubPictures(page: Page): Promise<{ commands: Array<Record<string, unknown>>; finish: () => void }> {
   const commands: Array<Record<string, unknown>> = [];
-  let made = false;
+  let done = false;
+  const state = () => picture(done ? "done" : "drawing", commands[0]!);
   await page.route(/\/api\/users\/me\/uploads/, (r) => json(r, { uploads: [upload("/objects/uploads/rex.jpg")], nextCursor: null }));
   await page.route(/\/api\/storage\/objects\//, (r) => r.fulfill({ status: 200, contentType: "image/png", body: PIXEL }));
   await page.route(/\/api\/memes\/ai-user\/image/, (r) => r.fulfill({ status: 200, contentType: "image/png", body: PIXEL }));
@@ -49,12 +51,11 @@ async function stubPictures(page: Page): Promise<Array<Record<string, unknown>>>
   await page.route(/\/api\/member-pictures\/photo-check$/, (r) => json(r, { uploadKey: "/objects/uploads/rex.jpg", subject: "pet" }));
   await page.route(new RegExp(`/api/facts/${FACT_ID}/member-pictures$`), (r) => {
     commands.push(r.request().postDataJSON() as Record<string, unknown>);
-    made = true;
-    return json(r, { picture: picture("queued"), credits: 2 }, 202);
+    return json(r, { picture: state(), credits: 2 }, 202);
   });
-  await page.route(/\/api\/member-pictures$/, (r) => json(r, { pictures: made ? [picture("done")] : [], credits: 2 }));
-  await page.route(/\/api\/member-pictures\/5$/, (r) => json(r, { picture: picture("done"), credits: 2 }));
-  return commands;
+  await page.route(/\/api\/member-pictures$/, (r) => json(r, { pictures: commands.length ? [state()] : [], credits: 2 }));
+  await page.route(/\/api\/member-pictures\/5$/, (r) => json(r, { picture: state(), credits: 2 }));
+  return { commands, finish: () => { done = true; } };
 }
 
 async function wizardDraft(page: Page): Promise<Record<string, unknown>> {
@@ -64,7 +65,7 @@ async function wizardDraft(page: Page): Promise<Record<string, unknown>> {
 test("builder → picture page → builder: Back keeps the meme as it was, a reload on the picture page included, and a pet picture arrives in its shape with the pet's name", async ({ page }) => {
   await signInThroughForm(page, PAID_ACCOUNT.email, TEST_ACCOUNT_PASSWORD);
   await stubPublicFacts(page, { facts: [factDetail({ id: FACT_ID, text: FACT_TEXT })] });
-  const commands = await stubPictures(page);
+  const { commands, finish } = await stubPictures(page);
 
   await page.goto(`/facts/${FACT_ID}/meme`);
   await expect(page.getByRole("button", { name: "Make my meme" })).toBeVisible();
@@ -108,10 +109,15 @@ test("builder → picture page → builder: Back keeps the meme as it was, a rel
   await page.getByTestId("ai-picture-caption-pronouns").selectOption("he/him");
   await page.getByTestId("aspect-landscape").click();
   await page.getByTestId("ai-picture-confirm").click();
+  await expect(page.getByText(/Drawing your picture/)).toBeVisible();
+  // The page reloads while it draws: a fresh form, which never saw the pronouns chosen.
+  await page.reload();
+  await expect(page.getByText(/Drawing your picture/)).toBeVisible();
+  finish();
   await page.getByTestId("ai-picture-make-meme").click();
 
   expect(commands).toHaveLength(1);
-  expect(commands[0]).toMatchObject({ subject: { kind: "pet", name: "Rex" }, aspectRatio: "landscape", caption: { name: "Rex", pronouns: "he/him" } });
+  expect(commands[0]).toMatchObject({ subject: { kind: "pet", name: "Rex" }, aspectRatio: "landscape", caption: { name: "Rex", pronouns: "he/him", chosen: true } });
 
   await expect(page.getByRole("button", { name: "Make my meme" })).toBeVisible();
   await expect(page.getByTestId("aspect-landscape")).toHaveAttribute("aria-checked", "true");
@@ -121,7 +127,14 @@ test("builder → picture page → builder: Back keeps the meme as it was, a rel
     aspectRatio: "landscape",
     name: "Rex",
     pronouns: "he/him",
+    captionChosen: true,
     isPublic: before["isPublic"],
     splitIndex: before["splitIndex"],
   });
+
+  // The next picture for this meme starts from the caption the member chose, not the pet's own.
+  await page.getByTestId("ai-picture-open").click();
+  await expect(page.getByText("A picture of your pet.")).toBeVisible();
+  await expect(page.getByTestId("ai-picture-caption-pronouns")).toHaveValue("he/him");
+  await expect(page.getByTestId("ai-picture-pet-name")).toHaveValue("");
 });

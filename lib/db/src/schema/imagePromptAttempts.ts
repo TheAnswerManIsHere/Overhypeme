@@ -47,7 +47,7 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
    * picture's state so a picture returned to later hands the builder the right
    * name. NULL on every other attempt and on member pictures made before it.
    */
-  memberCaption: jsonb("member_caption").$type<{ name: string; pronouns: string | null }>(),
+  memberCaption: jsonb("member_caption").$type<{ name: string; pronouns: string | null; chosen?: true }>(),
   /** Parent client-poll handle (UUID). Set by /generate-v2 before enqueueing the prompt job. */
   renderJobId: varchar("render_job_id", { length: 64 }),
   /** "i2i" | "t2i" — derived from `subjectRenderMode`. */
