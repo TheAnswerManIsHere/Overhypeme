@@ -195,6 +195,42 @@ describe("a picture remembers its caption and shape", () => {
     assert.equal(state.body.picture.aspectRatio, "landscape");
   });
 
+  it("a caption the member chose keeps that mark with the picture; one without it records and fingerprints as before (Codex, PR #1340)", async () => {
+    const userId = await newMember();
+    const { factId } = await liveFact();
+    const uploadKey = await photos.seed(userId);
+    const app = buildTestApp({ kind: "authenticated", userId }, memberPicturesRouter);
+    const chosen = await requestMemberPicture({
+      userId, requestId: `req-${randomUUID()}`, factId, gagId: null, uploadKey, lookStyleId: null,
+      subject: { kind: "me" }, aspectRatio: "portrait", caption: { name: "Sam", pronouns: "he/him", chosen: true },
+    });
+    const state = await request(app).get(`/api/member-pictures/${chosen.attemptId}`);
+    assert.deepEqual(state.body.picture.caption, { name: "Sam", pronouns: "he/him", chosen: true });
+
+    // Without the mark: stored without it, and a retry of the same request is the same picture.
+    const other = await newMember();
+    const requestId = `req-${randomUUID()}`;
+    const plain = { userId: other, requestId, factId, gagId: null, uploadKey: await photos.seed(other), lookStyleId: null, subject: { kind: "me" as const }, aspectRatio: "square" as const, caption: { name: "Alex", pronouns: null } };
+    const first = await requestMemberPicture(plain);
+    const again = await requestMemberPicture(plain);
+    assert.equal(again.attemptId, first.attemptId);
+    assert.equal(again.created, false);
+    const [row] = await db.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.id, first.attemptId));
+    assert.deepEqual(row!.memberCaption, { name: "Alex", pronouns: null });
+  });
+
+  it("the route records the mark only when it is sent as true", async () => {
+    const userId = await newMember();
+    const { factId } = await liveFact();
+    const uploadKey = await photos.seed(userId);
+    const app = buildTestApp({ kind: "authenticated", userId }, memberPicturesRouter);
+    const refused = await request(app).post(`/api/facts/${factId}/member-pictures`).send({
+      requestId: `req${randomUUID().replace(/-/g, "")}`.slice(0, 40), uploadKey, subject: { kind: "me" }, aspectRatio: "portrait",
+      caption: { name: "Sam", pronouns: "he/him", chosen: false },
+    });
+    assert.equal(refused.status, 400, "only true is a mark");
+  });
+
   it("a picture made without a caption reads none", async () => {
     const userId = await newMember();
     const { factId } = await liveFact();

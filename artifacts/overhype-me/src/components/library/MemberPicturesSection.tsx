@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "wouter";
 import { AlertTriangle } from "lucide-react";
-import type { MemberPictureState } from "@/components/meme-builder/wizard/step2-image/AiPicturePanel";
+import type { MemberPictureState } from "@/components/ai-picture/pictureApi";
 
 /**
  * My content's "Your AI pictures" (launch Phase 7, increment 2): the pictures

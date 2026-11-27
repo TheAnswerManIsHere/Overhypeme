@@ -1,4 +1,4 @@
-import { isInFlight, type MemberPictureState } from "@/components/meme-builder/wizard/step2-image/AiPicturePanel";
+import { isInFlight, type MemberPictureState } from "@/components/ai-picture/pictureApi";
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useGetMyProfile, getGetMyProfileQueryKey } from "@workspace/api-client-react";

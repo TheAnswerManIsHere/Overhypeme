@@ -68,9 +68,12 @@ export interface MemberPictureCommand {
    * The name and pronouns the meme's caption is meant to carry (plan
    * PLAN_PHASE7_AI_PICTURE_FLOW.md): recorded on the attempt and read back by
    * the picture's state. Never used to draw: the picture's identity is the
-   * subject's. Absent from older clients.
+   * subject's. Absent from older clients. `chosen` is present, and true,
+   * only when the member chose this name or pronouns themselves rather than
+   * leaving them to follow the subject; it is stored and returned and decides
+   * nothing here (Codex, PR #1340, round 2).
    */
-  caption?: { name: string; pronouns: string | null } | null;
+  caption?: { name: string; pronouns: string | null; chosen?: true } | null;
 }
 
 export interface MemberPictureHandle {

@@ -37,7 +37,7 @@ export function MemeBuilderWizard(props: MemeBuilderWizardProps) {
     onComplete,
     onCancel,
   } = props;
-  const { state, dispatch, clearDraft } = useWizardState({
+  const { state, dispatch, clearDraft, keepForPictureFlow } = useWizardState({
     factId,
     entryFlow,
     initialName,
@@ -80,6 +80,7 @@ export function MemeBuilderWizard(props: MemeBuilderWizardProps) {
                 });
               }}
               onRequestSignup={onCancel}
+              onKeepForPictureFlow={keepForPictureFlow}
             />
           </div>
         </div>

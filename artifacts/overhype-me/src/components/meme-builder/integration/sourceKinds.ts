@@ -78,7 +78,7 @@ export function toServerImageSource(
   }
 }
 
-function toStorageUrl(objectPath: string): string {
+export function toStorageUrl(objectPath: string): string {
   // Object paths are stored as `/objects/uploads/<uuid>.<ext>`. The auth-gated
   // delivery route is `/api/storage/objects/<rest>`.
   return `/api/storage/objects${objectPath.replace(/^\/objects/, "")}`;

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, Suspense } from "react";
-import { useRoute, Link, useLocation } from "wouter";
+import { useRoute, Link, useLocation, useSearch } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useGetFact, useListRelatedFacts, getGetFactQueryKey, getListRelatedFactsQueryKey } from "@workspace/api-client-react";
@@ -23,6 +23,9 @@ import { roleToIdentity } from "@/components/meme-builder/integration/studioAdap
 import { PausedWhenReadOnly } from "@/components/PausedWhenReadOnly";
 import { CACHED_COPY_NOTICE } from "@/lib/cachedCopyNotice";
 
+const AiPictureFlow = lazyWithRetry(() =>
+  import("@/components/ai-picture/AiPictureFlow").then(m => ({ default: m.AiPictureFlow })),
+);
 const MemeBuilderWizard = lazyWithRetry(() =>
   import("@/components/meme-builder/wizard").then(m => ({ default: m.MemeBuilderWizard })),
 );
@@ -62,6 +65,13 @@ export default function FactDetail() {
   const [, params] = useRoute("/facts/:id/:sub?");
   const factId = parseInt(params?.id || "0", 10);
   const isMemeRoute = params?.sub === "meme";
+  // Making an AI picture is its own flow (Phase 7 amendment): /facts/:id/picture,
+  // optionally ?gag=<id> to start on a gag, and ?from=builder when the meme
+  // builder opened it.
+  const isPictureRoute = params?.sub === "picture";
+  const search = new URLSearchParams(useSearch());
+  const pictureFromBuilder = search.get("from") === "builder";
+  const pictureGag = Number(search.get("gag")) || null;
   const [, setLocation] = useLocation();
   const { isAuthenticated, user, role, entitlements } = useAuth();
 
@@ -177,6 +187,9 @@ export default function FactDetail() {
     void queryClient.invalidateQueries({ queryKey: ["listFactMemes", factId] });
   };
 
+  const showPictureFlow = isPictureRoute && builderReady;
+  const closePictureFlow = () => setLocation(pictureFromBuilder ? `/facts/${factId}/meme` : `/facts/${factId}`);
+
   async function handleDeleteMeme(slug: string) {
     const res = await fetch(`/api/memes/${slug}`, { method: "DELETE", credentials: "include" });
     if (!res.ok) {
@@ -196,6 +209,22 @@ export default function FactDetail() {
 
   return (
     <Layout>
+      {showPictureFlow && (
+        <Suspense fallback={null}>
+          <AiPictureFlow
+            factId={String(factId)}
+            factText={fact.text}
+            memberName={builderSeed.name || user?.displayName || name || ""}
+            memberPronouns={builderSeed.pronouns || (user as { pronouns?: string } | undefined)?.pronouns || pronouns || "they/them"}
+            signedIn={roleToIdentity(role) !== "unregistered"}
+            verified={(user as { eligibility?: string } | undefined)?.eligibility !== "unverified"}
+            fromBuilder={pictureFromBuilder}
+            initialGagId={pictureGag}
+            onBack={closePictureFlow}
+            onOpenBuilder={() => setLocation(`/facts/${factId}/meme`)}
+          />
+        </Suspense>
+      )}
       {showMemeStudio && (
         <Suspense fallback={null}>
           <MemeBuilderWizard

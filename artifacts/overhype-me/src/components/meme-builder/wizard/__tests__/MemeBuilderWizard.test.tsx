@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemeBuilderWizard } from "../MemeBuilderWizard";
 import { captureWizardState } from "../state/wizardStorage";
 import type { ViewerContext } from "../../types";
@@ -16,6 +17,11 @@ const VIEWER: ViewerContext = {
   pronouns: "they/them",
 };
 
+// The builder's AI-picture selector reads through the query layer.
+function withQueryClient({ children }: { children: React.ReactNode }) {
+  return <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{children}</QueryClientProvider>;
+}
+
 function renderWizard(
   overrides: Partial<React.ComponentProps<typeof MemeBuilderWizard>> = {},
 ) {
@@ -31,6 +37,7 @@ function renderWizard(
       onCancel={onCancel}
       {...overrides}
     />,
+    { wrapper: withQueryClient },
   );
   return { ...utils, onComplete, onCancel };
 }
@@ -159,7 +166,10 @@ describe("MemeBuilderWizard", () => {
             memeBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
             body = { memeId: 77, permalinkUrl: PERMALINK };
           } else if (url.includes("/api/users/me/uploads")) {
-            body = { uploads, uploadCount: uploads.length, maxUploads: 5, displayLimit: 5 };
+            body = { uploads, uploadCount: uploads.length, maxUploads: 5, displayLimit: 5 };          } else if (url === "/api/member-pictures") {
+            body = { pictures: [], credits: 0 };
+          } else if (url.includes("/api/users/me/ai-images")) {
+            body = { images: [], nextCursor: null };
           }
           return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) } as Response);
         }),

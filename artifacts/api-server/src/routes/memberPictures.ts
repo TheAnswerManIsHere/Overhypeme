@@ -53,6 +53,8 @@ const commandBody = z.object({
   caption: z.object({
     name: z.string().trim().min(1).max(40),
     pronouns: z.string().regex(/^\s*[a-z]+\/[a-z]+\s*$/i).nullable().optional(),
+    // The member chose this caption, rather than leaving it to follow the subject.
+    chosen: z.literal(true).optional(),
   }).nullable().optional(),
 });
 
@@ -74,8 +76,11 @@ export interface MemberPictureState {
   imageUrl: string | null;
   /** The shape it was drawn in (its stored render controls). */
   aspectRatio: Shape;
-  /** The name and pronouns its meme caption was meant to carry; null for a picture made before it was recorded. */
-  caption: { name: string; pronouns: string | null } | null;
+  /**
+   * The name and pronouns its meme caption was meant to carry, and `chosen`
+   * when the member chose them; null for a picture made before it was recorded.
+   */
+  caption: { name: string; pronouns: string | null; chosen?: true } | null;
   createdAt: string;
 }
 
@@ -229,7 +234,12 @@ router.post("/facts/:factId/member-pictures", async (req: Request, res: Response
         : { kind: "me" },
       aspectRatio: body.data.aspectRatio ?? "portrait",
       caption: body.data.caption
-        ? { name: body.data.caption.name, pronouns: body.data.caption.pronouns?.trim().toLowerCase() ?? null }
+        ? {
+          name: body.data.caption.name,
+          pronouns: body.data.caption.pronouns?.trim().toLowerCase() ?? null,
+          // Recorded only when true, so a caption without it fingerprints and stores as before.
+          ...(body.data.caption.chosen ? { chosen: true as const } : {}),
+        }
         : null,
     });
     const [state] = await statesFor(req.user.id, [handle.attemptId]);
