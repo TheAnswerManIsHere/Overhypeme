@@ -1,9 +1,7 @@
 /**
- * Runs the server's database boot steps — and only those — against the
- * application's connection (APP_DATABASE_URL where set, else DATABASE_URL;
- * @workspace/db/connection), in the order index.ts runs them: the ownership
- * report, the migration runner (with its failure diagnosis), ensureSchema()
- * (idempotent schema and config seeds), then the [audit-boundary] report. Engines live only in
+ * Runs the server's database boot steps — and only those — against
+ * DATABASE_URL, in the order index.ts runs them: the migration runner, then
+ * ensureSchema() (idempotent schema and config seeds). Engines live only in
  * code since migration 0138, so there is no catalogue to reconcile. Nothing else the server does at boot writes a
  * configuration table (tableClassification.ts names them).
  *
@@ -16,26 +14,14 @@
  */
 
 import { pool, runMigrations } from "@workspace/db";
-import { appDatabaseUrl, connectionUser } from "@workspace/db/connection";
 
-import { reportAuditBoundary, runMigrationsReporting } from "../src/lib/auditBoundaryReport.js";
 import { ensureSchema } from "../src/lib/seed.js";
 
 if (process.env.REPLIT_DEPLOYMENT === "1") throw new Error("Refusing to run in a deployment");
 
 try {
-  await runMigrationsReporting(runMigrations);
+  await runMigrations();
   await ensureSchema();
-  const outcome = await reportAuditBoundary();
-  // One machine-readable line for the tests that boot a split database (Launch Phase 15, 5b):
-  // the login the boot used, and what it found. Never the URL itself.
-  console.log(
-    `[boot-database] audit-boundary ${JSON.stringify({
-      user: connectionUser(appDatabaseUrl()),
-      boundaryEnforced: outcome.status?.boundaryEnforced ?? null,
-      ownershipDrift: outcome.ownershipDrift,
-    })}`,
-  );
   console.log("[boot-database] booted");
 } finally {
   await pool.end();

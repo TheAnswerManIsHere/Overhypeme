@@ -26,10 +26,13 @@ generation, fal is something I can drive directly:
   (`docs/ai-context/visual-pipeline.md`, *Which engine draws a render*).
 - **Paid calls**: `run_model`, `submit_job` / `submit_jobs`. A
   generation through the connector is a **paid AI run** like any other, and
-  it falls under the $5-per-run and $25-per-week fleet budget and the
-  `paid-ai-ledger` comment (`docs/tests/uat-doc-format.md`, the paragraph
-  beginning *"A paid AI run proceeds within David's budget"*). Price it with
-  `estimate_cost` first, and never run it in a loop.
+  it falls under the fleet's paid-run rule (`docs/tests/uat-doc-format.md`,
+  *Lanes*): a ceiling set before it starts, the `paid-ai-ledger` read and
+  comment only for a run or task of $1 or more, and a stop for David at a
+  $10 worst case or the month past $100. Price it with `estimate_cost`
+  first to plan it; that is an estimate, not a bound (fal's final charge
+  depends on settings it does not fully show), so the run's ceiling is set
+  separately and with headroom. Never run it in a loop.
 
 **Gotchas.**
 

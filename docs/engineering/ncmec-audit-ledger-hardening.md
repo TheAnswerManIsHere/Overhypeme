@@ -118,51 +118,44 @@ providers arrange by default.
 
 ## Production: the application's own login (Launch Phase 15, 5b)
 
-Production does not use the procedure above verbatim. Its database is Neon's, managed by
-Replit, whose owner `neondb_owner` is a non-superuser `CREATEROLE` role, and Replit supplies
-the deployment's `DATABASE_URL` as that owner, ignoring an override. The shape that holds there
-(plan `docs/plans/PLAN_PHASE15_5B_AUDIT_BOUNDARY.md`; decision of 2026-11-26):
+Production does not use the procedure above. Its database is Neon's, managed by Replit, whose
+owner `neondb_owner` is a non-superuser `CREATEROLE` role, and Replit supplies the deployment's
+`DATABASE_URL` as that owner, ignoring an override. **The app connects with that login**, as
+the platform expects (Launch Phase 15, 5c; `docs/plans/PLAN_PHASE15_5C_OWNER_LOGIN.md`;
+decision of 2026-11-27):
 
-- **`overhype_app`** owns everything the app owns in `public`, `drizzle` and `stripe`, except
-  the ledger, its sequence and its guard function, which stay `neondb_owner`'s. It may read and
-  append to the ledger and nothing else. `public` itself is `pg_database_owner`'s. The script
-  that made this split is `lib/db/runbooks/app-role-split.sql` (run 2026-11-26).
-- **The app connects as `overhype_app`** through `APP_DATABASE_URL`, a production-only
-  deployment secret. A published deployment refuses to start without it
-  (`lib/db/src/connection.ts`).
-- **`neondb_owner` holds `overhype_app` with `INHERIT`**, so Replit's publish, which connects
-  as the owner, can alter the app's tables. That is the owner → app direction. The boundary is
-  app → owner, which must stay impossible, and `ncmecAuditBoundaryStatus()` checks exactly that.
-- **Default privileges** (`lib/db/runbooks/app-role-default-privileges.sql`, run once) let
-  the app read and write any table the owner creates later, which is what a publish's
-  generated diff does.
-- **Every start logs `[audit-boundary]`**: the status object and `ownershipDrift`, the count
-  of application objects the app's login does not own. In a deployment, an unenforced
-  boundary, drift above 0, a failed status query, or a migration failure raises the
+- **The app's login owns the ledger**, so `boundaryEnforced` reads false. David accepted that
+  the guard is not enforced against the application's own login (Q20 → 1): a session that can
+  run arbitrary SQL as the app could disable the triggers first. The triggers still refuse
+  `UPDATE`, `DELETE` and `TRUNCATE` from every session without `overhype_audit_maintenance`,
+  the app's own included, so a bug or stray query cannot change the ledger.
+- **Every start logs `[audit-boundary]`** with the full status object. In a deployment the
   `audit_boundary` operational alert (`lib/operationalAlerts.ts`; its Sentry rule pushes to
-  David's phone). None of them stops the start, except the migration failure, which already
-  had (David, Q15 → 1).
-- **Accepted residual** (David, Q14 → 1): the owner's credential is still in the deployment's
-  environment (`/proc/self/environ`), so code execution on the server can reach it.
+  David's phone) fires only when the guard itself is damaged (`triggersEnabled` or
+  `guardFunctionIntact` false) or the status query fails. The accepted state alerts nothing,
+  and nothing stops the start (`artifacts/api-server/src/lib/auditBoundaryReport.ts`).
+- **Why not a separate application login.** 5b tried one (`overhype_app`, 2026-11-26). Replit's
+  publish applies its schema diff as the owner, so every table a publish created was the
+  owner's, and the app's own migration then could not alter it: the first such publish
+  crash-looped (`must be owner of table fact_gag_descriptions`, 2026-11-27). The protection it
+  bought covered only an attacker with SQL as the app, who can already read and change every
+  other table. It was rolled back; the record is `decisions.md`, 2026-11-27.
+- **Tamper-evidence beyond the database** (a copy of each entry kept elsewhere, which would
+  hold even against code execution on the server) is recorded as next work, to be weighed
+  before Full US.
 
-### Repairing ownership after a publish
+### Retiring 5b's login (once)
 
-Run `lib/db/runbooks/app-role-ownership-repair.sql` as `neondb_owner` in Replit's production
-SQL console, with editing on, as **one selected batch**. The console runs a selection in one
-transaction; its Run button alone runs only the statement under the cursor. Run it when:
-
-- the `[audit-boundary]` line, or its Sentry alert, reports `ownershipDrift` above 0; or
-- a start failed with `must be owner of …` naming an object that the failure's diagnostic
-  lists. Afterwards publish again.
-
-The batch briefly gives the owner `SET` on `overhype_app`, hands every non-ledger object the
-owner holds in the three schemas to `overhype_app` (relations, standalone sequences,
-functions, enums, domains, composite types, and the `drizzle`/`stripe` schemas), then takes
-`SET` back, leaving the owner's `INHERIT` and admin rows as they were. Its read-back shows
-those rows. It exempts exactly what `ownershipDrift()` exempts, so the next start reads 0,
-and it changes nothing when there is nothing to repair. The test
-`artifacts/api-server/src/__tests__/phase15.appRoleSplit.test.ts` runs all three runbooks on
-a database split like production's.
+`lib/db/runbooks/app-role-retire.sql`, run once as `neondb_owner` in Replit's production SQL
+console with editing on, as **one selected batch** (the console runs a selection in one
+transaction; its Run button alone runs only the statement under the cursor). Run it only after
+the 5c release is published and healthy and Replit shows the previous release stopped. It lists
+what is being retired, refuses while any session is still connected as `overhype_app` or while
+the role has anything outside this database, gives up after a 5-second lock wait or a 60-second
+statement (it rolls back and is simply run again), then runs `REASSIGN OWNED`, `DROP OWNED` and
+`DROP ROLE` and reads back the ledger's owner and triggers. The test
+`artifacts/api-server/src/__tests__/phase15.appRoleRetire.test.ts` rehearses it on a database
+laid out as production was after 5b.
 
 ## Correcting the ledger (break-glass)
 

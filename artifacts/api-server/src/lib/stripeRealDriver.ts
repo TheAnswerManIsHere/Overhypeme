@@ -17,7 +17,6 @@ import {
   stripePublishableVarFor,
   stripeSecretVarFor,
 } from "./stripeRawClient.js";
-import { appDatabaseUrl } from "@workspace/db/connection";
 
 const webhookSecretVarFor = (liveMode: boolean) =>
   liveMode ? "STRIPE_WEBHOOK_SECRET_LIVE" : "STRIPE_WEBHOOK_SECRET_TEST";
@@ -86,7 +85,7 @@ export const realStripeDriver: StripeDriver = {
     // `closeManagedWebhooks` (stripeClient.ts) shuts that on every build,
     // whichever driver made it.
     return new StripeSync({
-      poolConfig: { connectionString: appDatabaseUrl(), max: 2 },
+      poolConfig: { connectionString: process.env.DATABASE_URL!, max: 2 },
       stripeSecretKey: secretKey,
       ...(webhookSecret ? { stripeWebhookSecret: webhookSecret } : {}),
     });

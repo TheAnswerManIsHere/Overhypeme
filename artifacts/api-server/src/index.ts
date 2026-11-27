@@ -15,7 +15,7 @@ import { stripeDriver } from "./lib/stripeDriver.js";
 import { absorbFatalStreamError } from "./lib/stdioGuard";
 import { backfillWilsonScores, ensureSchema } from "./lib/seed";
 import { runMigrations } from "@workspace/db";
-import { reportAuditBoundary, runMigrationsReporting } from "./lib/auditBoundaryReport";
+import { reportAuditBoundary } from "./lib/auditBoundaryReport";
 import { backfillEmbeddings } from "./lib/embeddings";
 import { refreshPricingCache } from "./lib/falPricing";
 import { getConfigString, getConfigInt } from "./lib/adminConfig";
@@ -438,17 +438,15 @@ function scheduleDailyFactJob() {
 // Everything else (Stripe, membership reconcile, backfills) runs in the
 // background and does not block port binding.
 
-// Apply any pending database migrations before accepting requests. The wrapper names any
-// application object the app's login does not own (Replit's publish creates new tables as
-// the database owner), first and beside a failure (Launch Phase 15, 5b).
-await runMigrationsReporting(runMigrations);
+// Apply any pending database migrations before accepting requests
+await runMigrations();
 
 // Idempotent schema & config seed (ADD COLUMN IF NOT EXISTS, INSERT … ON CONFLICT DO NOTHING)
 await ensureSchema();
 
-// One [audit-boundary] line: whether the NCMEC ledger's privilege boundary holds on this
-// connection. A bad state alerts in a deployment and never stops the start (Q15 → 1), so
-// the port does not wait for it; it never throws.
+// One [audit-boundary] line: the NCMEC ledger's protection as it is. Damage to the guard
+// alerts in a deployment and never stops the start, so the port does not wait for it; it
+// never throws (Launch Phase 15, 5c).
 void reportAuditBoundary();
 
 // Configure the fal.ai client once at boot. Every fal-calling code path

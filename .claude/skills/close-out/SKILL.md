@@ -54,8 +54,9 @@ skill is the mechanics of each step. The contract governs on any conflict.
 4. **Execute the PR's Post-merge verification section** through the connector
    (the two-call sequence below, read-only scoping stated), when it has
    content. A step that would start a paid AI run is not read-only and runs
-   within David's monthly budget, asking only for a run that would take the
-   month past it (`uat-doc-format.md`, *Lanes*).
+   under David's paid-run rule: a ceiling set before it starts, and a stop
+   for him at a $10 worst case in a run, $10 across a task, or past $100 in the month
+   (`uat-doc-format.md`, *Lanes*).
 5. **Post the harvest-notes comment** on the workstream issue (production-phase
    product PRs; a prototype-phase PR posts none).
 6. **Merge report to David**, kept short (interaction rule 5): both SHAs, verification results, and
@@ -90,6 +91,7 @@ skill is the mechanics of each step. The contract governs on any conflict.
 - **A post-merge verification run is a two-call sequence**: kick it off with
   `update_app_using_prompt` carrying the checks and an explicit read-only
   instruction, wait a few minutes, then `ask_question` for the results. A
-  paid AI step — within his budget, or above it on his go-ahead — goes in a
-  separate request that names its paid calls and worst-case cost as the only
+  paid AI step — proceeding under the paid-run rule, or past one of its stops
+  on his go-ahead — goes in a separate request that names its paid calls and
+  worst-case cost, its ceiling, as the only
   thing it may do beyond reading (`uat-doc-format.md`, *Lanes*).
