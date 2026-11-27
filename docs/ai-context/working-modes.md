@@ -836,7 +836,7 @@ close-out slot post-merge verification already holds — in both, **before the
 owner is asked for feedback**, so a failing one is a version that is not yet
 ready, said so in the report, and the owner is not yet asked. A check that
 would start a paid AI run is never a `ci` check, and in `scripted` or `live`
-it is not read-only and runs within David's monthly paid-run budget — $100 a calendar month across every product, no per-run cap — asking only for a run that would take the month past it, never in a loop that would pass the month's total ([`uat-doc-format.md`](../tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07)). **A failing
+it is not read-only and runs under David's paid-run rule — a ceiling set before it starts, a 🛑 stop for a run whose worst case is $10 or more or a task past $10, and asking first past $100 a calendar month across every product, never in a loop that would pass the month's total ([`uat-doc-format.md`](../tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07)). **A failing
 machine check is repaired by the agent, before the owner is asked**: a
 further commit of the same version at prototype depth — a `ci` or `scripted`
 failure before the merge on the same PR, since that PR merges only on green;
