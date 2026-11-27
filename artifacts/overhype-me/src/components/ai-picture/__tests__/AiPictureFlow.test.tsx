@@ -185,6 +185,51 @@ describe("AiPictureFlow", () => {
     expect(sent()).toHaveLength(0);
   });
 
+  it("#1315: after Make another, a failed re-read of the cost still reaches a working Make it", async () => {
+    let failNext = 0;
+    const state = picture("failed", { reason: "The drawing failed.", creditReturned: true });
+    stub((url) => {
+      if (url === "/api/facts/3/picture-options" && failNext > 0) { failNext -= 1; return [500, {}]; }
+      if (url === "/api/member-pictures/5") return { picture: state, credits: 2 };
+      if (url === "/api/facts/3/member-pictures") return [202, { picture: state, credits: 1 }];
+      return undefined;
+    });
+    renderFlow();
+    await waitFor(() => expect(confirm().hasAttribute("disabled")).toBe(false), S);
+    fireEvent.click(confirm());
+    await screen.findByText(/Your credit was returned/, {}, S);
+    failNext = 2;
+    fireEvent.click(screen.getByTestId("ai-picture-make-another"));
+    await screen.findByTestId("ai-picture-load-error", {}, S);
+    expect(screen.getByTestId("ai-picture-blocker").textContent).not.toBe("");
+    fireEvent.click(screen.getByTestId("ai-picture-retry"));
+    await waitFor(() => expect(confirm().hasAttribute("disabled")).toBe(false), S);
+    expect(sent()).toHaveLength(1);
+  });
+
+  it("#1315: returning while a picture draws, a load that failed behind it still reaches a working Make it after Make another", async () => {
+    let state = picture("drawing");
+    let fails = 2;
+    stub((url) => {
+      if (url === "/api/facts/3/picture-options" && fails > 0) { fails -= 1; return [500, {}]; }
+      if (url === "/api/member-pictures") return { pictures: [state], credits: 2 };
+      if (url === "/api/member-pictures/5") return { picture: state, credits: 2 };
+      return undefined;
+    });
+    renderFlow();
+    await screen.findByText(/Drawing your picture/, {}, S);
+    state = picture("failed", { reason: "The drawing failed.", creditReturned: true });
+    fireEvent.click(await screen.findByTestId("ai-picture-make-another", {}, { timeout: 6000 }));
+    await waitFor(() => {
+      const ready = !confirm().hasAttribute("disabled");
+      const explained = screen.queryByTestId("ai-picture-load-error") !== null;
+      expect(ready || explained).toBe(true);
+    }, S);
+    if (screen.queryByTestId("ai-picture-load-error")) fireEvent.click(screen.getByTestId("ai-picture-retry"));
+    await waitFor(() => expect(confirm().hasAttribute("disabled")).toBe(false), S);
+    expect(sent()).toHaveLength(0);
+  }, 10000);
+
   it("opened from the builder: its shape and chosen caption are the defaults", async () => {
     captureReturnSnapshot({ schemaVersion: 3, capturedAt: Date.now(), factId: "3", entryFlow: "fact-detail", aspectRatio: "square", name: "Sam", pronouns: "he/him", captionChosen: true });
     stub(() => undefined);

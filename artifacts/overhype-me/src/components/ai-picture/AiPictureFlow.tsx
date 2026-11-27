@@ -210,7 +210,8 @@ function FlowForm({ factId, factText, memberName, memberPronouns, fromBuilder, i
     if (!subject) return "We couldn't check this photo. Try again.";
     if (isPet && !drawn.name) return "Give your pet's name, for the picture.";
     if (options.isPending) return "Loading this fact's pictures…";
-    if (!options.data) return "This fact's pictures didn't load. Try again above.";
+    // A failed re-read leaves the last answer cached; its cost line may be stale, so it waits for Try again.
+    if (!options.data || options.isError) return "This fact's pictures didn't load. Try again above.";
     if (options.data.gags.length === 0) return "This fact has no picture to draw yet.";
     if (!canAfford) return "You have no credits left for a picture.";
     if (!caption.name.trim()) return "Put a name on the meme.";
