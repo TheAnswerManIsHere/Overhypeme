@@ -221,10 +221,12 @@ export const RETENTION_SCHEDULE: Readonly<Record<string, RetentionEntry>> = {
     ],
   },
   image_prompt_attempts: {
-    personal: "a description of a member's photo, its fingerprint, the name the picture was made with (in the rendered fact text, the engine prompt and the legacy plan), and the account; all cleared when the account is deleted",
+    personal: "a description of a member's photo, its fingerprint, the name the picture was made with (in the rendered fact text, the engine prompt, the legacy plan and the render controls' frozen identity), the caption's name and pronouns, the photo link sent to the engine, and the account; all cleared when the account is deleted",
     // David, Q15 and Q17, 2026-11-18: the purge clears the photo's description
     // and fingerprint, the rendered fact text, the engine prompt, the legacy
-    // plan and the subject check; the attempt, naming no one, stays with its fact.
+    // plan and the subject check; PR #1334 adds the caption and the render
+    // controls' frozen identity and photo link. The attempt, naming no one,
+    // stays with its fact.
     rules: [
       { kind: "account-deletion", effect: "anonymised" },
       { kind: "with-parent", parent: "facts" },

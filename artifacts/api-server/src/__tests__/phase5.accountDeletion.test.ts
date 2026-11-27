@@ -442,7 +442,9 @@ describe("the account deletion state machine (T3)", () => {
     const attempt = (who: string) => ({
       factId, userId: who, renderJobId: randomUUID(), generationMode: "i2i", subjectRenderMode: "human_identity_i2i",
       targetEngine: "nano_banana_2", sourceImageAnalysis: { subject: "a person with short hair" } as never,
-      sourceImageSha256: "a".repeat(64), identityPolicy: {} as never, renderControls: {} as never,
+      sourceImageSha256: "a".repeat(64), identityPolicy: {} as never,
+      renderControls: { aspectRatio: "portrait", promptIdentity: { name: who, pronouns: "they/them" }, referenceImageUrl: `https://cdn.example/${who}.jpg` } as never,
+      memberCaption: { name: `${who} Friend`, pronouns: "she/her" } as never,
       factEnrichmentSnapshot: {} as never, renderedFactText: `${who} jumps over the moon.`, archetypeStrategyVersion: "v2",
       compiledPrompt: { prompt: `A picture of ${who}` } as never, visualPlan: { subject: "short hair" } as never,
       subjectFactCompatibility: { fit: "a person" } as never,
@@ -495,10 +497,14 @@ describe("the account deletion state machine (T3)", () => {
     assert.equal(ownAttemptNow!.compiledPrompt, null, "the engine prompt is cleared");
     assert.equal(ownAttemptNow!.visualPlan, null, "the legacy plan is cleared");
     assert.equal(ownAttemptNow!.subjectFactCompatibility, null, "the subject check is cleared");
+    assert.equal(ownAttemptNow!.memberCaption, null, "the caption's name and pronouns are cleared (PR #1334)");
+    assert.deepEqual(ownAttemptNow!.renderControls, { aspectRatio: "portrait" }, "the frozen name and photo link go; the rest of the controls stay");
     const [othersAttemptNow] = await db.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.id, othersAttempt!.id));
     assert.deepEqual(othersAttemptNow!.sourceImageAnalysis, { subject: "a person with short hair" }, "another member's attempt is untouched");
     assert.equal(othersAttemptNow!.renderedFactText, `${other} jumps over the moon.`);
     assert.deepEqual(othersAttemptNow!.compiledPrompt, { prompt: `A picture of ${other}` });
+    assert.deepEqual(othersAttemptNow!.memberCaption, { name: `${other} Friend`, pronouns: "she/her" }, "another member's caption stays");
+    assert.equal((othersAttemptNow!.renderControls as { referenceImageUrl?: string }).referenceImageUrl, `https://cdn.example/${other}.jpg`);
     await db.delete(userGenerationCostsTable).where(eq(userGenerationCostsTable.userId, other));
     await db.delete(imagePromptAttemptsTable).where(inArray(imagePromptAttemptsTable.id, [ownAttempt!.id, othersAttempt!.id]));
 

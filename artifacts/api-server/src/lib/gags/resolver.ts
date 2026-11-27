@@ -22,7 +22,7 @@ import {
 } from "@workspace/db";
 import {
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
-  PLACEHOLDER_CORE_SCENE_OVERRIDE,
+  isStandInGagContent,
   visualPromptStrategyOverrideSchema,
   type FactEnrichment,
   mapKinds,
@@ -230,10 +230,7 @@ export async function primaryGag(factId: number, executor: Executor = db): Promi
  * exists (a pending change, or another approved gag): a comparison judged
  * the stand-in on fact 41 while its real scene waited as a pending change.
  */
-function isStandIn(content: unknown): boolean {
-  const scene = (content as { coreSceneOverride?: unknown } | null)?.coreSceneOverride;
-  return typeof scene === "string" && scene.trim() === PLACEHOLDER_CORE_SCENE_OVERRIDE;
-}
+const isStandIn = isStandInGagContent;
 
 /**
  * The gag a moderation-side surface reads when it needs "the review's gag"

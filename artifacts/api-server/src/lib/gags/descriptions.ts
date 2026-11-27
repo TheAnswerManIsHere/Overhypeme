@@ -35,6 +35,7 @@ import { db, factGagDescriptionsTable, factGagsTable, factsTable } from "@worksp
 import {
   DESCRIPTION_MAX_CHARS,
   canonicalizeNameToken,
+  isStandInGagContent,
   validateTemplate,
   visualPromptStrategyOverrideSchema,
   type GagDescriptionView,
@@ -284,6 +285,10 @@ export async function descriptionsToReview(conn: Db = db): Promise<DescriptionTo
   const byKey = new Map(rows.map((r) => [`${r.gagId}:${r.contentFingerprint}`, r]));
   const out: DescriptionToReview[] = [];
   for (const g of gags) {
+    // Members are never offered the backfilled stand-in (the resolver's rule,
+    // shared), so it has no description to review (Codex 4714175064, PR #1334).
+    // The drafting sweep still covers it: it drafts every stored version.
+    if (isStandInGagContent(g.approvedContent)) continue;
     const fp = gagContentFingerprint(g.approvedContent);
     if (!fp) continue;
     const row = byKey.get(`${g.id}:${fp}`);

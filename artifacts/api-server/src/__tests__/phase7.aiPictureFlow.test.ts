@@ -25,7 +25,7 @@ import request from "supertest";
 import { db, factsTable, usersTable, factGagsTable, factGagExamplesTable, factGagDescriptionsTable } from "@workspace/db";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import { imagePromptAttemptsTable, asyncJobsTable, userGenerationCostsTable, adminConfigTable } from "@workspace/db/schema";
-import { EMPTY_VISUAL_STRATEGY_OVERRIDE, buildPlaceholderFactEnrichment, type VisualPromptStrategyOverride } from "@workspace/api-zod";
+import { EMPTY_VISUAL_STRATEGY_OVERRIDE, PLACEHOLDER_CORE_SCENE_OVERRIDE, buildPlaceholderFactEnrichment, type VisualPromptStrategyOverride } from "@workspace/api-zod";
 
 import { requestMemberPicture } from "../lib/memberPictures/command.js";
 import { __setReferenceFalUploadForTest } from "../lib/defaultReferenceResolver.js";
@@ -308,6 +308,20 @@ describe("a gag's description", () => {
 
     await db.insert(factGagDescriptionsTable).values({ gagId, contentFingerprint: gagContentFingerprint(A)!, origin: "ai", attempts: DESCRIPTION_MAX_ATTEMPTS, updatedAt: new Date() });
     assert.equal((await editor()).published!.drafting, "failed", "attempts spent with no error recorded: failed, so a poll ends");
+  });
+
+  // Codex 4714175064, PR #1334: the list is the gags members can pick, so the
+  // backfilled stand-in, which members are never offered, is not on it.
+  it("the review list leaves out the backfilled stand-in, and keeps a real gag beside it", async () => {
+    const { factId, gagId: standIn } = await liveFact(PLACEHOLDER_CORE_SCENE_OVERRIDE);
+    await db.delete(factGagDescriptionsTable).where(eq(factGagDescriptionsTable.gagId, standIn));
+    const [row] = await db.select().from(factGagsTable).where(eq(factGagsTable.id, standIn));
+    const { id: _id, ...rest } = row!;
+    const real = scene(`{NAME} throws it twice ${randomUUID()}.`);
+    const [second] = await db.insert(factGagsTable).values({ ...rest, slot: 2, isDefault: false, approvedContent: real as never } as never).returning({ id: factGagsTable.id });
+    const listed = (await descriptionsToReview()).filter((d) => d.factId === factId).map((d) => d.gagId);
+    assert.deepEqual(listed, [second!.id], "the stand-in is not listed; the real gag beside it is");
+    assert.deepEqual((await availableGags(factId)).map((g) => g.gagId), [second!.id], "the same gags members can pick");
   });
 
   // Codex 4713938194, PR #1334: the starting point is chosen for the version
