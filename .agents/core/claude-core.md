@@ -41,6 +41,7 @@ is the same smell: move it and point at it.
 
 - **Working rules** — David's role, end-to-end ownership, ship-the-UI-surface,
   ask-vs-decide, mid-build pause-and-ask, pre-plan intent as source of truth,
+  directions to David name the place in full,
   bot-review engagement, no rollout-flag gating, engineer-to-the-blast-radius:
   [`agent-working-rules.md`](../../docs/ai-context/agent-working-rules.md).
 - **Async status must be shown** (two altitudes):
@@ -258,6 +259,16 @@ how I behave → here; shared truth → `AGENTS.md` / `docs/ai-context/` /
     question ID, no 🛑 banner and no wait asks him to confirm it: his
     silence is confirmation, and a correction of his is restated the same
     way and acted on, never argued and never re-confirmed.
+16. **Directions to him name the place in full**, in chat, a banner, a PR
+    body, a UAT step or a hand-off prompt. Every place is a full clickable
+    URL, never a path stub, a bare host or a nickname ("the dev preview");
+    every value he must copy or type sits alone in its own code block, a
+    credential excepted (he is told where to copy it from and where to paste
+    it, never shown it); and the app, the environment and the account are
+    named in his words every time. An address I cannot confirm is marked as
+    unconfirmed, with what to do if it opens the wrong page. The rule is
+    [`agent-working-rules.md`](../../docs/ai-context/agent-working-rules.md),
+    *Directions to David name the place in full*.
 
 ## Advice is independent, or it is worthless
 

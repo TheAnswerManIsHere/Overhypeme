@@ -562,6 +562,37 @@ hand-back to David, which is each agent's own enactment (Claude Code: its
 core, *A reversible choice proceeds, and every hand-back says what it did*,
 rule 2 — a sentence or two, saying only what he must know or do).
 
+## Directions to David name the place in full (David, 2026-11-26)
+
+Every instruction that sends David somewhere, or asks him to copy something,
+is written so he can act on it with no knowledge of how the system is laid
+out. Every agent, every product, every surface he reads: chat, a PR body, a
+UAT step, a hand-off prompt.
+
+- **Every place is a full, clickable URL.** Never a path stub
+  (`/api/stripe/webhook`), never a bare host, never a name for a place
+  ("the dev preview", "the Billing panel", "the Stripe dashboard"). A page
+  inside the product gets the full address of the environment it is in. A
+  third-party site gets the full address of the exact page, scoped to the
+  right account where the site allows it. Where no deep link exists, give
+  the nearest full URL and then the clicks from there, each named as it
+  appears on screen.
+- **Every value he must copy or type is in a code block of its own**, so one
+  click copies it: a URL he pastes elsewhere, a setting's name, a value, a
+  sign-in code. One value per block; nothing else inside it.
+- **No shorthand for where.** Say which app, which environment (development
+  or production), which account and which page, in words he would use, every
+  time: "the development app on Replit", never "dev". An agent that is about
+  to rely on him knowing where something is has written the instruction
+  wrong.
+- **Look the address up; never guess it.** An address an agent cannot
+  confirm is marked as unconfirmed, with what to do if it does not open the
+  right page.
+
+Secrets are the one exception to the code-block rule: a credential is never
+written into chat or GitHub, so he is told where to copy it from and where to
+paste it, never shown it.
+
 ## How Claude and Codex should interact
 
 - Codex and other AI reviewers are the **independent reviewers**; Claude Code is
