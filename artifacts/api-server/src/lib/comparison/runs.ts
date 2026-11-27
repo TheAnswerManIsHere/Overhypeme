@@ -81,6 +81,7 @@ import { gagRenderInput, normaliseGagContent, primaryGag, type GagContent } from
 import { planRun, type RunPlan, type WorkItem } from "./admission";
 import { loadSetRows, runItems, type RunScope } from "./sets";
 import { awaitResult, comparisonFal } from "./transport";
+import { falContentRefusal, falSubmitErrorMessage } from "../falClient";
 
 export const COMPARISON_PREPARE_QUEUE = "comparison_prepare";
 /** The prompt text a panel's frozen compiled prompt sends to every engine, or null. */
@@ -659,7 +660,11 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
     url = extractFirstImageUrl(vendorResult) || null;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    await failCell(cell.id, `render failed: ${msg}`);
+    // A model's content refusal arrives here, on the result read, as a 422
+    // whose message is only the status text ("Unprocessable Entity"): name the
+    // engine and fal's reason, as a member's render does (Issues #985, #1343).
+    // The model's moderator is not deterministic, so the cell stays retryable.
+    await failCell(cell.id, falContentRefusal(err) ? falSubmitErrorMessage(err, engine!.label) : `render failed: ${msg}`);
     return terminalFailure("comparison_render_failed", msg);
   }
   const completedAt = new Date();
