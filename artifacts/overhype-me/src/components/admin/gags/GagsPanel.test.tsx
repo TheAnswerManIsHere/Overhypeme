@@ -985,6 +985,67 @@ describe("GagsPanel", () => {
       }
     });
 
+    it("shows one description field, for the version being worked on: the draft's while a changed draft exists (David, UAT of PR #1334)", async () => {
+      const published = desc({ text: "{NAME} lifts the moon.", drafting: "none", reviewed: true, origin: "moderator" });
+      const draft = desc({ contentFingerprint: "c".repeat(64), text: "{NAME} lifts the sun.", drafting: "none", earlierText: "{NAME} lifts the moon." });
+      stubFetch(view([gag({ id: 1, slot: 1, pendingContent: scene("{NAME} lifts the sun."), descriptions: { published, draft } })]));
+      render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={[]} />);
+      await screen.findByTestId("gag-card");
+      const inputs = screen.getAllByTestId("gag-description-input") as HTMLInputElement[];
+      expect(inputs).toHaveLength(1);
+      expect(inputs[0]!.value).toBe("{NAME} lifts the sun.");
+      expect(screen.getByTestId("gag-description-status").textContent).toContain("goes live when this fact's changes are published");
+    });
+
+    // Codex 4715065992, PR #1339: a change of the shown version keeps typing.
+    describe("typing survives a save that changes the shown version", () => {
+      const FP_A = "a".repeat(64), FP_B = "d".repeat(64);
+      const saveThenApprove = async (initial: FactGagsView, after: FactGagsView, expectFp: string) => {
+        const calls = stubFetch(initial, { after });
+        const onUnsaved = vi.fn();
+        render(<GagsPanel factId={5} reviewId={77} rendersEnabled={false} subjectNames={["Alex"]} onUnsavedChange={onUnsaved} />);
+        const card = await screen.findByTestId("gag-card");
+        fireEvent.change(within(card).getByTestId("gag-description-input"), { target: { value: "{NAME} typed this line." } });
+        fireEvent.change(within(card).getByTestId("visual-concept-textarea"), { target: { value: "Alex lifts the sun." } });
+        fireEvent.click(within(card).getByTestId("gag-save"));
+        await waitFor(() => expect(calls.some((c) => c.method === "PUT" && !c.url.endsWith("/description"))).toBe(true));
+        await waitFor(() => expect(screen.getByTestId("gag-description-status").textContent).toContain("goes live when this fact's changes are published"));
+        expect((screen.getByTestId("gag-description-input") as HTMLInputElement).value).toBe("{NAME} typed this line.");
+        expect(onUnsaved).toHaveBeenLastCalledWith(["Visual gag 1"]);
+        fireEvent.click(screen.getByTestId("gag-description-approve"));
+        await waitFor(() => expect(calls.some((c) => c.url.endsWith("/description"))).toBe(true));
+        expect(calls.find((c) => c.url.endsWith("/description"))!.body).toMatchObject({ text: "{NAME} typed this line.", contentFingerprint: expectFp });
+      };
+
+      it("published to draft: the typed line stays, the gag stays named, and Approve saves it for the draft", async () => {
+        const published = desc({ contentFingerprint: FP_A, text: "{NAME} lifts the moon.", drafting: "none", reviewed: true, origin: "moderator" });
+        const initial = view([gag({ id: 1, slot: 1, descriptions: { published, draft: null } })]);
+        const after = view([gag({ id: 1, slot: 1, pendingContent: scene("{NAME} lifts the sun."), descriptions: { published, draft: desc({ contentFingerprint: FP_B }) } })]);
+        await saveThenApprove(initial, after, FP_B);
+      });
+
+      it("draft to a different draft on a never-published gag: the same", async () => {
+        const unpublished = { state: "new" as const, availableToUsers: false, approvedContent: null, approvedAt: null };
+        const initial = view([gag({ id: 1, slot: 1, ...unpublished, pendingContent: scene("{NAME} lifts the moon."), descriptions: { published: null, draft: desc({ contentFingerprint: FP_A, text: "{NAME} lifts the moon.", drafting: "none" }) } })]);
+        const after = view([gag({ id: 1, slot: 1, ...unpublished, pendingContent: scene("{NAME} lifts the sun."), descriptions: { published: null, draft: desc({ contentFingerprint: FP_B }) } })]);
+        await saveThenApprove(initial, after, FP_B);
+      });
+
+      it("an untouched field shows the new version's text and names nothing", async () => {
+        const published = desc({ contentFingerprint: FP_A, text: "{NAME} lifts the moon.", drafting: "none", reviewed: true, origin: "moderator" });
+        const initial = view([gag({ id: 1, slot: 1, descriptions: { published, draft: null } })]);
+        const after = view([gag({ id: 1, slot: 1, pendingContent: scene("{NAME} lifts the sun."), descriptions: { published, draft: desc({ contentFingerprint: FP_B, text: "{NAME} lifts the sun.", drafting: "none" }) } })]);
+        stubFetch(initial, { after });
+        const onUnsaved = vi.fn();
+        render(<GagsPanel factId={5} reviewId={77} rendersEnabled={false} subjectNames={["Alex"]} onUnsavedChange={onUnsaved} />);
+        const card = await screen.findByTestId("gag-card");
+        fireEvent.change(within(card).getByTestId("visual-concept-textarea"), { target: { value: "Alex lifts the sun." } });
+        fireEvent.click(within(card).getByTestId("gag-save"));
+        await waitFor(() => expect((screen.getByTestId("gag-description-input") as HTMLInputElement).value).toBe("{NAME} lifts the sun."));
+        await waitFor(() => expect(onUnsaved).toHaveBeenLastCalledWith([]));
+      });
+    });
+
     it("names a gag with unsaved description typing, until both its content and description edits clear (Codex 4713938190)", async () => {
       stubFetch(withDesc(desc({ text: "{NAME} lifts the moon.", drafting: "none" })));
       const onUnsaved = vi.fn();

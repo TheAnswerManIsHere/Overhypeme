@@ -676,21 +676,31 @@ export function GagDescriptions({ factId, reviewId, gag, readOnly, onView, onUns
   onUnsaved?: (contentFingerprint: string, unsaved: boolean) => void;
 }) {
   const d = gag.descriptions;
-  const rows = [
-    { version: d?.published ?? null, label: d?.draft ? "Published version" : null, note: "Approving it shows it to members now." },
-    { version: d?.draft ?? null, label: d?.published ? "Draft version" : null, note: "It goes live when this fact's changes are published." },
-  ].filter((r): r is { version: GagDescriptionView; label: string | null; note: string } => r.version != null);
+  // One field, for the version being worked on, as the scene and bubbles
+  // above it show the working version (David, 2026-11-27, UAT of PR #1334):
+  // the draft's description while a changed draft exists, which goes live
+  // with the fact's publish; otherwise the published one, which approving
+  // shows to members at once (Q15: 1).
+  const rows = d?.draft
+    ? [{ version: d.draft, label: null, note: "It goes live when this fact's changes are published." }]
+    : d?.published
+      ? [{ version: d.published, label: null, note: "Approving it shows it to members now." }]
+      : [];
   if (rows.length === 0) return null;
   return (
-    <div className="space-y-3 rounded-sm border border-border p-3" data-testid="gag-descriptions">
-      <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">One-line description</p>
-      <p className="text-xs text-muted-foreground">
-        Shown to members beside this gag&apos;s examples, written with their name. Use {"{NAME}"} for the person in the picture.
+    // A field of the gag, beside its scene and bubbles; there is no separate
+    // descriptions page (David, 2026-11-27, UAT of PR #1334).
+    <div className="bg-background border-2 border-border rounded-sm p-4 space-y-2" data-testid="gag-descriptions">
+      <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Description</p>
+      <p className="text-xs text-muted-foreground mt-1">
+        One line shown to members beside this gag&apos;s examples, written with their name. Use {"{NAME}"} for the person in the picture.
       </p>
       {rows.map((r) => (
-        // Keyed by version: a new version starts the field afresh, while new
-        // text for the same version is reconciled inside the row.
-        <DescriptionRow key={r.version.contentFingerprint} factId={factId} reviewId={reviewId} gagId={gag.id}
+        // One field for the gag, never remounted by a change of version: the
+        // shown version's text reaches it through the row's reconciliation
+        // rule, so typing the moderator has not approved survives a save that
+        // changes the version (Codex 4715065992, PR #1339).
+        <DescriptionRow key="description" factId={factId} reviewId={reviewId} gagId={gag.id}
           version={r.version} label={r.label} note={r.note} readOnly={readOnly} onView={onView} onUnsaved={onUnsaved} />
       ))}
     </div>
@@ -727,12 +737,16 @@ export function DescriptionRow({ factId, reviewId, gagId, version, label, note, 
   textRef.current = text;
   const adoptedRef = useRef(adopted);
   adoptedRef.current = adopted;
+  // The same rule holds when the shown version itself changes (a saved scene
+  // change, a draft replaced, content arriving by reload): an untouched field
+  // shows the new version's text, typing stays and still counts as unsaved,
+  // and Approve then saves it for the version now shown.
   useEffect(() => {
     const incoming = version.text ?? "";
     if (incoming === adoptedRef.current) return;
     if (textRef.current === adoptedRef.current) setText(incoming);
     setAdopted(incoming);
-  }, [version.text]);
+  }, [version.text, version.contentFingerprint]);
   const { busy, error, act } = useGagAction();
   const dirty = text.trim() !== adopted;
   const fp = version.contentFingerprint;
@@ -740,13 +754,17 @@ export function DescriptionRow({ factId, reviewId, gagId, version, label, note, 
   useEffect(() => () => onUnsaved?.(fp, false), [onUnsaved, fp]);
   const earlierText = version.earlierText;
   const canApprove = !readOnly && !busy && text.trim().length > 0 && (dirty || !version.reviewed);
+  const fpRef = useRef(fp);
+  fpRef.current = fp;
   const approve = async () => {
-    const r = await act(() => gagApi.saveDescription(factId, gagId, version.contentFingerprint, text, reviewId));
+    const sentFp = fp;
+    const r = await act(() => gagApi.saveDescription(factId, gagId, sentFp, text, reviewId));
     if (!r.ok) return;
-    // The moderator's own save: show what was stored, canonicalised, and treat it as adopted.
+    // The moderator's own save: show what was stored, canonicalised, and treat
+    // it as adopted, unless the shown version changed while it was in flight.
     const d = r.view.gags.find((g) => g.id === gagId)?.descriptions;
-    const saved = [d?.published, d?.draft].find((v) => v?.contentFingerprint === version.contentFingerprint)?.text;
-    if (saved != null) { adoptedRef.current = saved; setAdopted(saved); setText(saved); }
+    const saved = [d?.published, d?.draft].find((v) => v?.contentFingerprint === sentFp)?.text;
+    if (saved != null && fpRef.current === sentFp) { adoptedRef.current = saved; setAdopted(saved); setText(saved); }
     onView(r.view);
   };
   return (

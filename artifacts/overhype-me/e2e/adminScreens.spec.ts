@@ -24,7 +24,7 @@ const DESKTOP = { width: 1280, height: 900 };
 
 /** The sidebar's entries, in order (`components/admin/AdminLayout.tsx`, NAV_ITEMS). */
 const SIDEBAR = [
-  "Dashboard", "Facts", "Users", "Moderation", "Gag descriptions", "Eval", "Billing", "Refunds & Disputes",
+  "Dashboard", "Facts", "Users", "Moderation", "Eval", "Billing", "Refunds & Disputes",
   "Trace an image", "Email Queue", "Operations", "Queue Health", "Features", "AI Settings", "Configuration", "Help",
 ];
 
