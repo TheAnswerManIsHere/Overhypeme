@@ -696,9 +696,11 @@ export function GagDescriptions({ factId, reviewId, gag, readOnly, onView, onUns
         One line shown to members beside this gag&apos;s examples, written with their name. Use {"{NAME}"} for the person in the picture.
       </p>
       {rows.map((r) => (
-        // Keyed by version: a new version starts the field afresh, while new
-        // text for the same version is reconciled inside the row.
-        <DescriptionRow key={r.version.contentFingerprint} factId={factId} reviewId={reviewId} gagId={gag.id}
+        // One field for the gag, never remounted by a change of version: the
+        // shown version's text reaches it through the row's reconciliation
+        // rule, so typing the moderator has not approved survives a save that
+        // changes the version (Codex 4715065992, PR #1339).
+        <DescriptionRow key="description" factId={factId} reviewId={reviewId} gagId={gag.id}
           version={r.version} label={r.label} note={r.note} readOnly={readOnly} onView={onView} onUnsaved={onUnsaved} />
       ))}
     </div>
@@ -735,12 +737,16 @@ export function DescriptionRow({ factId, reviewId, gagId, version, label, note, 
   textRef.current = text;
   const adoptedRef = useRef(adopted);
   adoptedRef.current = adopted;
+  // The same rule holds when the shown version itself changes (a saved scene
+  // change, a draft replaced, content arriving by reload): an untouched field
+  // shows the new version's text, typing stays and still counts as unsaved,
+  // and Approve then saves it for the version now shown.
   useEffect(() => {
     const incoming = version.text ?? "";
     if (incoming === adoptedRef.current) return;
     if (textRef.current === adoptedRef.current) setText(incoming);
     setAdopted(incoming);
-  }, [version.text]);
+  }, [version.text, version.contentFingerprint]);
   const { busy, error, act } = useGagAction();
   const dirty = text.trim() !== adopted;
   const fp = version.contentFingerprint;
@@ -748,13 +754,17 @@ export function DescriptionRow({ factId, reviewId, gagId, version, label, note, 
   useEffect(() => () => onUnsaved?.(fp, false), [onUnsaved, fp]);
   const earlierText = version.earlierText;
   const canApprove = !readOnly && !busy && text.trim().length > 0 && (dirty || !version.reviewed);
+  const fpRef = useRef(fp);
+  fpRef.current = fp;
   const approve = async () => {
-    const r = await act(() => gagApi.saveDescription(factId, gagId, version.contentFingerprint, text, reviewId));
+    const sentFp = fp;
+    const r = await act(() => gagApi.saveDescription(factId, gagId, sentFp, text, reviewId));
     if (!r.ok) return;
-    // The moderator's own save: show what was stored, canonicalised, and treat it as adopted.
+    // The moderator's own save: show what was stored, canonicalised, and treat
+    // it as adopted, unless the shown version changed while it was in flight.
     const d = r.view.gags.find((g) => g.id === gagId)?.descriptions;
-    const saved = [d?.published, d?.draft].find((v) => v?.contentFingerprint === version.contentFingerprint)?.text;
-    if (saved != null) { adoptedRef.current = saved; setAdopted(saved); setText(saved); }
+    const saved = [d?.published, d?.draft].find((v) => v?.contentFingerprint === sentFp)?.text;
+    if (saved != null && fpRef.current === sentFp) { adoptedRef.current = saved; setAdopted(saved); setText(saved); }
     onView(r.view);
   };
   return (
