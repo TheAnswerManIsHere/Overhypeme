@@ -682,10 +682,12 @@ export function GagDescriptions({ factId, reviewId, gag, readOnly, onView, onUns
   ].filter((r): r is { version: GagDescriptionView; label: string | null; note: string } => r.version != null);
   if (rows.length === 0) return null;
   return (
-    <div className="space-y-3 rounded-sm border border-border p-3" data-testid="gag-descriptions">
-      <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">One-line description</p>
-      <p className="text-xs text-muted-foreground">
-        Shown to members beside this gag&apos;s examples, written with their name. Use {"{NAME}"} for the person in the picture.
+    // A field of the gag, beside its scene and bubbles; there is no separate
+    // descriptions page (David, 2026-11-27, UAT of PR #1334).
+    <div className="bg-background border-2 border-border rounded-sm p-4 space-y-2" data-testid="gag-descriptions">
+      <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Description</p>
+      <p className="text-xs text-muted-foreground mt-1">
+        One line shown to members beside this gag&apos;s examples, written with their name. Use {"{NAME}"} for the person in the picture.
       </p>
       {rows.map((r) => (
         // Keyed by version: a new version starts the field afresh, while new

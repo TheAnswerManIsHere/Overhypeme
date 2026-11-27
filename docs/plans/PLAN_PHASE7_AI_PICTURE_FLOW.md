@@ -379,9 +379,11 @@ This closes #1315.
 - The gag editor shows the description for the published content and the
   one for the draft content, each editable. Editing marks it moderator-written
   and reviewed.
-- An admin list counts and shows the gags members can pick whose published
-  content lacks a reviewed description, with each one's drafting state:
-  drafting, drafted, or failed with its reason.
+- The description is a field on each gag, beside its scene and bubbles, with
+  its drafting state: drafting, drafted, or failed with its reason. There is
+  no separate descriptions page (David, 2026-11-27, at the UAT of PR #1334:
+  *"We do not need a gag descriptions page. Descriptions belong as an
+  additional field on each gag."*).
 - When content changes and the old content had a moderator-written
   description, the editor offers that text as a starting point for the new
   content. It is never applied silently.
@@ -449,7 +451,6 @@ the migration review's checklist and is held by tests.
 
 **Admin:**
 - the gag editor's two description fields and their review action;
-- the "descriptions to review" list, with its count and drafting states;
 - the offer of earlier text after a content change.
 
 ## Security, Permissions, and Validation
@@ -547,8 +548,9 @@ when that review is complete (Definition of Done).
 
 ## Risks and Mitigations
 
-- **The review is real moderator work.** The list makes it countable and
-  finishable, and a joke without a description still works meanwhile.
+- **The review is real moderator work.** It happens on each gag, and a joke
+  without a description still works meanwhile; the go-live check refuses a
+  publish whose new or changed gag has none.
   - unable to verify: how many published gags exist in production. A count on
     the production database at close-out settles it; the Summary states the
     cost per joke.

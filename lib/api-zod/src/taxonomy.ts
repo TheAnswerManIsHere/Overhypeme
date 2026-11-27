@@ -692,9 +692,7 @@ export const PLACEHOLDER_CORE_SCENE_OVERRIDE = "{NAME} stands there confidently.
 
 /**
  * Whether gag content is the backfilled stand-in: approved content nobody
- * wrote. Members are never offered it (api-server `gags/resolver.ts`), and the
- * description review list leaves it out for the same reason (PR #1334). One
- * statement of the rule, so the two cannot drift.
+ * wrote. Members are never offered it (api-server `gags/resolver.ts`).
  */
 export function isStandInGagContent(content: unknown): boolean {
   const scene = (content as { coreSceneOverride?: unknown } | null)?.coreSceneOverride;

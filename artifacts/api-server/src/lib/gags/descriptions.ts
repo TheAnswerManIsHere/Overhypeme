@@ -35,7 +35,6 @@ import { db, factGagDescriptionsTable, factGagsTable, factsTable } from "@worksp
 import {
   DESCRIPTION_MAX_CHARS,
   canonicalizeNameToken,
-  isStandInGagContent,
   validateTemplate,
   visualPromptStrategyOverrideSchema,
   type GagDescriptionView,
@@ -254,48 +253,6 @@ export async function missingDescriptionsForPublish(
     .where(and(inArray(factGagDescriptionsTable.gagId, changing.map((c) => c.gagId)), sql`${factGagDescriptionsTable.reviewedAt} IS NOT NULL`));
   const have = new Set(rows.map((r) => `${r.gagId}:${r.fp}`));
   return changing.filter((c) => !c.fp || !have.has(`${c.gagId}:${c.fp}`)).map(({ gagId, slot }) => ({ gagId, slot }));
-}
-
-// ─── The review list ────────────────────────────────────────────────────────
-
-export interface DescriptionToReview {
-  factId: number;
-  factText: string;
-  gagId: number;
-  slot: number;
-  /** The published content's description, as it stands. */
-  description: DescriptionView;
-}
-
-/**
- * The gags members can pick (published, not removed, on an active fact) whose
- * published content has no reviewed description, with each one's drafting
- * state: the backfill's review, countable and finishable.
- */
-export async function descriptionsToReview(conn: Db = db): Promise<DescriptionToReview[]> {
-  const gags = await conn.select({
-    id: factGagsTable.id, factId: factGagsTable.factId, slot: factGagsTable.slot,
-    approvedContent: factGagsTable.approvedContent, factText: factsTable.text,
-  }).from(factGagsTable)
-    .innerJoin(factsTable, eq(factsTable.id, factGagsTable.factId))
-    .where(and(isNull(factGagsTable.removedAt), sql`${factGagsTable.approvedContent} IS NOT NULL`, eq(factsTable.isActive, true)));
-  if (gags.length === 0) return [];
-  const rows = await conn.select().from(factGagDescriptionsTable)
-    .where(inArray(factGagDescriptionsTable.gagId, gags.map((g) => g.id)));
-  const byKey = new Map(rows.map((r) => [`${r.gagId}:${r.contentFingerprint}`, r]));
-  const out: DescriptionToReview[] = [];
-  for (const g of gags) {
-    // Members are never offered the backfilled stand-in (the resolver's rule,
-    // shared), so it has no description to review (Codex 4714175064, PR #1334).
-    // The drafting sweep still covers it: it drafts every stored version.
-    if (isStandInGagContent(g.approvedContent)) continue;
-    const fp = gagContentFingerprint(g.approvedContent);
-    if (!fp) continue;
-    const row = byKey.get(`${g.id}:${fp}`);
-    if (row?.reviewedAt) continue;
-    out.push({ factId: g.factId, factText: g.factText, gagId: g.id, slot: g.slot, description: viewOf(row, fp) });
-  }
-  return out.sort((a, b) => a.factId - b.factId || a.slot - b.slot);
 }
 
 // ─── Drafting ───────────────────────────────────────────────────────────────
