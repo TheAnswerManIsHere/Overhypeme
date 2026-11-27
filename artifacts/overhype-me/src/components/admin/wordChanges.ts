@@ -49,3 +49,62 @@ export function wordChanges(text: string, base: string): WordRun[] {
   });
   return runs;
 }
+
+/** A slot as the server cuts a piece at it (`SLOT_RE` in the api-server's `imagePrompt/recipe.ts`). */
+const SLOT = /\{[A-Za-z]+\}/g;
+
+/**
+ * Marks one changed piece's compiled segments (PR #1342, Codex 4715586277).
+ * The server cuts a piece at every slot, so a piece with slots reaches the
+ * editor as several segments; comparing each against the whole base would
+ * let an added word pair with a base word on the far side of a slot. Instead
+ * the draft and base wording are compared once, as whole templates, so each
+ * slot anchors the alignment, and each segment takes the marks of the stretch
+ * of draft wording it is.
+ *
+ * Call the returned function on the piece's segments in prompt order: a
+ * segment is looked for from the stretch after the last one found, wrapping,
+ * so a piece that appears twice (a balloon per balloon) marks each copy. A
+ * segment that is not a stretch of the draft (the compiler altered it, or an
+ * empty slot value merged two stretches) falls back to comparing it alone
+ * against the base.
+ */
+export function pieceMarker(draft: string, base: string): (segment: string) => WordRun[] {
+  const changed = new Array<boolean>(draft.length).fill(false);
+  let at = 0;
+  for (const r of wordChanges(draft, base)) { if (r.changed) changed.fill(true, at, at + r.text.length); at += r.text.length; }
+  const stretches: Array<{ start: number; text: string }> = [];
+  let from = 0;
+  for (const m of [...draft.matchAll(SLOT), { index: draft.length, 0: "" }]) {
+    if (m.index! > from) stretches.push({ start: from, text: draft.slice(from, m.index) });
+    from = m.index! + m[0].length;
+  }
+  let cursor = 0;
+  // A whole stretch first; only then a stretch the compiler shortened.
+  const find = (segment: string): { k: number; offset: number } | null => {
+    for (const whole of [true, false]) {
+      for (let j = 0; j < stretches.length; j++) {
+        const k = (cursor + j) % stretches.length;
+        const offset = whole ? (stretches[k]!.text === segment ? 0 : -1) : stretches[k]!.text.indexOf(segment);
+        if (offset >= 0) return { k, offset };
+      }
+    }
+    return null;
+  };
+  return (segment) => {
+    const hit = segment ? find(segment) : null;
+    if (hit) {
+      const s = stretches[hit.k]!, offset = hit.offset;
+      cursor = (hit.k + 1) % stretches.length;
+      const runs: WordRun[] = [];
+      for (let i = 0; i < segment.length; i++) {
+        const c = changed[s.start + offset + i]!;
+        const last = runs[runs.length - 1];
+        if (last && last.changed === c) last.text += segment[i];
+        else runs.push({ text: segment[i]!, changed: c });
+      }
+      return runs;
+    }
+    return wordChanges(segment, base);
+  };
+}

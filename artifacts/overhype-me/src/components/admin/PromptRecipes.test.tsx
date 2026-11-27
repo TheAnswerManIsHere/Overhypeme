@@ -176,4 +176,33 @@ describe("PromptRecipes", () => {
     expect([...result.querySelectorAll('[data-changed="true"]')].map((m) => m.textContent)).toEqual(["Test"]);
     expect([...result.querySelectorAll("[data-piece]:not([data-changed])")].map((m) => m.textContent)).toEqual(["Use the photo as the face. "]);
   });
+
+  it("marks only the words added after a slot, even where they also sit before it (PR #1342, Codex 4715586277)", async () => {
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (String(url).endsWith("/preview")) {
+        return new Response(JSON.stringify({ ...PREVIEW.body, sections: [
+          { id: "constraints", label: "STRICT", status: "required", text: "Do not clone Raena clone.", segments: [
+            { text: "Do not clone ", piece: "constraints.duplicate" }, { text: "Raena", piece: null }, { text: " clone.", piece: "constraints.duplicate" },
+          ] },
+        ] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return base(url as string, init as RequestInit);
+    });
+    render(<PromptRecipes />);
+    await screen.findByTestId("recipes-editor");
+    const box = screen.getByTestId("recipes-piece-constraints.duplicate");
+    fireEvent.change(box, { target: { value: "Do not clone {subject} clone." } });
+    fireEvent.change(screen.getByTestId("recipes-preview-fact"), { target: { value: "42" } });
+    fireEvent.click(screen.getByTestId("recipes-preview"));
+    const result = await screen.findByTestId("recipes-preview-result");
+    const amber = () => [...result.querySelectorAll('[data-changed="true"]')].map((m) => m.textContent);
+    expect(amber()).toEqual(["clone"]);
+    // The slot value stays plain.
+    expect([...result.querySelectorAll("[data-piece]")].map((m) => m.textContent).join("")).not.toMatch(/Raena/);
+    // The marking belongs to the wording that was previewed: typing afterwards does not recolour it.
+    fireEvent.change(box, { target: { value: "Never clone {subject}." } });
+    expect(amber()).toEqual(["clone"]);
+  });
 });
+

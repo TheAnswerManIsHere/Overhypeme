@@ -13,7 +13,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
 import { readError } from "@/components/admin/readError";
 import { announceRecipesChanged, promoteRecipeVersion } from "@/components/admin/promoteRecipeVersion";
-import { wordChanges } from "@/components/admin/wordChanges";
+import { pieceMarker, type WordRun } from "@/components/admin/wordChanges";
 
 export interface PieceDef { key: string; label: string; group: string; when: string; slots: string[]; policy: boolean; baseline: string }
 export interface FamilyVersion { id: number; number: number; note: string; createdBy: string | null; createdAt: string; pieces: Record<string, string> }
@@ -29,6 +29,8 @@ export interface RecipeFamily {
 interface Listing { pieces: PieceDef[]; families: RecipeFamily[] }
 interface Segment { text: string; piece: string | null }
 interface Preview { prompt: string; length: number; overflowBy: number; problems: string[]; sections: Array<{ id: string; label: string; status: string; text: string; segments?: Segment[] }> }
+/** The wording a preview was compiled from, kept with it: the boxes stay editable after a preview, and its marking must not follow later typing. */
+interface PreviewWording { draft: Record<string, string>; base: Record<string, string>; changed: Set<string> }
 
 const GROUP_LABEL: Record<string, string> = {
   labels: "Section labels", shape: "Prompt shape (how sections are written and joined)", identity: "Identity", binding: "Subject binding", constraints: "Do-nots and failure guards",
@@ -58,7 +60,7 @@ export function PromptRecipes() {
   const [notice, setNotice] = useState("");
   const [factId, setFactId] = useState("");
   const [mode, setMode] = useState<(typeof MODES)[number]["value"]>("human_identity_i2i");
-  const [preview, setPreview] = useState<Preview | null>(null);
+  const [preview, setPreview] = useState<(Preview & { wording: PreviewWording }) | null>(null);
 
   const load = useCallback(async (): Promise<Listing | null> => {
     const r = await fetch("/api/admin/prompt-recipes", { credentials: "include" }).catch(() => null);
@@ -87,6 +89,27 @@ export function PromptRecipes() {
   const changed = useMemo(() => Object.keys(draft).filter((k) => draft[k] !== basePieces[k]), [draft, basePieces]);
   const changedSet = useMemo(() => new Set(changed), [changed]);
   const pieceLabel = (key: string) => data?.pieces.find((p) => p.key === key)?.label ?? key;
+  /**
+   * Each preview section as runs: the fact's own text (piece null), shared
+   * wording, and the words this draft changed. A changed piece is marked word
+   * by word against its base, as a whole template, so a slot never lets an
+   * added word pair with an unchanged one across it (Issue #1341; PR #1342).
+   */
+  const previewRuns = useMemo(() => {
+    if (!preview) return [];
+    const { draft: drafted, base, changed: changedAtPreview } = preview.wording;
+    const markers = new Map<string, (segment: string) => WordRun[]>();
+    const marker = (piece: string) => {
+      if (!markers.has(piece)) markers.set(piece, pieceMarker(drafted[piece] ?? "", base[piece] ?? ""));
+      return markers.get(piece)!;
+    };
+    return preview.sections.filter((s) => s.text).map((s) => ({
+      section: s,
+      runs: (s.segments ?? [{ text: s.text, piece: null }]).flatMap((g) => g.piece == null || !changedAtPreview.has(g.piece)
+        ? [{ text: g.text, piece: g.piece, changed: false }]
+        : marker(g.piece)(g.text).map((r) => ({ text: r.text, piece: g.piece, changed: r.changed }))),
+    }));
+  }, [preview]);
   const changedPolicy = changed.filter((k) => data?.pieces.find((p) => p.key === k)?.policy);
 
   const pickFamily = (f: string) => {
@@ -125,6 +148,7 @@ export function PromptRecipes() {
   const runPreview = async () => {
     if (!fam || !/^\d+$/.test(factId.trim())) { setProblems(["Enter a fact number to preview on."]); return; }
     setBusy("preview"); setProblems([]); setPreview(null);
+    const wording: PreviewWording = { draft: { ...basePieces, ...draft }, base: basePieces, changed: changedSet };
     const r = await fetch(`/api/admin/prompt-recipes/${fam.family}/preview`, {
       method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ pieces: edits(), basedOnVersionId: baseId, factId: Number(factId.trim()), subjectRenderMode: mode }),
@@ -133,7 +157,7 @@ export function PromptRecipes() {
     if (!r) { setProblems(["The request failed."]); return; }
     const body = await r.json().catch(() => ({})) as Preview & { refusal?: string };
     if (!r.ok) { setProblems([body.refusal ?? `No preview (${r.status}).`, ...(body.problems ?? [])]); return; }
-    setPreview(body);
+    setPreview({ ...body, wording });
     setProblems(body.problems ?? []);
   };
 
@@ -281,16 +305,13 @@ export function PromptRecipes() {
                 · plain text is written for this fact.
               </p>
               <div className="rounded-sm border border-border p-2 space-y-1 text-xs font-mono text-foreground whitespace-pre-wrap break-words">
-                {preview.sections.filter((s) => s.text).map((s) => (
+                {previewRuns.map(({ section: s, runs }) => (
                   <p key={s.id} className={s.status === "compressed" ? "opacity-80" : ""} title={s.status === "compressed" ? "Shortened to fit the prompt" : undefined}>
-                    {(s.segments ?? [{ text: s.text, piece: null }]).map((g, i) => g.piece == null
-                      ? <span key={i}>{g.text}</span>
-                      : changedSet.has(g.piece)
-                        // Only the words not in the wording this draft is based on are amber (Issue #1341).
-                        ? wordChanges(g.text, basePieces[g.piece] ?? "").map((r, j) => r.changed
-                          ? <mark key={`${i}.${j}`} data-piece={g.piece!} data-changed="true" title={pieceLabel(g.piece!)} className="bg-amber-200 dark:bg-amber-700 text-foreground rounded-sm">{r.text}</mark>
-                          : <span key={`${i}.${j}`} data-piece={g.piece!} title={pieceLabel(g.piece!)} className="text-sky-700 dark:text-sky-300 underline decoration-dotted">{r.text}</span>)
-                        : <span key={i} data-piece={g.piece} title={pieceLabel(g.piece)} className="text-sky-700 dark:text-sky-300 underline decoration-dotted">{g.text}</span>)}
+                    {runs.map((r, i) => r.piece == null
+                      ? <span key={i}>{r.text}</span>
+                      : r.changed
+                        ? <mark key={i} data-piece={r.piece} data-changed="true" title={pieceLabel(r.piece)} className="bg-amber-200 dark:bg-amber-700 text-foreground rounded-sm">{r.text}</mark>
+                        : <span key={i} data-piece={r.piece} title={pieceLabel(r.piece)} className="text-sky-700 dark:text-sky-300 underline decoration-dotted">{r.text}</span>)}
                     {s.status === "compressed" && <span className="text-amber-600 dark:text-amber-400"> (shortened to fit)</span>}
                   </p>
                 ))}
