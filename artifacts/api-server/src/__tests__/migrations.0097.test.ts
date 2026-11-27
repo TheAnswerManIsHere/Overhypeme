@@ -629,7 +629,7 @@ describe("migration 0097 — database behaviour (skipped when DATABASE_URL is un
         // therefore means staging the runbook's outcome first.
         //
         // The role is cluster-wide while shards are separate databases on one server, so
-        // another suite may already hold it committed (phase15.appRoleSplit.test.ts keeps it
+        // another suite may already hold it committed (phase15.appRoleRetire.test.ts keeps it
         // for its whole run, in a parallel shard). Its existing is not an error here: create
         // it under a savepoint and accept a duplicate, so this transaction's own create
         // still rolls back and a role another suite committed is never touched.
