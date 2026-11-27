@@ -30,7 +30,9 @@ generation, fal is something I can drive directly:
   *Lanes*): a ceiling set before it starts, the `paid-ai-ledger` read and
   comment only for a run or task of $1 or more, and a stop for David at a
   $10 worst case or the month past $100. Price it with `estimate_cost`
-  first (that is its worst case), and never run it in a loop.
+  first to plan it; that is an estimate, not a bound (fal's final charge
+  depends on settings it does not fully show), so the run's ceiling is set
+  separately and with headroom. Never run it in a loop.
 
 **Gotchas.**
 

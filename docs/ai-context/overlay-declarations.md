@@ -169,15 +169,15 @@ produced.
   `node --import tsx/esm scripts/acceptance-run.ts --mode capture --doc <UAT doc stem> --allowance 3 --out <empty dir>`,
   one UAT doc per run, as `/uat` runs one doc; the doc's shots are the
   ones its steps cite.
-- **A paid run proceeds within the fleet's paid-run budget without asking**, and asks only past it (David, 2026-11-17; `decisions.md`; the budget's home is `uat-doc-format.md`, *Lanes*). CI never starts one (every paid mode refuses `CI`), and a run is started only because a check needs it, never in a loop. A run past the budget asks, naming the doc, the paid calls and the worst-case cost. The judgement steps on an AI render can instead be answered from
+- **A paid run proceeds under the fleet's paid-run rule (`uat-doc-format.md`, *Lanes*): `--allowance` is its ceiling, set before it starts; a run or task of $1 or more reads the fleet ledger first and is logged on it; and a run whose worst case is $10 or more, a task past $10, or a run that would take the month past $100 across every product stops and asks David first**. CI never starts one (every paid mode refuses `CI`), and a run is started only because a check needs it, never in a loop. A run that stops asks, naming the doc, the paid calls and the worst-case cost. The judgement steps on an AI render can instead be answered from
   an image David generates himself in the app, with no capture run at all.
 - **Paid-render allowance: `--allowance`, required, per run.** It is a
   guard against runaway spend, not an approval: the recorder holds four
   attempts' price for each fal render, so the allowance is a worst-case
   ceiling, and it refuses any call that would exceed it; a run's actual
-  spend is in its ledger. There is no fixed cap above it and nothing to
-  ask (David, 2026-11-17: a paid run proceeds within the monthly budget,
-  `decisions.md`); `--allowance 3` is the usual size of one doc's run.
+  spend is in its ledger. An allowance of $10 or more is a run whose worst
+  case reaches the fleet's $10 stop, so it asks David first (the bullet
+  above); `--allowance 3` is the usual size of one doc's run.
 - **Evidence store: the `uat-evidence` branch**, never merged and only
   appended to, one directory per run, `<UAT doc stem>/<commit under test>/<run date>/`,
   holding the shots and their `manifest.jsonl` (one record per file: shot,

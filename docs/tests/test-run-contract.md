@@ -66,10 +66,10 @@ harmless to follow:
 - **Never instruct a paid AI run** (a real render, a real model call) as a
   routine check. It is not read-only, so the read-only connector prompt
   cannot carry it. A check that genuinely needs one is stated as a paid
-  step, like the third write shape above. It runs only after David's
-  go-ahead in words for that run, and its connector prompt names the paid
-  call and the worst-case cost in place of the read-only line
-  (`uat-doc-format.md`, *Lanes*; David, 2026-10-17).
+  step, like the third write shape above. It runs under the fleet's
+  paid-run rule, which says when it stops for David (`uat-doc-format.md`,
+  *Lanes*), and its connector prompt names the paid call and the
+  worst-case cost in place of the read-only line.
 - **Read-only SQL is the workhorse.** Schema/catalog checks, count queries,
   backfill-outcome verification — all safe to run any number of times, and
   they cover what CI genuinely cannot see.
@@ -227,7 +227,7 @@ guard), but they run in CI, not here.
   above) is executed by the driving agent through the connector at
   close-out, clearly labeled in the section as a mutating action with its
   credential and ordering prerequisites named. A paid AI step is labeled the
-  same way, with its paid calls and worst-case cost. It runs within the fleet's monthly paid-run budget without asking; only a run that would take the month past it waits for David's go-ahead, and until then the workstream waits on him (`uat-doc-format.md`, *Lanes*).
+  same way, with its paid calls and worst-case cost. It runs under the fleet's paid-run rule without asking; one that hits a stop of that rule (a $10 worst case in the run, $10 across the task, or the month past $100) waits for David's go-ahead, and until then the workstream waits on him (`uat-doc-format.md`, *Lanes*).
 - **Keep "what's deliberately NOT shipped" to terse bullets.** It exists so
   Replit does not diagnose a deliberate absence as a defect — not as a design
   essay. Anything longer belongs in the plan or in
