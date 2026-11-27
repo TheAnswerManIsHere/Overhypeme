@@ -147,6 +147,7 @@ export const TABLE_CLASSIFICATION: Readonly<Record<string, TableEntry>> = {
   fact_taxonomy_runs: { class: "product" },
   fact_gags: { class: "product" },
   fact_gag_examples: { class: "product" },
+  fact_gag_descriptions: { class: "product" },
   fact_hashtags: { class: "product" },
   facts: { class: "product" },
   hashtags: { class: "product" },

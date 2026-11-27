@@ -5,6 +5,7 @@
  *   GET  /api/facts/:factId/picture-options              the gags offered, their examples, the balance
  *   GET  /api/member-pictures/examples/:attemptId/image  an offered gag's approved example
  *   POST /api/facts/:factId/member-pictures              make one picture (one credit)
+ *   POST /api/member-pictures/photo-check                whether an owned photo shows a person or a pet (no credit)
  *   GET  /api/member-pictures                            the member's pictures not yet finished, and recent ones
  *   GET  /api/member-pictures/:attemptId                 one picture's state
  *
@@ -21,7 +22,8 @@ import { availableGags } from "../lib/gags/resolver";
 import { creditBalance, openLots } from "../lib/credits/ledger";
 import { returnedPictures } from "../lib/credits/pictures";
 import { MEMBER_PICTURE_IN_PROGRESS } from "../lib/imagePromptAttempts";
-import { MemberPictureError, requestMemberPicture } from "../lib/memberPictures/command";
+import { checkMemberPhoto, MemberPictureError, requestMemberPicture, type MemberPictureShape } from "../lib/memberPictures/command";
+import { userOwnsUpload } from "../lib/uploadOwnership";
 import { memberFailureWords } from "../lib/memberPictures/failures";
 import { liveContent } from "../lib/contentVisibility";
 import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
@@ -47,7 +49,16 @@ const commandBody = z.object({
     }),
   ]),
   aspectRatio: z.enum(["landscape", "square", "portrait"]).optional(),
+  // The name the meme's caption carries; never used to draw (plan PLAN_PHASE7_AI_PICTURE_FLOW.md).
+  caption: z.object({
+    name: z.string().trim().min(1).max(40),
+    pronouns: z.string().regex(/^\s*[a-z]+\/[a-z]+\s*$/i).nullable().optional(),
+  }).nullable().optional(),
 });
+
+const photoCheckBody = z.object({ uploadKey: z.string().regex(/^\/objects\//).max(500) });
+
+type Shape = MemberPictureShape;
 
 /** A picture's state as the member sees it (`docs/ai-context/async-ui-status.md`). */
 export interface MemberPictureState {
@@ -61,7 +72,16 @@ export interface MemberPictureState {
   /** The finished picture, when done. */
   aiImageId: number | null;
   imageUrl: string | null;
+  /** The shape it was drawn in (its stored render controls). */
+  aspectRatio: Shape;
+  /** The name and pronouns its meme caption was meant to carry; null for a picture made before it was recorded. */
+  caption: { name: string; pronouns: string | null } | null;
   createdAt: string;
+}
+
+function shapeOf(renderControls: unknown): Shape {
+  const a = (renderControls as { aspectRatio?: unknown } | null)?.aspectRatio;
+  return a === "landscape" || a === "square" || a === "portrait" ? a : "portrait";
 }
 
 async function statesFor(userId: string, attemptIds: number[] | null, limit = 20): Promise<MemberPictureState[]> {
@@ -72,6 +92,8 @@ async function statesFor(userId: string, attemptIds: number[] | null, limit = 20
     errorCode: imagePromptAttemptsTable.errorCode,
     compiledPrompt: imagePromptAttemptsTable.compiledPrompt,
     generatedImageObjectPath: imagePromptAttemptsTable.generatedImageObjectPath,
+    renderControls: imagePromptAttemptsTable.renderControls,
+    memberCaption: imagePromptAttemptsTable.memberCaption,
     createdAt: imagePromptAttemptsTable.createdAt,
   };
   const mine = and(eq(imagePromptAttemptsTable.userId, userId), isNotNull(imagePromptAttemptsTable.memberRequestId));
@@ -107,7 +129,10 @@ async function statesFor(userId: string, attemptIds: number[] | null, limit = 20
   const out: MemberPictureState[] = [];
   for (const r of rows) {
     const d = deliveredBy.get(r.id);
-    const base = { attemptId: r.id, factId: r.factId, createdAt: r.createdAt.toISOString(), aiImageId: null, imageUrl: null, reason: null, creditReturned: false };
+    const base = {
+      attemptId: r.id, factId: r.factId, createdAt: r.createdAt.toISOString(), aiImageId: null, imageUrl: null, reason: null, creditReturned: false,
+      aspectRatio: shapeOf(r.renderControls), caption: r.memberCaption ?? null,
+    };
     if (d) {
       out.push({ ...base, status: "done", aiImageId: d.id, imageUrl: d.isLive ? `/api/memes/ai-user/image?storagePath=${encodeURIComponent(d.storagePath)}` : null });
     } else if (r.generatedImageObjectPath) {
@@ -142,6 +167,9 @@ router.get("/facts/:factId/picture-options", async (req: Request, res: Response)
     gags: gags.map((g) => ({
       gagId: g.gagId,
       slot: g.slot,
+      // The reviewed one-line description, tokens unrendered: the flow renders
+      // it with the picture subject's name and pronouns.
+      description: g.description,
       examples: {
         male: g.examples.male != null ? `/api/member-pictures/examples/${g.examples.male}/image` : null,
         female: g.examples.female != null ? `/api/member-pictures/examples/${g.examples.female}/image` : null,
@@ -200,9 +228,41 @@ router.post("/facts/:factId/member-pictures", async (req: Request, res: Response
         ? { kind: "pet", name: body.data.subject.name, pronouns: body.data.subject.pronouns?.trim().toLowerCase() ?? null }
         : { kind: "me" },
       aspectRatio: body.data.aspectRatio ?? "portrait",
+      caption: body.data.caption
+        ? { name: body.data.caption.name, pronouns: body.data.caption.pronouns?.trim().toLowerCase() ?? null }
+        : null,
     });
     const [state] = await statesFor(req.user.id, [handle.attemptId]);
     res.status(handle.created ? 202 : 200).json({ picture: state, credits: await creditBalance(req.user.id) });
+  } catch (err) {
+    if (err instanceof MemberPictureError) {
+      res.status(err.status).json({ error: err.code, message: err.message });
+      return;
+    }
+    throw err;
+  }
+});
+
+/**
+ * The flow's photo preparation (plan PLAN_PHASE7_AI_PICTURE_FLOW.md): whether
+ * one of the member's own photos shows a person or a pet, before anything is
+ * asked about the subject. Spends no credit and queues no picture; the paid
+ * check passes the gate and records its cost, and a photo already checked
+ * answers from its cache. 422 when the photo cannot be used, 503
+ * `photo_check_failed` when the check could not run (try again).
+ */
+router.post("/member-pictures/photo-check", async (req: Request, res: Response) => {
+  setNoStore(res);
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const body = photoCheckBody.safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "invalid_input" }); return; }
+  if (!(await userOwnsUpload(body.data.uploadKey, req.user.id))) {
+    res.status(403).json({ error: "upload_not_owned", message: "Choose one of your own photos." });
+    return;
+  }
+  try {
+    const { subject } = await checkMemberPhoto(req.user.id, body.data.uploadKey);
+    res.json({ uploadKey: body.data.uploadKey, subject });
   } catch (err) {
     if (err instanceof MemberPictureError) {
       res.status(err.status).json({ error: err.code, message: err.message });

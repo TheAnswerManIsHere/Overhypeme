@@ -644,13 +644,17 @@ async function purgeAccount(userId: string): Promise<void> {
     // attempt loses the description of their photo (the column cannot be null,
     // so it keeps a marker), its fingerprint, and everything written with the
     // name or from the photo: the rendered fact text, the engine prompt, the
-    // legacy picture plan and the subject check. The attempt stays with its
-    // fact, naming no one.
+    // legacy picture plan and the subject check; and the caption a picture was
+    // made with, and the member's name and the photo link frozen in its render
+    // controls for the engine (PR #1334 round 3, Codex 4714175053; the only
+    // reader of those two keys, the render job, falls back without them). The
+    // attempt stays with its fact, naming no one.
     await tx.delete(userGenerationCostsTable).where(eq(userGenerationCostsTable.userId, userId));
     await tx.execute(sql`
       UPDATE image_prompt_attempts
       SET source_image_analysis = ${JSON.stringify(CLEARED_PHOTO_DESCRIPTION)}::jsonb, source_image_sha256 = NULL,
-          rendered_fact_text = NULL, compiled_prompt = NULL, visual_plan = NULL, subject_fact_compatibility = NULL
+          rendered_fact_text = NULL, compiled_prompt = NULL, visual_plan = NULL, subject_fact_compatibility = NULL,
+          member_caption = NULL, render_controls = render_controls - 'promptIdentity' - 'referenceImageUrl'
       WHERE user_id = ${userId}
     `);
 

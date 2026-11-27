@@ -1,0 +1,82 @@
+{
+  "kind": "openai.chat",
+  "request": {
+    "max_completion_tokens": 512,
+    "messages": [
+      {
+        "content": "You write a one-line caption that tells a reader what happens in a picture, so they can tell it apart from other pictures of the same joke.\nThe picture's subject is written as {NAME}. Refer to the subject as {NAME} (or {NAME_POSSESSIVE} for the possessive), and use {SUBJ}, {OBJ}, {POSS} or {REFL} for pronouns. Never use any other name for the subject and never write a pronoun for the subject as a plain word.\nDescribe what is visible and what happens, in the present tense, as one plain sentence of at most 140 characters. No quotation marks, no emoji, no explanation of the joke, no mention of art style.\nReturn JSON: {\"description\": \"...\"}.",
+        "role": "system"
+      },
+      {
+        "content": "The fact the picture illustrates (for context only): {NAME} once counted to infinity. Twice. The second time {Subj} did it backwards to check {POSS} work.\n\nThe scene: In a classroom, {NAME} stands beside a blackboard with a calm, focused expression, chalk poised at the end of the second of two lines. The first reads “0 → 1 → 2 → … → ∞ ✓”; the second reads “∞ → … → 2 → 1 → 0 ✓”. {NAME} is putting the finishing stroke on the second checkmark, treating both completed journeys as routine bookkeeping.",
+        "role": "user"
+      }
+    ],
+    "model": "gpt-6-luna",
+    "reasoning_effort": "none",
+    "response_format": {
+      "json_schema": {
+        "name": "gag_description",
+        "schema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "additionalProperties": false,
+          "properties": {
+            "description": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "description"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      },
+      "type": "json_schema"
+    },
+    "temperature": 0.7
+  },
+  "fingerprint": "232a1260d16d1d505f9672dfb3f30471199883e7a0b2dc2b2acb9b7a0eebabf4",
+  "recordedAt": "2026-11-27T00:12:22.388Z",
+  "clients": {
+    "@fal-ai/client": "1.9.5",
+    "openai": "6.33.0"
+  },
+  "target": "gpt-6-luna",
+  "response": {
+    "id": "recorded-1",
+    "object": "chat.completion",
+    "created": 1795738341,
+    "model": "gpt-6-luna",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\t\"description\":\"{NAME} finishes a checkmark beside two chalkboard sequences, one counting up to infinity and the other counting down to zero.\"}",
+          "refusal": null,
+          "annotations": []
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 323,
+      "completion_tokens": 39,
+      "total_tokens": 362,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      }
+    },
+    "service_tier": "default",
+    "system_fingerprint": null
+  }
+}

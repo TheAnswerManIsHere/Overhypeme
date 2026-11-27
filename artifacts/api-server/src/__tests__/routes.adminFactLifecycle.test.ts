@@ -15,6 +15,7 @@
  *
  * 401/403 coverage is in routes.admin.auth.test.ts.
  */
+import { giveReviewedDescription } from "./helpers/gagExampleSets.js";
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -73,6 +74,8 @@ async function render(factId: number, gagId: number, content: VisualPromptStrate
 const live = () => ({ adminId, reviewId: null });
 const approveAll = async (factId: number, gagId: number, content: VisualPromptStrategyOverride) => {
   for (const kind of GAG_EXAMPLE_KINDS) await approveGagRender(factId, gagId, await render(factId, gagId, content, kind), live());
+  // The go-live rule also asks a new or changed gag for a reviewed description (Issue #1331).
+  await giveReviewedDescription(gagId, content);
 };
 const gagRow = async (gagId: number) => (await db.select().from(factGagsTable).where(eq(factGagsTable.id, gagId)))[0]!;
 const examples = async (gagId: number, stage: "approved" | "pending") =>

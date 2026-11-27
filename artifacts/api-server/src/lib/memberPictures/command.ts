@@ -34,6 +34,7 @@ type MemberPictureErrorCode =
   | "look_unavailable"
   | "photo_unusable"
   | "photo_subject_mismatch"
+  | "photo_check_failed"
   | "no_credit"
   | "too_many_in_progress"
   | "temporarily_unavailable";
@@ -45,6 +46,9 @@ export class MemberPictureError extends Error {
     this.name = "MemberPictureError";
   }
 }
+
+/** The shape a member's picture is drawn in: the meme builder's three. */
+export type MemberPictureShape = "landscape" | "square" | "portrait";
 
 export interface MemberPictureCommand {
   userId: string;
@@ -59,7 +63,14 @@ export interface MemberPictureCommand {
   lookStyleId: string | null;
   /** Who the picture stars: the member, or their pet (named by the member). */
   subject: { kind: "me" } | { kind: "pet"; name: string; pronouns: string | null };
-  aspectRatio: "landscape" | "square" | "portrait";
+  aspectRatio: MemberPictureShape;
+  /**
+   * The name and pronouns the meme's caption is meant to carry (plan
+   * PLAN_PHASE7_AI_PICTURE_FLOW.md): recorded on the attempt and read back by
+   * the picture's state. Never used to draw: the picture's identity is the
+   * subject's. Absent from older clients.
+   */
+  caption?: { name: string; pronouns: string | null } | null;
 }
 
 export interface MemberPictureHandle {
@@ -77,7 +88,11 @@ const PHOTO_CHECK_ENDPOINT = { endpointId: "openai/vision-photo-check", estimate
 /** A hash of everything the command asks for, so a reused request id is recognised as the same picture or refused. */
 function fingerprintOf(cmd: MemberPictureCommand): string {
   const { userId: _u, requestId: _r, ...asked } = cmd;
-  return createHash("sha256").update(JSON.stringify([asked.factId, asked.gagId, asked.uploadKey, asked.lookStyleId, asked.subject, asked.aspectRatio])).digest("hex");
+  const parts: unknown[] = [asked.factId, asked.gagId, asked.uploadKey, asked.lookStyleId, asked.subject, asked.aspectRatio];
+  // Appended only when sent, so a command from a client that predates the
+  // caption keeps the fingerprint it had.
+  if (asked.caption) parts.push(asked.caption);
+  return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
 }
 
 async function existingHandle(cmd: MemberPictureCommand): Promise<MemberPictureHandle | null> {
@@ -145,42 +160,8 @@ export async function requestMemberPicture(cmd: MemberPictureCommand): Promise<M
   const [member] = await db.select({ displayName: usersTable.displayName, pronouns: usersTable.pronouns })
     .from(usersTable).where(eq(usersTable.id, cmd.userId)).limit(1);
 
-  // The member's photo, at the size the engines are priced for, where the
-  // photo check and the engine can fetch it.
-  let referenceImageUrl: string;
-  try {
-    referenceImageUrl = await uploadMemberReference(cmd.uploadKey);
-  } catch (err) {
-    logger.warn({ err, userId: cmd.userId }, "[memberPictures] the photo could not be prepared for drawing");
-    throw new MemberPictureError("temporarily_unavailable", "Your photo could not be prepared right now. Try again shortly.", 503);
-  }
-
-  // The person-or-pet check (cached on the upload after its first run). Paid,
-  // so it passes the gate; every call actually made records its own cost (a
-  // per-call reference), and a cache hit records none. Requests that overlap
-  // on an unchecked photo each pay, so each is counted and the backstop sees
-  // them (Codex review, PR #1300).
-  let analysis: SourceImageAnalysis;
-  try {
-    await gateMemberCall(cmd.userId, PHOTO_CHECK_ENDPOINT);
-    analysis = await analyzeSourceImage({ uploadedObjectPath: cmd.uploadKey, imageUrl: referenceImageUrl }, {
-      onPaidCheck: () => recordCost({
-        userId: cmd.userId, jobType: "image", endpointId: PHOTO_CHECK_ENDPOINT.endpointId,
-        unitPriceAtCreation: PHOTO_CHECK_ENDPOINT.estimatedCostUsdPerCall, billingUnits: 1,
-        computedCostUsd: PHOTO_CHECK_ENDPOINT.estimatedCostUsdPerCall, pricingFetchedAt: new Date(),
-        jobReferenceId: `check:photo:${createHash("sha256").update(cmd.uploadKey).digest("hex")}:${randomUUID()}`, isEstimated: true,
-      }),
-    });
-  } catch (err) {
-    if (err instanceof MemberSpendRefusedError) throw new MemberPictureError("temporarily_unavailable", "Pictures are temporarily unavailable for this account.", 503);
-    throw err;
-  }
-  const isPet = analysis.suggestedRenderMode === "nonhuman_subject_i2i";
-  const isPerson = analysis.suggestedRenderMode === "human_identity_i2i";
-  if (!isPet && !isPerson) {
-    throw new MemberPictureError("photo_unusable", `This photo cannot be used${analysis.warnings?.length ? `: ${analysis.warnings.join("; ")}` : ""}. Use a photo with one clear face or pet.`, 422);
-  }
-  if ((cmd.subject.kind === "pet") !== isPet) {
+  const { referenceImageUrl, analysis, subject: photoSubject } = await checkMemberPhoto(cmd.userId, cmd.uploadKey);
+  if ((cmd.subject.kind === "pet") !== (photoSubject === "pet")) {
     throw new MemberPictureError("photo_subject_mismatch", cmd.subject.kind === "pet"
       ? "This photo looks like a person, not a pet. Choose a photo of your pet."
       : "This photo looks like a pet, not a person. Choose a photo of yourself, or pick \"My pet\".", 422);
@@ -217,7 +198,7 @@ export async function requestMemberPicture(cmd: MemberPictureCommand): Promise<M
       renderControls: { ...resolved.renderControls, promptIdentity: identity } as never,
       requestId: `member-picture:${cmd.userId}:${cmd.requestId}`,
       gagId: gag.gagId,
-      memberPicture: { requestId: cmd.requestId, fingerprint: fingerprintOf(cmd), maxInProgress },
+      memberPicture: { requestId: cmd.requestId, fingerprint: fingerprintOf(cmd), maxInProgress, caption: cmd.caption ?? null },
     });
     return { attemptId, renderJobId, created: true };
   } catch (err) {
@@ -236,4 +217,62 @@ export async function requestMemberPicture(cmd: MemberPictureCommand): Promise<M
     if (err instanceof TooManyPicturesInProgressError) throw new MemberPictureError("too_many_in_progress", err.message, 429);
     throw err;
   }
+}
+
+/** What a member's photo shows, as the existing person-or-pet check reads it. */
+export type MemberPhotoSubject = "person" | "pet";
+
+/**
+ * The person-or-pet check on one of the member's own photos, shared by the
+ * picture command and the flow's photo preparation (plan
+ * PLAN_PHASE7_AI_PICTURE_FLOW.md, *Photo preparation*). Spends no picture
+ * credit and queues nothing. The check is paid, so it passes the gate; every
+ * call actually made records its own cost (a per-call reference), and the
+ * upload's cached result records none. Requests that overlap on an unchecked
+ * photo each pay, so each is counted and the backstop sees them (Codex review,
+ * PR #1300).
+ *
+ * Refuses with `photo_unusable` when the photo shows neither one clear person
+ * nor a pet, and with `photo_check_failed` when the check could not run
+ * (`classificationMethod: "not_analyzed"`): that is a reason to try again,
+ * never a verdict on the photo.
+ */
+export async function checkMemberPhoto(userId: string, uploadKey: string): Promise<{
+  subject: MemberPhotoSubject;
+  analysis: SourceImageAnalysis;
+  referenceImageUrl: string;
+}> {
+  // The member's photo, at the size the engines are priced for, where the
+  // photo check and the engine can fetch it.
+  let referenceImageUrl: string;
+  try {
+    referenceImageUrl = await uploadMemberReference(uploadKey);
+  } catch (err) {
+    logger.warn({ err, userId }, "[memberPictures] the photo could not be prepared for drawing");
+    throw new MemberPictureError("temporarily_unavailable", "Your photo could not be prepared right now. Try again shortly.", 503);
+  }
+  let analysis: SourceImageAnalysis;
+  try {
+    await gateMemberCall(userId, PHOTO_CHECK_ENDPOINT);
+    analysis = await analyzeSourceImage({ uploadedObjectPath: uploadKey, imageUrl: referenceImageUrl }, {
+      onPaidCheck: () => recordCost({
+        userId, jobType: "image", endpointId: PHOTO_CHECK_ENDPOINT.endpointId,
+        unitPriceAtCreation: PHOTO_CHECK_ENDPOINT.estimatedCostUsdPerCall, billingUnits: 1,
+        computedCostUsd: PHOTO_CHECK_ENDPOINT.estimatedCostUsdPerCall, pricingFetchedAt: new Date(),
+        jobReferenceId: `check:photo:${createHash("sha256").update(uploadKey).digest("hex")}:${randomUUID()}`, isEstimated: true,
+      }),
+    });
+  } catch (err) {
+    if (err instanceof MemberSpendRefusedError) throw new MemberPictureError("temporarily_unavailable", "Pictures are temporarily unavailable for this account.", 503);
+    throw err;
+  }
+  if (analysis.classificationMethod === "not_analyzed") {
+    throw new MemberPictureError("photo_check_failed", "We couldn't check this photo right now. Try again.", 503);
+  }
+  const isPet = analysis.suggestedRenderMode === "nonhuman_subject_i2i";
+  const isPerson = analysis.suggestedRenderMode === "human_identity_i2i";
+  if (!isPet && !isPerson) {
+    throw new MemberPictureError("photo_unusable", `This photo cannot be used${analysis.warnings?.length ? `: ${analysis.warnings.join("; ")}` : ""}. Use a photo with one clear face or pet.`, 422);
+  }
+  return { subject: isPet ? "pet" : "person", analysis, referenceImageUrl };
 }

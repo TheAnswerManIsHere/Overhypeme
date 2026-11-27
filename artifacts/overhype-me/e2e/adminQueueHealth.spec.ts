@@ -72,6 +72,7 @@ const SIDEBAR: [string, string][] = [
   ["Facts", "/admin/facts"],
   ["Users", "/admin/users"],
   ["Moderation", "/admin/moderation"],
+  ["Gag descriptions", "/admin/gag-descriptions"],
   ["Eval", "/admin/eval"],
   ["Billing", "/admin/billing"],
   ["Refunds & Disputes", "/admin/refunds-disputes"],

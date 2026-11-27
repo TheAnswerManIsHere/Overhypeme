@@ -22,7 +22,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
 import request from "supertest";
-import { db, factsTable, usersTable, factGagsTable, factGagExamplesTable } from "@workspace/db";
+import { db, factsTable, usersTable, factGagsTable, factGagExamplesTable, factGagDescriptionsTable } from "@workspace/db";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import { asyncJobsTable, imagePromptAttemptsTable, pendingReviewsTable } from "@workspace/db/schema";
 import { and, eq, gte, inArray } from "drizzle-orm";
@@ -48,6 +48,7 @@ import { fileURLToPath } from "node:url";
 import { visualPromptStrategyOverrideSchema } from "@workspace/api-zod";
 import { withCast } from "./helpers/gagCast.js";
 import { __setDraftCastExtractorForTest } from "../lib/gags/castPreparation.js";
+import { __setDescriptionDrafterForTest, gagContentFingerprint } from "../lib/gags/descriptions.js";
 import { castSourceKey, PLACEHOLDER_CORE_SCENE_OVERRIDE } from "@workspace/api-zod";
 
 const RUN = randomUUID().slice(0, 8);
@@ -82,6 +83,17 @@ async function liveFact(): Promise<{ factId: number; gagId: number }> {
 }
 
 /** A test render of `gagId` that drew `content`, for a kind (male by default); finished unless told otherwise. */
+/** Approve the description of a gag's draft content through the route, as a moderator does (Issue #1331). */
+async function describeDraft(factId: number, gagId: number, reviewId?: number) {
+  const view = await request(app).get(url(factId));
+  const gag = (view.body.gags as Array<{ id: number; descriptions: { draft: { contentFingerprint: string } | null; published: { contentFingerprint: string } | null } }>).find((g) => g.id === gagId)!;
+  const version = gag.descriptions.draft ?? gag.descriptions.published!;
+  const res = await request(app).put(url(factId, `/${gagId}/description`))
+    .send({ contentFingerprint: version.contentFingerprint, text: "{NAME} does it.", ...(reviewId ? { reviewId } : {}) });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  return res;
+}
+
 async function render(factId: number, gagId: number, content: VisualPromptStrategyOverride, opts: { unfinished?: boolean; failed?: boolean; styled?: boolean; kind?: GagExampleKind | null } = {}): Promise<number> {
   const kind = opts.kind === undefined ? "male" : opts.kind;
   const [row] = await db.insert(imagePromptAttemptsTable).values({
@@ -198,7 +210,10 @@ describe("gag routes: every write is to the draft, from a review", () => {
 
     const removed = await request(app).post(url(factId, `/${newGag.id}/remove`)).send({});
     assert.equal(removed.status, 200, JSON.stringify(removed.body));
-    assert.equal(removed.body.draftReady.ok, true, JSON.stringify(removed.body.draftReady));
+    // A changed gag also needs its description reviewed before it can publish (Issue #1331).
+    assert.deepEqual(removed.body.draftReady, { ok: false, reason: "Visual gag 1 needs its description reviewed." });
+    const described = await describeDraft(factId, gagId);
+    assert.equal(described.body.draftReady.ok, true, JSON.stringify(described.body.draftReady));
     assert.equal(await hasUnpublishedChanges(factId), true);
 
     const published = await publishFactChanges(factId, adminId);
@@ -254,9 +269,12 @@ describe("gag routes: every write is to the draft, from a review", () => {
     assert.equal(await examplesOf(gagId, "approved"), 0, "a pick publishes nothing");
     assert.equal((await gagRow(gagId)).approvedContent, null);
     assert.equal(last.body.draftReady.ok, false, "gag 2 still lacks its renders");
-    assert.match(last.body.draftReady.reason, /^Visual gag 2 needs/);
-    const done = await approveSet(factId, otherId, scene("{NAME} a second gag."), reviewId);
-    assert.deepEqual(done.body.draftReady, { ok: true, reason: null }, "every gag has its set: the draft is ready");
+    await describeDraft(factId, gagId, reviewId);
+    const afterDescription = await request(app).get(`${url(factId)}?reviewId=${reviewId}`);
+    assert.match(afterDescription.body.draftReady.reason, /^Visual gag 2 needs/);
+    await approveSet(factId, otherId, scene("{NAME} a second gag."), reviewId);
+    const done = await describeDraft(factId, otherId, reviewId);
+    assert.deepEqual(done.body.draftReady, { ok: true, reason: null }, "every gag has its set and its description: the draft is ready");
   });
 });
 
@@ -653,5 +671,29 @@ describe("gag routes: reading a draft's cast stores nothing (plan PLAN_GAG_DIREC
     assert.equal((await request(app).post(url(999999999, "/cast")).send({ scene: "x", bubbles: [] })).status, 404);
     const { factId } = await liveFact();
     assert.equal((await request(app).post(url(factId, "/cast")).send({ scene: "", bubbles: [] })).status, 400);
+  });
+});
+
+// Plan PLAN_PHASE7_AI_PICTURE_FLOW.md, *Descriptions*: drafting "runs after
+// any gag content write and on a schedule" (David, Q16: 1, 2026-11-26).
+describe("a gag content write drafts its description straight away", () => {
+  it("a saved change's new content gets an unreviewed AI draft without waiting for the schedule", async () => {
+    __setDescriptionDrafterForTest(async (content) => `{NAME} drafted for: ${content.coreSceneOverride?.slice(0, 40)}`);
+    try {
+      const { factId, gagId } = await liveFact();
+      const B = scene(`{NAME} lifts the sun ${randomUUID().slice(0, 6)}.`);
+      assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: B })).status, 200);
+      const fp = gagContentFingerprint(B)!;
+      let row: typeof factGagDescriptionsTable.$inferSelect | undefined;
+      for (let i = 0; i < 50 && !row?.text; i++) {
+        await new Promise((r) => setTimeout(r, 100));
+        [row] = await db.select().from(factGagDescriptionsTable)
+          .where(and(eq(factGagDescriptionsTable.gagId, gagId), eq(factGagDescriptionsTable.contentFingerprint, fp)));
+      }
+      assert.ok(row?.text?.startsWith("{NAME} drafted for:"), `drafted after the write: ${JSON.stringify(row)}`);
+      assert.equal(row!.reviewedAt, null, "a draft is unreviewed");
+    } finally {
+      __setDescriptionDrafterForTest(null);
+    }
   });
 });

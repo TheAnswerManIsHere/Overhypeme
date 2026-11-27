@@ -119,7 +119,7 @@ export interface BuildImagePromptAttemptArgs {
    * credit spend commit together, under a lock on the account, or not at all
    * (plan PLAN_PHASE7_IMAGE_OFFERING.md §2). Requires `userId`.
    */
-  memberPicture?: { requestId: string; fingerprint: string; maxInProgress: number };
+  memberPicture?: { requestId: string; fingerprint: string; maxInProgress: number; caption?: { name: string; pronouns: string | null } | null };
 }
 
 /** The render's two queues. */
@@ -257,6 +257,7 @@ export async function buildAndEnqueueImagePromptAttempt(
       reviewRenderBatchId: args.scenario?.batchId ?? null,
       memberRequestId: member?.requestId ?? null,
       memberRequestFingerprint: member?.fingerprint ?? null,
+      memberCaption: member?.caption ?? null,
     })
     .returning({ id: imagePromptAttemptsTable.id });
 

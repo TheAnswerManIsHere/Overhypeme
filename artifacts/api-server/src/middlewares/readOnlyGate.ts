@@ -82,6 +82,7 @@ export const READ_ONLY_ROUTES: Readonly<Record<RouteKey, { allowed: boolean; why
   "POST /comments/:id/heart": { allowed: false, why: "hearts a comment" },
   "POST /memes": { allowed: false, why: "makes a meme" },
   "POST /facts/:factId/member-pictures": { allowed: false, why: "makes an AI picture, spending a credit" },
+  "POST /member-pictures/photo-check": { allowed: false, why: "runs the paid person-or-pet check on a photo" },
   "POST /memes/:id/heart": { allowed: false, why: "hearts a meme" },
   "DELETE /memes/:slug": { allowed: false, why: "deletes a meme" },
   "PATCH /memes/:slug/visibility": { allowed: false, why: "changes who can see a meme" },

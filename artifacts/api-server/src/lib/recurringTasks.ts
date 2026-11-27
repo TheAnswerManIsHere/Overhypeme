@@ -148,6 +148,14 @@ export const RECURRING_TASKS = [
     graceMs: 30 * MINUTE,
   },
   {
+    id: "gag_description_sweep",
+    label: "Gag description drafting",
+    site: "index.ts",
+    cadenceMs: () => 10 * MINUTE,
+    firstRunMs: 5 * MINUTE,
+    graceMs: 30 * MINUTE,
+  },
+  {
     id: "stored_file_cleanup",
     label: "Deleted picture file cleanup",
     site: "index.ts",

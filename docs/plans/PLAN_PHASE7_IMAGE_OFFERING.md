@@ -4,6 +4,11 @@ Workstream: Issue #1289 (parent #628). Tier: product, standard loop; the
 credit ledger and the Stripe increments are payment-sensitive and take the
 migration review.
 
+**Amended 2026-11-26** by `docs/plans/PLAN_PHASE7_AI_PICTURE_FLOW.md`
+(Issue #1331, approved by David): making an AI picture becomes its own flow,
+built before increment 3, and it reshapes increments 2, 3 and 6. Where the two
+disagree, the amendment wins.
+
 ```plan-oracle
 # Oracle — Launch Phase 7, the image offering
 

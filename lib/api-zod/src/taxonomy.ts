@@ -691,6 +691,17 @@ export type FactEnrichment = z.infer<typeof factEnrichmentSchema>;
 export const PLACEHOLDER_CORE_SCENE_OVERRIDE = "{NAME} stands there confidently.";
 
 /**
+ * Whether gag content is the backfilled stand-in: approved content nobody
+ * wrote. Members are never offered it (api-server `gags/resolver.ts`), and the
+ * description review list leaves it out for the same reason (PR #1334). One
+ * statement of the rule, so the two cannot drift.
+ */
+export function isStandInGagContent(content: unknown): boolean {
+  const scene = (content as { coreSceneOverride?: unknown } | null)?.coreSceneOverride;
+  return typeof scene === "string" && scene.trim() === PLACEHOLDER_CORE_SCENE_OVERRIDE;
+}
+
+/**
  * A minimal, schema-valid `FactEnrichment`: a fact's classification with a full
  * valid taxonomy. Since migration 0139 a fact's gags live in their own table
  * (fact_gags), never in the enrichment, so this carries no visual-strategy

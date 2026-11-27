@@ -304,6 +304,8 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     // 0173: a member's picture command identity; the fixture predates member pictures.
     memberRequestId: "drop",
     memberRequestFingerprint: "drop",
+    // 0176: the caption a member's picture was meant to carry (a person's name).
+    memberCaption: "drop",
     renderJobId: "synthetic:opaque-id",
     generationMode: "keep",
     subjectRenderMode: "keep",
@@ -378,6 +380,20 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     attemptId: "ref:image_prompt_attempts",
     approvedBy: "map-user",
     createdAt: "keep",
+  }),
+  // 0176: a gag's one-line descriptions, one per content fingerprint.
+  include(s.factGagDescriptionsTable, {
+    id: "keep",
+    gagId: "ref:fact_gags",
+    contentFingerprint: "keep",
+    text: "keep",
+    origin: "keep",
+    reviewedBy: "map-user",
+    reviewedAt: "keep",
+    attempts: "keep",
+    lastError: "keep",
+    createdAt: "keep",
+    updatedAt: "keep",
   }),
 
   // ── What users made (D2, D5) ─────────────────────────────────────────────

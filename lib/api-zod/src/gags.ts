@@ -99,6 +99,21 @@ export interface GagCastView {
 }
 
 export const gagScopeBodySchema = z.object(reviewScope).strict();
+
+/** The longest one-line gag description a moderator may save (fact_gag_descriptions.text). */
+export const DESCRIPTION_MAX_CHARS = 160;
+
+/**
+ * Save and approve a gag's one-line description for the version the moderator
+ * was looking at (plan PLAN_PHASE7_AI_PICTURE_FLOW.md). The text's length and
+ * tokens are checked after whitespace is normalised (api-server
+ * lib/gags/descriptions.ts, `validateDescriptionText`).
+ */
+export const gagDescriptionBodySchema = z.object({
+  contentFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+  text: z.string().max(DESCRIPTION_MAX_CHARS * 2),
+  ...reviewScope,
+}).strict();
 export type GagScopeBody = z.infer<typeof gagScopeBodySchema>;
 
 export const gagRendersBodySchema = z.object({
@@ -168,6 +183,40 @@ export interface GagView {
    * the views moved to them (increment C).
    */
   roles: PerKind<GagPictureRoles>;
+  /**
+   * The one-line descriptions of the published and the draft content (plan
+   * PLAN_PHASE7_AI_PICTURE_FLOW.md; api-server lib/gags/descriptions.ts).
+   */
+  descriptions: GagDescriptions;
+}
+
+/** A description of one version of a gag, as a moderator sees it. */
+export interface GagDescriptionView {
+  /** The version it describes; sent back when saving, so a changed gag is caught. */
+  contentFingerprint: string;
+  /** The line, with personalization tokens; null until drafted. */
+  text: string | null;
+  origin: "ai" | "moderator";
+  /** Reviewed by a moderator: members see it once it describes the published content. */
+  reviewed: boolean;
+  /**
+   * "drafting" while it is waiting to be drafted or being drafted; "failed"
+   * when the last drafting failed; "none" once it has text.
+   */
+  drafting: "none" | "drafting" | "failed";
+  lastError: string | null;
+  /**
+   * The reviewed text of the content this version replaces, offered as a
+   * starting point while this version is unreviewed; never applied.
+   */
+  earlierText: string | null;
+}
+
+export interface GagDescriptions {
+  /** Null when the gag has no published content. */
+  published: GagDescriptionView | null;
+  /** Null when the draft content is the published content, or there is no draft. */
+  draft: GagDescriptionView | null;
 }
 
 // ─── A gag's renders: roles, history, cost, delete (Issue #1304) ───────────

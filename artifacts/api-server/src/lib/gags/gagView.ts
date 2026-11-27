@@ -20,6 +20,7 @@ import { loadGags, normaliseGagContent, openReviewForFact } from "./resolver";
 import { fillState, isUntouchedPrefill } from "./prefill";
 import { examplesFor, isGrandfathered, loadExamples, type GagExamples } from "./examples";
 import { checkGoLive, describeGoLive } from "./goLive";
+import { descriptionsForEditor } from "./descriptions";
 
 async function examples(ids: number[], gagIdOf: Map<number, number>): Promise<Map<number, GagExample>> {
   const out = new Map<number, GagExample>();
@@ -76,7 +77,8 @@ export async function buildFactGagsView(factId: number): Promise<FactGagsView | 
   // Each gag's render tiles are independent reads: the view is polled while
   // renders draw, so they run together.
   const [views, ready] = await Promise.all([
-    Promise.all(gags.map((g) => viewOf(g, fact.isActive, defaultId, examplesFor(byGag, g.id), ex))) as Promise<GagView[]>,
+    descriptionsForEditor(gags).then((descriptions) =>
+      Promise.all(gags.map((g) => viewOf(g, fact.isActive, defaultId, examplesFor(byGag, g.id), ex, descriptions.get(g.id)!))) as Promise<GagView[]>),
     checkGoLive(factId, "draft", db, gags),
   ]);
   return {
@@ -101,6 +103,7 @@ async function viewOf(
   defaultId: number | null,
   set: GagExamples,
   ex: Map<number, GagExample>,
+  descriptions: GagView["descriptions"],
 ): Promise<GagView> {
   const approved = g.approvedContent != null;
   const state = !approved ? "new" : g.pendingContent != null || g.draftRemoved ? "approved_with_change" : "approved";
@@ -120,6 +123,7 @@ async function viewOf(
     draftRemoved: g.draftRemoved,
     prefilledUntouched: isUntouchedPrefill(g),
     roles,
+    descriptions,
   };
 }
 

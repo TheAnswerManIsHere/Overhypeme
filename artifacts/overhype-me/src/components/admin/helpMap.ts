@@ -37,6 +37,10 @@ export const ADMIN_HELP_MAP: Record<string, HelpTarget> = {
   "/admin/facts": { chapter: "2-content-lifecycle" },
   "/admin/users": { chapter: "11-admin-console", anchor: "managing-people" },
   "/admin/moderation": { chapter: "3-moderation" },
+  // No chapter covers gag descriptions yet (their Manual harvest is the
+  // batched Type 2 pass, Issue #1331); chapter 2 is the nearest neighbour,
+  // since a gag's draft and published versions are described there.
+  "/admin/gag-descriptions": { chapter: "2-content-lifecycle" },
   // No chapter covers the eval dashboard yet; chapter 5 is the nearest
   // neighbour because eval scores image-prompt attempts. A real documentation
   // gap, logged as a /document follow-up on issue #463 rather than papered over.

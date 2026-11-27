@@ -278,6 +278,30 @@ function scheduleRenderBillingFill() {
   });
 }
 
+// Every ten minutes: draft a one-line description for every gag version that
+// has none for its content (lib/gags/descriptions.ts; plan
+// PLAN_PHASE7_AI_PICTURE_FLOW.md, Q14: 1). It reads stored gags, so editor
+// saves, the prefill job and the backfill are one path. A full batch comes
+// back in a minute, so the first backfill drains promptly. Drafts are
+// unreviewed: nothing here reaches members.
+function scheduleGagDescriptionSweep() {
+  scheduleRecurringTask({
+    cadenceMs: 10 * 60 * 1000,
+    steps: [
+      {
+        id: "gag_description_sweep",
+        run: async () => {
+          const { runDescriptionSweep, DESCRIPTION_SWEEP_BATCH } = await import("./lib/gags/descriptions");
+          const result = await runDescriptionSweep();
+          if (result.queued > 0 || result.failed > 0) logger.info({ ...result }, "[gag-descriptions] sweep run");
+          return result.queued >= DESCRIPTION_SWEEP_BATCH ? { followUpMs: 60 * 1000 } : undefined;
+        },
+        failureMessage: "[gag-descriptions] sweep failed",
+      },
+    ],
+  });
+}
+
 // Hourly (and a few minutes after a start): fill the duplicate fingerprint of
 // every approved fact that lacks one, live or deactivated, a bounded batch a
 // run (plan PLAN_FACT_LIFECYCLE_REBUILD.md 2C: "Missing fingerprints are
@@ -600,6 +624,7 @@ scheduleMemberPictureSettlement();
 scheduleRateLimitCounterPurger();
 scheduleContentPurger();
 scheduleRenderBillingFill();
+scheduleGagDescriptionSweep();
 scheduleAccountDeletionWorker();
 scheduleSessionAndRetentionWindowJobs();
 scheduleMediaBackup();

@@ -48,6 +48,7 @@ const AdminFeatures = lazy(() => import("@/pages/admin/features"));
 const AdminAiSettings = lazy(() => import("@/pages/admin/aiSettings"));
 const AdminEmailQueue = lazy(() => import("@/pages/admin/emailQueue"));
 const AdminQueueHealth = lazy(() => import("@/pages/admin/queueHealth"));
+const AdminGagDescriptions = lazy(() => import("@/pages/admin/gagDescriptions"));
 const AdminOperations = lazy(() => import("@/pages/admin/operations"));
 const AdminHelp = lazy(() => import("@/pages/admin/help"));
 const ActivityFeed = lazy(() => import("@/pages/ActivityFeed"));
@@ -291,6 +292,7 @@ function Router() {
         <Route path="/admin/features" component={AdminFeatures} />
         <Route path="/admin/email-queue" component={AdminEmailQueue} />
         <Route path="/admin/queue-health" component={AdminQueueHealth} />
+        <Route path="/admin/gag-descriptions" component={AdminGagDescriptions} />
         <Route path="/admin/operations" component={AdminOperations} />
         <Route path="/admin/help/:chapter" component={AdminHelp} />
         <Route path="/admin/help" component={AdminHelp} />

@@ -25,6 +25,7 @@ import { db, factGagsTable, imagePromptAttemptsTable, type FactGag } from "@work
 import { GAG_EXAMPLE_KINDS, MAX_GAGS_PER_FACT, joinWithAnd, type GagExampleKind } from "@workspace/api-zod";
 import { examplesFor, loadExamples, type GagExamples } from "./examples";
 import { sameRenderedGag } from "./gagStore";
+import { missingDescriptionsForPublish } from "./descriptions";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Executor = typeof db | Tx;
@@ -38,6 +39,12 @@ export interface GagGoLiveGap {
   missing: GagExampleKind[];
   /** Kinds whose approved render shows other content than the gag holds. */
   outdated: GagExampleKind[];
+  /**
+   * The draft set only: the gag's content is new or changed in this publish
+   * and has no reviewed description (plan PLAN_PHASE7_AI_PICTURE_FLOW.md,
+   * *Coverage is kept at publication*; lib/gags/descriptions.ts).
+   */
+  needsDescription?: boolean;
 }
 
 export interface GoLiveCheck {
@@ -78,6 +85,13 @@ export async function checkGoLive(factId: number, set: GagSet, executor: Executo
     for (const r of rows) snapshots.set(r.id, r.drew);
   }
 
+  // A publish makes a gag's draft content what members are offered, so new
+  // or changed content needs its reviewed description first. A gag published
+  // and unchanged is never held up by this (the backfill blocks nothing).
+  const undescribed = set === "draft"
+    ? new Set((await missingDescriptionsForPublish(members.map((m) => m.gag), executor)).map((m) => m.gagId))
+    : new Set<number>();
+
   const gaps: GagGoLiveGap[] = [];
   for (const { gag, inSet } of members) {
     const missing: GagExampleKind[] = [];
@@ -88,7 +102,10 @@ export async function checkGoLive(factId: number, set: GagSet, executor: Executo
       const drew = snapshots.get(ex.attemptId);
       if (drew == null || !sameRenderedGag(drew, inSet.content)) outdated.push(kind);
     }
-    if (missing.length || outdated.length) gaps.push({ slot: gag.slot, missing, outdated });
+    const needsDescription = undescribed.has(gag.id);
+    if (missing.length || outdated.length || needsDescription) {
+      gaps.push({ slot: gag.slot, missing, outdated, ...(needsDescription ? { needsDescription: true } : {}) });
+    }
   }
   const gagCount = members.length;
   return { ok: gagCount >= 1 && gagCount <= MAX_GAGS_PER_FACT && gaps.length === 0, gagCount, gaps };
@@ -101,6 +118,7 @@ export function describeGoLive(check: GoLiveCheck): string {
     const words: string[] = [];
     if (g.missing.length) words.push(`needs ${joinWithAnd(g.missing)} render${g.missing.length > 1 ? "s" : ""} approved`);
     if (g.outdated.length) words.push(`has ${joinWithAnd(g.outdated)} render${g.outdated.length > 1 ? "s" : ""} of an older version of it; approve new ones`);
+    if (g.needsDescription) words.push("needs its description reviewed");
     return `Visual gag ${g.slot} ${words.join(" and ")}.`;
   });
   return parts.join(" ") || "Every visual gag needs its male, female and pet renders approved.";
