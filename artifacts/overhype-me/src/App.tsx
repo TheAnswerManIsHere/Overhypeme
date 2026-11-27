@@ -14,7 +14,7 @@ import { WelcomeModal } from "@/components/WelcomeModal";
 import { LEGAL_SLUGS } from "@/generated/legal";
 import { AnalyticsNotice } from "@/components/legal/AnalyticsNotice";
 import { PendingActionRunner, ShareLinkResolver } from "@/hooks/use-identity-gate";
-import { clearAllWizardStates } from "@/components/meme-builder/wizard/state/wizardStorage";
+import { claimWizardStates, clearAllWizardStates } from "@/components/meme-builder/wizard/state/wizardStorage";
 import { FactExpansionProvider } from "@/contexts/fact-expansion-context";
 import { useAuth, AuthProvider } from "@workspace/replit-auth-web";
 import { currentDestination, setupRedirectFor, termsDeferredThisVisit } from "@/lib/setup-redirect";
@@ -120,12 +120,16 @@ function AuthProfileSync() {
       return;
     }
 
-    // Transition: unauthenticated → authenticated (or first load as authenticated)
-    if (isAuthenticated && prev !== true) {
-      // Same reasoning as logout — wipe any draft from the prior (guest or
-      // other-user) session so the freshly-authenticated viewer always starts
-      // the wizard with their own identity from `usePersonName`.
-      clearAllWizardStates();
+    // Transition: unauthenticated → authenticated (or first load as
+    // authenticated, or another account now signed in). Claiming is safe to
+    // repeat: it keeps the stored drafts only for the account that owns them.
+    if (isAuthenticated) {
+      // Same reasoning as logout — wipe any draft from a prior guest or
+      // other-user session so the freshly-authenticated viewer always starts
+      // the wizard with their own identity from `usePersonName`. A page load
+      // by the member who owns the stored drafts keeps them: a reload is not
+      // a sign-in (Phase 7 amendment; Codex, PR #1340).
+      claimWizardStates(user?.id);
       // The account's name and pronouns reach the browser through
       // AccountIdentityMirror alone (identity-flow Phase 2), from the account
       // the auth provider published — never from a separate fetch here, which
@@ -134,7 +138,7 @@ function AuthProfileSync() {
     }
     return undefined;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, isLoading]);
+  }, [isAuthenticated, isLoading, user?.id]);
 
   return null;
 }

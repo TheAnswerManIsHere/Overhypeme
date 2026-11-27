@@ -61,7 +61,7 @@ async function wizardDraft(page: Page): Promise<Record<string, unknown>> {
   return page.evaluate((id) => JSON.parse(window.sessionStorage.getItem(`pending_meme_wizard_v2::${id}`) ?? "{}"), String(FACT_ID));
 }
 
-test("builder → picture page → builder: Back keeps the meme as it was, and a pet picture arrives in its shape with the pet's name", async ({ page }) => {
+test("builder → picture page → builder: Back keeps the meme as it was, a reload on the picture page included, and a pet picture arrives in its shape with the pet's name", async ({ page }) => {
   await signInThroughForm(page, PAID_ACCOUNT.email, TEST_ACCOUNT_PASSWORD);
   await stubPublicFacts(page, { facts: [factDetail({ id: FACT_ID, text: FACT_TEXT })] });
   const commands = await stubPictures(page);
@@ -69,7 +69,9 @@ test("builder → picture page → builder: Back keeps the meme as it was, and a
   await page.goto(`/facts/${FACT_ID}/meme`);
   await expect(page.getByRole("button", { name: "Make my meme" })).toBeVisible();
   await page.getByTestId("aspect-square").click();
-  await page.getByTestId("meme-visibility-private").click().catch(() => undefined);
+  await page.getByTestId("meme-visibility-private").click();
+  // The draft is saved after each change: read it once both have landed.
+  await expect.poll(async () => { const d = await wizardDraft(page); return [d["aspectRatio"], d["isPublic"]]; }).toEqual(["square", false]);
   const before = await wizardDraft(page);
 
   // The builder's button opens the flow with the builder's shape.
@@ -85,8 +87,21 @@ test("builder → picture page → builder: Back keeps the meme as it was, and a
   const after = await wizardDraft(page);
   expect({ ...after, capturedAt: 0 }).toEqual({ ...before, capturedAt: 0 });
 
-  // A pet picture, in another shape.
+  // A real page load on the picture page (a refresh, a phone restoring the
+  // tab) is not a sign-in: Back still finds the half-made meme.
   await page.getByTestId("ai-picture-open").click();
+  await expect(page).toHaveURL(new RegExp(`/facts/${FACT_ID}/picture\\?from=builder$`));
+  await page.reload();
+  await expect(page.getByTestId("ai-picture-flow")).toBeVisible();
+  await expect(page.getByTestId("aspect-square")).toHaveAttribute("aria-checked", "true");
+  await page.getByTestId("ai-picture-back").click();
+  await expect(page.getByRole("button", { name: "Make my meme" })).toBeVisible();
+  const afterReload = await wizardDraft(page);
+  expect({ ...afterReload, capturedAt: 0 }).toEqual({ ...before, capturedAt: 0 });
+
+  // A pet picture, in another shape, again after a reload while on the page.
+  await page.getByTestId("ai-picture-open").click();
+  await page.reload();
   await expect(page.getByText("A picture of your pet.")).toBeVisible();
   await expect(page.getByText(/who's in the picture/i)).toHaveCount(0);
   await page.getByTestId("ai-picture-pet-name").fill("Rex");

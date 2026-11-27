@@ -235,6 +235,34 @@ export function clearWizardState(factId: string): void {
   removeItem(key(factId));
 }
 
+// The account the stored builder state belongs to, kept beside it in the same
+// tab storage so the two cannot outlive each other.
+const OWNER_KEY = "pending_meme_wizard_owner";
+
+/**
+ * On a page load that finds a member signed in, keep the builder's stored
+ * state when it is theirs and clear it otherwise: a guest's state, another
+ * member's, or state whose owner is unknown. A reload is not a sign-in, so
+ * a half-made meme survives it (Phase 7 amendment; Codex, PR #1340).
+ */
+export function claimWizardStates(userId: string | null | undefined): void {
+  if (!isStorageAvailable()) return;
+  let owner: string | null = null;
+  try {
+    owner = window.sessionStorage.getItem(OWNER_KEY);
+  } catch {
+    owner = null;
+  }
+  if (!userId || owner !== userId) clearAllWizardStates();
+  if (userId) {
+    try {
+      window.sessionStorage.setItem(OWNER_KEY, userId);
+    } catch {
+      // Quota / private mode: the next load clears, as before.
+    }
+  }
+}
+
 /**
  * Clear every persisted wizard draft, return snapshot and picture hand-off, regardless of factId. Call this on
  * auth transitions (login/logout) so an in-progress draft created by one
@@ -246,7 +274,7 @@ export function clearAllWizardStates(): void {
     const keysToRemove: string[] = [];
     for (let i = 0; i < window.sessionStorage.length; i += 1) {
       const k = window.sessionStorage.key(i);
-      if (k && (k.startsWith(KEY_PREFIX) || k.startsWith(RETURN_PREFIX) || k.startsWith(HANDOFF_PREFIX))) keysToRemove.push(k);
+      if (k && (k === OWNER_KEY || k.startsWith(KEY_PREFIX) || k.startsWith(RETURN_PREFIX) || k.startsWith(HANDOFF_PREFIX))) keysToRemove.push(k);
     }
     for (const k of keysToRemove) {
       window.sessionStorage.removeItem(k);

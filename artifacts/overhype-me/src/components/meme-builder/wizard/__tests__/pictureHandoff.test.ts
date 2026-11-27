@@ -8,6 +8,9 @@ import { renderHook, act } from "@testing-library/react";
 import { useWizardState } from "../state/useWizardState";
 import {
   captureWizardState,
+  claimWizardStates,
+  clearAllWizardStates,
+  restoreWizardState,
   readPictureHandoff,
   readReturnSnapshot,
   writePictureHandoff,
@@ -119,5 +122,52 @@ describe("the builder and the picture flow", () => {
     const { result } = open();
     expect(result.current.state.source).toBeUndefined();
     expect(readPictureHandoff("other")).not.toBeNull();
+  });
+
+  describe("whose builder state survives a page load (Codex, PR #1340)", () => {
+    const keep = () => {
+      captureWizardState(draft);
+      const { result, unmount } = open();
+      act(() => result.current.keepForPictureFlow({}));
+      unmount();
+      writePictureHandoff({ factId: FACT, aiImageId: 7, imageUrl: "/pic/7", aspectRatio: "portrait", caption: null });
+    };
+
+    it("a reload by the same member keeps the draft, the return snapshot and the hand-off", () => {
+      claimWizardStates("member-a");
+      keep();
+      claimWizardStates("member-a");
+      expect(restoreWizardState(FACT)).not.toBeNull();
+      expect(readReturnSnapshot(FACT)).not.toBeNull();
+      expect(readPictureHandoff(FACT)).not.toBeNull();
+    });
+
+    it("another member's first load clears them", () => {
+      claimWizardStates("member-a");
+      keep();
+      claimWizardStates("member-b");
+      expect(restoreWizardState(FACT)).toBeNull();
+      expect(readReturnSnapshot(FACT)).toBeNull();
+      expect(readPictureHandoff(FACT)).toBeNull();
+    });
+
+    it("a guest's state is cleared when someone signs in, and an unknown owner clears too", () => {
+      keep();
+      claimWizardStates("member-a");
+      expect(restoreWizardState(FACT)).toBeNull();
+      keep();
+      claimWizardStates(undefined);
+      expect(readReturnSnapshot(FACT)).toBeNull();
+    });
+
+    it("sign-out clears them and forgets the owner, so the next sign-in starts clean", () => {
+      claimWizardStates("member-a");
+      keep();
+      clearAllWizardStates();
+      expect(readReturnSnapshot(FACT)).toBeNull();
+      keep();
+      claimWizardStates("member-a");
+      expect(restoreWizardState(FACT)).toBeNull();
+    });
   });
 });

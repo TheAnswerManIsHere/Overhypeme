@@ -53,7 +53,7 @@ function renderFlow(props: Partial<AiPictureFlowProps> = {}) {
         fromBuilder={false} initialGagId={null} onBack={onBack} onOpenBuilder={onOpenBuilder} {...props} />
     </QueryClientProvider>,
   );
-  return { onOpenBuilder, onBack };
+  return { onOpenBuilder, onBack, client };
 }
 
 const confirm = () => screen.getByTestId("ai-picture-confirm");
@@ -254,6 +254,54 @@ describe("AiPictureFlow", () => {
     await waitFor(() => expect(sent()).toHaveLength(2), S);
     expect(sent()[0]!.requestId).toBe(sent()[1]!.requestId);
   });
+
+  it("a request whose answer was lost is resent as it was even after the balance re-reads at zero, and its finished picture shows", async () => {
+    let first = true;
+    let credits = 1;
+    stub((url) => {
+      if (url === "/api/facts/3/picture-options") return options(1, { credits });
+      if (url === "/api/member-pictures/5") return { picture: picture("done", { aiImageId: 70, imageUrl: "/img/70" }), credits: 0 };
+      if (url !== "/api/facts/3/member-pictures") return undefined;
+      if (first) { first = false; credits = 0; return new Error("network"); }
+      return [200, { picture: picture("done", { aiImageId: 70, imageUrl: "/img/70" }), credits: 0 }];
+    });
+    const { client } = renderFlow();
+    await waitFor(() => expect(confirm().hasAttribute("disabled")).toBe(false), S);
+    fireEvent.click(confirm());
+    await screen.findByText(/won't be charged twice/, {}, S);
+    // The connection comes back and the choices are re-read (as the query layer does on reconnect): the balance is now zero.
+    void client.invalidateQueries({ queryKey: ["member-pictures", "options", "3"] });
+    await waitFor(() => expect(calls.filter((c) => c.url === "/api/facts/3/picture-options").length).toBeGreaterThan(1), S);
+    await waitFor(() => expect(screen.getByTestId("ai-picture-cost").textContent).toContain("Costs"), S);
+    expect(confirm().hasAttribute("disabled")).toBe(false);
+    expect(confirm().textContent).toBe("Try again");
+    expect(screen.queryByText(/no credits left/)).toBeNull();
+    fireEvent.click(confirm());
+    await screen.findByTestId("ai-picture-make-meme", {}, S);
+    expect(sent()).toHaveLength(2);
+    expect(sent()[1]!.requestId).toBe(sent()[0]!.requestId);
+  });
+
+  it("a new picture the balance cannot pay for is still refused before sending", async () => {
+    stub((url) => (url === "/api/facts/3/picture-options" ? options(1, { credits: 0 }) : undefined));
+    renderFlow();
+    await screen.findByText(/no credits left/, {}, S);
+    expect(confirm().hasAttribute("disabled")).toBe(true);
+    expect(sent()).toHaveLength(0);
+  });
+
+  it("with another picture of this fact drawing, its row shows its outcome without a tap", async () => {
+    let other = picture("drawing", { attemptId: 6 });
+    stub((url) => {
+      if (url === "/api/member-pictures") return { pictures: [picture("drawing"), other], credits: 1 };
+      if (url === "/api/member-pictures/5") return { picture: picture("drawing"), credits: 1 };
+      return undefined;
+    });
+    renderFlow();
+    await waitFor(() => expect(screen.getByTestId("ai-picture-other-drawing").textContent).toContain("Drawing your picture"), S);
+    other = picture("done", { attemptId: 6, aiImageId: 60, imageUrl: "/img/60" });
+    await waitFor(() => expect(screen.getByTestId("ai-picture-other-drawing").textContent).toContain("Your picture is ready."), { timeout: 8000 });
+  }, 12000);
 
   it("on return, a picture still drawing for this fact is shown; when done, the hand-off carries its own shape and caption", async () => {
     let state = picture("drawing", { caption: { name: "Rex", pronouns: "he/him" } });

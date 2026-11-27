@@ -123,6 +123,10 @@ function FlowForm({ factId, factText, memberName, memberPronouns, fromBuilder, i
   // One request per confirmation, id and parameters together: a retried
   // request is the same picture, never a second credit, until the server answers.
   const pending = useRef<{ requestId: string; body: Record<string, unknown> } | null>(null);
+  // A request was sent and its answer never came: it is resent exactly as it
+  // was, whatever has changed since (the balance included), until the server
+  // answers. The server decides credit, and returns the earlier picture.
+  const [unconfirmed, setUnconfirmed] = useState(false);
 
   // ── The photo check: keyed by the chosen photo, so a result for a photo no
   // longer chosen can never set the subject.
@@ -156,15 +160,26 @@ function FlowForm({ factId, factText, memberName, memberPronouns, fromBuilder, i
     if (looks.isError) void looks.refetch();
   };
 
-  // ── The member's pictures of this fact still drawing, shown on return. The
-  // one being followed is polled on its own, so the list waits meanwhile.
+  // ── The member's pictures of this fact still drawing, shown on return. A
+  // row stays once seen, so a picture that finishes shows its outcome; the
+  // list is re-read while any of them other than the one followed (which is
+  // polled on its own) is still in flight (docs/ai-context/async-ui-status.md).
+  const [seenIds, setSeenIds] = useState<number[]>([]);
   const list = useQuery({
     queryKey: pictureKeys.list,
     queryFn: fetchMemberPictures,
-    refetchInterval: (q) => (activeId === null && q.state.data?.pictures.some((p) => String(p.factId) === factId && isInFlight(p)) ? 5000 : false),
+    refetchInterval: (q) => (q.state.data?.pictures.some((p) => String(p.factId) === factId && p.attemptId !== activeId && isInFlight(p)) ? 5000 : false),
   });
-  const drawingHere = (list.data?.pictures ?? []).filter((p) => String(p.factId) === factId && isInFlight(p));
-  const firstDrawing = drawingHere[0]?.attemptId ?? null;
+  const ofThisFact = (list.data?.pictures ?? []).filter((p) => String(p.factId) === factId);
+  const drawingIds = ofThisFact.filter(isInFlight).map((p) => p.attemptId);
+  const drawingKey = drawingIds.join(",");
+  useEffect(() => {
+    if (!drawingKey) return;
+    const ids = drawingKey.split(",").map(Number);
+    setSeenIds((prev) => (ids.every((id) => prev.includes(id)) ? prev : [...new Set([...prev, ...ids])]));
+  }, [drawingKey]);
+  const otherRows = ofThisFact.filter((p) => seenIds.includes(p.attemptId) && p.attemptId !== activeId);
+  const firstDrawing = drawingIds[0] ?? null;
   const adopted = useRef(false);
   useEffect(() => {
     if (adopted.current || firstDrawing === null) return;
@@ -219,7 +234,8 @@ function FlowForm({ factId, factText, memberName, memberPronouns, fromBuilder, i
   })();
 
   const makeIt = async () => {
-    if (blocker || submitting || !uploadKey || !subject) return;
+    if (submitting) return;
+    if (!pending.current && (blocker || !uploadKey || !subject)) return;
     setSubmitting(true);
     setSubmitError(null);
     pending.current ??= {
@@ -246,21 +262,25 @@ function FlowForm({ factId, factText, memberName, memberPronouns, fromBuilder, i
       if (res.status >= 400 && res.status < 500) {
         // A refusal is final for this confirmation: the next try is a new request.
         pending.current = null;
+        setUnconfirmed(false);
         setSubmitError(body?.message ?? "We couldn't start this picture. Try again.");
         return;
       }
       if (!res.ok || !body?.picture) {
         // A server error or an unreadable answer may still have started the picture: keep the request.
         setSubmitError(unsure);
+        setUnconfirmed(true);
         return;
       }
       pending.current = null;
+      setUnconfirmed(false);
       const started = body.picture as MemberPictureState;
       queryClient.setQueryData(pictureKeys.one(started.attemptId), { picture: started, credits: body.credits as number });
       setActiveId(started.attemptId);
     } catch {
       // A lost response keeps the same request: trying again cannot spend twice.
       setSubmitError(unsure);
+      setUnconfirmed(true);
     } finally {
       setSubmitting(false);
     }
@@ -287,6 +307,7 @@ function FlowForm({ factId, factText, memberName, memberPronouns, fromBuilder, i
     setActiveId(null);
     setSubmitError(null);
     pending.current = null;
+    setUnconfirmed(false);
     void queryClient.invalidateQueries({ queryKey: pictureKeys.options(factId) });
   };
 
@@ -296,7 +317,7 @@ function FlowForm({ factId, factText, memberName, memberPronouns, fromBuilder, i
     <>
       <p className="font-display text-xl leading-snug" data-testid="ai-picture-fact"><HighlightedFactText template={factText} name={drawnName} pronouns={drawn.pronouns} /></p>
 
-      {drawingHere.filter((p) => p.attemptId !== activeId).map((p) => (
+      {otherRows.map((p) => (
         <div key={p.attemptId} className="flex items-center justify-between rounded-md border border-white/10 px-3 py-2 text-sm" data-testid="ai-picture-other-drawing">
           <span role="status">{STATUS_WORDS[p.status]}</span>
           <button type="button" className="text-xs underline" onClick={() => setActiveId(p.attemptId)}>Show</button>
@@ -435,14 +456,14 @@ function FlowForm({ factId, factText, memberName, memberPronouns, fromBuilder, i
               <button
                 type="button"
                 onClick={() => void makeIt()}
-                disabled={!!blocker || submitting}
+                disabled={(!!blocker && !unconfirmed) || submitting}
                 className="w-full rounded-md bg-primary px-4 py-3 text-sm font-bold uppercase tracking-wider text-primary-foreground disabled:opacity-50"
                 data-testid="ai-picture-confirm"
               >
-                {submitting ? "Starting…" : "Make it"}
+                {submitting ? "Starting…" : unconfirmed ? "Try again" : "Make it"}
               </button>
             </PausedWhenReadOnly>
-            {blocker && <p className="text-xs text-muted-foreground" data-testid="ai-picture-blocker">{blocker}</p>}
+            {blocker && !unconfirmed && <p className="text-xs text-muted-foreground" data-testid="ai-picture-blocker">{blocker}</p>}
           </section>
         </>
       )}
