@@ -1,18 +1,14 @@
--- Launch Phase 15, increment 5a part 2 (run on production 2026-11-26, #1306), kept here
--- as the record of production's role setup and so the 5b tests build the same shape.
--- Run as the database owner (neondb_owner on production), in one transaction.
--- CHOOSE-A-PASSWORD is replaced by the operator; it never leaves their hands.
--- Production then also ran Q13's grant (the last statement), which keeps Replit's
--- publish working: the owner acts with overhype_app's rights. Owner -> app only.
+-- TEST FIXTURE ONLY (Launch Phase 15, 5c): production's role layout after 5b, reproduced so
+-- phase15.appRoleRetire.test.ts can rehearse retiring it. These are 5b's runbooks as they
+-- stood at b868f0f (app-role-split.sql, then app-role-default-privileges.sql), comments removed.
+-- Never run this against a real database: 5c retired the split (docs/ai-context/decisions.md).
 
--- 1. The application's role, and the break-glass role the ledger's guard checks for.
+
 CREATE ROLE overhype_app LOGIN PASSWORD 'CHOOSE-A-PASSWORD';
 CREATE ROLE overhype_audit_maintenance NOLOGIN;
 
--- 2. The owner may hand objects to overhype_app (PostgreSQL 16 needs SET on the new owner).
 GRANT overhype_app TO CURRENT_USER WITH SET TRUE, INHERIT FALSE;
 
--- 3. Connect, and create in public (and new schemas); public itself stays the database owner's.
 DO $$ BEGIN EXECUTE format('GRANT CONNECT, TEMPORARY, CREATE ON DATABASE %I TO overhype_app', current_database()); END $$;
 GRANT USAGE, CREATE ON SCHEMA public TO overhype_app;
 DO $$ DECLARE r record; BEGIN
@@ -20,7 +16,6 @@ DO $$ DECLARE r record; BEGIN
   LOOP EXECUTE format('GRANT USAGE, CREATE ON SCHEMA %I TO overhype_app', r.nspname); END LOOP;
 END $$;
 
--- 4. Everything the app owns moves to overhype_app, except the ledger and its guard.
 DO $$
 DECLARE r record;
 BEGIN
@@ -60,13 +55,18 @@ BEGIN
   LOOP EXECUTE format('ALTER SCHEMA %I OWNER TO overhype_app', r.nspname); END LOOP;
 END $$;
 
--- 5. What the app may do to the ledger: read it and append to it. Nothing else.
 GRANT SELECT, INSERT ON public.ncmec_safety_audit_log TO overhype_app;
 GRANT USAGE, SELECT ON SEQUENCE public.ncmec_safety_audit_log_id_seq TO overhype_app;
 
--- 6. The owner gives back what step 2 lent it.
 REVOKE overhype_app FROM CURRENT_USER;
 
--- 7. Q13 → 1 (2026-11-26): the owner acts with overhype_app's rights, so Replit's publish,
---    which connects as the owner, can still alter the app's tables.
 GRANT overhype_app TO CURRENT_USER WITH INHERIT TRUE, SET FALSE;
+DO $$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT nspname FROM pg_namespace WHERE nspname IN ('public', 'drizzle', 'stripe') LOOP
+    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLES TO overhype_app', r.nspname);
+    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO overhype_app', r.nspname);
+  END LOOP;
+END $$;
+
