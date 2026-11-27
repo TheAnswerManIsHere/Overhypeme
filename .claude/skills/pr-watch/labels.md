@@ -43,8 +43,8 @@ payload, which delivers fleet machinery rather than a workstream (the
   and no class sends one to him.
 - **The PR merges with a Post-merge verification section that has real
   content** → `stage:test-run`, `waiting:replit` — or `waiting:david` while
-  a step in it that would start a paid AI run above his budget waits for his
-  go-ahead (`uat-doc-format.md`, *Lanes*) — the lifecycle's own
+  a step in it whose paid AI run stops for him under the paid-run rule (a run whose
+  worst case is $10 or more, a task past $10, or the month past $100) waits for his go-ahead (`uat-doc-format.md`, *Lanes*) — the lifecycle's own
   Test-run stage, between Merge and UAT, not a step to skip past. Per the
   `pr-docs` contract this stage is **executed inside close-out**: I
   drive the section through the connector, read the results, and on a
