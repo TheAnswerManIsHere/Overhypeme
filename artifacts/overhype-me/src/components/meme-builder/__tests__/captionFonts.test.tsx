@@ -9,6 +9,7 @@
  * @purpose Proves the browser loads each caption face from the shared file and family, the preview waits for it and draws at the catalogue weight, a failed load can be retried, the wizard shows the picker, saves always send a catalogue id, and old drafts are mapped to one.
  * @subsystem meme-studio
  */
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { CAPTION_FONTS } from "@workspace/api-zod";
@@ -114,6 +115,7 @@ describe("caption fonts in the browser", () => {
       <MemeBuilderWizard factId="fact-fonts" factText="{NAME} counted to infinity." entryFlow="fact-detail"
         viewerContext={{ tier: "registered", userId: "u1", name: "Zoë", pronouns: "she/her" }}
         onComplete={() => {}} onCancel={() => {}} />,
+      { wrapper: ({ children }) => <QueryClientProvider client={new QueryClient()}>{children}</QueryClientProvider> },
     );
     await screen.findByTestId("advanced-options-trigger", {}, { timeout: 5000 });
     expect(screen.queryByTestId("caption-font-picker")).toBeNull();

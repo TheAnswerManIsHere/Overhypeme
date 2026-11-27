@@ -6,7 +6,9 @@
  * never collide. schemaVersion 3 dropped the artifact-type step with video
  * (launch Phase 4); a version-2 draft is discarded on restore.
  *
- * 1-hour TTL, factId-scoped. Generation status is intentionally NOT persisted
+ * 1-hour TTL, factId-scoped. Leaving for the picture flow also keeps a return
+ * snapshot (a day), and the flow hands a finished picture back through a
+ * one-time hand-off (plan PLAN_PHASE7_AI_PICTURE_FLOW.md, *The builder*). Generation status is intentionally NOT persisted
  * — it is reconstructed from the server on remount.
  */
 
@@ -53,10 +55,39 @@ export interface PendingWizardState {
    * the server default and the pre-restore state of the control.
    */
   isPublic?: boolean;
+  /** Where the caption splits into top and bottom text (word index). Absent means the fact's default. */
+  splitIndex?: number;
+  /**
+   * True once the member has chosen the caption's name or pronouns themselves
+   * (plan PLAN_PHASE7_AI_PICTURE_FLOW.md, *Name on the meme*). A chosen
+   * identity is never replaced by the picture flow's default.
+   */
+  captionChosen?: boolean;
+}
+
+/**
+ * A finished AI picture handed from the picture flow to the builder. The
+ * builder applies its background, shape and caption over the restored draft
+ * once, and nothing else.
+ */
+export interface PictureHandoff {
+  factId: string;
+  writtenAt: number;
+  aiImageId: number;
+  imageUrl: string;
+  aspectRatio: AspectRatio;
+  /** Null for a picture made before its caption was recorded: the builder's caption stays as it is. */
+  caption: { name: string; pronouns: string | null; chosen: boolean } | null;
 }
 
 const KEY_PREFIX = "pending_meme_wizard_v2::";
 const TTL_MS = 60 * 60 * 1000;
+// The draft as the member left it for the picture flow: it outlives the
+// ordinary draft's hour, for a day, and is cleared when they return or save.
+const RETURN_PREFIX = "pending_meme_wizard_return::";
+const RETURN_TTL_MS = 24 * 60 * 60 * 1000;
+const HANDOFF_PREFIX = "pending_meme_wizard_handoff::";
+const HANDOFF_TTL_MS = 60 * 60 * 1000;
 
 function key(factId: string): string {
   return `${KEY_PREFIX}${factId}`;
@@ -71,42 +102,92 @@ function isStorageAvailable(): boolean {
 }
 
 export function captureWizardState(state: PendingWizardState): void {
-  if (!isStorageAvailable()) return;
+  // Quota / private mode — silently skipped; the user loses their draft.
+  writeItem(key(state.factId), state);
+}
+
+function readItem(storageKey: string): unknown {
+  if (!isStorageAvailable()) return null;
   try {
-    window.sessionStorage.setItem(key(state.factId), JSON.stringify(state));
+    const raw = window.sessionStorage.getItem(storageKey);
+    return raw ? JSON.parse(raw) : null;
   } catch {
-    // Quota / private mode — silently skip; user loses their draft.
+    removeItem(storageKey);
+    return null;
   }
 }
 
+function removeItem(storageKey: string): void {
+  if (!isStorageAvailable()) return;
+  try {
+    window.sessionStorage.removeItem(storageKey);
+  } catch {
+    // Ignore.
+  }
+}
+
+function writeItem(storageKey: string, value: unknown): void {
+  if (!isStorageAvailable()) return;
+  try {
+    window.sessionStorage.setItem(storageKey, JSON.stringify(value));
+  } catch {
+    // Quota / private mode — silently skip.
+  }
+}
+
+/** A stored draft, if it is one, of this fact and younger than `ttlMs`; anything else is removed. */
+function readDraft(storageKey: string, factId: string, ttlMs: number): PendingWizardState | null {
+  const parsed = readItem(storageKey);
+  if (parsed == null) return null;
+  if (!isPendingWizardState(parsed) || parsed.factId !== factId || Date.now() - parsed.capturedAt > ttlMs) {
+    removeItem(storageKey);
+    return null;
+  }
+  return migrateDraft(parsed);
+}
+
 export function restoreWizardState(factId: string): PendingWizardState | null {
-  if (!isStorageAvailable()) return null;
-  let raw: string | null;
-  try {
-    raw = window.sessionStorage.getItem(key(factId));
-  } catch {
+  return readDraft(key(factId), factId, TTL_MS);
+}
+
+/** Keep the draft as the member leaves for the picture flow (plan, *The draft is complete*). */
+export function captureReturnSnapshot(state: PendingWizardState): void {
+  writeItem(`${RETURN_PREFIX}${state.factId}`, { ...state, capturedAt: Date.now() });
+}
+
+/** The draft as the member left it for the picture flow, if they did within the day. Read-only. */
+export function readReturnSnapshot(factId: string): PendingWizardState | null {
+  return readDraft(`${RETURN_PREFIX}${factId}`, factId, RETURN_TTL_MS);
+}
+
+export function clearReturnSnapshot(factId: string): void {
+  removeItem(`${RETURN_PREFIX}${factId}`);
+}
+
+export function writePictureHandoff(handoff: Omit<PictureHandoff, "writtenAt">): void {
+  writeItem(`${HANDOFF_PREFIX}${handoff.factId}`, { ...handoff, writtenAt: Date.now() });
+}
+
+/** The picture the flow handed to this fact's builder, if one is waiting. Read-only. */
+export function readPictureHandoff(factId: string): PictureHandoff | null {
+  const storageKey = `${HANDOFF_PREFIX}${factId}`;
+  const h = readItem(storageKey) as Partial<PictureHandoff> | null;
+  if (h == null) return null;
+  const valid = h.factId === factId && typeof h.writtenAt === "number" && Date.now() - h.writtenAt <= HANDOFF_TTL_MS
+    && typeof h.aiImageId === "number" && typeof h.imageUrl === "string"
+    && (h.aspectRatio === "landscape" || h.aspectRatio === "square" || h.aspectRatio === "portrait");
+  if (!valid) {
+    removeItem(storageKey);
     return null;
   }
-  if (!raw) return null;
+  return h as PictureHandoff;
+}
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    clearWizardState(factId);
-    return null;
-  }
+export function clearPictureHandoff(factId: string): void {
+  removeItem(`${HANDOFF_PREFIX}${factId}`);
+}
 
-  if (!isPendingWizardState(parsed)) {
-    clearWizardState(factId);
-    return null;
-  }
-
-  if (Date.now() - parsed.capturedAt > TTL_MS) {
-    clearWizardState(factId);
-    return null;
-  }
-
+function migrateDraft(parsed: PendingWizardState): PendingWizardState {
   let draft: PendingWizardState = parsed;
 
   // Launch Phase 4, removal 6: stock photos went with Pexels. A draft that had
@@ -135,16 +216,11 @@ export function restoreWizardState(factId: string): PendingWizardState | null {
 }
 
 export function clearWizardState(factId: string): void {
-  if (!isStorageAvailable()) return;
-  try {
-    window.sessionStorage.removeItem(key(factId));
-  } catch {
-    // Ignore.
-  }
+  removeItem(key(factId));
 }
 
 /**
- * Clear every persisted wizard draft, regardless of factId. Call this on
+ * Clear every persisted wizard draft, return snapshot and picture hand-off, regardless of factId. Call this on
  * auth transitions (login/logout) so an in-progress draft created by one
  * viewer can never leak into another viewer's session.
  */
@@ -154,7 +230,7 @@ export function clearAllWizardStates(): void {
     const keysToRemove: string[] = [];
     for (let i = 0; i < window.sessionStorage.length; i += 1) {
       const k = window.sessionStorage.key(i);
-      if (k && k.startsWith(KEY_PREFIX)) keysToRemove.push(k);
+      if (k && (k.startsWith(KEY_PREFIX) || k.startsWith(RETURN_PREFIX) || k.startsWith(HANDOFF_PREFIX))) keysToRemove.push(k);
     }
     for (const k of keysToRemove) {
       window.sessionStorage.removeItem(k);

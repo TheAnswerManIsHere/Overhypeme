@@ -18,11 +18,17 @@ import type {
   MyImageSource,
 } from "../../types";
 import {
+  captureReturnSnapshot,
   captureWizardState,
+  clearPictureHandoff,
+  clearReturnSnapshot,
   clearWizardState,
+  readPictureHandoff,
+  readReturnSnapshot,
   restoreWizardState,
   type FramingOffset,
   type PendingWizardState,
+  type PictureHandoff,
   type WizardAdvancedOptions,
 } from "./wizardStorage";
 
@@ -42,6 +48,8 @@ export interface WizardRuntimeState {
   advancedOptions?: WizardAdvancedOptions;
   /** Gallery visibility; undefined means "not chosen yet" and reads as public. */
   isPublic?: boolean;
+  splitIndex?: number;
+  captionChosen?: boolean;
   generation: GenerationStatus;
 }
 
@@ -55,6 +63,7 @@ export type WizardAction =
   | { type: "set-text-options"; textOptions: MemeTextOptions }
   | { type: "set-advanced-options"; advancedOptions: WizardAdvancedOptions }
   | { type: "set-is-public"; isPublic: boolean }
+  | { type: "set-split-index"; splitIndex: number }
   | { type: "set-generation"; generation: GenerationStatus }
   | { type: "hydrate"; pending: PendingWizardState }
   | { type: "reset" };
@@ -85,6 +94,8 @@ function reducer(state: WizardRuntimeState, action: WizardAction): WizardRuntime
       return { ...state, advancedOptions: action.advancedOptions };
     case "set-is-public":
       return { ...state, isPublic: action.isPublic };
+    case "set-split-index":
+      return { ...state, splitIndex: action.splitIndex };
     case "set-generation":
       return { ...state, generation: action.generation };
     case "hydrate": {
@@ -100,6 +111,47 @@ function reducer(state: WizardRuntimeState, action: WizardAction): WizardRuntime
   }
 }
 
+/**
+ * A finished picture handed back from the picture flow wins once over the
+ * restored draft: its background, its shape and its caption, and nothing else
+ * (plan PLAN_PHASE7_AI_PICTURE_FLOW.md, *The hand-off wins once*). A picture
+ * made before its caption was recorded leaves the caption as it is.
+ */
+export function applyPictureHandoff(state: WizardRuntimeState, handoff: PictureHandoff): WizardRuntimeState {
+  const next: WizardRuntimeState = {
+    ...state,
+    source: { kind: "ai-picture", aiImageId: handoff.aiImageId, imageUrl: handoff.imageUrl },
+    aspectRatio: handoff.aspectRatio,
+  };
+  if (handoff.caption) {
+    next.name = handoff.caption.name;
+    if (handoff.caption.pronouns) next.pronouns = handoff.caption.pronouns;
+    next.captionChosen = handoff.caption.chosen;
+  }
+  return next;
+}
+
+/** The persisted shape of a runtime state. Generation status is excluded. */
+export function toPendingWizardState(state: WizardRuntimeState, factId: string, entryFlow: EntryFlow): PendingWizardState {
+  return {
+    schemaVersion: 3,
+    capturedAt: Date.now(),
+    factId,
+    entryFlow,
+    mode: state.mode,
+    source: state.source,
+    aspectRatio: state.aspectRatio,
+    framingOffset: state.framingOffset,
+    name: state.name,
+    pronouns: state.pronouns,
+    textOptions: state.textOptions,
+    advancedOptions: state.advancedOptions,
+    isPublic: state.isPublic,
+    splitIndex: state.splitIndex,
+    captionChosen: state.captionChosen,
+  };
+}
+
 export interface UseWizardStateArgs {
   factId: string;
   entryFlow: EntryFlow;
@@ -110,8 +162,13 @@ export interface UseWizardStateArgs {
 export interface UseWizardStateReturn {
   state: WizardRuntimeState;
   dispatch: React.Dispatch<WizardAction>;
-  /** Clears the persisted draft (e.g. after a successful save). */
+  /** Clears the persisted draft and any return snapshot (e.g. after a successful save). */
   clearDraft: () => void;
+  /**
+   * Keeps the draft, with the given latest values, as the member leaves for
+   * the picture flow, so coming back restores everything they had set.
+   */
+  keepForPictureFlow: (latest: Partial<WizardRuntimeState>) => void;
 }
 
 export function useWizardState(args: UseWizardStateArgs): UseWizardStateReturn {
@@ -124,29 +181,26 @@ export function useWizardState(args: UseWizardStateArgs): UseWizardStateReturn {
     const base = initialState();
     if (initialName) base.name = initialName;
     if (initialPronouns) base.pronouns = initialPronouns;
-    const pending = restoreWizardState(factId);
-    return pending ? reducer(base, { type: "hydrate", pending }) : base;
+    // Back from the picture flow, the draft as the member left it wins over
+    // the hour-long draft, which may have expired meanwhile. Both are read
+    // without being removed: the initializer can run twice.
+    const pending = readReturnSnapshot(factId) ?? restoreWizardState(factId);
+    const restored = pending ? reducer(base, { type: "hydrate", pending }) : base;
+    const handoff = readPictureHandoff(factId);
+    return handoff ? applyPictureHandoff(restored, handoff) : restored;
   });
+
+  // The return snapshot and the hand-off are used once: the draft persisted
+  // below now holds what they carried, so a reload restores it as it stands.
+  useEffect(() => {
+    clearReturnSnapshot(factId);
+    clearPictureHandoff(factId);
+  }, [factId]);
 
   // Persist every state change. Generation status is excluded from the
   // serialized shape.
   useEffect(() => {
-    const snapshot: PendingWizardState = {
-      schemaVersion: 3,
-      capturedAt: Date.now(),
-      factId,
-      entryFlow,
-      mode: state.mode,
-      source: state.source,
-      aspectRatio: state.aspectRatio,
-      framingOffset: state.framingOffset,
-      name: state.name,
-      pronouns: state.pronouns,
-      textOptions: state.textOptions,
-      advancedOptions: state.advancedOptions,
-      isPublic: state.isPublic,
-    };
-    captureWizardState(snapshot);
+    captureWizardState(toPendingWizardState(state, factId, entryFlow));
   }, [
     factId,
     entryFlow,
@@ -159,11 +213,18 @@ export function useWizardState(args: UseWizardStateArgs): UseWizardStateReturn {
     state.textOptions,
     state.advancedOptions,
     state.isPublic,
+    state.splitIndex,
+    state.captionChosen,
   ]);
 
   const clearDraft = useCallback(() => {
     clearWizardState(factId);
+    clearReturnSnapshot(factId);
   }, [factId]);
 
-  return { state, dispatch, clearDraft };
+  const keepForPictureFlow = useCallback((latest: Partial<WizardRuntimeState>) => {
+    captureReturnSnapshot(toPendingWizardState({ ...state, ...latest }, factId, entryFlow));
+  }, [state, factId, entryFlow]);
+
+  return { state, dispatch, clearDraft, keepForPictureFlow };
 }

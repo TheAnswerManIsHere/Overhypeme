@@ -12,7 +12,7 @@ import type { WizardAction, WizardRuntimeState } from "../state/useWizardState";
 import { LockedPreview } from "./LockedPreview";
 import { AspectRatioToggle } from "./AspectRatioToggle";
 import { SelfUploadSourcePanel } from "./SelfUploadSourcePanel";
-import { AiPicturePanel } from "./AiPicturePanel";
+import { AiPictureSelector } from "./AiPictureSelector";
 import { GuestPhotoSignupPanel } from "./GuestPhotoSignupPanel";
 import { AdjustTextSheet } from "./AdjustTextSheet";
 import { useCaptionLayout } from "../../captionLayout";
@@ -37,6 +37,8 @@ interface Props {
   onSaved: (result: { memeId: string; permalinkUrl: string }) => void;
   /** Notify parent when the user requests signup (anonymous taps "Your photo"). */
   onRequestSignup: (pending: Partial<PendingWizardState>) => void;
+  /** Keeps the draft, with these latest values, as the member leaves for the picture flow. */
+  onKeepForPictureFlow?: (latest: Partial<WizardRuntimeState>) => void;
 }
 
 interface SaveMemeResponse {
@@ -66,6 +68,7 @@ export function Step2Image({
   dispatch,
   onSaved,
   onRequestSignup,
+  onKeepForPictureFlow,
 }: Props) {
   const [, navigate] = useLocation();
   const tier = viewerContext.tier;
@@ -103,7 +106,8 @@ export function Step2Image({
     () => factSplitTokenIndex ?? intelligentSplit(factText),
     [factSplitTokenIndex, factText],
   );
-  const [splitIndex, setSplitIndex] = useState(defaultSplitIndex);
+  // Part of the draft, so leaving for the picture flow and coming back keeps it.
+  const [splitIndex, setSplitIndex] = useState(state.splitIndex ?? defaultSplitIndex);
 
   // Sync local state into the wizard reducer so sessionStorage stays current.
   useEffect(() => {
@@ -124,6 +128,9 @@ export function Step2Image({
   useEffect(() => {
     dispatch({ type: "set-is-public", isPublic });
   }, [isPublic, dispatch]);
+  useEffect(() => {
+    dispatch({ type: "set-split-index", splitIndex });
+  }, [splitIndex, dispatch]);
 
   // Task #507: previously this auto-picked `kind:"primary"` as the implicit
   // default. The profile photo is now just a tagged library entry, so the
@@ -180,15 +187,21 @@ export function Step2Image({
   const captionFontId = captionFontOf(textOptions);
   const captionFontReady = useCaptionFont(captionFontId).status === "ready";
 
-  // Choosing a photo makes it the background again; it is also the photo an AI picture is drawn from.
+  // Choosing a photo makes it the background again.
   const handleSelfUploadImageSelect = (next: MyImageSource) => {
     setAiPicture(null);
     setSelfUploadImage(next);
   };
-  // The picker's own default pick fills the photo an AI picture is drawn from,
-  // but never replaces an AI picture already used as the background.
+  // The picker's own default pick never replaces an AI picture already used as the background.
   const handleSelfUploadImageAutoSelect = (next: MyImageSource) => {
     setSelfUploadImage(next);
+  };
+
+  // "Make an AI picture" opens its own flow with the builder's shape and
+  // caption; the draft is kept exactly as it stands for the way back.
+  const openPictureFlow = () => {
+    onKeepForPictureFlow?.({ aspectRatio, framingOffset, name, pronouns, textOptions, isPublic, splitIndex });
+    navigate(`/facts/${factId}/picture?from=builder`);
   };
 
   const save = async () => {
@@ -287,11 +300,11 @@ export function Step2Image({
             onSelect={handleSelfUploadImageSelect}
             onAutoSelect={handleSelfUploadImageAutoSelect}
           />
-          <AiPicturePanel
+          <AiPictureSelector
             factId={factId}
-            photoUploadKey={selfUploadImage?.objectPath ?? null}
             selectedAiImageId={aiPicture?.aiImageId ?? null}
             onPicture={setAiPicture}
+            onMakePicture={openPictureFlow}
           />
         </>
       )}
