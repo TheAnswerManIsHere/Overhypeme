@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
 import { readError } from "@/components/admin/readError";
 import { announceRecipesChanged, promoteRecipeVersion } from "@/components/admin/promoteRecipeVersion";
+import { wordChanges } from "@/components/admin/wordChanges";
 
 export interface PieceDef { key: string; label: string; group: string; when: string; slots: string[]; policy: boolean; baseline: string }
 export interface FamilyVersion { id: number; number: number; note: string; createdBy: string | null; createdAt: string; pieces: Record<string, string> }
@@ -285,7 +286,10 @@ export function PromptRecipes() {
                     {(s.segments ?? [{ text: s.text, piece: null }]).map((g, i) => g.piece == null
                       ? <span key={i}>{g.text}</span>
                       : changedSet.has(g.piece)
-                        ? <mark key={i} data-piece={g.piece} data-changed="true" title={pieceLabel(g.piece)} className="bg-amber-200 dark:bg-amber-700 text-foreground rounded-sm">{g.text}</mark>
+                        // Only the words not in the wording this draft is based on are amber (Issue #1341).
+                        ? wordChanges(g.text, basePieces[g.piece] ?? "").map((r, j) => r.changed
+                          ? <mark key={`${i}.${j}`} data-piece={g.piece!} data-changed="true" title={pieceLabel(g.piece!)} className="bg-amber-200 dark:bg-amber-700 text-foreground rounded-sm">{r.text}</mark>
+                          : <span key={`${i}.${j}`} data-piece={g.piece!} title={pieceLabel(g.piece!)} className="text-sky-700 dark:text-sky-300 underline decoration-dotted">{r.text}</span>)
                         : <span key={i} data-piece={g.piece} title={pieceLabel(g.piece)} className="text-sky-700 dark:text-sky-300 underline decoration-dotted">{g.text}</span>)}
                     {s.status === "compressed" && <span className="text-amber-600 dark:text-amber-400"> (shortened to fit)</span>}
                   </p>

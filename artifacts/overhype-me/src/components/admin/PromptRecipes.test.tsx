@@ -146,10 +146,34 @@ describe("PromptRecipes", () => {
     fireEvent.click(screen.getByTestId("recipes-preview"));
     const result = await screen.findByTestId("recipes-preview-result");
     const mine = result.querySelectorAll('[data-changed="true"]');
-    expect([...mine].map((m) => m.textContent)).toEqual(["Keep the face exactly."]);
+    // Only the words not in the version it was based on ("Use the photo as the face.") are amber (Issue #1341).
+    expect([...mine].map((m) => m.textContent)).toEqual(["Keep", "exactly"]);
     const shared = [...result.querySelectorAll("[data-piece]")].filter((e) => !e.hasAttribute("data-changed")).map((e) => e.textContent);
-    expect(shared).toEqual(["Do not clone ", "."]);
+    expect(shared).toEqual([" the face ", ".", "Do not clone ", "."]);
+    // The changed piece still reads whole, and still names itself on hover.
+    expect(result.textContent).toMatch(/Keep the face exactly\./);
+    expect([...mine].every((m) => m.getAttribute("title") === "Identity: a person's photo")).toBe(true);
     expect(result.textContent).toMatch(/Raena stands tall/);
     expect(screen.getByTestId("recipes-preview-legend").textContent).toMatch(/Your changes.*Shared wording/);
+  });
+
+  it("marks only the word added to the end of a piece, not the whole piece (Issue #1341)", async () => {
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (String(url).endsWith("/preview")) {
+        return new Response(JSON.stringify({ ...PREVIEW.body, sections: [
+          { id: "identity", label: "IDENTITY", status: "required", text: "Use the photo as the face. Test", segments: [{ text: "Use the photo as the face. Test", piece: "identity.person" }] },
+        ] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return base(url as string, init as RequestInit);
+    });
+    render(<PromptRecipes />);
+    await screen.findByTestId("recipes-editor");
+    fireEvent.change(screen.getByTestId("recipes-piece-identity.person"), { target: { value: "Use the photo as the face. Test" } });
+    fireEvent.change(screen.getByTestId("recipes-preview-fact"), { target: { value: "56" } });
+    fireEvent.click(screen.getByTestId("recipes-preview"));
+    const result = await screen.findByTestId("recipes-preview-result");
+    expect([...result.querySelectorAll('[data-changed="true"]')].map((m) => m.textContent)).toEqual(["Test"]);
+    expect([...result.querySelectorAll("[data-piece]:not([data-changed])")].map((m) => m.textContent)).toEqual(["Use the photo as the face. "]);
   });
 });
