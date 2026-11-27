@@ -97,25 +97,12 @@ export const gagApi = {
     call("PUT", `${base(factId)}/${gagId}/description`, { contentFingerprint, text, ...scope(reviewId) }),
 };
 
-/** One gag whose published content still needs a reviewed description. */
-export interface DescriptionToReview {
-  factId: number;
-  factText: string;
-  gagId: number;
-  slot: number;
-  description: GagDescriptionView;
-}
-
 /** A description's drafting state in words, or null once it has text. */
 export function draftingWords(v: Pick<GagDescriptionView, "drafting" | "lastError">): string | null {
   if (v.drafting === "drafting") return "Drafting a description…";
   if (v.drafting === "failed") return `Drafting failed${v.lastError ? `: ${v.lastError}` : ""}. Write one.`;
   return null;
 }
-
-export const descriptionReviewApi = {
-  list: () => request<{ count: number; items: DescriptionToReview[] }>("GET", "/api/admin/gag-descriptions"),
-};
 
 // ─── A gag's render history (plan PLAN_RENDER_HISTORY.md D3, D4 and D6) ─────
 

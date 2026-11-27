@@ -51,7 +51,7 @@ import {
   saveGagContent,
 } from "../lib/gags/gagStore";
 import { buildFactGagsView } from "../lib/gags/gagView";
-import { DescriptionError, descriptionsToReview, draftDescriptionsSoon, saveReviewedDescription } from "../lib/gags/descriptions";
+import { DescriptionError, draftDescriptionsSoon, saveReviewedDescription } from "../lib/gags/descriptions";
 import { gagRenderHistory, removedGagHistories } from "../lib/gags/renderHistory";
 import { cleanUpQueuedFiles } from "../lib/storedFileDeletions";
 import { GAG_MODERATION_RENDER } from "../lib/imagePromptAttempts";
@@ -179,12 +179,6 @@ router.put("/admin/facts/:factId/gags/:gagId/description", requireAdmin, async (
     throw err;
   }
   res.json(await buildFactGagsView(p.factId));
-});
-
-/** The gags members can pick whose published content has no reviewed description: the review list. */
-router.get("/admin/gag-descriptions", requireAdmin, async (_req: Request, res: Response) => {
-  const items = await descriptionsToReview();
-  res.json({ count: items.length, items });
 });
 
 router.post("/admin/facts/:factId/gags/:gagId/remove", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
